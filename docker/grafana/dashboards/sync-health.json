@@ -1,0 +1,379 @@
+{
+  "__inputs": [],
+  "__requires": [],
+  "title": "Sync Health",
+  "uid": "finance-sync-sync-health",
+  "version": 1,
+  "schemaVersion": 39,
+  "tags": ["finance-sync", "sync"],
+  "timezone": "browser",
+  "editable": true,
+  "refresh": "30s",
+  "panels": [
+    {
+      "title": "Sync Runs (24h)",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 0 },
+      "id": 1,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "values": false, "fields": "" },
+        "textMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "fixed", "fixedColor": "green" },
+          "unit": "short",
+          "min": 0,
+          "custom": { "displayMode": "auto", "orientation": "horizontal" }
+        },
+        "overrides": []
+      },
+      "pluginVersion": "11.0",
+      "targets": [
+        {
+          "expr": "sum(increase(sync_runs_total{status=\"completed\"}[24h]))",
+          "legendFormat": "Completed",
+          "refId": "A"
+        }
+      ],
+      "description": "Total completed sync runs in the last 24 hours."
+    },
+    {
+      "title": "Sync Failures (24h)",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 0 },
+      "id": 2,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "values": false, "fields": "" },
+        "textMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "fixed", "fixedColor": "red" },
+          "unit": "short",
+          "min": 0,
+          "custom": { "displayMode": "auto", "orientation": "horizontal" }
+        },
+        "overrides": []
+      },
+      "pluginVersion": "11.0",
+      "targets": [
+        {
+          "expr": "sum(increase(sync_runs_total{status=\"failed\"}[24h]))",
+          "legendFormat": "Failed",
+          "refId": "A"
+        }
+      ],
+      "description": "Total failed sync runs in the last 24 hours."
+    },
+    {
+      "title": "Success Rate (24h)",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 0 },
+      "id": 3,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "values": false, "fields": "" },
+        "textMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "orange", "value": 0.9 },
+              { "color": "green", "value": 0.99 }
+            ]
+          },
+          "custom": { "displayMode": "auto", "orientation": "horizontal" }
+        },
+        "overrides": []
+      },
+      "pluginVersion": "11.0",
+      "targets": [
+        {
+          "expr": "sum(increase(sync_runs_total{status=\"completed\"}[24h])) / (sum(increase(sync_runs_total[24h])) > 0)",
+          "legendFormat": "Success rate",
+          "refId": "A"
+        }
+      ],
+      "description": "Sync success rate over the last 24 hours."
+    },
+    {
+      "title": "Sync Run Status (24h)",
+      "type": "barchart",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 4 },
+      "id": 4,
+      "options": {
+        "orientation": "horizontal",
+        "groupWidth": 0.7,
+        "barWidth": 0.8,
+        "showValue": "auto",
+        "legend": { "displayMode": "list", "showLegend": true, "placement": "right" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "custom": { "stacking": { "mode": "normal" }, "axisBorderShow": false }
+        },
+        "overrides": []
+      },
+      "pluginVersion": "11.0",
+      "targets": [
+        {
+          "expr": "sum by(status) (increase(sync_runs_total[24h]))",
+          "legendFormat": "{{status}}",
+          "refId": "A"
+        }
+      ],
+      "description": "Breakdown of sync runs by status over the last 24 hours."
+    },
+    {
+      "title": "Sync Runs per Provider (24h)",
+      "type": "barchart",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 4 },
+      "id": 5,
+      "options": {
+        "orientation": "horizontal",
+        "groupWidth": 0.7,
+        "barWidth": 0.8,
+        "showValue": "auto",
+        "legend": { "displayMode": "list", "showLegend": true, "placement": "right" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "custom": { "stacking": { "mode": "normal" }, "axisBorderShow": false }
+        },
+        "overrides": []
+      },
+      "pluginVersion": "11.0",
+      "targets": [
+        {
+          "expr": "sum by(provider, status) (increase(sync_runs_total[24h]))",
+          "legendFormat": "{{provider}} - {{status}}",
+          "refId": "A"
+        }
+      ],
+      "description": "Sync runs by provider, stacked by status, over the last 24 hours."
+    },
+    {
+      "title": "Transactions Ingested (24h)",
+      "type": "timeseries",
+      "gridPos": { "h": 6, "w": 8, "x": 0, "y": 12 },
+      "id": 6,
+      "options": {
+        "legend": { "displayMode": "table", "placement": "right", "calcs": ["sum", "max", "mean"] },
+        "tooltip": { "mode": "multi" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "custom": { "showPoints": "never", "lineInterpolation": "stepBefore" }
+        },
+        "overrides": []
+      },
+      "pluginVersion": "11.0",
+      "targets": [
+        {
+          "expr": "increase(transactions_ingested_total[5m])",
+          "legendFormat": "{{provider}}",
+          "refId": "A"
+        }
+      ],
+      "description": "Transaction ingestion rate per provider (5m rate)."
+    },
+    {
+      "title": "Sync Runs Over Time (24h)",
+      "type": "timeseries",
+      "gridPos": { "h": 6, "w": 8, "x": 8, "y": 12 },
+      "id": 7,
+      "options": {
+        "legend": { "displayMode": "table", "placement": "right", "calcs": ["sum", "max"] },
+        "tooltip": { "mode": "multi" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "custom": { "showPoints": "never", "lineInterpolation": "stepBefore" }
+        },
+        "overrides": []
+      },
+      "pluginVersion": "11.0",
+      "targets": [
+        {
+          "expr": "increase(sync_runs_total[5m])",
+          "legendFormat": "{{provider}} / {{status}}",
+          "refId": "A"
+        }
+      ],
+      "description": "Sync run rate over time, broken down by provider and status."
+    },
+    {
+      "title": "Scrape health",
+      "type": "stat",
+      "gridPos": { "h": 3, "w": 4, "x": 0, "y": 18 },
+      "id": 8,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "values": false, "fields": "" },
+        "textMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "unit": "s",
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 60 },
+              { "color": "red", "value": 300 }
+            ]
+          },
+          "custom": { "displayMode": "auto", "orientation": "horizontal" }
+        },
+        "overrides": []
+      },
+      "pluginVersion": "11.0",
+      "targets": [
+        {
+          "expr": "time() - max by(job) (up{job=~\".*finance.*\"})",
+          "legendFormat": "{{job}}",
+          "refId": "A"
+        }
+      ],
+      "description": "Time since this target was last scraped by Prometheus."
+    },
+    {
+      "title": "Outbox Queue Depth",
+      "type": "stat",
+      "gridPos": { "h": 3, "w": 4, "x": 4, "y": 18 },
+      "id": 9,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "values": false, "fields": "" },
+        "textMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "unit": "short",
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 100 },
+              { "color": "red", "value": 500 }
+            ]
+          },
+          "custom": { "displayMode": "auto", "orientation": "horizontal" }
+        },
+        "overrides": []
+      },
+      "pluginVersion": "11.0",
+      "targets": [
+        {
+          "expr": "outbox_messages_pending_total or vector(0)",
+          "legendFormat": "Pending",
+          "refId": "A"
+        }
+      ],
+      "description": "Number of pending outbox messages awaiting publication.\nRequires the `outbox_messages_pending_total` metric to be exposed (Phase 5.4+)."
+    },
+    {
+      "title": "Sync Duration (recent runs)",
+      "type": "timeseries",
+      "gridPos": { "h": 6, "w": 8, "x": 0, "y": 21 },
+      "id": 10,
+      "options": {
+        "legend": { "displayMode": "table", "placement": "right", "calcs": ["max", "mean", "last"] },
+        "tooltip": { "mode": "multi" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0,
+          "custom": { "showPoints": "never", "lineInterpolation": "linear" }
+        },
+        "overrides": []
+      },
+      "pluginVersion": "11.0",
+      "targets": [
+        {
+          "expr": "sync_run_duration_seconds",
+          "legendFormat": "{{provider}} / {{run_id}}",
+          "refId": "A"
+        }
+      ],
+      "description": "Duration of individual sync runs.\nRequires the `sync_run_duration_seconds` gauge to be exposed (add to sync/orchestrator.py)."
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "datasource",
+        "type": "datasource",
+        "query": "prometheus",
+        "current": { "selected": true, "text": "Prometheus", "value": "prometheus" },
+        "hide": 0,
+        "refresh": 1
+      },
+      {
+        "name": "env",
+        "type": "custom",
+        "query": "dev, staging, prod",
+        "current": { "selected": true, "text": "prod", "value": "prod" },
+        "hide": 0,
+        "refresh": 1,
+        "label": "Environment",
+        "includeAll": false
+      }
+    ]
+  },
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": { "type": "grafana", "uid": "-- Grafana --" },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "links": [
+    { "title": "Portfolio", "type": "dashboards", "tags": ["finance-sync"] },
+    { "title": "System", "type": "dashboards", "tags": ["finance-sync"] }
+  ]
+}

@@ -1,0 +1,57 @@
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Python
+__pycache__/
+*.py[codz]
+*$py.class
+*.so
+*.egg-info/
+*.egg
+.eggs/
+
+# Virtual environments
+.venv/
+.venv.bak/
+env/
+venv/
+
+# Tests and coverage
+tests/
+.coverage
+.coverage.*
+coverage/
+htmlcov/
+.pytest_cache/
+.cover*
+
+# Linting and type checking
+.ruff_cache/
+.mypy_cache/
+.pytype/
+.hypothesis/
+
+# IDE / editors
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Build artifacts
+dist/
+build/
+*.manifest
+*.spec
+
+# Environment (keep secrets out of image)
+.env
+.env.local
+.env.*.local
+
+# Documentation
+docs/
+*.md

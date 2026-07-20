@@ -29,8 +29,13 @@ dependencies = [
     "httpx>=0.28",
     "cryptography>=44",
     "python-jose[cryptography]>=3.3",
-    "passlib[bcrypt]>=1.7",
+    "bcrypt>=4.0",
     "python-multipart>=0.0.18",
+    "structlog>=25.1",
+    "prometheus-client>=0.21",
+    "actualpy>=0.22",
+    "apscheduler>=3.10",
+    "aiohttp>=3.9",
 ]
 
 [project.optional-dependencies]
@@ -43,6 +48,15 @@ dev = [
     "pyright>=1.1",
     "pre-commit>=4.0",
 ]
+
+openbb = [
+    "openbb>=4.0",
+]
+
+[project.entry-points."finance_sync.connectors"]
+# Built-in connectors
+bunq = "finance_sync.connectors.bunq:BunqConnector"
+trading212 = "finance_sync.connectors.trading212:Trading212Connector"
 
 [tool.ruff]
 # Enable all default rules and a curated set of optional ones
@@ -95,7 +109,11 @@ line-ending = "auto"
 # Per-file overrides
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["T20", "D", "ARG", "SLF", "ASYNC"]
+"src/finance_sync/api/**" = ["B008"]
 "src/finance_sync/__init__.py" = ["T20"]
+"src/finance_sync/models/*" = ["TC001", "TC003"]
+"src/finance_sync/db/repository.py" = ["A002", "TC002"]
+"src/finance_sync/db/uow.py" = ["TC002", "TC003"]
 
 
 [tool.pyright]

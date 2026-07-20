@@ -1,0 +1,37 @@
+# syntax=docker/dockerfile:1
+# Development Dockerfile — hot-reload with uv
+# ============================================
+FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
+
+# Install system build deps
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    libc6-dev \
+    curl \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create non-root user
+RUN groupadd --system --gid 1000 finance && \
+    useradd --system --gid finance --uid 1000 --create-home --shell /sbin/nologin finance
+
+WORKDIR /app
+
+# Copy project definition files
+COPY pyproject.toml uv.lock ./
+
+# Install ALL dependencies including dev extras
+RUN uv sync --extra dev --frozen
+
+# Copy the source code
+COPY src/ ./src/
+
+# Ensure /app/.venv/bin is on PATH
+ENV PATH="/app/.venv/bin:$PATH" \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    APP_ENVIRONMENT=dev
+
+# Run uvicorn with hot reload
+EXPOSE 8000
+CMD ["uvicorn", "finance_sync.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--proxy-headers", "--forwarded-allow-ips", "*"]

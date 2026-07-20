@@ -1,0 +1,215 @@
+# =============================================================================
+# CI Pipeline — finance-sync
+# =============================================================================
+# Runs on push/PR to main.  Five independent jobs:
+#
+#   lint     – Ruff check + format check
+#   types    – Pyright strict mode
+#   test     – Pytest with coverage threshold 85%
+#   security – pip-audit vulnerability scan + CycloneDX SBOM
+#   build    – Docker image build (no push)
+#
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ── Lint ──────────────────────────────────────────────────────────────
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      matrix:
+        python-version: ["3.12"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-suffix: lint-${{ matrix.python-version }}
+
+      - name: Install Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: uv sync --extra dev --frozen
+
+      - name: Ruff lint check
+        run: uv run ruff check src tests
+
+      - name: Ruff format check
+        run: uv run ruff format --check src tests
+
+  # ── Type check ────────────────────────────────────────────────────────
+  types:
+    name: Type check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      matrix:
+        python-version: ["3.12"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-suffix: types-${{ matrix.python-version }}
+
+      - name: Install Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: uv sync --extra dev --frozen
+
+      - name: Restore Pyright cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pyright
+          key: >-
+            pyright-${{ runner.os }}-${{ matrix.python-version }}-
+            ${{ hashFiles('**/*.py', 'pyproject.toml') }}
+          restore-keys: |
+            pyright-${{ runner.os }}-${{ matrix.python-version }}-
+
+      - name: Run Pyright (strict)
+        run: uv run pyright src tests
+
+  # ── Test + coverage ───────────────────────────────────────────────────
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      matrix:
+        python-version: ["3.12"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-suffix: test-${{ matrix.python-version }}
+
+      - name: Install Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: uv sync --extra dev --frozen
+
+      - name: Restore pytest cache
+        uses: actions/cache@v4
+        with:
+          path: .pytest_cache
+          key: >-
+            pytest-${{ runner.os }}-${{ matrix.python-version }}-
+            ${{ hashFiles('pyproject.toml') }}
+          restore-keys: |
+            pytest-${{ runner.os }}-${{ matrix.python-version }}-
+
+      - name: Run tests with coverage (≥85%)
+        run: >
+          uv run pytest
+          --cov=finance_sync
+          --cov-report=term
+          --cov-report=xml
+          --cov-fail-under=85
+          --junitxml=junit.xml
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-report-${{ matrix.python-version }}
+          path: coverage.xml
+          retention-days: 14
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results-${{ matrix.python-version }}
+          path: junit.xml
+          retention-days: 14
+
+  # ── Security + SBOM ───────────────────────────────────────────────────
+  security:
+    name: Security
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-suffix: security
+
+      - name: Install Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install project dependencies
+        run: uv sync --extra dev --frozen
+
+      - name: Install security & SBOM tooling
+        run: uv pip install pip-audit cyclonedx-bom
+
+      - name: Scan dependencies for vulnerabilities
+        run: uv run pip-audit --strict --progress-spinner=off
+
+      - name: Generate CycloneDX SBOM
+        run: |
+          uv run pip freeze --all \
+            | uv run cyclonedx-py requirements - \
+              --pyproject pyproject.toml \
+              -o sbom.cyclonedx.json
+
+      - name: Upload SBOM
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sbom
+          path: sbom.cyclonedx.json
+          retention-days: 30
+
+  # ── Docker build (no push) ────────────────────────────────────────────
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          tags: finance-sync:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

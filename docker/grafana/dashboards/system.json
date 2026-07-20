@@ -1,0 +1,519 @@
+{
+  "__inputs": [],
+  "__requires": [],
+  "title": "System",
+  "uid": "finance-sync-system",
+  "version": 1,
+  "schemaVersion": 39,
+  "tags": ["finance-sync", "system"],
+  "timezone": "browser",
+  "editable": true,
+  "refresh": "15s",
+  "panels": [
+    {
+      "title": "Request Rate",
+      "type": "timeseries",
+      "gridPos": { "h": 7, "w": 6, "x": 0, "y": 0 },
+      "id": 1,
+      "options": {
+        "legend": { "displayMode": "table", "placement": "right", "calcs": ["sum", "max", "mean"] },
+        "tooltip": { "mode": "multi" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "rps",
+          "min": 0,
+          "custom": { "showPoints": "never", "lineInterpolation": "linear" }
+        },
+        "overrides": []
+      },
+      "pluginVersion": "11.0",
+      "targets": [
+        {
+          "expr": "sum(rate(http_requests_total[5m]))",
+          "legendFormat": "Total",
+          "refId": "A"
+        },
+        {
+          "expr": "rate(http_requests_total{status=~\"2..\"}[5m])",
+          "legendFormat": "2xx",
+          "refId": "B"
+        },
+        {
+          "expr": "rate(http_requests_total{status=~\"4..\"}[5m])",
+          "legendFormat": "4xx",
+          "refId": "C"
+        },
+        {
+          "expr": "rate(http_requests_total{status=~\"5..\"}[5m])",
+          "legendFormat": "5xx",
+          "refId": "D"
+        }
+      ],
+      "description": "HTTP request rate, broken down by status class."
+    },
+    {
+      "title": "Request Latency (p50 / p95 / p99)",
+      "type": "timeseries",
+      "gridPos": { "h": 7, "w": 6, "x": 6, "y": 0 },
+      "id": 2,
+      "options": {
+        "legend": { "displayMode": "table", "placement": "right", "calcs": ["last", "max"] },
+        "tooltip": { "mode": "multi" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0,
+          "custom": { "showPoints": "never", "lineInterpolation": "linear" }
+        },
+        "overrides": []
+      },
+      "pluginVersion": "11.0",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(http_request_duration_seconds_bucket[5m])) by (le))",
+          "legendFormat": "p50",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le))",
+          "legendFormat": "p95",
+          "refId": "B"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket[5m])) by (le))",
+          "legendFormat": "p99",
+          "refId": "C"
+        }
+      ],
+      "description": "HTTP request latency percentiles over the last 5 minutes."
+    },
+    {
+      "title": "Error Rate",
+      "type": "timeseries",
+      "gridPos": { "h": 7, "w": 6, "x": 12, "y": 0 },
+      "id": 3,
+      "options": {
+        "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean", "max"] },
+        "tooltip": { "mode": "multi" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "custom": { "showPoints": "never", "lineInterpolation": "linear" }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "Error ratio" },
+            "properties": [
+              { "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } },
+              { "id": "custom.fillOpacity", "value": 15 }
+            ]
+          }
+        ]
+      },
+      "pluginVersion": "11.0",
+      "targets": [
+        {
+          "expr": "sum(rate(http_requests_total{status=~\"5..\"}[5m])) / (sum(rate(http_requests_total[5m])) > 0)",
+          "legendFormat": "Error ratio",
+          "refId": "A"
+        }
+      ],
+      "description": "Ratio of 5xx responses to total requests (5m rate)."
+    },
+    {
+      "title": "Avg Response Size",
+      "type": "timeseries",
+      "gridPos": { "h": 7, "w": 6, "x": 18, "y": 0 },
+      "id": 4,
+      "options": {
+        "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean", "max"] },
+        "tooltip": { "mode": "multi" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "min": 0,
+          "custom": { "showPoints": "never", "lineInterpolation": "linear" }
+        },
+        "overrides": []
+      },
+      "pluginVersion": "11.0",
+      "targets": [
+        {
+          "expr": "sum(rate(http_response_size_bytes_sum[5m])) / sum(rate(http_response_size_bytes_count[5m]))",
+          "legendFormat": "Avg size",
+          "refId": "A"
+        },
+        {
+          "expr": "max(rate(http_response_size_bytes_sum[5m])) / max(rate(http_response_size_bytes_count[5m]))",
+          "legendFormat": "Max path avg",
+          "refId": "B"
+        }
+      ],
+      "description": "Average HTTP response body size over the last 5 minutes."
+    },
+    {
+      "title": "Requests by Path",
+      "type": "barchart",
+      "gridPos": { "h": 7, "w": 8, "x": 0, "y": 7 },
+      "id": 5,
+      "options": {
+        "orientation": "horizontal",
+        "groupWidth": 0.7,
+        "barWidth": 0.8,
+        "showValue": "auto",
+        "legend": { "displayMode": "list", "showLegend": true, "placement": "right" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "rps",
+          "min": 0,
+          "custom": { "stacking": { "mode": "normal" }, "axisBorderShow": false }
+        },
+        "overrides": []
+      },
+      "pluginVersion": "11.0",
+      "targets": [
+        {
+          "expr": "topk(15, sum by(path) (rate(http_requests_total[5m])))",
+          "legendFormat": "{{path}}",
+          "refId": "A"
+        }
+      ],
+      "description": "Top 15 request paths by rate (5m average)."
+    },
+    {
+      "title": "DB Connection Pool",
+      "type": "timeseries",
+      "gridPos": { "h": 7, "w": 8, "x": 8, "y": 7 },
+      "id": 6,
+      "options": {
+        "legend": { "displayMode": "table", "placement": "right", "calcs": ["last", "max", "mean"] },
+        "tooltip": { "mode": "multi" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "custom": { "showPoints": "never", "lineInterpolation": "stepBefore" }
+        },
+        "overrides": []
+      },
+      "pluginVersion": "11.0",
+      "targets": [
+        {
+          "expr": "db_pool_used",
+          "legendFormat": "Used",
+          "refId": "A"
+        },
+        {
+          "expr": "db_pool_available",
+          "legendFormat": "Available",
+          "refId": "B"
+        },
+        {
+          "expr": "db_pool_max",
+          "legendFormat": "Max",
+          "refId": "C"
+        }
+      ],
+      "description": "Database connection pool utilisation."
+    },
+    {
+      "title": "DB Pool Utilisation",
+      "type": "gauge",
+      "gridPos": { "h": 7, "w": 4, "x": 16, "y": 7 },
+      "id": 7,
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "values": false, "fields": "" },
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true,
+        "orientation": "auto",
+        "textMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 0.6 },
+              { "color": "red", "value": 0.85 }
+            ]
+          },
+          "custom": { "displayMode": "auto", "orientation": "horizontal" }
+        },
+        "overrides": []
+      },
+      "pluginVersion": "11.0",
+      "targets": [
+        {
+          "expr": "db_pool_used / (db_pool_used + db_pool_available) > 0",
+          "legendFormat": "Utilisation",
+          "refId": "A"
+        }
+      ],
+      "description": "Database pool utilisation ratio."
+    },
+    {
+      "title": "Redis Cache Hit Ratio",
+      "type": "timeseries",
+      "gridPos": { "h": 7, "w": 8, "x": 0, "y": 14 },
+      "id": 8,
+      "options": {
+        "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean", "last"] },
+        "tooltip": { "mode": "multi" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "custom": { "showPoints": "never", "lineInterpolation": "linear" }
+        },
+        "overrides": []
+      },
+      "pluginVersion": "11.0",
+      "targets": [
+        {
+          "expr": "redis_hits_total / (redis_hits_total + redis_misses_total) > 0 or vector(0)",
+          "legendFormat": "Hit ratio",
+          "refId": "A"
+        }
+      ],
+      "description": "Redis cache hit ratio.\nRequires `redis_hits_total` and `redis_misses_total` counters to be exposed."
+    },
+    {
+      "title": "Redis Operations Rate",
+      "type": "timeseries",
+      "gridPos": { "h": 7, "w": 8, "x": 8, "y": 14 },
+      "id": 9,
+      "options": {
+        "legend": { "displayMode": "table", "placement": "right", "calcs": ["sum", "mean"] },
+        "tooltip": { "mode": "multi" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "min": 0,
+          "custom": { "showPoints": "never", "lineInterpolation": "stepBefore" }
+        },
+        "overrides": []
+      },
+      "pluginVersion": "11.0",
+      "targets": [
+        {
+          "expr": "rate(redis_commands_total[5m]) or vector(0)",
+          "legendFormat": "Total ops",
+          "refId": "A"
+        }
+      ],
+      "description": "Redis command rate.\nRequires `redis_commands_total` to be exposed (e.g. via redis_exporter)."
+    },
+    {
+      "title": "Worker Job Durations",
+      "type": "timeseries",
+      "gridPos": { "h": 7, "w": 8, "x": 0, "y": 21 },
+      "id": 10,
+      "options": {
+        "legend": { "displayMode": "table", "placement": "right", "calcs": ["max", "mean", "last"] },
+        "tooltip": { "mode": "multi" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0,
+          "custom": { "showPoints": "never", "lineInterpolation": "linear" }
+        },
+        "overrides": []
+      },
+      "pluginVersion": "11.0",
+      "targets": [
+        {
+          "expr": "worker_job_duration_seconds",
+          "legendFormat": "{{job_id}}",
+          "refId": "A"
+        }
+      ],
+      "description": "Duration of worker job executions.\nRequires the `worker_job_duration_seconds` gauge to be exposed (add to worker/monitoring.py)."
+    },
+    {
+      "title": "Worker Job Success Rate (rolling 100 runs)",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 21 },
+      "id": 11,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "values": false, "fields": "" },
+        "textMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "orange", "value": 0.9 },
+              { "color": "green", "value": 0.98 }
+            ]
+          },
+          "custom": { "displayMode": "auto", "orientation": "horizontal" }
+        },
+        "overrides": []
+      },
+      "pluginVersion": "11.0",
+      "targets": [
+        {
+          "expr": "worker_job_success_rate or vector(1)",
+          "legendFormat": "Success rate",
+          "refId": "A"
+        }
+      ],
+      "description": "Worker job success rate as a ratio.\nRequires `worker_job_success_rate` to be exposed."
+    },
+    {
+      "title": "Worker Health",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 8, "x": 12, "y": 21 },
+      "id": 12,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "values": false, "fields": "" },
+        "textMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "green", "value": 0 },
+              { "color": "green", "value": 1 }
+            ]
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": { "text": "DOWN", "color": "red" },
+                "1": { "text": "UP", "color": "green" }
+              }
+            }
+          ],
+          "custom": { "displayMode": "auto", "orientation": "horizontal" }
+        },
+        "overrides": []
+      },
+      "pluginVersion": "11.0",
+      "targets": [
+        {
+          "expr": "count(up{job=~\".*worker.*\"} == 1) or vector(0)",
+          "legendFormat": "Worker",
+          "refId": "A"
+        }
+      ],
+      "description": "Worker process up/down status."
+    },
+    {
+      "title": "Uptime",
+      "type": "stat",
+      "gridPos": { "h": 3, "w": 4, "x": 20, "y": 21 },
+      "id": 13,
+      "options": {
+        "colorMode": "none",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "values": false, "fields": "" },
+        "textMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "dtdurations",
+          "decimals": 1,
+          "custom": { "displayMode": "auto", "orientation": "horizontal" }
+        },
+        "overrides": []
+      },
+      "pluginVersion": "11.0",
+      "targets": [
+        {
+          "expr": "time() - process_start_time_seconds{job=~\".*finance.*\"}",
+          "legendFormat": "{{job}}",
+          "refId": "A"
+        }
+      ],
+      "description": "Application uptime since last restart."
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "datasource",
+        "type": "datasource",
+        "query": "prometheus",
+        "current": { "selected": true, "text": "Prometheus", "value": "prometheus" },
+        "hide": 0,
+        "refresh": 1
+      },
+      {
+        "name": "env",
+        "type": "custom",
+        "query": "dev, staging, prod",
+        "current": { "selected": true, "text": "prod", "value": "prod" },
+        "hide": 0,
+        "refresh": 1,
+        "label": "Environment",
+        "includeAll": false
+      },
+      {
+        "name": "path",
+        "type": "query",
+        "query": "label_values(http_requests_total, path)",
+        "current": { "selected": true, "text": "All", "value": "__all" },
+        "hide": 0,
+        "refresh": 2,
+        "label": "Path",
+        "includeAll": true,
+        "multi": true,
+        "sort": 1
+      }
+    ]
+  },
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": { "type": "grafana", "uid": "-- Grafana --" },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "links": [
+    { "title": "Sync Health", "type": "dashboards", "tags": ["finance-sync"] },
+    { "title": "Portfolio", "type": "dashboards", "tags": ["finance-sync"] }
+  ]
+}

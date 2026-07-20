@@ -1,0 +1,106 @@
+# ==============================================================================
+# Coolify Deployment Configuration — finance-sync
+# ==============================================================================
+# This file documents the Coolify deployment setup for finance-sync.
+# The application is deployed as a Docker Compose stack (see docker-compose.yml).
+#
+# Deployment type: Docker Compose
+# Base directory: finance-sync/
+# Dockerfile: Dockerfile (production) / docker/Dockerfile.dev (dev)
+#
+# ── Coolify Setup Instructions ─────────────────────────────────────────────────────
+#
+# 1. Create a new "Docker Compose" resource in Coolify.
+#
+# 2. Set the "Compose file" path to: docker-compose.yml
+#
+# 3. Configure build pack:
+#    - Build pack: "docker-compose"
+#    - Docker Compose file: docker-compose.yml
+#    - .env file: .env (generated from .env.example)
+#
+# 4. Environment Variables (set in Coolify's dashboard or .env):
+#
+#    ┌──────────────────────────────────┬──────────┬──────────────────────────────┐
+#    │ Variable                         │ Required │ Notes                        │
+#    ├──────────────────────────────────┼──────────┼──────────────────────────────┤
+#    │ APP_ENVIRONMENT                  │ No       │ Default: prod                │
+#    │ LOG_LEVEL                        │ No       │ Default: INFO                │
+#    │ POSTGRES_DB                      │ No       │ Default: finance_sync        │
+#    │ POSTGRES_USER                    │ No       │ Default: finance_sync        │
+#    │ POSTGRES_PASSWORD                │ YES ⚠️   │ Secret — use Coolify's       │
+#    │                                  │          │ "secret" variable type       │
+#    │ DATABASE_URL                     │ Alt      │ Overrides POSTGRES_* vars if │
+#    │                                  │          │ set                          │
+#    │ REDIS_PASSWORD                   │ No       │ Empty = no password          │
+#    │ REDIS_URL                        │ Alt      │ Overrides host derivation    │
+#    │ SECRET_KEY                       │ YES ⚠️   │ ≥16 chars. Secret variable.  │
+#    │ ACCESS_TOKEN_EXPIRE_MINUTES      │ No       │ Default: 30                  │
+#    │ REFRESH_TOKEN_EXPIRE_DAYS        │ No       │ Default: 7                   │
+#    │ JWT_ALGORITHM                    │ No       │ Default: HS256               │
+#    │ MASTER_ENCRYPTION_KEY            │ Required │ openssl rand -hex 32. Secret │
+#    │                                  │ for cred  │ variable.                    │
+#    │                                  │ enc.      │                              │
+#    │ CORS_ORIGINS                     │ No       │ Default: *                   │
+#    └──────────────────────────────────┴──────────┴──────────────────────────────┘
+#
+# 5. Volume Mounts:
+#
+#    - postgres_data: Persistent PostgreSQL storage
+#    - redis_data:    Persistent Redis storage
+#    - encryption_keys: Volume for encryption key files (future use)
+#
+# 6. Ports:
+#
+#    - app: internal 8000 → map to Coolify domain / port
+#    - postgres: internal 5432 (should NOT be exposed externally)
+#    - redis: internal 6379 (should NOT be exposed externally)
+#
+# 7. Health Checks (configured in docker-compose.yml):
+#
+#    - app:      GET /health/live (port 8000)
+#    - postgres: pg_isready
+#    - redis:    redis-cli ping
+#
+# 8. Replicas / Scaling:
+#
+#    The `app` service is stateless and can be scaled horizontally.
+#    The `worker` service should remain at 1 replica (singleton).
+#    The `postgres` and `redis` services are stateful — keep at 1 replica.
+#
+# ── Release Step (Migrations) ──────────────────────────────────────────────────────
+#
+# Before deploying a new version of the app or worker, run database migrations:
+#
+#   # Via Coolify "Execute command" on the app container:
+#   alembic upgrade head
+#
+#   # Or via a one-off container:
+#   docker run --rm \
+#     --network finance-sync_default \
+#     -e DATABASE_URL="postgresql+asyncpg://finance_sync:${POSTGRES_PASSWORD}@postgres:5432/finance_sync" \
+#     finance-sync:latest \
+#     alembic upgrade head
+#
+# Migration user connection string (for manual runs):
+#   ASYNC_DB_URL=postgresql+asyncpg://finance_sync_migration:<PASSWORD>@postgres:5432/finance_sync
+#
+# NOTE: In Coolify, you can configure a "Pre-deployment" or "Post-deployment"
+# command to run migrations automatically.  Use the app container's environment
+# to run:
+#
+#   cd /app && alembic upgrade head
+#
+# ── Encryption Keys Volume ─────────────────────────────────────────────────────────
+#
+# The MASTER_ENCRYPTION_KEY env var is used at runtime.
+# If file-based key storage is needed, mount a volume at /app/keys.
+#
+# ── Development ────────────────────────────────────────────────────────────────────
+#
+# For local development with hot reload:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+#
+# This uses docker/Dockerfile.dev instead of the production Dockerfile.
+# See docker-compose.dev.yml (create if needed).

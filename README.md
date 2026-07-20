@@ -1,16 +1,16 @@
 # finance-sync
 
-Self-hosted, API-first financial data platform. It imports provider data, normalizes it into a provider-independent ledger and portfolio model, enriches securities through OpenBB, and serves downstream applications such as Actual Budget and Wealthfolio.
+[![CI](https://github.com/rbnbrls/finance-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/rbnbrls/finance-sync/actions/workflows/ci.yml)
 
-This repository is currently in the architecture phase. No connector or deployment implementation is included yet.
+Self-hosted, API-first financial data platform. It imports provider data, normalizes it into a provider-independent ledger and portfolio model, enriches securities through OpenBB, and serves downstream applications such as Actual Budget and Wealthfolio.
 
 ## Documentation
 
-- [Architecture](/Users/ruben/Code/finance-sync/docs/ARCHITECTURE.md)
-- [Architecture decisions](/Users/ruben/Code/finance-sync/docs/adr/)
-- [API specification](/Users/ruben/Code/finance-sync/docs/API.md)
-- [Data model](/Users/ruben/Code/finance-sync/docs/DATABASE.md)
-- [Implementation roadmap](/Users/ruben/Code/finance-sync/docs/ROADMAP.md)
+- [Architecture](docs/ARCHITECTURE.md)
+- [Architecture decisions](docs/adr/)
+- [API specification](docs/API.md)
+- [Data model](docs/DATABASE.md)
+- [Implementation roadmap](docs/ROADMAP.md)
 
 ## Project principles
 

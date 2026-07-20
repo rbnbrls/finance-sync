@@ -1,0 +1,16 @@
+# ── Dashboard provisioning provider ────────────────────────────────────
+# Scans the dashboards directory every 30 seconds and provisions any
+# JSON dashboard definition it finds.
+apiVersion: 1
+
+providers:
+  - name: "finance-sync"
+    orgId: 1
+    folder: "Finance Sync"
+    folderUid: finance-sync
+    type: file
+    disableDeletion: true
+    updateIntervalSeconds: 30
+    options:
+      path: /etc/grafana/dashboards
+      foldersFromFilesStructure: false
