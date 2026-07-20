@@ -1,0 +1,21 @@
+# See https://pre-commit.com for more information
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.9.10
+    hooks:
+      - id: ruff
+        name: ruff-lint
+        description: Lint Python files with Ruff (all rules)
+        args: [--fix]
+      - id: ruff-format
+        name: ruff-format
+        description: Format Python files with Ruff
+
+  - repo: https://github.com/RobertCraigie/pyright-python
+    rev: v1.1.398
+    hooks:
+      - id: pyright
+        name: pyright
+        description: Type-check Python files with Pyright (strict mode)
+        types: [python]
+        args: [src, tests]
