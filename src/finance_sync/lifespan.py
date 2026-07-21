@@ -5,8 +5,15 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING
 
+from sqlalchemy import text
+
+# Import all models so they register on Base.metadata for create_all
 from finance_sync.config.settings import Settings
 from finance_sync.container import Container
+from finance_sync.db import Base
+from finance_sync.models import ensure_exporter_models_loaded
+
+ALEMBIC_HEAD: str = "0003"
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
@@ -25,6 +32,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     * Build the DI container (DB engine, Redis pool).
     * Store the container on ``app.state`` so route handlers can access
       it via ``request.app.state.container``.
+    * Auto-create all database tables defined by SQLAlchemy models
+      (``Base.metadata.create_all``).  This is a safety net — in
+      production, migrations are managed via Alembic.
 
     Shutdown
     --------
@@ -37,6 +47,32 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
 
     # Store so route handlers can access via request.app.state.container
     app.state.container = container
+
+    # -- Auto-create database tables -----------------------------------
+    if settings.database_url is not None:
+        # Ensure lazy-loaded exporter models are registered on metadata
+        ensure_exporter_models_loaded()
+
+        async with container.engine.begin() as conn:
+            # Enable pgcrypto extension (needed for gen_random_uuid())
+            await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pgcrypto"))
+            await conn.run_sync(Base.metadata.create_all)
+            # Stamp alembic version so future migrations see a known baseline
+            await conn.execute(
+                text(
+                    "CREATE TABLE IF NOT EXISTS alembic_version "
+                    "(version_num VARCHAR(32) PRIMARY KEY)"
+                )
+            )
+            await conn.execute(
+                text(
+                    "INSERT INTO alembic_version (version_num) "
+                    "VALUES (:head) "
+                    "ON CONFLICT (version_num) DO NOTHING"
+                ),
+                {"head": ALEMBIC_HEAD},
+            )
+            await conn.commit()
 
     async with container.dispose():
         yield  # app runs here
