@@ -30,7 +30,6 @@ services:
       retries: 3
     networks:
       - coolify
-      - default
 
   worker:
     build:
@@ -49,7 +48,6 @@ services:
       retries: 3
     networks:
       - coolify
-      - default
 
 networks:
   coolify:
