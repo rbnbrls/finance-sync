@@ -56,6 +56,7 @@ from finance_sync.models.webhook import Webhook, WebhookDeliveryLog
 
 _actual_budget_account_mapping: type | None = None
 _export_run: type | None = None
+_export_delivery: type | None = None
 
 
 def ensure_exporter_models_loaded() -> None:
@@ -64,20 +65,22 @@ def ensure_exporter_models_loaded() -> None:
 
     Safe to call multiple times.
     """
-    global _actual_budget_account_mapping, _export_run
+    global _actual_budget_account_mapping, _export_run, _export_delivery
     if _actual_budget_account_mapping is None:
-        from finance_sync.exporter.models import (  # register side-effect
+        from finance_sync.exporter.actual_budget.models import (
             ActualBudgetAccountMapping,
-            ExportRun,
+            ExportDelivery,
         )
+        from finance_sync.exporter.models import ExportRun
 
         _actual_budget_account_mapping = ActualBudgetAccountMapping
         _export_run = ExportRun
+        _export_delivery = ExportDelivery
 
 
 def __getattr__(name: str) -> object:
-    """Support ``from finance_sync.models import ActualBudgetAccountMapping``
-    and ``ExportRun`` even though they are loaded lazily.
+    """Support ``from finance_sync.models import ActualBudgetAccountMapping``,
+    ``ExportDelivery`` and ``ExportRun`` even though they are loaded lazily.
 
     This makes the API transparent to callers — they don't need to know
     whether a model is loaded eagerly or lazily.
@@ -90,6 +93,10 @@ def __getattr__(name: str) -> object:
         ensure_exporter_models_loaded()
         if _export_run is not None:
             return _export_run
+    if name == "ExportDelivery":
+        ensure_exporter_models_loaded()
+        if _export_delivery is not None:
+            return _export_delivery
     msg = f"module {__name__!r} has no attribute {name!r}"
     raise AttributeError(msg)
 
@@ -107,6 +114,7 @@ __all__ = [
     "ConnectorProvider",
     "Credential",
     "EnrichmentFreshness",
+    "ExportDelivery",
     "ExportRun",
     "Holding",
     "HoldingSource",

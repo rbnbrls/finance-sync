@@ -77,36 +77,61 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
                 ),
                 {"head": ALEMBIC_HEAD},
             )
-            # ── Seed default admin user if none exists ──────────────
-            existing = await conn.execute(text("SELECT COUNT(*) FROM users"))
-            count = existing.scalar_one()
-            if count == 0:
-                from finance_sync.services.auth import hash_password
+            # ── Seed default tenant and admin user (idempotent) ────────
+            from datetime import UTC, datetime
 
-                # Create default tenant
+            from finance_sync.services.auth import hash_password
+
+            now = datetime.now(UTC)
+
+            # Create default tenant if it doesn't exist
+            tenant_row = await conn.execute(
+                text("SELECT id FROM tenants WHERE slug = 'default'")
+            )
+            tenant = tenant_row.first()
+            if tenant is None:
                 tenant_id = await conn.execute(
                     text(
-                        "INSERT INTO tenants (id, slug, name) "
+                        "INSERT INTO tenants "
+                        "(id, slug, name, created_at, updated_at) "
                         "VALUES (gen_random_uuid(), 'default', "
-                        "'Default Tenant') RETURNING id"
-                    )
+                        "'Default Tenant', :now, :now) RETURNING id"
+                    ),
+                    {"now": now},
                 )
                 tid = tenant_id.scalar_one()
-                # Create admin user
+                logger.info("created_default_tenant")
+            else:
+                tid = tenant[0]
+
+            # Create admin user if it doesn't exist
+            user_row = await conn.execute(
+                text(
+                    "SELECT id FROM users "
+                    "WHERE email = 'admin@finance-sync.local'"
+                )
+            )
+            if user_row.first() is None:
                 pwd = hash_password("admin")
                 await conn.execute(
                     text(
                         "INSERT INTO users "
                         "(id, tenant_id, email, hashed_password, "
-                        "display_name, role, is_active) "
+                        "display_name, role, is_active, "
+                        "created_at, updated_at) "
                         "VALUES (gen_random_uuid(), :tid, "
                         " 'admin@finance-sync.local', :pwd, "
-                        "'Admin', 'admin', true)"
+                        "'Admin', 'admin', true, :now, :now)"
                     ),
-                    {"tid": tid, "pwd": pwd},
+                    {"tid": tid, "pwd": pwd, "now": now},
                 )
                 logger.info(
-                    "seeded_default_admin",
+                    "seeded_admin_user",
+                    email="admin@finance-sync.local",
+                )
+            else:
+                logger.info(
+                    "admin_user_exists",
                     email="admin@finance-sync.local",
                 )
             await conn.commit()
