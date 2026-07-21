@@ -58,20 +58,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         ensure_exporter_models_loaded()
 
         async with container.engine.begin() as conn:
-            # Try enabling pgcrypto extension — only needed for
-            # gen_random_uuid() on PG < 13; on PG 13+ the function is
-            # built-in.  Catch errors so that restricted DB users (who
-            # lack CREATE permission) don't block startup.
-            try:
-                await conn.execute(
-                    text("CREATE EXTENSION IF NOT EXISTS pgcrypto")
-                )
-            except Exception:
-                logger.warning(
-                    "pgcrypto_extension_skipped",
-                    exc_info=True,
-                )
-
             await conn.run_sync(Base.metadata.create_all)
 
             # Stamp alembic version so future migrations see a known
@@ -90,38 +76,45 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
                 ),
                 {"head": ALEMBIC_HEAD},
             )
-            # ── Seed default admin user (idempotent upsert) ─────────
+            # ── Seed default admin user (idempotent) ─────────────
+            # Use gen_random_uuid() which is built-in on PostgreSQL 13+
             from finance_sync.services.auth import hash_password
 
             pwd = hash_password("admin")
-            # Upsert tenant + admin user in one go using CTE
+            # Ensure default tenant exists, then seed admin user
+            tid_result = await conn.execute(
+                text(
+                    "INSERT INTO tenants (id, slug, name) "
+                    "VALUES (gen_random_uuid(), 'default', "
+                    "'Default Tenant') "
+                    "ON CONFLICT (slug) DO UPDATE SET "
+                    "  name = EXCLUDED.name "
+                    "RETURNING id"
+                )
+            )
+            tid = tid_result.scalar_one()
+            # Upsert admin user — only insert if not already present
             await conn.execute(
                 text(
-                    "WITH inserted_tenant AS ("
-                    "  INSERT INTO tenants (id, slug, name) "
-                    "  VALUES (gen_random_uuid(), 'default', "
-                    "  'Default Tenant') "
-                    "  ON CONFLICT (slug) DO UPDATE SET slug = "
-                    "  EXCLUDED.slug RETURNING id "
-                    ") "
                     "INSERT INTO users "
                     "(id, tenant_id, email, hashed_password, "
                     "display_name, role, is_active) "
-                    "SELECT gen_random_uuid(), "
-                    "(SELECT id FROM inserted_tenant), "
-                    "'admin@finance-sync.local', :pwd, "
-                    "'Admin', 'admin', true "
+                    "SELECT gen_random_uuid(), :tid, "
+                    " 'admin@finance-sync.local', :pwd, "
+                    " 'Admin', 'admin', true "
                     "WHERE NOT EXISTS ("
                     "  SELECT 1 FROM users "
                     "  WHERE email = 'admin@finance-sync.local'"
                     ")"
                 ),
-                {"pwd": pwd},
+                {"tid": tid, "pwd": pwd},
             )
             logger.info(
-                "seeded_default_admin_checked",
+                "seeded_default_admin",
                 email="admin@finance-sync.local",
             )
+            # Explicit commit (begin() auto-commits on success, but
+            # being explicit doesn't hurt)
             await conn.commit()
 
     async with container.dispose():
