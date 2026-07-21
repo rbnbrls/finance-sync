@@ -58,11 +58,22 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         ensure_exporter_models_loaded()
 
         async with container.engine.begin() as conn:
-            # Enable pgcrypto extension (needed for gen_random_uuid())
-            await conn.execute(
-                text("CREATE EXTENSION IF NOT EXISTS pgcrypto")
-            )
+            # Try enabling pgcrypto extension — only needed for
+            # gen_random_uuid() on PG < 13; on PG 13+ the function is
+            # built-in.  Catch errors so that restricted DB users (who
+            # lack CREATE permission) don't block startup.
+            try:
+                await conn.execute(
+                    text("CREATE EXTENSION IF NOT EXISTS pgcrypto")
+                )
+            except Exception:
+                logger.warning(
+                    "pgcrypto_extension_skipped",
+                    exc_info=True,
+                )
+
             await conn.run_sync(Base.metadata.create_all)
+
             # Stamp alembic version so future migrations see a known
             # baseline
             await conn.execute(
@@ -79,40 +90,38 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
                 ),
                 {"head": ALEMBIC_HEAD},
             )
-            # ── Seed default admin user if none exists ──────────────
-            existing = await conn.execute(
-                text("SELECT COUNT(*) FROM users")
-            )
-            count = existing.scalar_one()
-            if count == 0:
-                from finance_sync.services.auth import hash_password
+            # ── Seed default admin user (idempotent upsert) ─────────
+            from finance_sync.services.auth import hash_password
 
-                # Create default tenant
-                tenant_id = await conn.execute(
-                    text(
-                        "INSERT INTO tenants (id, slug, name) "
-                        "VALUES (gen_random_uuid(), 'default', "
-                        "'Default Tenant') RETURNING id"
-                    )
-                )
-                tid = tenant_id.scalar_one()
-                # Create admin user
-                pwd = hash_password("admin")
-                await conn.execute(
-                    text(
-                        "INSERT INTO users "
-                        "(id, tenant_id, email, hashed_password, "
-                        "display_name, role, is_active) "
-                        "VALUES (gen_random_uuid(), :tid, "
-                        " 'admin@finance-sync.local', :pwd, "
-                        "'Admin', 'admin', true)"
-                    ),
-                    {"tid": tid, "pwd": pwd},
-                )
-                logger.info(
-                    "seeded_default_admin",
-                    email="admin@finance-sync.local",
-                )
+            pwd = hash_password("admin")
+            # Upsert tenant + admin user in one go using CTE
+            await conn.execute(
+                text(
+                    "WITH inserted_tenant AS ("
+                    "  INSERT INTO tenants (id, slug, name) "
+                    "  VALUES (gen_random_uuid(), 'default', "
+                    "  'Default Tenant') "
+                    "  ON CONFLICT (slug) DO UPDATE SET slug = "
+                    "  EXCLUDED.slug RETURNING id "
+                    ") "
+                    "INSERT INTO users "
+                    "(id, tenant_id, email, hashed_password, "
+                    "display_name, role, is_active) "
+                    "SELECT gen_random_uuid(), "
+                    "(SELECT id FROM inserted_tenant), "
+                    "'admin@finance-sync.local', :pwd, "
+                    "'Admin', 'admin', true "
+                    "WHERE NOT EXISTS ("
+                    "  SELECT 1 FROM users "
+                    "  WHERE email = 'admin@finance-sync.local'"
+                    ")"
+                ),
+                {"pwd": pwd},
+            )
+            logger.info(
+                "seeded_default_admin_checked",
+                email="admin@finance-sync.local",
+            )
             await conn.commit()
 
     async with container.dispose():

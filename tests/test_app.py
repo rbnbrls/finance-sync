@@ -16,10 +16,9 @@ if TYPE_CHECKING:
 
 import pytest
 from fastapi.testclient import TestClient
-
-from finance_sync.app import create_app
 from pydantic import SecretStr
 
+from finance_sync.app import create_app
 from finance_sync.config.settings import Settings
 
 _TEST_SECRET: SecretStr = SecretStr("test-secret-key-at-least-16-chars")
