@@ -13,8 +13,12 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 try:
-    from finance_sync_sdk.models import ConnectorConfig
-    from finance_sync_sdk.registry import PluginRegistry
+    from finance_sync_sdk.models import (
+        ConnectorConfig,  # type: ignore[reportMissingImports]
+    )
+    from finance_sync_sdk.registry import (
+        PluginRegistry,  # type: ignore[reportMissingImports]
+    )
 
     SDK_AVAILABLE = True
 except ImportError:

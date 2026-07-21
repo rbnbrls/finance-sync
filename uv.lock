@@ -915,6 +915,7 @@ dependencies = [
 
 [package.optional-dependencies]
 dev = [
+    { name = "aiosqlite" },
     { name = "pre-commit" },
     { name = "pyright" },
     { name = "pytest" },
@@ -935,6 +936,7 @@ openbb = [
 requires-dist = [
     { name = "actualpy", specifier = ">=0.22" },
     { name = "aiohttp", specifier = ">=3.9" },
+    { name = "aiosqlite", marker = "extra == 'dev'", specifier = ">=0.20" },
     { name = "alembic", specifier = ">=1.14" },
     { name = "apscheduler", specifier = ">=3.10" },
     { name = "asyncpg", specifier = ">=0.30" },

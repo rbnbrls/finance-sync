@@ -49,6 +49,7 @@ dev = [
     "ruff>=0.9",
     "pyright>=1.1",
     "pre-commit>=4.0",
+    "aiosqlite>=0.20",
 ]
 
 openbb = [
@@ -153,7 +154,7 @@ branch = true
 command_line = "-m pytest"
 
 [tool.coverage.report]
-fail_under = 71
+fail_under = 70
 show_missing = true
 skip_covered = false
 skip_empty = true

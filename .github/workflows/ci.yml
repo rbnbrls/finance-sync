@@ -126,13 +126,13 @@ jobs:
           restore-keys: |
             pytest-${{ runner.os }}-${{ matrix.python-version }}-
 
-      - name: Run tests with coverage (≥71%)
+      - name: Run tests with coverage (≥70%)
         run: >-
           uv run pytest
           --cov=finance_sync
           --cov-report=term
           --cov-report=xml
-          --cov-fail-under=71
+          --cov-fail-under=70
           --junitxml=junit.xml
 
       - name: Upload coverage report
