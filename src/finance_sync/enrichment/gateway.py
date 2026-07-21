@@ -19,9 +19,6 @@ if TYPE_CHECKING:
     from finance_sync.config.settings import Settings
     from finance_sync.db.uow import UnitOfWork
     from finance_sync.enrichment.price_store import PriceStore
-    from finance_sync.enrichment.security_resolver import (
-        SecurityResolver,
-    )
 
 import httpx
 
@@ -46,12 +43,10 @@ class EnrichmentGateway:
         settings: Settings,
         uow: UnitOfWork,
         price_store: PriceStore,
-        resolver: SecurityResolver,
     ) -> None:
         self._settings = settings
         self._uow = uow
         self._price_store = price_store
-        self._resolver = resolver
 
         self._http_client: httpx.AsyncClient | None = None
         self._degraded = settings.openbb_api_key is None

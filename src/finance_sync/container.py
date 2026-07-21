@@ -141,7 +141,6 @@ class Container:
                 settings=self.settings,
                 uow=self._make_uow(),
                 price_store=self.price_store,
-                resolver=self.security_resolver,
             )
         return self._enrichment_gateway
 
