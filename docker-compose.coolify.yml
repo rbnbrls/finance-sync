@@ -1,21 +1,19 @@
 # ==============================================================================
-# docker-compose.coolify.yml — finance-sync Coolify Deployment
+# docker-compose.coolify.yml — finance-sync Coolify Deployment (app + worker)
 # ==============================================================================
-# App + Worker only. Prometheus and Grafana are excluded for now due to OCI
-# runtime issues on the deployment server; they can be added once the issue is
-# resolved.
+# Environment variables are injected by Coolify at container runtime via the
+# dashboard or envs API.  The compose file does NOT reference ${VAR} syntax
+# because Coolify injects env vars directly into the container environment.
 #
-# Uses standalone PostgreSQL (finance-sync-pg) and Redis (finance-sync-redis)
-# managed by Coolify.
+# Standalone databases (managed by Coolify):
+#   PostgreSQL: avoxjx7g0c36ru1ez7hetauy:5432 (finance_sync)
+#   Redis:      upof2f9om8d8vppx0nxvvzwg:6379
 #
-# Required env vars (set in Coolify dashboard):
-#   POSTGRES_PASSWORD     — Password for the standalone PostgreSQL database
-#   SECRET_KEY            — JWT signing key (min 16 chars)
-#   MASTER_ENCRYPTION_KEY — AES-256 key for credential encryption
+# Required Coolify env vars:
+#   POSTGRES_PASSWORD, SECRET_KEY, MASTER_ENCRYPTION_KEY
 # ==============================================================================
 
 services:
-  # ── FastAPI Application ─────────────────────────────────────────────
   app:
     build:
       context: .
@@ -24,24 +22,6 @@ services:
     restart: unless-stopped
     ports:
       - "8000"
-    environment:
-      APP_ENVIRONMENT: ${APP_ENVIRONMENT:-prod}
-      APP_NAME: ${APP_NAME:-finance-sync}
-      APP_VERSION: ${APP_VERSION:-0.1.0}
-      DEBUG: ${DEBUG:-false}
-      LOG_LEVEL: ${LOG_LEVEL:-INFO}
-      # Standalone PostgreSQL (finance-sync-pg) at its Coolify internal hostname
-      DATABASE_URL: postgresql+asyncpg://finance_sync:${POSTGRES_PASSWORD}@avoxjx7g0c36ru1ez7hetauy:5432/finance_sync
-      DATABASE_POOL_MIN_SIZE: ${DATABASE_POOL_MIN_SIZE:-2}
-      DATABASE_POOL_MAX_SIZE: ${DATABASE_POOL_MAX_SIZE:-10}
-      # Standalone Redis (finance-sync-redis) at its Coolify internal hostname
-      REDIS_URL: redis://default:${REDIS_PASSWORD:-}@upof2f9om8d8vppx0nxvvzwg:6379/0
-      SECRET_KEY: ${SECRET_KEY}
-      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-30}
-      REFRESH_TOKEN_EXPIRE_DAYS: ${REFRESH_TOKEN_EXPIRE_DAYS:-7}
-      JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
-      MASTER_ENCRYPTION_KEY: ${MASTER_ENCRYPTION_KEY:-}
-      CORS_ORIGINS: ${CORS_ORIGINS:-[*]}
     healthcheck:
       test: ["CMD", "curl", "--fail", "http://localhost:8000/health/live"]
       interval: 30s
@@ -49,7 +29,6 @@ services:
       start_period: 30s
       retries: 3
 
-  # ── Background Worker ───────────────────────────────────────────────
   worker:
     build:
       context: .
@@ -59,16 +38,6 @@ services:
     entrypoint: ["python", "-m", "finance_sync.worker"]
     ports:
       - "9090"
-    environment:
-      APP_ENVIRONMENT: ${APP_ENVIRONMENT:-prod}
-      LOG_LEVEL: ${LOG_LEVEL:-INFO}
-      DATABASE_URL: postgresql+asyncpg://finance_sync:${POSTGRES_PASSWORD}@avoxjx7g0c36ru1ez7hetauy:5432/finance_sync
-      DATABASE_POOL_MIN_SIZE: 1
-      DATABASE_POOL_MAX_SIZE: 2
-      REDIS_URL: redis://default:${REDIS_PASSWORD:-}@upof2f9om8d8vppx0nxvvzwg:6379/0
-      SECRET_KEY: ${SECRET_KEY}
-      MASTER_ENCRYPTION_KEY: ${MASTER_ENCRYPTION_KEY:-}
-      WORKER_HEALTH_PORT: 9090
     healthcheck:
       test: ["CMD", "curl", "--fail", "http://localhost:9090/health/live"]
       interval: 30s
