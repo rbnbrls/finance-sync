@@ -58,6 +58,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         ensure_exporter_models_loaded()
 
         async with container.engine.begin() as conn:
+            # Enable pgcrypto extension (needed for gen_random_uuid())
+            await conn.execute(
+                text("CREATE EXTENSION IF NOT EXISTS pgcrypto")
+            )
             await conn.run_sync(Base.metadata.create_all)
             # Stamp alembic version so future migrations see a known
             # baseline
@@ -75,35 +79,24 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
                 ),
                 {"head": ALEMBIC_HEAD},
             )
-            # ── Seed default tenant + admin user (idempotent) ────────
-            existing_tid = await conn.execute(
-                text(
-                    "SELECT id FROM tenants WHERE slug = 'default'"
-                )
+            # ── Seed default admin user if none exists ──────────────
+            existing = await conn.execute(
+                text("SELECT COUNT(*) FROM users")
             )
-            tid_row = existing_tid.scalar_one_or_none()
-            if tid_row is None:
-                tid_row = await conn.execute(
+            count = existing.scalar_one()
+            if count == 0:
+                from finance_sync.services.auth import hash_password
+
+                # Create default tenant
+                tenant_id = await conn.execute(
                     text(
                         "INSERT INTO tenants (id, slug, name) "
                         "VALUES (gen_random_uuid(), 'default', "
                         "'Default Tenant') RETURNING id"
                     )
                 )
-                tid = tid_row.scalar_one()
-            else:
-                tid = tid_row
-
-            # Create admin user if not already present
-            existing_admin = await conn.execute(
-                text(
-                    "SELECT 1 FROM users "
-                    "WHERE email = 'admin@finance-sync.local'"
-                )
-            )
-            if existing_admin.scalar_one_or_none() is None:
-                from finance_sync.services.auth import hash_password
-
+                tid = tenant_id.scalar_one()
+                # Create admin user
                 pwd = hash_password("admin")
                 await conn.execute(
                     text(
@@ -112,7 +105,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
                         "display_name, role, is_active) "
                         "VALUES (gen_random_uuid(), :tid, "
                         " 'admin@finance-sync.local', :pwd, "
-                        " 'Admin', 'admin', true)"
+                        "'Admin', 'admin', true)"
                     ),
                     {"tid": tid, "pwd": pwd},
                 )
@@ -120,6 +113,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
                     "seeded_default_admin",
                     email="admin@finance-sync.local",
                 )
+            await conn.commit()
 
     async with container.dispose():
         yield  # app runs here
