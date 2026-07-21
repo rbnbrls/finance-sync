@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 import structlog
@@ -57,7 +58,8 @@ mcp = FastMCP(
         "MCP server for the finance-sync financial data platform. "
         "Provides read-only access to accounts, portfolio, transactions, "
         "and net worth data.  Tools allow triggering syncs, querying "
-        "financial summaries, and resolving security identifiers."
+        "financial summaries, AI-powered briefings, and resolving "
+        "security identifiers."
     ),
     lifespan=mcp_lifespan,
     host="0.0.0.0",
@@ -216,8 +218,114 @@ async def resource_net_worth(ctx: Context) -> str:
         await read_service._session.aclose()  # noqa: SLF001
 
 
+# ── Parameterised resources ─────────────────────────────────────────────
+
+
+@mcp.resource(
+    "finance://account/{account_id}",
+    name="account_detail",
+    title="Account Detail",
+    description="Detailed information about a single financial account.",
+    mime_type="application/json",
+)
+async def resource_account_detail(ctx: Context, account_id: str) -> str:
+    """Return detailed info about a single account.
+
+    URI: ``finance://account/{id}``
+
+    Returns a JSON object with account details including balance,
+    type, and metadata.
+    """
+    tenant_id = _get_tenant_id(ctx)
+    read_service = _get_read_service(ctx)
+    try:
+        result = await read_service.get_account(
+            tenant_id, account_id=account_id
+        )
+        if result is None:
+            return _serialise({"error": f"Account {account_id!r} not found"})
+        return _serialise(result.model_dump())
+    finally:
+        await read_service._session.aclose()  # noqa: SLF001
+
+
+@mcp.resource(
+    "finance://account/{account_id}/transactions",
+    name="account_transactions",
+    title="Account Transactions",
+    description="Recent transactions for a single account.",
+    mime_type="application/json",
+)
+async def resource_account_transactions(ctx: Context, account_id: str) -> str:
+    """Return recent transactions for a single account.
+
+    URI: ``finance://account/{account_id}/transactions``
+
+    Returns a JSON array of the 50 most recent transactions
+    for the specified account.
+    """
+    tenant_id = _get_tenant_id(ctx)
+    read_service = _get_read_service(ctx)
+    try:
+        result = await read_service.list_account_transactions(
+            tenant_id, account_id=account_id, limit=50
+        )
+        return _serialise(result.model_dump())
+    finally:
+        await read_service._session.aclose()  # noqa: SLF001
+
+
+@mcp.resource(
+    "finance://portfolio/history",
+    name="portfolio_history",
+    title="Portfolio History",
+    description="Portfolio value over time (daily aggregation).",
+    mime_type="application/json",
+)
+async def resource_portfolio_history(ctx: Context) -> str:
+    """Return portfolio value over time.
+
+    URI: ``finance://portfolio/history``
+
+    Returns a JSON array of daily portfolio values showing how
+    the total investment value has changed over time.
+    """
+    tenant_id = _get_tenant_id(ctx)
+    read_service = _get_read_service(ctx)
+    try:
+        result = await read_service.get_portfolio_history(tenant_id, limit=90)
+        return _serialise(result.model_dump())
+    finally:
+        await read_service._session.aclose()  # noqa: SLF001
+
+
+@mcp.resource(
+    "finance://net-worth/history",
+    name="net_worth_history",
+    title="Net Worth History",
+    description="Net worth over time "
+    "(daily aggregation using balance snapshots).",
+    mime_type="application/json",
+)
+async def resource_net_worth_history(ctx: Context) -> str:
+    """Return net worth over time.
+
+    URI: ``finance://net-worth/history``
+
+    Returns a JSON array of daily net worth entries (total assets,
+    total liabilities, net worth).
+    """
+    tenant_id = _get_tenant_id(ctx)
+    read_service = _get_read_service(ctx)
+    try:
+        result = await read_service.get_net_worth_history(tenant_id, limit=90)
+        return _serialise(result.model_dump())
+    finally:
+        await read_service._session.aclose()  # noqa: SLF001
+
+
 # ═════════════════════════════════════════════════════════════════════════
-# Tools
+# Tools — existing
 # ═════════════════════════════════════════════════════════════════════════
 
 
@@ -390,6 +498,206 @@ async def tool_resolve_security(ctx: Context, query: str) -> str:
             return _serialise(result.model_dump())
         finally:
             await read_service._session.aclose()  # noqa: SLF001
+
+
+# ═════════════════════════════════════════════════════════════════════════
+# Tools — new AI / data tools
+# ═════════════════════════════════════════════════════════════════════════
+
+
+@mcp.tool(
+    name="get_daily_briefing",
+    title="Get Daily Financial Briefing",
+    description=(
+        "Generate an AI-powered daily financial briefing "
+        "covering spending since yesterday, net worth changes, "
+        "portfolio highlights, and any unusual activity. "
+        "Requires the AI provider to be configured (AI_ENABLED=true)."
+    ),
+)
+async def tool_get_daily_briefing(
+    ctx: Context,
+    force_refresh: bool = False,
+) -> str:
+    """Generate a daily financial briefing."""
+    tenant_id = _get_tenant_id(ctx)
+    container = _get_container(ctx)
+
+    from finance_sync.services.ai_summary import AISummaryService as _AiSvc
+
+    async with container.session_factory() as session:
+        ai_service = _AiSvc(session=session, settings=container.settings)
+        try:
+            if not container.settings.ai_enabled:
+                return _serialise(
+                    {"error": "AI summaries are disabled (AI_ENABLED=false)"}
+                )
+
+            response = await ai_service.generate_daily_briefing(
+                tenant_id, force_refresh=force_refresh
+            )
+            return _serialise(response.to_dict())
+        finally:
+            await ai_service.close()
+
+
+@mcp.tool(
+    name="get_subscriptions",
+    title="Get Detected Subscriptions",
+    description=(
+        "Analyse recent transaction history to detect recurring "
+        "payments (subscriptions).  Returns a list of detected "
+        "candidates with merchant, amount, frequency, and confidence. "
+        "Requires the AI provider to be configured."
+    ),
+)
+async def tool_get_subscriptions(
+    ctx: Context,
+    force_refresh: bool = False,
+) -> str:
+    """Detect recurring payments from transaction history."""
+    tenant_id = _get_tenant_id(ctx)
+    container = _get_container(ctx)
+
+    from finance_sync.services.ai_summary import AISummaryService as _AiSvc
+
+    async with container.session_factory() as session:
+        ai_service = _AiSvc(session=session, settings=container.settings)
+        try:
+            if not container.settings.ai_enabled:
+                return _serialise(
+                    {"error": "AI summaries are disabled (AI_ENABLED=false)"}
+                )
+
+            response = await ai_service.get_subscriptions(
+                tenant_id, force_refresh=force_refresh
+            )
+            return _serialise(response.to_dict())
+        finally:
+            await ai_service.close()
+
+
+@mcp.tool(
+    name="get_performance",
+    title="Get Portfolio Performance",
+    description=(
+        "Compute portfolio performance returns over time. "
+        "Supports different periods and granularity.  Returns "
+        "time-series of portfolio value with period-over-period "
+        "return percentages."
+    ),
+)
+async def tool_get_performance(
+    ctx: Context,
+    period: str | None = None,
+    granularity: str = "1d",
+    currency: str = "EUR",
+) -> str:
+    """Compute portfolio performance returns."""
+    tenant_id = _get_tenant_id(ctx)
+    read_service = _get_read_service(ctx)
+    try:
+        result = await read_service.get_performance(
+            tenant_id,
+            period=period,
+            granularity=granularity,
+            currency=currency,
+        )
+        return _serialise(result.model_dump())
+    finally:
+        await read_service._session.aclose()  # noqa: SLF001
+
+
+@mcp.tool(
+    name="get_allocation",
+    title="Get Portfolio Allocation",
+    description=(
+        "Get portfolio allocation breakdown by asset class "
+        "(security type).  Returns category-level breakdown "
+        "with percentages and values."
+    ),
+)
+async def tool_get_allocation(
+    ctx: Context,
+    by: str = "asset_class",
+) -> str:
+    """Get portfolio allocation breakdown."""
+    tenant_id = _get_tenant_id(ctx)
+    read_service = _get_read_service(ctx)
+    try:
+        result = await read_service.get_allocation(tenant_id, by=by)
+        return _serialise(result.model_dump())
+    finally:
+        await read_service._session.aclose()  # noqa: SLF001
+
+
+@mcp.tool(
+    name="get_cashflow",
+    title="Get Cashflow Summary",
+    description=(
+        "Aggregate income and expenses by transaction type "
+        "for a specified period.  Returns category-level "
+        "breakdown with total income, expenses, and net."
+    ),
+)
+async def tool_get_cashflow(
+    ctx: Context,
+    period: str | None = None,
+) -> str:
+    """Aggregate income and expenses."""
+    tenant_id = _get_tenant_id(ctx)
+    read_service = _get_read_service(ctx)
+    try:
+        # Compute sensible default date range if no period given
+        date_to = datetime.now(UTC)
+        if not period:
+            date_from = date_to - timedelta(days=30)
+        elif period.endswith("d"):
+            date_from = date_to - timedelta(days=int(period[:-1]))
+        elif period.endswith("m"):
+            date_from = date_to - timedelta(days=int(period[:-1]) * 30)
+        elif period.endswith("y"):
+            date_from = date_to - timedelta(days=int(period[:-1]) * 365)
+        else:
+            date_from = date_to - timedelta(days=30)
+
+        result = await read_service.get_cashflow(
+            tenant_id,
+            date_from=date_from,
+            date_to=date_to,
+            period=period,
+        )
+        return _serialise(result.model_dump())
+    finally:
+        await read_service._session.aclose()  # noqa: SLF001
+
+
+@mcp.tool(
+    name="list_sync_runs",
+    title="List Sync Runs",
+    description=(
+        "List recent sync run history with optional filtering "
+        "by connector and status.  Returns sync runs with "
+        "start/completion times, items processed, and errors."
+    ),
+)
+async def tool_list_sync_runs(
+    ctx: Context,
+    limit: int = 20,
+    connector: str | None = None,
+    status: str | None = None,
+) -> str:
+    """List recent sync run history."""
+    read_service = _get_read_service(ctx)
+    try:
+        result = await read_service.list_sync_runs(
+            limit=limit,
+            connector=connector,
+            status=status,
+        )
+        return _serialise(result.model_dump())
+    finally:
+        await read_service._session.aclose()  # noqa: SLF001
 
 
 # ═════════════════════════════════════════════════════════════════════════
