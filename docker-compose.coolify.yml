@@ -28,6 +28,9 @@ services:
       timeout: 5s
       start_period: 30s
       retries: 3
+    networks:
+      - coolify
+      - default
 
   worker:
     build:
@@ -44,3 +47,11 @@ services:
       timeout: 5s
       start_period: 30s
       retries: 3
+    networks:
+      - coolify
+      - default
+
+networks:
+  coolify:
+    name: coolify
+    external: true
