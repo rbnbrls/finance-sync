@@ -324,7 +324,9 @@ class Settings(BaseSettings):
         ge=0,
         le=20,
         validation_alias="WEBHOOK_MAX_RETRIES",
-        description="Max webhook delivery retry attempts (exponential backoff).",
+        description=(
+            "Max webhook delivery retry attempts (exponential backoff)."
+        ),
     )
     webhook_retry_base_delay_s: float = Field(
         default=10.0,
@@ -359,7 +361,10 @@ class Settings(BaseSettings):
     ai_model: str = Field(
         default="gpt-4o",
         validation_alias="AI_MODEL",
-        description="Model name for AI summary generation (e.g. gpt-4o, claude-sonnet-4).",
+        description=(
+            "Model name for AI summary generation"
+            " (e.g. gpt-4o, claude-sonnet-4)."
+        ),
     )
     ai_base_url: str | None = Field(
         default=None,

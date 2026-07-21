@@ -31,12 +31,12 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 
-from finance_sync.exporter.config import ActualBudgetConfig
-
 if TYPE_CHECKING:
     import datetime as dt
 
     from actual import Actual
+
+    from finance_sync.exporter.config import ActualBudgetConfig
 
 log = structlog.get_logger("finance_sync.exporter.client")
 

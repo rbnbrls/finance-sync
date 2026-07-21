@@ -112,7 +112,7 @@ async def login(
     body: LoginRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
-) -> dict[str, Any]:
+) -> LoginResponse:
     """Authenticate with email + password, receive JWT tokens."""
     container = get_container(request)
     settings = container.settings
@@ -160,7 +160,7 @@ async def login(
 async def refresh(
     body: RefreshRequest,
     request: Request,
-) -> dict[str, Any]:
+) -> RefreshResponse:
     """Exchange a valid refresh token for a new access + refresh pair."""
     container = get_container(request)
     settings = container.settings
@@ -196,7 +196,7 @@ async def refresh(
 @router.get("/me", response_model=MeResponse)
 async def me(
     user: UserModel = Depends(get_current_user),
-) -> dict[str, Any]:
+) -> MeResponse:
     """Return the currently authenticated user's profile."""
     from finance_sync.services.auth import ROLE_PERMISSIONS
 
@@ -219,7 +219,7 @@ async def create_api_key(
     request: Request,  # noqa: ARG001
     auth: AuthContext = Depends(require_role("admin")),
     db: AsyncSession = Depends(get_db),
-) -> dict[str, Any]:
+) -> CreateAPIKeyResponse:
     """Create a new API key for machine-to-machine access.
 
     Requires ``admin`` role.  The raw key is returned exactly once.
@@ -274,7 +274,7 @@ async def delete_api_key(
 async def list_api_keys(
     auth: AuthContext = Depends(require_role("admin")),
     db: AsyncSession = Depends(get_db),
-) -> list[dict[str, Any]]:
+) -> list[APIKeyResponse]:
     """List all API keys for the current tenant."""
     result = await db.execute(
         select(ApiKey).where(ApiKey.tenant_id == auth.tenant_id)

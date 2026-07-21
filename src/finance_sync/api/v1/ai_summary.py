@@ -4,16 +4,18 @@ NOTE: ``from __future__ import annotations`` is intentionally omitted
 because FastAPI needs runtime type introspection for OpenAPI generation.
 """
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from finance_sync.api.deps.auth import AuthContext, require_permission
 from finance_sync.api.middleware.ai_rate_limit import check_ai_rate_limit
-from finance_sync.config.settings import Settings
 from finance_sync.dependencies import get_db, get_settings
 from finance_sync.services.ai_summary import AISummaryService
+
+if TYPE_CHECKING:
+    from finance_sync.config.settings import Settings
 
 router = APIRouter(prefix="/ai", tags=["ai-summary"])
 
@@ -27,7 +29,10 @@ def _require_ai_enabled(request: Request) -> None:
     if not settings.ai_enabled:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="AI summary features are disabled. Set AI_ENABLED=true to enable.",
+            detail=(
+                "AI summary features are disabled."
+                " Set AI_ENABLED=true to enable."
+            ),
         )
 
 

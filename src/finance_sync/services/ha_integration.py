@@ -7,12 +7,14 @@ last sync time, sync health) as a Home Assistant REST sensor endpoint.
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from decimal import Decimal
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import structlog
 
 from finance_sync.services.read_api import ReadService
+
+if TYPE_CHECKING:
+    from decimal import Decimal
 
 logger = structlog.get_logger(__name__)
 

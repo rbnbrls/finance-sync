@@ -31,6 +31,7 @@ from fastapi.testclient import TestClient
 
 from finance_sync.app import create_app
 from finance_sync.config.settings import Settings
+from finance_sync.dependencies import get_db
 
 # ── Test helpers ──────────────────────────────────────────────────────
 
@@ -38,7 +39,7 @@ _TEST_SECRET = "test-secret-key-at-least-16-chars"
 _API_KEY_TOKEN = "test-api-key-0123456789abcdef"
 
 
-def _auth_header(token: str = _API_KEY_TOKEN) -> dict[str, str]:
+def _auth_header(token: str = _API_KEY_TOKEN) -> dict[str, str]:  # type: ignore[reportUnusedFunction]
     return {"Authorization": f"Bearer {token}"}
 
 
@@ -54,6 +55,8 @@ def settings() -> Settings:
         ai_provider="openai",
         ai_api_key="sk-test-key",
         ai_model="gpt-4o",
+        database_url=None,
+        redis_url=None,
     )
 
 
@@ -63,6 +66,8 @@ def settings_ai_disabled() -> Settings:
         secret_key=_TEST_SECRET,
         ai_enabled=False,
         ha_enabled=True,
+        database_url=None,
+        redis_url=None,
     )
 
 
@@ -72,22 +77,30 @@ def settings_ha_disabled() -> Settings:
         secret_key=_TEST_SECRET,
         ai_enabled=True,
         ha_enabled=False,
+        database_url=None,
+        redis_url=None,
     )
 
 
 @pytest.fixture
 def app(settings: Settings) -> FastAPI:
-    return create_app(settings=settings)
+    app = create_app(settings=settings)
+    app.dependency_overrides[get_db] = lambda: AsyncMock()
+    return app
 
 
 @pytest.fixture
 def app_ai_disabled(settings_ai_disabled: Settings) -> FastAPI:
-    return create_app(settings=settings_ai_disabled)
+    app = create_app(settings=settings_ai_disabled)
+    app.dependency_overrides[get_db] = lambda: AsyncMock()
+    return app
 
 
 @pytest.fixture
 def app_ha_disabled(settings_ha_disabled: Settings) -> FastAPI:
-    return create_app(settings=settings_ha_disabled)
+    app = create_app(settings=settings_ha_disabled)
+    app.dependency_overrides[get_db] = lambda: AsyncMock()
+    return app
 
 
 @pytest.fixture
@@ -486,7 +499,7 @@ class TestHomeAssistantService:
             )
         )
 
-        # Mock sync run query — first call returns a sync_run, second returns count
+        # Mock sync run query — returns sync_run then count
 
         mock_run = MagicMock()
         mock_run.status = "completed"

@@ -65,7 +65,7 @@ async def list_unresolved(
     provider_key: str | None = None,
     limit: int = 100,
     offset: int = 0,
-) -> dict[str, Any]:
+) -> UnresolvedListResponse:
     """List securities that could not be auto-resolved and need
     human attention.  Optionally filter by provider_key.
 
@@ -112,7 +112,7 @@ async def list_all_unresolved(
     provider_key: str | None = None,
     limit: int = 100,
     offset: int = 0,
-) -> dict[str, Any]:
+) -> UnresolvedListResponse:
     """List ALL securities that entered the manual queue, including
     those already resolved.  Optionally filter by provider_key.
     """
@@ -154,7 +154,7 @@ async def list_all_unresolved(
 async def resolve_security(
     body: ResolveRequest,
     request: Request,
-) -> dict[str, Any]:
+) -> ManualResolveResponse:
     """Manually resolve an unresolved security by linking it to
     a canonical Security record.
 
@@ -190,7 +190,7 @@ async def resolve_security(
 async def map_security(
     body: MapRequest,
     request: Request,
-) -> dict[str, Any]:
+) -> MapResponse:
     """Map a specific incoming security (by provider key + external ID)
     to a canonical security record.
 
@@ -227,7 +227,7 @@ async def list_audit_log(
     request: Request,
     target_security_id: str | None = None,
     limit: int = 100,
-) -> dict[str, Any]:
+) -> AuditLogListResponse:
     """List resolution audit log entries, optionally filtered by
     target security.
     """

@@ -26,6 +26,7 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
     from finance_sync.config.settings import Settings
+    from finance_sync.models.outbox import OutboxMessage
     from finance_sync.models.webhook import Webhook, WebhookDeliveryLog
 
 logger = structlog.get_logger("finance_sync.services.webhook")
@@ -47,7 +48,8 @@ class _SlidingWindowCounter:
     def is_allowed(
         self, key: str, max_per_window: int, window_s: float = 60.0
     ) -> bool:
-        """Check if *key* has exceeded *max_per_window* in *window_s* seconds."""
+        """Check if *key* has exceeded *max_per_window* in *window_s*
+        seconds."""
         now = time.monotonic()
         cutoff = now - window_s
         timestamps = self._windows.get(key, [])
@@ -230,8 +232,6 @@ class WebhookService:
         its own sessions for webhook dispatch (avoiding long-lived
         transactions in the publisher loop).
         """
-        from finance_sync.models.outbox import OutboxMessage
-
         msg: OutboxMessage = message  # type: ignore[assignment]
         count = await self.dispatch_event(
             event_type=msg.event_type,
@@ -515,7 +515,9 @@ class WebhookService:
                             update(LogModel)
                             .where(LogModel.id == row.id)  # type: ignore[attr-defined]
                             .values(
-                                error_message="Webhook no longer active; retry cancelled"
+                                error_message=(
+                                    "Webhook no longer active; retry cancelled"
+                                )
                             )
                         )
                         await s.execute(stmt_upd)
@@ -592,7 +594,8 @@ class WebhookService:
         event_id: str | None = None,
         tenant_id: str | None = None,
     ) -> int:
-        """One-shot convenience: create a service instance, dispatch, and return.
+        """One-shot convenience: create a service instance, dispatch,
+        and return.
 
         Useful for direct calls from other services that want to fire a
         webhook event without going through the outbox.

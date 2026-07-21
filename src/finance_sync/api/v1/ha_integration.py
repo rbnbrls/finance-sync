@@ -4,13 +4,17 @@ NOTE: ``from __future__ import annotations`` is intentionally omitted
 because FastAPI needs runtime type introspection for OpenAPI generation.
 """
 
+from typing import TYPE_CHECKING
+
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from finance_sync.api.deps.auth import AuthContext, require_permission
-from finance_sync.config.settings import Settings
 from finance_sync.dependencies import get_db, get_settings
 from finance_sync.services.ha_integration import HomeAssistantService
+
+if TYPE_CHECKING:
+    from finance_sync.config.settings import Settings
 
 router = APIRouter(prefix="/ha", tags=["home-assistant"])
 
@@ -24,7 +28,10 @@ def _require_ha_enabled(request: Request) -> None:
     if not settings.ha_enabled:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Home Assistant integration is disabled. Set HA_ENABLED=true to enable.",
+            detail=(
+                "Home Assistant integration is disabled."
+                " Set HA_ENABLED=true to enable."
+            ),
         )
 
 

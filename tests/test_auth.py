@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
+from unittest.mock import AsyncMock
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -23,6 +24,7 @@ from finance_sync.api.deps.auth import (
 )
 from finance_sync.app import create_app
 from finance_sync.config.settings import Settings
+from finance_sync.dependencies import get_db
 from finance_sync.services.auth import (
     ROLE_PERMISSIONS,
     create_access_token,
@@ -50,12 +52,22 @@ def settings() -> Settings:
         access_token_expire_minutes=15,
         refresh_token_expire_days=7,
         master_encryption_key="a" * 64,  # 32 hex bytes = 32 bytes
+        database_url=None,
+        redis_url=None,
     )
 
 
 @pytest.fixture
-def app(settings: Settings) -> FastAPI:
-    return create_app(settings=settings)
+def mock_db() -> AsyncMock:
+    """Return a mock DB session for dependency override."""
+    return AsyncMock()
+
+
+@pytest.fixture
+def app(settings: Settings, mock_db: AsyncMock) -> FastAPI:
+    app = create_app(settings=settings)
+    app.dependency_overrides[get_db] = lambda: mock_db
+    return app
 
 
 @pytest.fixture

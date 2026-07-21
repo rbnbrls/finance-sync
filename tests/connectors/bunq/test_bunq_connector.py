@@ -268,7 +268,7 @@ class TestBunqConnectorAuth:
         bunq_connector: BunqConnector,
         bunq_mock_transport: BunqApiMockTransport,
     ) -> None:
-        """After authenticate, the connector should have a session token and user ID."""
+        """After auth, connector should have session token and user ID."""
         assert bunq_connector._session_token is None
         assert bunq_connector._user_id is None
 
@@ -354,7 +354,7 @@ class TestBunqConnectorPaginationHelpers:
 
         data = {
             "Pagination": {
-                "future_url": "/v1/user/54321/monetary-account?count=200&newer_id=1000001"
+                "future_url": "/v1/user/54321/monetary-account?newer_id=1000001"
             }
         }
         url = BunqConnector._next_page_url(data)
@@ -553,7 +553,7 @@ class TestBunqConnectorErrorHandling:
         bunq_connector: BunqConnector,
         bunq_mock_transport: BunqApiMockTransport,
     ) -> None:
-        """After auth succeeds, request errors should be classified correctly."""
+        """After auth succeeds, request errors classified correctly."""
         await bunq_connector.authenticate()
 
         # We can't easily inject errors mid-session with the mock transport,

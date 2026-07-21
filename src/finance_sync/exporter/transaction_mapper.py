@@ -72,7 +72,7 @@ def map_transaction(
     }
 
 
-def map_transaction_to_csv_row(txn: FsTransaction) -> dict[str, str]:
+def map_transaction_to_csv_row(txn: FsTransaction) -> dict[str, str | None]:
     """Map a canonical transaction to a CSV row compatible with AB import.
 
     Returns a dict with keys ``Date``, ``Payee``, ``Category``,
@@ -138,9 +138,8 @@ def _build_notes(txn: FsTransaction) -> str | None:
         parts.append(fx_info)
 
     # Transaction type hint for investment transactions
-    if txn.transaction_type in ("sale", "dividend", "fee"):
-        if txn.security_id:
-            parts.append(f"Type: {txn.transaction_type}")
+    if txn.transaction_type in ("sale", "dividend", "fee") and txn.security_id:
+        parts.append(f"Type: {txn.transaction_type}")
 
     # Provider fingerprint
     if txn.provider_fingerprint:
@@ -173,7 +172,7 @@ def _cents(amount: Decimal) -> int:
     value * 100 (for most currencies).  This conversion handles that.
     """
     cents = amount * 100
-    return int(cents.quantize(Decimal("1")))
+    return int(cents.quantize(Decimal(1)))
 
 
 def _as_date(dt: datetime) -> date:

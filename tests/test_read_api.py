@@ -31,6 +31,7 @@ from fastapi.testclient import TestClient
 
 from finance_sync.app import create_app
 from finance_sync.config.settings import Settings
+from finance_sync.dependencies import get_db
 from finance_sync.services.read_api import ReadService
 
 # ── Test helpers ──────────────────────────────────────────────────────
@@ -59,12 +60,16 @@ def settings() -> Settings:
     return Settings(
         secret_key=_TEST_SECRET,
         access_token_expire_minutes=15,
+        database_url=None,
+        redis_url=None,
     )
 
 
 @pytest.fixture
 def app(settings: Settings) -> FastAPI:
-    return create_app(settings=settings)
+    app = create_app(settings=settings)
+    app.dependency_overrides[get_db] = lambda: AsyncMock()
+    return app
 
 
 @pytest.fixture

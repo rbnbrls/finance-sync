@@ -37,7 +37,10 @@ class Webhook(Base):
         JSONB,
         nullable=False,
         default=list,
-        comment="List of event types this webhook subscribes to, e.g. ['sync.completed']",
+        comment=(
+            "List of event types this webhook subscribes to,"
+            " e.g. ['sync.completed']"
+        ),
     )
     is_active: Mapped[bool] = mapped_column(
         Boolean, default=True, nullable=False
@@ -105,7 +108,9 @@ class WebhookDeliveryLog(Base):
     next_retry_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
-        comment="When to retry next (null if max attempts reached or delivered)",
+        comment=(
+            "When to retry next (null if max attempts reached or delivered)"
+        ),
     )
 
     response_status_code: Mapped[int | None] = mapped_column(

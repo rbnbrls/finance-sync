@@ -15,11 +15,12 @@ from typing import TYPE_CHECKING, Any
 import httpx
 import structlog
 
-from finance_sync.config.settings import Settings
 from finance_sync.services.read_api import ReadService
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
+
+    from finance_sync.config.settings import Settings
 
 logger = structlog.get_logger(__name__)
 
@@ -27,7 +28,8 @@ logger = structlog.get_logger(__name__)
 
 _PROMPT_SUMMARY = (
     "You are a personal finance assistant. Given the following financial "
-    "data for a user, write a concise natural-language summary (max {max_length} "
+    "data for a user, write a concise natural-language summary "
+    "(max {max_length} "
     "words) covering their recent activity: total spending, income, "
     "portfolio performance, and notable account changes. "
     "Use a professional but friendly tone. Do not use markdown formatting.\n\n"
@@ -412,7 +414,10 @@ class AISummaryService:
             return await self._call_openai(secret, prompt)
         if provider == "anthropic":
             return await self._call_anthropic(secret, prompt)
-        msg = f"Unsupported AI provider: {provider!r} (expected 'openai' or 'anthropic')"
+        msg = (
+            f"Unsupported AI provider: {provider!r}"
+            " (expected 'openai' or 'anthropic')"
+        )
         raise ValueError(msg)
 
     async def _call_openai(self, api_key: str, prompt: str) -> tuple[str, str]:

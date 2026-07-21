@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock
 
@@ -50,7 +50,7 @@ def sample_price_observations() -> list[PriceObservation]:
     return [
         PriceObservation(
             security_id="sec_uuid_abc123",
-            timestamp=base + (i * 86400),  # +i days
+            timestamp=base + timedelta(seconds=i * 86400),  # +i days
             price_open=Decimal(f"{190 + i}.50"),
             price_high=Decimal(f"{195 + i}.80"),
             price_low=Decimal(f"{189 + i}.20"),

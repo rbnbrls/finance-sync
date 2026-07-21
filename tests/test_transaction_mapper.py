@@ -74,13 +74,13 @@ class TestCents:
         assert _cents(Decimal("-42.50")) == -4250
 
     def test_zero(self) -> None:
-        assert _cents(Decimal("0")) == 0
+        assert _cents(Decimal(0)) == 0
 
     def test_large_amount(self) -> None:
         assert _cents(Decimal("1234567.89")) == 123456789
 
     def test_no_decimal(self) -> None:
-        assert _cents(Decimal("100")) == 10000
+        assert _cents(Decimal(100)) == 10000
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -94,7 +94,7 @@ class TestAsDate:
         assert _as_date(dt).isoformat() == "2025-06-15"
 
     def test_naive_datetime(self) -> None:
-        dt = datetime(2025, 6, 15, 12, 30)
+        dt = datetime(2025, 6, 15, 12, 30, tzinfo=UTC)
         assert _as_date(dt).isoformat() == "2025-06-15"
 
 
@@ -242,4 +242,4 @@ class TestMapTransactionToCsvRow:
             fx_rate=Decimal("0.91"),
         )
         row = map_transaction_to_csv_row(txn)
-        assert "FX:" in row["Notes"]
+        assert row["Notes"] is not None and "FX:" in row["Notes"]

@@ -111,7 +111,7 @@ def apply_all_cleansing(instrument: dict[str, Any]) -> dict[str, Any]:
 # ── Similarity scoring helpers ──────────────────────────────────────────
 
 
-def _token_sort_key(name: str) -> str:
+def _token_sort_key(name: str) -> str:  # type: ignore[reportUnusedFunction]
     """Normalise a name for comparison: lowercase, sort tokens."""
     tokens = re.findall(r"[a-z0-9]+", name.lower())
     tokens.sort()

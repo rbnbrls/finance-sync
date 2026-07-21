@@ -360,7 +360,7 @@ class TestIdentityResolutionService:
         assert mock_uow.unresolved_securities.add.called
 
     async def test_stage4_updates_existing(self, service, mock_uow):
-        """Stage 4 updates an existing unresolved record instead of duplicating."""
+        """Stage 4 updates existing unresolved record instead of duplicating."""
         existing = MagicMock(spec=UnresolvedSecurity)
         existing.external_security_id = "EXT001"
         existing.provider_key = "trading212"
@@ -421,7 +421,7 @@ class TestIdentityResolutionService:
             identifier="TICK", identifier_type="ticker", reason="Not found"
         )
 
-        mock_uow.securities.list.return_value = []  # no securities for fuzzy match
+        mock_uow.securities.list.return_value = []
         mock_uow.security_listings.list.return_value = []  # no listings match
         mock_uow.resolution_audit_log.add = AsyncMock()
         mock_uow.unresolved_securities.list.return_value = []
@@ -446,7 +446,7 @@ class TestIdentityResolutionService:
     # ── Manual resolution ──────────────────────────────────────────
 
     async def test_manually_resolve_success(self, service, mock_uow):
-        """Manual resolution links unresolved to canonical and creates audit entry."""
+        """Manually resolve unresolved to canonical and create audit."""
         unresolved = MagicMock(spec=UnresolvedSecurity)
         unresolved.id = "unres_001"
         unresolved.external_security_id = "EXT001"

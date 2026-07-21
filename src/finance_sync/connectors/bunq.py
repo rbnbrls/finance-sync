@@ -395,6 +395,9 @@ class BunqConnector(Connector):
             return None
         future_url = pagination.get("future_url")
         if future_url:
+            # bunq returns future_url as an absolute path (/v1/...).
+            # Strip leading /v1 since _BUNQ_API_BASE already includes it.
+            future_url = future_url.removeprefix("/v1")
             return f"{_BUNQ_API_BASE}{future_url}"
         return None
 

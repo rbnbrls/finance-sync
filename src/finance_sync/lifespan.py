@@ -59,9 +59,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
 
         async with container.engine.begin() as conn:
             # Enable pgcrypto extension (needed for gen_random_uuid())
-            await conn.execute(
-                text("CREATE EXTENSION IF NOT EXISTS pgcrypto")
-            )
+            await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pgcrypto"))
             await conn.run_sync(Base.metadata.create_all)
             # Stamp alembic version so future migrations see a known
             # baseline
@@ -80,9 +78,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
                 {"head": ALEMBIC_HEAD},
             )
             # ── Seed default admin user if none exists ──────────────
-            existing = await conn.execute(
-                text("SELECT COUNT(*) FROM users")
-            )
+            existing = await conn.execute(text("SELECT COUNT(*) FROM users"))
             count = existing.scalar_one()
             if count == 0:
                 from finance_sync.services.auth import hash_password

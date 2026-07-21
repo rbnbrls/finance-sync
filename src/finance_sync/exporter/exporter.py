@@ -36,7 +36,10 @@ from finance_sync.exporter.client import (
     ActualBudgetClient,
     ActualBudgetConnectionError,
 )
-from finance_sync.exporter.config import ActualBudgetConfig
+
+if TYPE_CHECKING:
+    from finance_sync.exporter.config import ActualBudgetConfig
+
 from finance_sync.exporter.models import (
     ActualBudgetAccountMapping,
     ExportRun,
@@ -176,7 +179,7 @@ class ActualBudgetExporter:
         try:
             # ── Connect to AB ─────────────────────────────────────
             client = ActualBudgetClient(self._ab_config)
-            async with client as ab:
+            async with client:
                 log.info("ab_connected")
 
                 # ── Resolve account mappings ──────────────────────
@@ -438,7 +441,8 @@ class ActualBudgetExporter:
         session: AsyncSession,
         transaction_ids: list[str],
     ) -> None:
-        """Mark transactions as exported (no-op for now, reserved for future use).
+        """Mark transactions as exported (no-op for now, reserved for
+        future use).
 
         In a future iteration this could set an ``exported_at`` timestamp
         on each transaction or write to a join table.  Currently the
@@ -446,6 +450,7 @@ class ActualBudgetExporter:
         explicit marking is optional.
         """
         # Placeholder — dedup is handled by AB's imported_id mechanism
+        _ = session
         _ = transaction_ids  # noqa: RUF100 (placeholder)
 
     async def _write_csv(
