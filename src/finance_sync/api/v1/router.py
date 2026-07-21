@@ -14,6 +14,7 @@ from finance_sync.api.v1.portfolio import router as portfolio_router
 from finance_sync.api.v1.root import router as root_router
 from finance_sync.api.v1.securities import router as securities_router
 from finance_sync.api.v1.sync_runs import router as sync_runs_router
+from finance_sync.api.v1.webhooks import router as webhooks_router
 
 router = APIRouter()
 router.include_router(root_router)
@@ -26,3 +27,4 @@ router.include_router(ha_integration_router)
 router.include_router(portfolio_router)
 router.include_router(net_worth_router)
 router.include_router(sync_runs_router)
+router.include_router(webhooks_router)

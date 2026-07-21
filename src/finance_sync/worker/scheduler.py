@@ -21,6 +21,7 @@ from finance_sync.worker.jobs import (
     enrich_prices_job,
     nightly_reconciliation_job,
     process_outbox_job,
+    process_webhook_retries_job,
     sync_bunq_job,
     sync_trading212_job,
 )
@@ -259,6 +260,19 @@ class WorkerScheduler:
                 self._make_monitored_job(
                     "process_outbox",
                     process_outbox_job,
+                ),
+                trigger=IntervalTrigger(
+                    seconds=settings.worker_job_outbox_interval_seconds,
+                ),
+            )
+
+        # ── Webhook retry job ─────────────────────────────────────
+        if settings.worker_job_outbox_enabled:
+            self._add_job(
+                "process_webhook_retries",
+                self._make_monitored_job(
+                    "process_webhook_retries",
+                    process_webhook_retries_job,
                 ),
                 trigger=IntervalTrigger(
                     seconds=settings.worker_job_outbox_interval_seconds,

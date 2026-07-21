@@ -23,6 +23,8 @@ from finance_sync.db.repositories import (
     TransactionRepository,
     UnresolvedSecurityRepository,
     UserRepository,
+    WebhookDeliveryLogRepository,
+    WebhookRepository,
 )
 
 if TYPE_CHECKING:
@@ -111,6 +113,14 @@ class UnitOfWork:
     @property
     def resolution_audit_log(self) -> ResolutionAuditLogRepository:
         return self._repo("resolution_audit_log", ResolutionAuditLogRepository)  # type: ignore[return-value]
+
+    @property
+    def webhooks(self) -> WebhookRepository:
+        return self._repo("webhooks", WebhookRepository)  # type: ignore[return-value]
+
+    @property
+    def webhook_delivery_logs(self) -> WebhookDeliveryLogRepository:
+        return self._repo("webhook_delivery_logs", WebhookDeliveryLogRepository)  # type: ignore[return-value]
 
     # ── Lifecycle ────────────────────────────────────────────────────
 

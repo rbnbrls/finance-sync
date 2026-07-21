@@ -392,11 +392,34 @@ async def nightly_reconciliation_job(container: Container) -> dict[str, Any]:
     return {"status": "completed", "results": results}
 
 
+async def process_webhook_retries_job(container: Container) -> dict[str, Any]:
+    """Retry failed webhook deliveries whose retry time has arrived.
+
+    Runs periodically alongside the outbox consumer.
+    """
+    from finance_sync.services.webhook import WebhookService
+
+    svc = WebhookService(
+        session_factory=container.session_factory,
+        settings=container.settings,
+    )
+    try:
+        retried = await svc.retry_due_deliveries()
+        logger.info("webhook_retry_job_complete", retried=retried)
+        return {"retried": retried}
+    except Exception:
+        tb = traceback.format_exc()
+        logger.error("webhook_retry_job_failed", error=tb[:500])
+        raise
+    finally:
+        await svc.close()
+
+
 async def process_outbox_job(container: Container) -> dict[str, Any]:
     """Process pending outbox messages.
 
     Runs every 30 seconds.  Dispatches pending outbox messages to
-    registered handlers.
+    registered handlers including webhooks.
     """
     log = logger.bind()
     publisher = OutboxPublisher(
@@ -404,6 +427,15 @@ async def process_outbox_job(container: Container) -> dict[str, Any]:
         poll_interval=5.0,
         batch_size=50,
     )
+
+    # Register webhook handler (catch-all — it filters internally)
+    from finance_sync.services.webhook import WebhookService
+
+    webhook_svc = WebhookService(
+        session_factory=container.session_factory,
+        settings=container.settings,
+    )
+    publisher.register_handler("*", webhook_svc.handle_outbox_message)
 
     try:
         processed = await publisher.run_once()
@@ -413,3 +445,5 @@ async def process_outbox_job(container: Container) -> dict[str, Any]:
         tb = traceback.format_exc()
         log.error("outbox_job_failed", error=tb[:500])
         raise
+    finally:
+        await webhook_svc.close()

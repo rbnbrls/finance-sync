@@ -1,0 +1,69 @@
+[project]
+name = "finance-sync-sdk"
+version = "0.1.0"
+description = "Plugin SDK for finance-sync — build third-party connectors and exporters"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [
+    { name = "rbnbrls", email = "3826339+rbnbrls@users.noreply.github.com" },
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Financial and Insurance Industry",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+keywords = ["finance", "sync", "plugin", "sdk", "connector"]
+
+dependencies = [
+    "pydantic>=2.10",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.25",
+    "pytest-cov>=6.0",
+    "ruff>=0.9",
+]
+
+[project.entry-points."finance_sync_sdk.plugins"]
+# Third-party plugins register here:
+# mybank = "mybank_finance_sync:MyBankPlugin"
+
+[project.urls]
+Homepage = "https://github.com/rbnbrls/finance-sync"
+Source = "https://github.com/rbnbrls/finance-sync"
+Documentation = "https://github.com/rbnbrls/finance-sync/blob/main/docs/plugin-development.md"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "N", "UP", "B", "SIM", "ARG", "RUF", "ASYNC"]
+ignore = ["RUF012", "COM812", "ISC001"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["T20", "D", "ARG"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"

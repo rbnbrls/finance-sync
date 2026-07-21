@@ -122,3 +122,22 @@ class UserRole(StrEnum):
     USER = "user"
     READONLY = "readonly"
     VIEWER = "viewer"
+
+
+class WebhookEventType(StrEnum):
+    """Event types that can trigger webhook notifications."""
+
+    SYNC_COMPLETED = "sync.completed"
+    SYNC_FAILED = "sync.failed"
+    TRANSACTION_NEW = "transaction.new"
+    PRICE_UPDATED = "price.updated"
+    NETWORTH_CHANGED = "networth.changed"
+
+
+class WebhookDeliveryStatus(StrEnum):
+    """Delivery state of a webhook notification."""
+
+    PENDING = "pending"
+    DELIVERED = "delivered"
+    FAILED = "failed"
+    RATE_LIMITED = "rate_limited"

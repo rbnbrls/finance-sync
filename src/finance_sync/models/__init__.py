@@ -13,11 +13,7 @@ Usage
 
 from __future__ import annotations
 
-# Exporter ORM models — imported here so Alembic autogenerate can find them
-from finance_sync.exporter.models import (
-    ActualBudgetAccountMapping,
-    ExportRun,
-)
+# Core models — imported eagerly (no circular deps with finance_sync.models)
 from finance_sync.models.account import Account
 from finance_sync.models.api_key import ApiKey
 from finance_sync.models.balance import Balance
@@ -35,6 +31,8 @@ from finance_sync.models.enums import (
     TransactionStatus,
     TransactionType,
     UserRole,
+    WebhookDeliveryStatus,
+    WebhookEventType,
 )
 from finance_sync.models.holding import Holding
 from finance_sync.models.mixins import TenantAwareMixin, TimestampMixin
@@ -48,40 +46,91 @@ from finance_sync.models.tenant import Tenant
 from finance_sync.models.transaction import Transaction
 from finance_sync.models.unresolved_security import UnresolvedSecurity
 from finance_sync.models.user import User
+from finance_sync.models.webhook import Webhook, WebhookDeliveryLog
+
+# ── Lazy exporter model registration ─────────────────────────────────
+# These are imported lazily so that finance_sync.exporter.exporter
+# (which imports finance_sync.models) does not create a circular dep.
+# They are still registered on Base.metadata for Alembic autogenerate;
+# call ensure_exporter_models_loaded() at startup or in Alembic env.py.
+
+_actual_budget_account_mapping: type | None = None
+_export_run: type | None = None
+
+
+def ensure_exporter_models_loaded() -> None:
+    """Eagerly import exporter ORM models so they register on
+    ``Base.metadata`` for Alembic autogenerate detection.
+
+    Safe to call multiple times.
+    """
+    global _actual_budget_account_mapping, _export_run
+    if _actual_budget_account_mapping is None:
+        from finance_sync.exporter.models import (  # register side-effect
+            ActualBudgetAccountMapping,
+            ExportRun,
+        )
+
+        _actual_budget_account_mapping = ActualBudgetAccountMapping
+        _export_run = ExportRun
+
+
+def __getattr__(name: str) -> object:
+    """Support ``from finance_sync.models import ActualBudgetAccountMapping``
+    and ``ExportRun`` even though they are loaded lazily.
+
+    This makes the API transparent to callers — they don't need to know
+    whether a model is loaded eagerly or lazily.
+    """
+    if name == "ActualBudgetAccountMapping":
+        ensure_exporter_models_loaded()
+        if _actual_budget_account_mapping is not None:
+            return _actual_budget_account_mapping
+    if name == "ExportRun":
+        ensure_exporter_models_loaded()
+        if _export_run is not None:
+            return _export_run
+    msg = f"module {__name__!r} has no attribute {name!r}"
+    raise AttributeError(msg)
+
 
 __all__ = [
     # Models
     "Account",
+    # Enums
+    "AccountType",
     "ActualBudgetAccountMapping",
     "ApiKey",
     "Balance",
+    "BalanceKind",
+    "BalanceSource",
+    "ConnectorProvider",
     "Credential",
     "EnrichmentFreshness",
     "ExportRun",
     "Holding",
+    "HoldingSource",
     "OutboxMessage",
+    "OutboxMessageStatus",
     "ResolutionAuditLog",
     "Security",
     "SecurityListing",
     "SecurityPrice",
-    "SyncRun",
-    "Tenant",
-    "Transaction",
-    "UnresolvedSecurity",
-    "User",
-    # Enums
-    "AccountType",
-    "BalanceKind",
-    "BalanceSource",
-    "ConnectorProvider",
-    "HoldingSource",
-    "OutboxMessageStatus",
     "SecurityType",
+    "SyncRun",
     "SyncRunStatus",
-    "TransactionStatus",
-    "TransactionType",
-    "UserRole",
+    "Tenant",
     # Mixins
     "TenantAwareMixin",
     "TimestampMixin",
+    "Transaction",
+    "TransactionStatus",
+    "TransactionType",
+    "UnresolvedSecurity",
+    "User",
+    "UserRole",
+    "Webhook",
+    "WebhookDeliveryLog",
+    "WebhookDeliveryStatus",
+    "WebhookEventType",
 ]

@@ -318,6 +318,28 @@ class Settings(BaseSettings):
         validation_alias="WORKER_JOB_OUTBOX_INTERVAL_SECONDS",
     )
 
+    # ── Webhooks ─────────────────────────────────────────────────────
+    webhook_max_retries: int = Field(
+        default=5,
+        ge=0,
+        le=20,
+        validation_alias="WEBHOOK_MAX_RETRIES",
+        description="Max webhook delivery retry attempts (exponential backoff).",
+    )
+    webhook_retry_base_delay_s: float = Field(
+        default=10.0,
+        ge=0.5,
+        validation_alias="WEBHOOK_RETRY_BASE_DELAY_S",
+        description="Initial retry delay in seconds (doubles each attempt).",
+    )
+    webhook_request_timeout_s: float = Field(
+        default=10.0,
+        ge=1.0,
+        le=60.0,
+        validation_alias="WEBHOOK_REQUEST_TIMEOUT_S",
+        description="Timeout per webhook HTTP request.",
+    )
+
     # ── AI summary generation ────────────────────────────────────────
     ai_enabled: bool = Field(
         default=True,
@@ -376,6 +398,20 @@ class Settings(BaseSettings):
         default=True,
         validation_alias="HA_ENABLED",
         description="Enable Home Assistant sensor integration endpoints.",
+    )
+
+    # ── MCP Server ───────────────────────────────────────────────────
+    mcp_port: int = Field(
+        default=8100,
+        ge=1024,
+        le=65535,
+        validation_alias="MCP_PORT",
+        description="Port for the MCP SSE server.",
+    )
+    mcp_host: str = Field(
+        default="0.0.0.0",
+        validation_alias="MCP_HOST",
+        description="Host address for the MCP SSE server.",
     )
 
     # ── Worker: Retry ──────────────────────────────────────────────

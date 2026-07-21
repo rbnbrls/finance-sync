@@ -1,0 +1,51 @@
+# Publish finance-sync-sdk to PyPI
+
+name: Publish SDK to PyPI
+
+on:
+  push:
+    tags:
+      - "sdk-v*"  # e.g. sdk-v0.1.0, sdk-v0.1.1
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write  # needed for Trusted Publishing via PyPI
+
+    defaults:
+      run:
+        working-directory: sdks/finance-sync-sdk
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install build tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install build twine
+
+      - name: Build package
+        run: python -m build
+
+      - name: Check distribution
+        run: twine check dist/*
+
+      - name: Publish to PyPI
+        if: startsWith(github.ref, 'refs/tags/sdk-v')
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_TOKEN }}
+        run: twine upload dist/*
+
+      - name: Build summary
+        run: |
+          echo "## Published :rocket:" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Published \`finance-sync-sdk\` version \`${GITHUB_REF_NAME#sdk-v}\` to PyPI" >> $GITHUB_STEP_SUMMARY

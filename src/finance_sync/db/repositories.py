@@ -24,6 +24,8 @@ from finance_sync.models import (
     Transaction,
     UnresolvedSecurity,
     User,
+    Webhook,
+    WebhookDeliveryLog,
 )
 
 
@@ -121,3 +123,11 @@ class ActualBudgetAccountMappingRepository(
     Repository[ActualBudgetAccountMapping]
 ):
     model_class = ActualBudgetAccountMapping
+
+
+class WebhookRepository(Repository[Webhook]):
+    model_class = Webhook
+
+
+class WebhookDeliveryLogRepository(Repository[WebhookDeliveryLog]):
+    model_class = WebhookDeliveryLog
