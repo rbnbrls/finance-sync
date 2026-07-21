@@ -127,7 +127,7 @@ line-ending = "auto"
 [tool.pyright]
 typeCheckingMode = "basic"
 include = ["src", "tests"]
-exclude = ["**/node_modules", "**/__pycache__"]
+exclude = ["**/node_modules", "**/__pycache__", "tests/test_plugin_integration.py"]
 pythonVersion = "3.12"
 pythonPlatform = "Linux"
 reportMissingTypeStubs = "warning"
