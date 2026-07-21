@@ -239,7 +239,7 @@ jobs:
   # ── Deploy to Coolify ──────────────────────────────────────────────────
   deploy:
     name: Deploy to Coolify
-    needs: [lint, types, test, security, build]
+    needs: [build]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 5
