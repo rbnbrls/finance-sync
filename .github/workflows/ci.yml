@@ -213,3 +213,17 @@ jobs:
           tags: finance-sync:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  # ── Deploy to Coolify ──────────────────────────────────────────────────
+  deploy:
+    name: Deploy
+    needs: [lint, types, test, security, build]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Trigger Coolify deployment
+        run: |
+          curl -s -X POST "${{ secrets.COOLIFY_DEPLOY_URL }}" \
+            -H "Content-Type: application/json" \
+            -d '{}'
