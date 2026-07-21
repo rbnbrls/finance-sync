@@ -59,7 +59,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
 
         async with container.engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
-
             # Stamp alembic version so future migrations see a known
             # baseline
             await conn.execute(
@@ -76,46 +75,51 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
                 ),
                 {"head": ALEMBIC_HEAD},
             )
-            # ── Seed default admin user (idempotent) ─────────────
-            # Use gen_random_uuid() which is built-in on PostgreSQL 13+
-            from finance_sync.services.auth import hash_password
-
-            pwd = hash_password("admin")
-            # Ensure default tenant exists, then seed admin user
-            tid_result = await conn.execute(
+            # ── Seed default tenant + admin user (idempotent) ────────
+            existing_tid = await conn.execute(
                 text(
-                    "INSERT INTO tenants (id, slug, name) "
-                    "VALUES (gen_random_uuid(), 'default', "
-                    "'Default Tenant') "
-                    "ON CONFLICT (slug) DO UPDATE SET "
-                    "  name = EXCLUDED.name "
-                    "RETURNING id"
+                    "SELECT id FROM tenants WHERE slug = 'default'"
                 )
             )
-            tid = tid_result.scalar_one()
-            # Upsert admin user — only insert if not already present
-            await conn.execute(
+            tid_row = existing_tid.scalar_one_or_none()
+            if tid_row is None:
+                tid_row = await conn.execute(
+                    text(
+                        "INSERT INTO tenants (id, slug, name) "
+                        "VALUES (gen_random_uuid(), 'default', "
+                        "'Default Tenant') RETURNING id"
+                    )
+                )
+                tid = tid_row.scalar_one()
+            else:
+                tid = tid_row
+
+            # Create admin user if not already present
+            existing_admin = await conn.execute(
                 text(
-                    "INSERT INTO users "
-                    "(id, tenant_id, email, hashed_password, "
-                    "display_name, role, is_active) "
-                    "SELECT gen_random_uuid(), :tid, "
-                    " 'admin@finance-sync.local', :pwd, "
-                    " 'Admin', 'admin', true "
-                    "WHERE NOT EXISTS ("
-                    "  SELECT 1 FROM users "
-                    "  WHERE email = 'admin@finance-sync.local'"
-                    ")"
-                ),
-                {"tid": tid, "pwd": pwd},
+                    "SELECT 1 FROM users "
+                    "WHERE email = 'admin@finance-sync.local'"
+                )
             )
-            logger.info(
-                "seeded_default_admin",
-                email="admin@finance-sync.local",
-            )
-            # Explicit commit (begin() auto-commits on success, but
-            # being explicit doesn't hurt)
-            await conn.commit()
+            if existing_admin.scalar_one_or_none() is None:
+                from finance_sync.services.auth import hash_password
+
+                pwd = hash_password("admin")
+                await conn.execute(
+                    text(
+                        "INSERT INTO users "
+                        "(id, tenant_id, email, hashed_password, "
+                        "display_name, role, is_active) "
+                        "VALUES (gen_random_uuid(), :tid, "
+                        " 'admin@finance-sync.local', :pwd, "
+                        " 'Admin', 'admin', true)"
+                    ),
+                    {"tid": tid, "pwd": pwd},
+                )
+                logger.info(
+                    "seeded_default_admin",
+                    email="admin@finance-sync.local",
+                )
 
     async with container.dispose():
         yield  # app runs here
