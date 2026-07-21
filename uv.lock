@@ -922,6 +922,10 @@ dev = [
     { name = "pytest-xdist" },
     { name = "ruff" },
 ]
+mcp = [
+    { name = "mcp" },
+    { name = "sse-starlette" },
+]
 openbb = [
     { name = "openbb" },
 ]
@@ -938,6 +942,7 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.115" },
     { name = "httpx", specifier = ">=0.28" },
     { name = "mcp", specifier = ">=1.28.1" },
+    { name = "mcp", marker = "extra == 'mcp'", specifier = ">=1.28" },
     { name = "openbb", marker = "extra == 'openbb'", specifier = ">=4.0" },
     { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=4.0" },
     { name = "prometheus-client", specifier = ">=0.21" },
@@ -953,10 +958,11 @@ requires-dist = [
     { name = "redis", extras = ["hiredis"], specifier = ">=5.2" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.9" },
     { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0" },
+    { name = "sse-starlette", marker = "extra == 'mcp'", specifier = ">=3.4" },
     { name = "structlog", specifier = ">=25.1" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.32" },
 ]
-provides-extras = ["dev", "openbb"]
+provides-extras = ["dev", "openbb", "mcp"]
 
 [[package]]
 name = "frozenlist"

@@ -12,15 +12,15 @@ from finance_sync.connectors.registry import ConnectorRegistry
 
 
 class TestConnectorRegistryEmpty:
-    """Tests against a fresh (empty) registry."""
+    """Tests against a fresh registry with built-in connectors."""
 
     def test_available_empty(self) -> None:
         registry = ConnectorRegistry()
-        assert registry.available == []
+        assert registry.available == ["bunq", "trading212"]
 
     def test_len_empty(self) -> None:
         registry = ConnectorRegistry()
-        assert len(registry) == 0
+        assert len(registry) == 2
 
     def test_contains_false(self) -> None:
         registry = ConnectorRegistry()
@@ -28,7 +28,7 @@ class TestConnectorRegistryEmpty:
 
     def test_get_connector_empty(self) -> None:
         registry = ConnectorRegistry()
-        config = ConnectorConfig(provider_type="bunq")
+        config = ConnectorConfig(provider_type="nonexistent")
         with pytest.raises(PermanentError, match="Unknown connector"):
             registry.get_connector(config)
 
@@ -39,7 +39,8 @@ class TestConnectorRegistryWithMock:
     def test_register_and_list(self, registry_with_mock: tuple) -> None:
         registry, _ = registry_with_mock
         assert "mock_provider" in registry
-        assert len(registry) == 1
+        # 2 built-in (bunq, trading212) + 1 mock = 3
+        assert len(registry) == 3
 
         metadata = registry.list_connectors()
         assert "mock_provider" in metadata

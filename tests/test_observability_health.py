@@ -15,14 +15,24 @@ if TYPE_CHECKING:
 
 import pytest
 from fastapi.testclient import TestClient
+from pydantic import SecretStr
 
 from finance_sync.app import create_app
+from finance_sync.config.settings import Settings
+
+_TEST_SECRET: SecretStr = SecretStr("test-secret-key-at-least-16-chars")
 
 
 @pytest.fixture
 def app() -> FastAPI:
     """Build a test app with default (minimal) settings (no DB/Redis)."""
-    return create_app()
+    return create_app(
+        settings=Settings(
+            database_url=None,
+            redis_url=None,
+            secret_key=_TEST_SECRET,
+        )
+    )
 
 
 @pytest.fixture
