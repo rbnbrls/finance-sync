@@ -12,6 +12,9 @@ from finance_sync.config.settings import Settings
 from finance_sync.container import Container
 from finance_sync.db import Base
 from finance_sync.models import ensure_exporter_models_loaded
+from finance_sync.models.user import User
+from finance_sync.models.tenant import Tenant
+from finance_sync.models.enums import UserRole
 
 ALEMBIC_HEAD: str = "0003"
 
@@ -72,6 +75,34 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
                 ),
                 {"head": ALEMBIC_HEAD},
             )
+            # ── Seed default admin user if none exists ──────────────
+            existing = await conn.execute(
+                text("SELECT COUNT(*) FROM users")
+            )
+            count = existing.scalar_one()
+            if count == 0:
+                from finance_sync.services.auth import hash_password
+
+                # Create default tenant
+                tenant_id = await conn.execute(
+                    text(
+                        "INSERT INTO tenants (id, slug, name) "
+                        "VALUES (gen_random_uuid(), 'default', 'Default Tenant') "
+                        "RETURNING id"
+                    )
+                )
+                tid = tenant_id.scalar_one()
+                # Create admin user
+                await conn.execute(
+                    text(
+                        "INSERT INTO users "
+                        "(id, tenant_id, email, hashed_password, display_name, role, is_active) "
+                        "VALUES (gen_random_uuid(), :tid, 'admin@finance-sync.local', "
+                        ":pwd, 'Admin', 'admin', true)"
+                    ),
+                    {"tid": tid, "pwd": hash_password("admin")},
+                )
+                print("[lifespan] Seeded default tenant + admin user (admin@finance-sync.local / admin)")
             await conn.commit()
 
     async with container.dispose():
