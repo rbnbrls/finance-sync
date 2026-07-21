@@ -56,16 +56,11 @@ class TestEnrichmentGatewayDegraded:
         return AsyncMock()
 
     @pytest.fixture
-    def mock_resolver(self):
-        return AsyncMock()
-
-    @pytest.fixture
-    def gateway(self, settings, mock_uow, mock_price_store, mock_resolver):
+    def gateway(self, settings, mock_uow, mock_price_store):
         return EnrichmentGateway(
             settings=settings,
             uow=mock_uow,
             price_store=mock_price_store,
-            resolver=mock_resolver,
         )
 
     def test_is_degraded(self, gateway) -> None:
@@ -206,18 +201,11 @@ class TestEnrichmentGatewayWithApiKey:
         return store
 
     @pytest.fixture
-    def mock_resolver(self):
-        r = AsyncMock()
-        r.resolve_security = AsyncMock()
-        return r
-
-    @pytest.fixture
-    def gateway(self, settings, mock_uow, mock_price_store, mock_resolver):
+    def gateway(self, settings, mock_uow, mock_price_store):
         g = EnrichmentGateway(
             settings=settings,
             uow=mock_uow,
             price_store=mock_price_store,
-            resolver=mock_resolver,
         )
         # Mock the HTTP client so we control responses
         mock_client = AsyncMock()
