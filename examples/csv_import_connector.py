@@ -38,7 +38,6 @@ import csv
 import os
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import Any
 
 from finance_sync_sdk import ConnectorPlugin
 from finance_sync_sdk.exceptions import PermanentError
@@ -169,12 +168,15 @@ class CSVImportConnector(ConnectorPlugin):
         transactions: list[RawTransaction] = []
 
         with open(file_path, newline="", encoding="utf-8-sig") as f:
-            reader = csv.DictReader(f, delimiter=delimiter) if has_header \
+            reader = (
+                csv.DictReader(f, delimiter=delimiter)
+                if has_header
                 else csv.DictReader(
                     f,
                     delimiter=delimiter,
                     fieldnames=[date_col, desc_col, amount_col],
                 )
+            )
 
             for row_num, row in enumerate(reader, start=1):
                 try:
@@ -182,17 +184,20 @@ class CSVImportConnector(ConnectorPlugin):
                     if not raw_date:
                         continue
 
-                    occurred_at = datetime.strptime(raw_date, date_format).replace(
-                        tzinfo=UTC
-                    )
+                    occurred_at = datetime.strptime(
+                        raw_date, date_format
+                    ).replace(tzinfo=UTC)
                     if occurred_at < since:
                         continue
 
                     raw_amount = row.get(amount_col, "0").strip()
                     # Remove currency symbols and whitespace
-                    raw_amount = raw_amount.replace("\u20ac", "").replace("$", "").replace(
-                        "\xa0", ""
-                    ).strip()
+                    raw_amount = (
+                        raw_amount.replace("\u20ac", "")
+                        .replace("$", "")
+                        .replace("\xa0", "")
+                        .strip()
+                    )
                     amount = Decimal(raw_amount.replace(",", "."))
 
                     description = row.get(desc_col, "").strip()
@@ -213,9 +218,9 @@ class CSVImportConnector(ConnectorPlugin):
                             description=description,
                             transaction_type=transaction_type,
                             status="booked",
-                            provider_fingerprint=str(hash(
-                                f"{raw_date}{raw_amount}{description}"
-                            )),
+                            provider_fingerprint=str(
+                                hash(f"{raw_date}{raw_amount}{description}")
+                            ),
                         )
                     )
                 except (ValueError, KeyError) as exc:

@@ -31,9 +31,7 @@ class RawAccount(BaseModel):
     that doesn't fit the standard fields goes into ``provider_metadata``.
     """
 
-    external_account_id: str = Field(
-        description="Provider's unique identifier for this account"
-    )
+    external_account_id: str = Field(description="Provider's unique identifier for this account")
     name: str = Field(description="Human-readable account name")
     account_type: str = Field(
         description="Provider-native type, e.g. 'checking', 'savings', "
@@ -42,9 +40,7 @@ class RawAccount(BaseModel):
     account_subtype: str | None = Field(
         default=None, description="Provider-native subtype, e.g. '401k', '529'"
     )
-    currency_code: str = Field(
-        default="EUR", description="ISO-4217 currency code"
-    )
+    currency_code: str = Field(default="EUR", description="ISO-4217 currency code")
     current_balance: Decimal | None = Field(
         default=None, description="Current balance as reported by provider"
     )
@@ -54,13 +50,11 @@ class RawAccount(BaseModel):
     )
     iso_currency_code: str | None = Field(
         default=None,
-        description="ISO-4217 code for the balance values, if different "
-        "from currency_code",
+        description="ISO-4217 code for the balance values, if different from currency_code",
     )
     provider_metadata: dict[str, Any] | None = Field(
         default=None,
-        description="Provider-specific attributes that don't fit the "
-        "standard schema",
+        description="Provider-specific attributes that don't fit the standard schema",
     )
 
 
@@ -70,15 +64,9 @@ class RawTransaction(BaseModel):
     external_transaction_id: str = Field(
         description="Provider's unique identifier for this transaction"
     )
-    external_account_id: str = Field(
-        description="Provider account ID this transaction belongs to"
-    )
-    amount: Decimal = Field(
-        description="Signed amount (positive = inflow, negative = outflow)"
-    )
-    currency_code: str = Field(
-        default="EUR", description="ISO-4217 currency code"
-    )
+    external_account_id: str = Field(description="Provider account ID this transaction belongs to")
+    amount: Decimal = Field(description="Signed amount (positive = inflow, negative = outflow)")
+    currency_code: str = Field(default="EUR", description="ISO-4217 currency code")
     occurred_at: datetime = Field(
         description="When the transaction actually occurred (provider time)"
     )
@@ -115,20 +103,14 @@ class CanonicalAccountData(BaseModel):
     Maps to the ``accounts`` table.
     """
 
-    provider_key: str = Field(
-        description="Connector name, e.g. 'bunq', 'trading212'"
-    )
-    external_account_id: str = Field(
-        description="Provider's unique identifier for this account"
-    )
+    provider_key: str = Field(description="Connector name, e.g. 'bunq', 'trading212'")
+    external_account_id: str = Field(description="Provider's unique identifier for this account")
     name: str = Field(description="Human-readable account name")
     account_type: str = Field(
         description="Normalised type: checking/savings/brokerage/credit/loan/investment"
     )
     account_subtype: str | None = Field(default=None)
-    currency_code: str = Field(
-        default="EUR", description="ISO-4217 currency code"
-    )
+    currency_code: str = Field(default="EUR", description="ISO-4217 currency code")
     current_balance: Decimal | None = Field(default=None)
     available_balance: Decimal | None = Field(default=None)
     iso_currency_code: str | None = Field(default=None)
@@ -142,24 +124,12 @@ class CanonicalTransactionData(BaseModel):
     Maps to the ``transactions`` table.
     """
 
-    provider_key: str = Field(
-        description="Connector name, e.g. 'bunq', 'trading212'"
-    )
-    external_transaction_id: str = Field(
-        description="Provider's unique transaction ID"
-    )
-    external_account_id: str = Field(
-        description="Provider account ID this transaction belongs to"
-    )
-    amount: Decimal = Field(
-        description="Signed amount (positive = inflow, negative = outflow)"
-    )
-    currency_code: str = Field(
-        default="EUR", description="ISO-4217 currency code"
-    )
-    occurred_at: datetime = Field(
-        description="When the transaction actually occurred"
-    )
+    provider_key: str = Field(description="Connector name, e.g. 'bunq', 'trading212'")
+    external_transaction_id: str = Field(description="Provider's unique transaction ID")
+    external_account_id: str = Field(description="Provider account ID this transaction belongs to")
+    amount: Decimal = Field(description="Signed amount (positive = inflow, negative = outflow)")
+    currency_code: str = Field(default="EUR", description="ISO-4217 currency code")
+    occurred_at: datetime = Field(description="When the transaction actually occurred")
     booked_at: datetime | None = Field(default=None)
     transaction_type: str = Field(
         description="Normalised type: transfer/payment/purchase/sale/fee/"
@@ -186,17 +156,14 @@ class ConnectorConfig(BaseModel):
     custom endpoints, or feature toggles.
     """
 
-    provider_type: str = Field(
-        description="Connector identifier, e.g. 'mybank', 'csv_import'"
-    )
+    provider_type: str = Field(description="Connector identifier, e.g. 'mybank', 'csv_import'")
     credentials: dict[str, str] = Field(
         default_factory=dict,
         description="Provider-specific secrets (API key, client secret, …)",
     )
     options: dict[str, Any] = Field(
         default_factory=dict,
-        description="Non-secret configuration (sandbox mode, custom "
-        "endpoints, feature toggles, …)",
+        description="Non-secret configuration (sandbox mode, custom endpoints, feature toggles, …)",
     )
 
 
@@ -204,9 +171,7 @@ class ConnectorHealth(BaseModel):
     """Result of a connector health / connectivity check."""
 
     healthy: bool = Field(description="Whether the connector is operational")
-    message: str | None = Field(
-        default=None, description="Human-readable status or error message"
-    )
+    message: str | None = Field(default=None, description="Human-readable status or error message")
     provider_type: str = Field(description="Connector identifier, e.g. 'mybank'")
 
 
@@ -240,13 +205,11 @@ class ExportRequest(BaseModel):
     )
     account_ids: list[str] | None = Field(
         default=None,
-        description="Only include these finance-sync account IDs. "
-        "None means all accounts.",
+        description="Only include these finance-sync account IDs. None means all accounts.",
     )
     options: dict[str, Any] = Field(
         default_factory=dict,
-        description="Exporter-specific options (e.g. currency overrides, "
-        "file naming)",
+        description="Exporter-specific options (e.g. currency overrides, file naming)",
     )
 
 
@@ -254,9 +217,7 @@ class ExportData(BaseModel):
     """The data payload an exporter plugin produces."""
 
     format: str = Field(description="Actual output format")
-    content: str | bytes = Field(
-        description="The exported data as string or raw bytes"
-    )
+    content: str | bytes = Field(description="The exported data as string or raw bytes")
     filename: str = Field(
         default="export",
         description="Suggested filename (without extension)",
@@ -271,17 +232,14 @@ class ExportData(BaseModel):
     )
     metadata: dict[str, Any] | None = Field(
         default=None,
-        description="Additional metadata about this export "
-        "(record count, date range, …)",
+        description="Additional metadata about this export (record count, date range, …)",
     )
 
 
 class ExportResult(BaseModel):
     """Outcome of a single export operation."""
 
-    status: str = Field(
-        description="'completed', 'failed', or 'partial'"
-    )
+    status: str = Field(description="'completed', 'failed', or 'partial'")
     records_exported: int = Field(default=0)
     records_failed: int = Field(default=0)
     error_message: str | None = Field(default=None)

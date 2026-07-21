@@ -152,9 +152,7 @@ class MCPAuthMiddleware:
         if auth_header.startswith("Bearer "):
             token = auth_header[7:]
             try:
-                payload: dict[str, Any] = decode_token(
-                    token, self._settings
-                )
+                payload: dict[str, Any] = decode_token(token, self._settings)
                 if payload.get("type") == "access":
                     user_id: str | None = payload.get("sub")
                     tenant_id: str | None = payload.get("tenant_id")
@@ -185,12 +183,9 @@ class MCPAuthMiddleware:
                         )
                     )
                     key_row = result.scalar_one_or_none()
-                    if key_row and verify_api_key(
-                        api_key, key_row.key_hash
-                    ):
+                    if key_row and verify_api_key(api_key, key_row.key_hash):
                         key_row.last_used_at = (  # type: ignore[attr-defined]
-                            __import__("datetime")
-                            .datetime.now(
+                            __import__("datetime").datetime.now(
                                 __import__("datetime").timezone.utc
                             )
                         )
@@ -226,20 +221,24 @@ class MCPAuthMiddleware:
     async def _send_401(self, send: Send) -> None:
         """Send a 401 JSON response."""
         body = json_dumps({"detail": _MISSING_AUTH}).encode("utf-8")
-        await send({
-            "type": "http.response.start",
-            "status": HTTP_401_UNAUTHORIZED,
-            "headers": [
-                (b"content-type", b"application/json"),
-                (b"www-authenticate", b"Bearer"),
-                (b"content-length", str(len(body)).encode()),
-            ],
-        })
-        await send({
-            "type": "http.response.body",
-            "body": body,
-            "more_body": False,
-        })
+        await send(
+            {
+                "type": "http.response.start",
+                "status": HTTP_401_UNAUTHORIZED,
+                "headers": [
+                    (b"content-type", b"application/json"),
+                    (b"www-authenticate", b"Bearer"),
+                    (b"content-length", str(len(body)).encode()),
+                ],
+            }
+        )
+        await send(
+            {
+                "type": "http.response.body",
+                "body": body,
+                "more_body": False,
+            }
+        )
 
 
 # ── Helper to extract auth context from scope ───────────────────────────

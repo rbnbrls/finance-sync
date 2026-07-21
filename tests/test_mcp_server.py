@@ -73,9 +73,7 @@ class TestMCPResources:
 
         self._mcp = mcp
         self._templates = mcp._resource_manager.list_templates()
-        self._template_map = {
-            str(t.uri_template): t for t in self._templates
-        }
+        self._template_map = {str(t.uri_template): t for t in self._templates}
 
     def test_resource_count(self) -> None:
         """There are exactly 4 resources defined."""
@@ -236,9 +234,7 @@ class TestMCPAuthMiddleware:
         return AsyncMock()
 
     @pytest.fixture
-    def middleware(
-        self, mock_app: AsyncMock, mock_settings: Any
-    ) -> Any:
+    def middleware(self, mock_app: AsyncMock, mock_settings: Any) -> Any:
         """Create a fresh MCPAuthMiddleware for each test."""
         from finance_sync.mcp.auth import MCPAuthMiddleware
 
@@ -377,8 +373,7 @@ class TestMCPAuthMiddleware:
 
             # Inner app should have been called
             assert mock_app.await_count == 1, (
-                f"Inner app was called {mock_app.await_count} times, "
-                "expected 1"
+                f"Inner app was called {mock_app.await_count} times, expected 1"
             )
             assert scope["state"]["auth"].tenant_id == "tenant_01"
             assert scope["state"]["auth"].auth_method == "api_key"
@@ -396,9 +391,7 @@ class TestMCPAuthMiddleware:
             "sub": "user_q",
             "tenant_id": "tenant_q",
         }
-        scope = self._make_scope(
-            query_string=b"access_token=some.jwt.token"
-        )
+        scope = self._make_scope(query_string=b"access_token=some.jwt.token")
         send = AsyncMock()
 
         await middleware(scope, MagicMock(), send)

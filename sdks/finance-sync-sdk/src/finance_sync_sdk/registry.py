@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from finance_sync_sdk.models import ConnectorConfig
-    from finance_sync_sdk.plugin import ConnectorPlugin, ExporterPlugin  # noqa: TC004
+    from finance_sync_sdk.plugin import ConnectorPlugin, ExporterPlugin
 
 _PLUGIN_ENTRY_POINT = "finance_sync_sdk.plugins"
 _EXPORTER_ENTRY_POINT = "finance_sync_sdk.exporters"
@@ -153,8 +153,7 @@ class PluginRegistry:
             raise TypeError(msg)
         if name in self._exporter_classes and not replace:
             msg = (
-                f"Exporter plugin {name!r} is already registered as "
-                f"{self._exporter_classes[name]}"
+                f"Exporter plugin {name!r} is already registered as {self._exporter_classes[name]}"
             )
             raise ValueError(msg)
         self._exporter_classes[name] = cls
@@ -171,10 +170,7 @@ class PluginRegistry:
         cls = self._connector_classes.get(config.provider_type)
         if cls is None:
             known = sorted(self._connector_classes)
-            msg = (
-                f"Unknown connector plugin {config.provider_type!r}. "
-                f"Available: {known}"
-            )
+            msg = f"Unknown connector plugin {config.provider_type!r}. Available: {known}"
             raise RuntimeError(msg)
 
         return cls(config=config)
@@ -189,10 +185,7 @@ class PluginRegistry:
         cls = self._exporter_classes.get(name)
         if cls is None:
             known = sorted(self._exporter_classes)
-            msg = (
-                f"Unknown exporter plugin {name!r}. "
-                f"Available: {known}"
-            )
+            msg = f"Unknown exporter plugin {name!r}. Available: {known}"
             raise RuntimeError(msg)
 
         return cls(config=config)
@@ -208,9 +201,7 @@ class PluginRegistry:
                 "name": name,
                 "display_name": getattr(cls, "display_name", ""),
                 "plugin_version": getattr(cls, "plugin_version", "0.1.0"),
-                "has_rate_limit_policy": (
-                    getattr(cls, "rate_limit_policy", None) is not None
-                ),
+                "has_rate_limit_policy": (getattr(cls, "rate_limit_policy", None) is not None),
             }
         return result
 

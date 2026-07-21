@@ -44,7 +44,9 @@ class _SlidingWindowCounter:
     def __init__(self) -> None:
         self._windows: dict[str, list[float]] = {}
 
-    def is_allowed(self, key: str, max_per_window: int, window_s: float = 60.0) -> bool:
+    def is_allowed(
+        self, key: str, max_per_window: int, window_s: float = 60.0
+    ) -> bool:
         """Check if *key* has exceeded *max_per_window* in *window_s* seconds."""
         now = time.monotonic()
         cutoff = now - window_s
@@ -84,7 +86,9 @@ class WebhookService:
         if self._http_client is None:
             self._http_client = httpx.AsyncClient(
                 timeout=self._settings.webhook_request_timeout_s,
-                limits=httpx.Limits(max_keepalive_connections=20, max_connections=50),
+                limits=httpx.Limits(
+                    max_keepalive_connections=20, max_connections=50
+                ),
             )
         return self._http_client
 
@@ -194,7 +198,9 @@ class WebhookService:
 
         This is called from the outbox handler for each outbox message.
         """
-        webhooks = await self._get_active_webhooks_for_event(event_type, tenant_id)
+        webhooks = await self._get_active_webhooks_for_event(
+            event_type, tenant_id
+        )
         if not webhooks:
             return 0
 
@@ -360,7 +366,11 @@ class WebhookService:
                     headers={
                         "Content-Type": "application/json",
                         "User-Agent": "FinanceSync-Webhook/1.0",
-                        "X-Signature-256": log_entry.payload.get("signature", "") if log_entry.payload else "",
+                        "X-Signature-256": log_entry.payload.get(
+                            "signature", ""
+                        )
+                        if log_entry.payload
+                        else "",
                     },
                 )
                 status_code = response.status_code
@@ -494,8 +504,7 @@ class WebhookService:
                 # Webhook deleted or deactivated — skip
                 async with self._session_factory() as s:
                     stmt = (
-                        sa_select(LogModel)
-                        .where(LogModel.id == log_entry.id)  # type: ignore[attr-defined]
+                        sa_select(LogModel).where(LogModel.id == log_entry.id)  # type: ignore[attr-defined]
                     )
                     r = await s.execute(stmt)
                     row = r.scalar_one_or_none()
@@ -505,7 +514,9 @@ class WebhookService:
                         stmt_upd = (
                             update(LogModel)
                             .where(LogModel.id == row.id)  # type: ignore[attr-defined]
-                            .values(error_message="Webhook no longer active; retry cancelled")
+                            .values(
+                                error_message="Webhook no longer active; retry cancelled"
+                            )
                         )
                         await s.execute(stmt_upd)
                         await s.commit()
@@ -516,8 +527,7 @@ class WebhookService:
             async with self._session_factory() as s:
                 # Load fresh delivery log entry
                 stmt = (
-                    sa_select(LogModel)
-                    .where(LogModel.id == log_entry.id)  # type: ignore[attr-defined]
+                    sa_select(LogModel).where(LogModel.id == log_entry.id)  # type: ignore[attr-defined]
                 )
                 r = await s.execute(stmt)
                 fresh_log = r.scalar_one_or_none()
@@ -549,7 +559,9 @@ class WebhookService:
         ).hexdigest()
 
     @staticmethod
-    def verify_signature(payload: dict[str, Any], signature: str, secret: str) -> bool:
+    def verify_signature(
+        payload: dict[str, Any], signature: str, secret: str
+    ) -> bool:
         """Verify an HMAC-SHA256 signature against a payload.
 
         Consumers can use this to authenticate incoming webhook payloads::

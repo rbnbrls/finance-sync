@@ -186,9 +186,7 @@ async def resource_transactions(ctx: Context) -> str:
                 d["account_name"] = acct.name
                 d["account_type"] = acct.account_type
                 all_txns.append(d)
-        all_txns.sort(
-            key=lambda t: t.get("occurred_at") or "", reverse=True
-        )
+        all_txns.sort(key=lambda t: t.get("occurred_at") or "", reverse=True)
         return _serialise(all_txns[:50])
     finally:
         await read_service._session.aclose()  # noqa: SLF001
@@ -227,10 +225,7 @@ class RunSyncInput(BaseModel):
     """Input for ``run_sync`` tool."""
 
     connector_type: str = Field(
-        description=(
-            "Connector/provider to sync, "
-            "e.g. 'bunq', 'trading212'"
-        )
+        description=("Connector/provider to sync, e.g. 'bunq', 'trading212'")
     )
 
 
@@ -303,13 +298,15 @@ async def tool_run_sync(ctx: Context, connector_type: str) -> str:
         config=config,
     )
 
-    return _serialise({
-        "status": str(result.status.value),
-        "accounts_synced": result.accounts_synced,
-        "transactions_synced": result.transactions_synced,
-        "error_message": result.error_message,
-        "duration_s": result.duration_s,
-    })
+    return _serialise(
+        {
+            "status": str(result.status.value),
+            "accounts_synced": result.accounts_synced,
+            "transactions_synced": result.transactions_synced,
+            "error_message": result.error_message,
+            "duration_s": result.duration_s,
+        }
+    )
 
 
 class GetSummaryInput(BaseModel):
@@ -346,9 +343,11 @@ async def tool_get_summary(ctx: Context, timeframe: str = "30d") -> str:
         ai_service = _AiSvc(session=session, settings=container.settings)
         try:
             if not container.settings.ai_enabled:
-                return _serialise({
-                    "error": "AI summaries are disabled (AI_ENABLED=false)",
-                })
+                return _serialise(
+                    {
+                        "error": "AI summaries are disabled (AI_ENABLED=false)",
+                    }
+                )
 
             response = await ai_service.generate_summary(
                 tenant_id, time_period_days=days

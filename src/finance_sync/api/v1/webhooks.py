@@ -34,7 +34,9 @@ class CreateWebhookRequest(BaseModel):
         description="HMAC signing secret (auto-generated if omitted)",
     )
     rate_limit_max_per_minute: int = Field(
-        default=60, ge=1, le=600,
+        default=60,
+        ge=1,
+        le=600,
         description="Max deliveries per 60-second sliding window",
     )
 
@@ -82,7 +84,9 @@ def _get_service(request: Request) -> WebhookService:
 # ── POST /v1/webhooks ───────────────────────────────────────────────
 
 
-@router.post("", response_model=WebhookResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "", response_model=WebhookResponse, status_code=status.HTTP_201_CREATED
+)
 async def create_webhook(
     request: Request,
     body: CreateWebhookRequest,

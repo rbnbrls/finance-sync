@@ -79,15 +79,11 @@ class RateLimiter:
         self._request_times = [t for t in self._request_times if t > cutoff]
 
         if len(self._request_times) >= self.policy.max_requests:
-            sleep_for = (
-                self._request_times[0] + self.policy.window_seconds - now
-            )
+            sleep_for = self._request_times[0] + self.policy.window_seconds - now
             if sleep_for > 0:
                 await asyncio.sleep(sleep_for)
             self._request_times = [
-                t
-                for t in self._request_times
-                if t > _monotonic() - self.policy.window_seconds
+                t for t in self._request_times if t > _monotonic() - self.policy.window_seconds
             ]
 
         self._request_times.append(_monotonic())
@@ -103,9 +99,7 @@ class RateLimiter:
         """
         base = self.policy.backoff_base * (2**attempt)
         capped = min(base, self.policy.backoff_cap)
-        jitter_factor = 1.0 + random.uniform(
-            -self.policy.jitter, self.policy.jitter
-        )
+        jitter_factor = 1.0 + random.uniform(-self.policy.jitter, self.policy.jitter)
         return capped * jitter_factor
 
     async def retry(

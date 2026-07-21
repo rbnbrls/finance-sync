@@ -245,6 +245,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Trigger Coolify deployment
+        id: deploy
         env:
           COOLIFY_TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}
           COOLIFY_BASE_URL: https://dev.7rb.nl
@@ -252,17 +253,19 @@ jobs:
         run: |
           echo "📦 Deploying finance-sync (${{ needs.build.outputs.image_tag }}) to Coolify..."
           RESPONSE=$(curl -s -w "\n%{http_code}" \
-            -X GET "${COOLIFY_BASE_URL}/api/v1/deploy?uuid=${APP_UUID}" \
-            -H "Authorization: Bearer ${COOLIFY_TOKEN}")
+            -X POST "${COOLIFY_BASE_URL}/api/v1/deploy" \
+            -H "Authorization: Bearer ${COOLIFY_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "{\"uuid\": \"${APP_UUID}\", \"force\": false}")
           HTTP_CODE=$(echo "$RESPONSE" | tail -1)
           BODY=$(echo "$RESPONSE" | sed '$d')
           echo "Status: ${HTTP_CODE}"
           echo "Response: ${BODY}"
-          DEPLOY_UUID=$(echo "$BODY" | python3 -c "import sys,json; print(json.load(sys.stdin)['deployments'][0].get('deployment_uuid','unknown'))" 2>/dev/null || echo "unknown")
+          DEPLOY_UUID=$(echo "$BODY" | python3 -c "import sys,json;d=json.load(sys.stdin);deploys=d.get('deployments',[]);print(deploys[0].get('deployment_uuid','unknown') if deploys else 'unknown')" 2>/dev/null || echo "unknown")
           echo "deployment_uuid=${DEPLOY_UUID}" >> "$GITHUB_OUTPUT"
           if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
             echo "✅ Deploy triggered (uuid: ${DEPLOY_UUID})"
           else
-            echo "❌ Deploy failed"
+            echo "❌ Deploy failed (HTTP ${HTTP_CODE})"
             exit 1
           fi

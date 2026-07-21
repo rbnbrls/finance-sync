@@ -6,6 +6,7 @@ consistent way across the ecosystem.
 
 from __future__ import annotations
 
+
 class CredentialProvider:
     """Abstract credential retrieval strategy.
 

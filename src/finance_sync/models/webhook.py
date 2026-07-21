@@ -48,7 +48,9 @@ class Webhook(Base):
 
     # Rate-limit tracking
     rate_limit_max_per_minute: Mapped[int] = mapped_column(
-        Integer, default=60, nullable=False,
+        Integer,
+        default=60,
+        nullable=False,
         comment="Max deliveries allowed per 60-second sliding window",
     )
 
@@ -69,7 +71,9 @@ class WebhookDeliveryLog(Base):
 
     id: Mapped[str] = pk_uuid()
     webhook_id: Mapped[str] = mapped_column(
-        String(36), nullable=False, index=True,
+        String(36),
+        nullable=False,
+        index=True,
         comment="FK to webhooks.id (no actual FK constraint for audit safety)",
     )
     tenant_id: Mapped[str] = tenant_fk()
@@ -78,7 +82,8 @@ class WebhookDeliveryLog(Base):
         String(64), nullable=False, comment="e.g. 'sync.completed'"
     )
     event_id: Mapped[str | None] = mapped_column(
-        String(128), nullable=True,
+        String(128),
+        nullable=True,
         comment="Source event / outbox-message id for tracing",
     )
     payload: Mapped[dict[str, Any] | None] = mapped_column(
@@ -98,7 +103,8 @@ class WebhookDeliveryLog(Base):
         Integer, default=5, nullable=False
     )
     next_retry_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True,
+        DateTime(timezone=True),
+        nullable=True,
         comment="When to retry next (null if max attempts reached or delivered)",
     )
 
@@ -106,13 +112,18 @@ class WebhookDeliveryLog(Base):
         Integer, nullable=True
     )
     response_body: Mapped[str | None] = mapped_column(
-        Text, nullable=True, comment="Truncated response body",
+        Text,
+        nullable=True,
+        comment="Truncated response body",
     )
     duration_ms: Mapped[int | None] = mapped_column(
-        Integer, nullable=True, comment="Round-trip duration in milliseconds",
+        Integer,
+        nullable=True,
+        comment="Round-trip duration in milliseconds",
     )
     error_message: Mapped[str | None] = mapped_column(
-        Text, nullable=True,
+        Text,
+        nullable=True,
     )
 
     created_at = created_at_ts()

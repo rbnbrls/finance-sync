@@ -18,7 +18,7 @@ from typing import Any
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import MetaData, String, Text, Boolean, Integer
+from sqlalchemy import Boolean, Integer, MetaData, String, Text
 from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
@@ -50,9 +50,7 @@ class TestWebhook(TestBase):
     is_active: Mapped[bool] = mapped_column(
         Boolean, default=True, nullable=False
     )
-    description: Mapped[str | None] = mapped_column(
-        String(255), nullable=True
-    )
+    description: Mapped[str | None] = mapped_column(String(255), nullable=True)
     rate_limit_max_per_minute: Mapped[int] = mapped_column(
         Integer, default=60, nullable=False
     )
@@ -75,16 +73,10 @@ class TestWebhookDeliveryLog(TestBase):
     webhook_id: Mapped[str] = mapped_column(
         String(36), nullable=False, index=True
     )
-    tenant_id: Mapped[str] = mapped_column(
-        String(36), nullable=False
-    )
+    tenant_id: Mapped[str] = mapped_column(String(36), nullable=False)
     event_type: Mapped[str] = mapped_column(String(64), nullable=False)
-    event_id: Mapped[str | None] = mapped_column(
-        String(128), nullable=True
-    )
-    payload: Mapped[str | None] = mapped_column(
-        Text, nullable=True
-    )
+    event_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    payload: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(
         String(20), default="pending", nullable=False
     )
@@ -167,7 +159,8 @@ class TestWebhookService:
                 all_hooks = await s.execute(stmt)
                 hooks = list(all_hooks.scalars().all())
                 return [
-                    h for h in hooks
+                    h
+                    for h in hooks
                     if event_type in json.loads(h.events or "[]")
                 ]
             result = await s.execute(stmt)
@@ -215,7 +208,9 @@ class TestWebhookService:
         tenant_id: str | None = None,
     ) -> int:
         """Dispatch an event to all matching webhooks."""
-        webhooks = await self._get_active_webhooks_for_event(event_type, tenant_id)
+        webhooks = await self._get_active_webhooks_for_event(
+            event_type, tenant_id
+        )
         if not webhooks:
             return 0
 
@@ -242,8 +237,7 @@ class TestWebhookService:
             hooks = list(result.scalars().all())
             # Filter by event_type in the JSON events list stored as Text
             return [
-                h for h in hooks
-                if event_type in json.loads(h.events or "[]")
+                h for h in hooks if event_type in json.loads(h.events or "[]")
             ]
 
     async def _deliver(
@@ -292,7 +286,9 @@ class TestWebhookService:
             delay = self._settings.webhook_retry_base_delay_s * (
                 2 ** (log_entry.attempt_number - 1)
             )
-            log_entry.next_retry_at = datetime.now(UTC) + timedelta(seconds=delay)
+            log_entry.next_retry_at = datetime.now(UTC) + timedelta(
+                seconds=delay
+            )
 
         await session.commit()
 
@@ -327,7 +323,9 @@ class TestWebhookService:
         ).hexdigest()
 
     @staticmethod
-    def verify_signature(payload: dict[str, Any], signature: str, secret: str) -> bool:
+    def verify_signature(
+        payload: dict[str, Any], signature: str, secret: str
+    ) -> bool:
         import hmac
 
         expected = TestWebhookService._sign_payload(payload, secret)
@@ -408,7 +406,9 @@ class TestHMACSigning:
 
         # Verify with tampered payload fails
         tampered = {"event_type": "sync.failed", "data": {"accounts": 5}}
-        assert not TestWebhookService.verify_signature(tampered, signature, secret)
+        assert not TestWebhookService.verify_signature(
+            tampered, signature, secret
+        )
 
     def test_signature_deterministic(self):
         """Same payload + secret always produces same signature."""
@@ -664,9 +664,7 @@ class TestEventDispatch:
         # Verify the signature (strip the signature field first, as
         # consumers must do)
         sig = payload_dict.pop("signature")
-        assert TestWebhookService.verify_signature(
-            payload_dict, sig, wh.secret
-        )
+        assert TestWebhookService.verify_signature(payload_dict, sig, wh.secret)
 
     async def test_dispatch_ignores_inactive_webhooks(self, svc):
         """Inactive webhooks are not targeted."""

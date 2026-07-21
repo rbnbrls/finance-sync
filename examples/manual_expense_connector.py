@@ -36,7 +36,6 @@ import json
 import os
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import Any
 
 from finance_sync_sdk import ConnectorPlugin
 from finance_sync_sdk.exceptions import PermanentError
@@ -77,17 +76,13 @@ class ManualExpenseConnector(ConnectorPlugin):
             with open(data_path) as f:
                 json.load(f)
         except (json.JSONDecodeError, OSError) as exc:
-            raise PermanentError(
-                f"Invalid expense data file: {exc}"
-            ) from exc
+            raise PermanentError(f"Invalid expense data file: {exc}") from exc
 
         self._authenticated = True
 
     async def fetch_accounts(self) -> list[RawAccount]:
         """Create a manual wallet account."""
-        account_name = self.config.options.get(
-            "account_name", "Cash Wallet"
-        )
+        account_name = self.config.options.get("account_name", "Cash Wallet")
         return [
             RawAccount(
                 external_account_id="manual_wallet",
@@ -137,7 +132,7 @@ class ManualExpenseConnector(ConnectorPlugin):
         _max = limit or len(expenses)
         transactions: list[RawTransaction] = []
 
-        for exp in expenses[: _max]:
+        for exp in expenses[:_max]:
             occurred_at = datetime.fromisoformat(exp["date"]).replace(
                 tzinfo=UTC
             )

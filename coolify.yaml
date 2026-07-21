@@ -104,3 +104,14 @@
 #
 # This uses docker/Dockerfile.dev instead of the production Dockerfile.
 # See docker-compose.dev.yml (create if needed).
+
+# ── CI/CD Webhook (GitHub Actions → Coolify API) ──────────────────────────
+# Triggered via GitHub Actions workflow (see .github/workflows/ci.yml).
+# Uses POST with JSON body:
+#
+#   curl -X POST "${COOLIFY_BASE_URL}/api/v1/deploy" \
+#     -H "Authorization: Bearer ${COOLIFY_API_TOKEN}" \
+#     -H "Content-Type: application/json" \
+#     -d '{"uuid": "obcopz3142hxzs1zlie78amh", "force": false}'
+#
+# Required GitHub secret: COOLIFY_API_TOKEN (deploy permission)

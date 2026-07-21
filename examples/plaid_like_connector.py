@@ -30,11 +30,9 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import Any
 
 from finance_sync_sdk import ConnectorPlugin
 from finance_sync_sdk.models import (
-    ConnectorConfig,
     RawAccount,
     RawTransaction,
 )
@@ -62,7 +60,9 @@ class PlaidLikeConnector(ConnectorPlugin):
         window_seconds=60,
         max_retries=3,
         backoff_base=1.0,
-        metadata={"provider_policy_url": "https://plaid.com/docs/api/rate-limits/"},
+        metadata={
+            "provider_policy_url": "https://plaid.com/docs/api/rate-limits/"
+        },
     )
 
     @property
@@ -126,21 +126,33 @@ class PlaidLikeConnector(ConnectorPlugin):
                 "name": "Plaid Checking",
                 "type": "depository",
                 "subtype": "checking",
-                "balances": {"current": 1250.50, "available": 1200.00, "iso_currency_code": "EUR"},
+                "balances": {
+                    "current": 1250.50,
+                    "available": 1200.00,
+                    "iso_currency_code": "EUR",
+                },
             },
             {
                 "account_id": "plaid_acc_savings_01",
                 "name": "Plaid Savings",
                 "type": "depository",
                 "subtype": "savings",
-                "balances": {"current": 15000.00, "available": 15000.00, "iso_currency_code": "EUR"},
+                "balances": {
+                    "current": 15000.00,
+                    "available": 15000.00,
+                    "iso_currency_code": "EUR",
+                },
             },
             {
                 "account_id": "plaid_acc_credit_01",
                 "name": "Plaid Credit Card",
                 "type": "credit",
                 "subtype": "credit card",
-                "balances": {"current": -450.25, "available": 550.00, "iso_currency_code": "EUR"},
+                "balances": {
+                    "current": -450.25,
+                    "available": 550.00,
+                    "iso_currency_code": "EUR",
+                },
             },
         ]
 
@@ -230,7 +242,9 @@ class PlaidLikeConnector(ConnectorPlugin):
                 external_account_id=t["account_id"],
                 amount=Decimal(str(t["amount"])),
                 currency_code=t["iso_currency_code"],
-                occurred_at=datetime.fromisoformat(t["date"]).replace(tzinfo=UTC),
+                occurred_at=datetime.fromisoformat(t["date"]).replace(
+                    tzinfo=UTC
+                ),
                 description=t.get("merchant_name") or t.get("name", ""),
                 transaction_type="payment",
                 status="pending" if t.get("pending") else "booked",
@@ -240,7 +254,7 @@ class PlaidLikeConnector(ConnectorPlugin):
                     "environment": environment,
                 },
             )
-            for t in _fake_txns[: _page_size]
+            for t in _fake_txns[:_page_size]
         ]
 
     # ── Transform overrides ────────────────────────────────────────────

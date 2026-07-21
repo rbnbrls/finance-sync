@@ -5,13 +5,13 @@ Tests that plugins can be registered, discovered, and loaded via the
 PluginRegistry, including an example connector loaded from a separate
 module path (simulating a third-party package).
 """
+
 from __future__ import annotations
 
 import tempfile
 from datetime import UTC, datetime, timedelta
 
 import pytest
-
 from finance_sync_sdk.models import ConnectorConfig
 from finance_sync_sdk.registry import PluginRegistry
 
@@ -217,7 +217,10 @@ class TestPluginIntegration:
         # List
         plugins = self.registry.list_connectors()
         assert "plaid_like_test" in plugins
-        assert plugins["plaid_like_test"]["display_name"] == "Plaid-like Open Banking"
+        assert (
+            plugins["plaid_like_test"]["display_name"]
+            == "Plaid-like Open Banking"
+        )
 
         # Contains
         assert "plaid_like_test" in self.registry
@@ -254,7 +257,7 @@ class TestPluginIntegration:
             # Create two CSV files
             for i, name in enumerate(["bank1.csv", "bank2.csv"]):
                 with open(os.path.join(temp_dir, name), "w") as f:
-                    f.write(f"Date,Amount\n2025-01-{10+i},50.00\n")
+                    f.write(f"Date,Amount\n2025-01-{10 + i},50.00\n")
 
             config = ConnectorConfig(
                 provider_type="csv_import",
@@ -269,4 +272,5 @@ class TestPluginIntegration:
             assert len(txns) == 2
         finally:
             import shutil
+
             shutil.rmtree(temp_dir)

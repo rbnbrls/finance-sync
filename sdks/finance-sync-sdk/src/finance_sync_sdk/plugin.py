@@ -20,7 +20,7 @@ from finance_sync_sdk.models import (
     RawAccount,
     RawTransaction,
 )
-from finance_sync_sdk.rate_limiter import RateLimitPolicy, RateLimiter
+from finance_sync_sdk.rate_limiter import RateLimiter, RateLimitPolicy
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -74,11 +74,7 @@ class ConnectorPlugin(ABC):
     def __init__(self, config: ConnectorConfig) -> None:
         self.config = config
         self._authenticated = False
-        self._rate_limiter = (
-            RateLimiter(self.rate_limit_policy)
-            if self.rate_limit_policy
-            else None
-        )
+        self._rate_limiter = RateLimiter(self.rate_limit_policy) if self.rate_limit_policy else None
 
         # Validate config options against schema if provided
         if self.config_schema is not None and config.options:
@@ -216,17 +212,13 @@ class ConnectorPlugin(ABC):
         """Call fetch_transactions with rate-limit + retry protection."""
 
         async def _fetch() -> object:
-            return await self.fetch_transactions(
-                since, account_id=account_id, limit=limit
-            )
+            return await self.fetch_transactions(since, account_id=account_id, limit=limit)
 
         if self._rate_limiter is not None:
             result = await self._rate_limiter.retry(_fetch)
             assert isinstance(result, list)
             return result  # type: ignore[return-value]
-        return await self.fetch_transactions(
-            since, account_id=account_id, limit=limit
-        )
+        return await self.fetch_transactions(since, account_id=account_id, limit=limit)
 
     # ── Introspection ──────────────────────────────────────────────────
 
@@ -309,10 +301,7 @@ class ExporterPlugin(ABC):
         implementation simply delegates to :meth:`export`.
         """
         # Validate format support
-        if (
-            self.supported_formats is not None
-            and request.format not in self.supported_formats
-        ):
+        if self.supported_formats is not None and request.format not in self.supported_formats:
             return ExportResult(
                 status="failed",
                 error_message=(

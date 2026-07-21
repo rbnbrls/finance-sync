@@ -1,4 +1,5 @@
 """Tests for finance-sync-sdk plugin base classes and registry."""
+
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
@@ -20,7 +21,6 @@ from finance_sync_sdk.models import (
     RawTransaction,
 )
 from finance_sync_sdk.rate_limiter import RateLimitPolicy
-
 
 # ── Test helpers ────────────────────────────────────────────────────────
 
@@ -286,9 +286,7 @@ class TestPluginRegistry:
 
     def test_register_duplicate_with_replace(self):
         self.registry.register_connector("test_plugin", GoodTestPlugin)
-        self.registry.register_connector(
-            "test_plugin", GoodTestPlugin, replace=True
-        )
+        self.registry.register_connector("test_plugin", GoodTestPlugin, replace=True)
         assert "test_plugin" in self.registry.available_connectors
 
     def test_register_and_get_exporter(self):
