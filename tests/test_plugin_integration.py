@@ -1,5 +1,4 @@
-"""
-Integration test for the finance-sync-sdk plugin system.
+"""Integration test for the finance-sync-sdk plugin system.
 
 Tests that plugins can be registered, discovered, and loaded via the
 PluginRegistry, including an example connector loaded from a separate
@@ -12,8 +11,23 @@ import tempfile
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from finance_sync_sdk.models import ConnectorConfig
-from finance_sync_sdk.registry import PluginRegistry
+
+try:
+    from finance_sync_sdk.models import ConnectorConfig
+    from finance_sync_sdk.registry import PluginRegistry
+
+    SDK_AVAILABLE = True
+except ImportError:
+    SDK_AVAILABLE = False
+
+
+pytestmark = pytest.mark.skipif(
+    not SDK_AVAILABLE,
+    reason=(
+        "finance-sync-sdk not installed"
+        " — run 'uv sync' under sdks/finance-sync-sdk"
+    ),
+)
 
 
 class TestPluginIntegration:
