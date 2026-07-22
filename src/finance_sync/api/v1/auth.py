@@ -26,6 +26,7 @@ from finance_sync.services.auth import (
     create_refresh_token,
     decode_token,
     generate_api_key,
+    hash_password,
     verify_password,
 )
 
