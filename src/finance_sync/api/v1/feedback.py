@@ -1,4 +1,4 @@
-"""Feedback endpoint — submits bug reports and feature requests as GitHub issues.
+"""Feedback endpoint — bug reports / feature requests as GitHub issues.
 
 NOTE: ``from __future__ import annotations`` is intentionally omitted
 because FastAPI needs runtime type introspection for OpenAPI generation.
@@ -52,13 +52,18 @@ async def submit_feedback(
     if feedback_type not in FEEDBACK_LABELS:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"Invalid type: {feedback_type!r}. Must be 'bug' or 'feature'.",
+            detail=(
+                f"Invalid type: {feedback_type!r}. Must be 'bug' or 'feature'."
+            ),
         )
 
     if not settings.github_token:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="GitHub integration is not configured (GITHUB_TOKEN is missing).",
+            detail=(
+                "GitHub integration is not configured"
+                " (GITHUB_TOKEN is missing)."
+            ),
         )
 
     # ── Build GitHub issue body ─────────────────────────────────────

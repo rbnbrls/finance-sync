@@ -423,7 +423,9 @@ class Settings(BaseSettings):
     github_token: str = Field(
         default="",
         validation_alias="GITHUB_TOKEN",
-        description="GitHub personal access token for creating issues from feedback.",
+        description=(
+            "GitHub personal access token for creating issues from feedback."
+        ),
     )
     github_repo: str = Field(
         default="rbnbrls/finance-sync",
