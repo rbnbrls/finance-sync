@@ -7,6 +7,9 @@ from fastapi import APIRouter
 from finance_sync.api.v1.accounts import router as accounts_router
 from finance_sync.api.v1.ai_summary import router as ai_summary_router
 from finance_sync.api.v1.auth import router as auth_router
+from finance_sync.api.v1.connectors_config import (
+    router as connectors_config_router,
+)
 from finance_sync.api.v1.enrichment import router as enrichment_router
 from finance_sync.api.v1.ha_integration import router as ha_integration_router
 from finance_sync.api.v1.net_worth import router as net_worth_router
@@ -20,6 +23,7 @@ router = APIRouter()
 router.include_router(root_router)
 router.include_router(auth_router)
 router.include_router(ai_summary_router)
+router.include_router(connectors_config_router)
 router.include_router(enrichment_router)
 router.include_router(securities_router)
 router.include_router(accounts_router)
