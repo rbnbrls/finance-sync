@@ -10,7 +10,7 @@ because FastAPI needs runtime type introspection for OpenAPI generation.
 import contextlib
 import json
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
@@ -25,9 +25,6 @@ from finance_sync.connectors.registry import ConnectorRegistry
 from finance_sync.dependencies import get_container, get_db
 from finance_sync.models.credential import Credential
 from finance_sync.services.auth import decrypt_credential, encrypt_credential
-
-if TYPE_CHECKING:
-    from finance_sync.connectors.base import Connector
 
 router = APIRouter(prefix="/connectors", tags=["connectors"])
 
@@ -279,7 +276,10 @@ async def create_connector_config(
         available = registry.available
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Unknown connector '{body.provider_type}'. Available: {available}",
+            detail=(
+                f"Unknown connector '{body.provider_type}'. "
+                f"Available: {available}"
+            ),
         )
 
     # Check for existing config of same provider for this tenant
@@ -292,8 +292,10 @@ async def create_connector_config(
     if existing.scalar_one_or_none() is not None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"A configuration for '{body.provider_type}' already exists. "
-            "Use PUT to update it, or DELETE first.",
+            detail=(
+                f"A configuration for '{body.provider_type}' already exists."
+                " Use PUT to update it, or DELETE first."
+            ),
         )
 
     # Encrypt credentials if provided
