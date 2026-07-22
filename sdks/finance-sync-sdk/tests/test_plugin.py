@@ -125,7 +125,6 @@ class CSVExporterPlugin(ExporterPlugin):
         return "csv_exporter"
 
     async def export(self, request: ExportRequest) -> ExportResult:
-        content = "date,amount,description\n2025-01-01,100.00,Test"
         return ExportResult(
             status="completed",
             records_exported=1,

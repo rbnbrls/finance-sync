@@ -72,7 +72,7 @@ class PlaidLikeConnector(ConnectorPlugin):
     # ── Auth ───────────────────────────────────────────────────────────
 
     async def authenticate(self) -> None:
-        """Exchange a public_token for an access_token, or validate an existing one.
+        """Exchange public_token for access_token, or validate existing one.
 
         In a real implementation this would:
         1. POST /item/public_token/exchange with public_token → get access_token
@@ -89,9 +89,8 @@ class PlaidLikeConnector(ConnectorPlugin):
         if not client_id or not access_token:
             from finance_sync_sdk.exceptions import PermanentError
 
-            raise PermanentError(
-                "Plaid connector requires client_id and access_token credentials"
-            )
+            msg = "Plaid needs client_id and access_token credentials"
+            raise PermanentError(msg)
 
         # TODO: POST /item/get to validate token
         self._authenticated = True
@@ -207,7 +206,7 @@ class PlaidLikeConnector(ConnectorPlugin):
         _page_size = min(_max, 500)
 
         # In a real implementation you'd loop cursor pages
-        cursor = self.config.options.get("_cursor")
+        _cursor = self.config.options.get("_cursor")
         environment = self.config.options.get("environment", "production")
 
         # Mock data — replace with real paginated API call

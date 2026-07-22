@@ -17,7 +17,9 @@ Usage::
     pip install finance-sync-sdk
     # Register in pyproject.toml:
     # [project.entry-points."finance_sync_sdk.plugins"]
-    # manual_expense = "examples.manual_expense_connector:ManualExpenseConnector"
+    # manual_expense = (
+    #     "examples.manual_expense_connector:ManualExpenseConnector"
+    # )
 
     config = ConnectorConfig(
         provider_type="manual_expense",
@@ -67,16 +69,17 @@ class ManualExpenseConnector(ConnectorPlugin):
     async def authenticate(self) -> None:
         """Validate the data source file exists and is readable."""
         data_path = self._get_data_path()
-        if not data_path or not os.path.exists(data_path):
+        if not data_path or not os.path.exists(data_path):  # noqa: ASYNC240
             # First run — data file will be created
             self._authenticated = True
             return
 
         try:
-            with open(data_path) as f:
+            with open(data_path) as f:  # noqa: ASYNC230
                 json.load(f)
         except (json.JSONDecodeError, OSError) as exc:
-            raise PermanentError(f"Invalid expense data file: {exc}") from exc
+            msg = f"Invalid expense data file: {exc}"
+            raise PermanentError(msg) from exc
 
         self._authenticated = True
 
@@ -98,7 +101,7 @@ class ManualExpenseConnector(ConnectorPlugin):
         self,
         since: datetime,
         *,
-        account_id: str | None = None,
+        _account_id: str | None = None,
         limit: int | None = None,
     ) -> list[RawTransaction]:
         """Read expenses from the data source and return as transactions.
@@ -122,10 +125,10 @@ class ManualExpenseConnector(ConnectorPlugin):
             }
         """
         data_path = self._get_data_path()
-        if not data_path or not os.path.exists(data_path):
+        if not data_path or not os.path.exists(data_path):  # noqa: ASYNC240
             return []
 
-        with open(data_path) as f:
+        with open(data_path) as f:  # noqa: ASYNC230
             data = json.load(f)
 
         expenses = data.get("expenses", [])
@@ -190,7 +193,9 @@ class ManualExpenseConnector(ConnectorPlugin):
         """
         template = {
             "$schema": "Manual Expense Data v1",
-            "description": "Add your expenses as JSON objects in the 'expenses' array",
+            "description": (
+                "Add your expenses as JSON objects in the 'expenses' array"
+            ),
             "expenses": [
                 {
                     "id": "exp_001",
@@ -229,4 +234,4 @@ class ManualExpenseConnector(ConnectorPlugin):
         }
         with open(path, "w") as f:
             json.dump(template, f, indent=2)
-        print(f"Template created at {path}")
+        print(f"Template created at {path}")  # noqa: T201

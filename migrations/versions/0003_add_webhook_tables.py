@@ -7,11 +7,14 @@ Create Date: 2026-07-21
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from typing import TYPE_CHECKING
 
 import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
 
 # revision identifiers
 revision: str = "0003"
@@ -119,7 +122,7 @@ def upgrade() -> None:
             postgresql.UUID(as_uuid=True),
             nullable=False,
             index=True,
-            comment="FK to webhooks.id (no actual FK constraint for audit safety)",
+            comment="FK to webhooks.id (audit safety, no actual FK)",
         ),
         sa.Column(
             "tenant_id",
@@ -167,7 +170,7 @@ def upgrade() -> None:
             "next_retry_at",
             sa.DateTime(timezone=True),
             nullable=True,
-            comment="When to retry next (null if max attempts reached or delivered)",
+            comment="Next retry time (null if max reached or delivered)",
         ),
         sa.Column(
             "response_status_code",
