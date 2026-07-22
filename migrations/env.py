@@ -13,7 +13,8 @@ Usage
     ASYNC_DB_URL=postgresql+asyncpg://... alembic upgrade head
 
     # Autogenerate a new migration from model changes
-    ASYNC_DB_URL=postgresql+asyncpg://... alembic revision --autogenerate -m "describe change"
+    ASYNC_DB_URL=postgresql+asyncpg://... \\
+        alembic revision --autogenerate -m "describe change"
 
     # Check for drift (no pending changes)
     ASYNC_DB_URL=postgresql+asyncpg://... alembic check
@@ -23,11 +24,14 @@ from __future__ import annotations
 
 import asyncio
 from logging.config import fileConfig
+from typing import TYPE_CHECKING
 
 from alembic import context
 from sqlalchemy import pool
-from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
+
+if TYPE_CHECKING:
+    from sqlalchemy.engine import Connection
 
 # ── Alembic Config object ───────────────────────────────────────────
 config = context.config
@@ -40,7 +44,7 @@ if config.config_file_name is not None:
 # Import all models so Alembic's autogenerate can detect them.
 
 from finance_sync.db import Base  # noqa: E402
-from finance_sync.models import *  # noqa: E402
+from finance_sync.models import *  # noqa: F403, E402
 
 target_metadata = Base.metadata
 

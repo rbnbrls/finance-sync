@@ -76,13 +76,15 @@ class CSVImportConnector(ConnectorPlugin):
             csv_path = self.config.options.get("csv_directory", "")
 
         if not csv_path:
-            raise PermanentError(
+            msg = (
                 "CSV import requires either 'csv_path' (single file) "
                 "or 'csv_directory' (directory of CSVs) in options"
             )
+            raise PermanentError(msg)
 
-        if not os.path.exists(csv_path):
-            raise PermanentError(f"CSV path does not exist: {csv_path}")
+        if not os.path.exists(csv_path):  # noqa: ASYNC240
+            msg = f"CSV path does not exist: {csv_path}"
+            raise PermanentError(msg)
 
         self._authenticated = True
 
@@ -109,7 +111,7 @@ class CSVImportConnector(ConnectorPlugin):
         self,
         since: datetime,
         *,
-        account_id: str | None = None,
+        _account_id: str | None = None,
         limit: int | None = None,
     ) -> list[RawTransaction]:
         """Parse CSV file(s) and return transactions.
@@ -227,9 +229,10 @@ class CSVImportConnector(ConnectorPlugin):
                     # Skip malformed rows
                     from finance_sync_sdk.exceptions import TransientError
 
-                    raise TransientError(
+                    msg = (
                         f"Failed to parse CSV row {row_num} in "
                         f"{file_path}: {exc}"
-                    ) from exc
+                    )
+                    raise TransientError(msg) from exc
 
         return transactions
