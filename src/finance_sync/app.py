@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
 
 from finance_sync.api.middleware.rate_limit import RateLimitMiddleware
 from finance_sync.api.v1.router import router as v1_router
@@ -74,5 +75,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     # ── Prometheus metrics endpoint ──────────────────────────────────
     app.mount("/metrics", metrics_app)
+
+    # ── Root redirect to docs ────────────────────────────────────────
+    @app.get("/", include_in_schema=False)
+    async def root_redirect():
+        """Redirect the root URL to the interactive API documentation."""
+        return RedirectResponse(url="/docs")
 
     return app
