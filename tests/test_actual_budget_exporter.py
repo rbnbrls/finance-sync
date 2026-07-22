@@ -13,8 +13,11 @@ from uuid import uuid4
 
 import pytest
 
-from finance_sync.exporter.config import ActualBudgetConfig
-from finance_sync.exporter.exporter import ActualBudgetExporter, ExportResult
+from finance_sync.exporter.actual_budget.config import ActualBudgetConfig
+from finance_sync.exporter.actual_budget.exporter import (
+    ActualBudgetExporter,
+    ExportResult,
+)
 
 # ═══════════════════════════════════════════════════════════════════════
 # Test helpers
@@ -221,11 +224,11 @@ class TestActualBudgetExporter:
                 return_value=None,
             ),
             patch(
-                "finance_sync.exporter.exporter.ExportRun",
+                "finance_sync.exporter.actual_budget.exporter.ExportRun",
                 return_value=mock_run,
             ),
             patch(
-                "finance_sync.exporter.exporter.ActualBudgetClient",
+                "finance_sync.exporter.actual_budget.exporter.ActualBudgetClient",
                 MockABClient,
             ),
         ):
@@ -272,11 +275,11 @@ class TestActualBudgetExporter:
                 return_value=None,
             ),
             patch(
-                "finance_sync.exporter.exporter.ExportRun",
+                "finance_sync.exporter.actual_budget.exporter.ExportRun",
                 return_value=mock_run,
             ),
             patch(
-                "finance_sync.exporter.exporter.ActualBudgetClient",
+                "finance_sync.exporter.actual_budget.exporter.ActualBudgetClient",
                 MockABClient,
             ),
         ):
@@ -330,15 +333,20 @@ class TestActualBudgetExporter:
             ),
             patch.object(
                 exporter,
+                "_update_export_delivery",
+                return_value=None,
+            ),
+            patch.object(
+                exporter,
                 "_complete_run",
                 return_value=None,
             ),
             patch(
-                "finance_sync.exporter.exporter.ExportRun",
+                "finance_sync.exporter.actual_budget.exporter.ExportRun",
                 return_value=mock_run,
             ),
             patch(
-                "finance_sync.exporter.exporter.ActualBudgetClient",
+                "finance_sync.exporter.actual_budget.exporter.ActualBudgetClient",
                 MockABClient,
             ),
         ):
@@ -354,7 +362,9 @@ class TestActualBudgetExporter:
     @pytest.mark.asyncio
     async def test_run_export_connection_failure(self, exporter) -> None:
         """Connection failure results in a failed export."""
-        from finance_sync.exporter.client import ActualBudgetConnectionError
+        from finance_sync.exporter.actual_budget.client import (
+            ActualBudgetConnectionError,
+        )
 
         mock_run = MagicMock()
         mock_run.id = str(uuid4())
@@ -376,11 +386,11 @@ class TestActualBudgetExporter:
                 return_value=None,
             ),
             patch(
-                "finance_sync.exporter.exporter.ExportRun",
+                "finance_sync.exporter.actual_budget.exporter.ExportRun",
                 return_value=mock_run,
             ),
             patch(
-                "finance_sync.exporter.exporter.ActualBudgetClient",
+                "finance_sync.exporter.actual_budget.exporter.ActualBudgetClient",
                 FailingMockClient,
             ),
         ):
@@ -425,15 +435,20 @@ class TestActualBudgetExporter:
             ),
             patch.object(
                 exporter,
+                "_update_export_delivery",
+                return_value=None,
+            ),
+            patch.object(
+                exporter,
                 "_complete_run",
                 return_value=None,
             ),
             patch(
-                "finance_sync.exporter.exporter.ExportRun",
+                "finance_sync.exporter.actual_budget.exporter.ExportRun",
                 return_value=mock_run,
             ),
             patch(
-                "finance_sync.exporter.exporter.ActualBudgetClient",
+                "finance_sync.exporter.actual_budget.exporter.ActualBudgetClient",
                 MockABClient,
             ),
         ):
@@ -477,15 +492,20 @@ class TestActualBudgetExporter:
             ),
             patch.object(
                 exporter,
+                "_update_export_delivery",
+                return_value=None,
+            ),
+            patch.object(
+                exporter,
                 "_complete_run",
                 return_value=None,
             ),
             patch(
-                "finance_sync.exporter.exporter.ExportRun",
+                "finance_sync.exporter.actual_budget.exporter.ExportRun",
                 return_value=mock_run,
             ),
             patch(
-                "finance_sync.exporter.exporter.ActualBudgetClient",
+                "finance_sync.exporter.actual_budget.exporter.ActualBudgetClient",
                 MockABClient,
             ),
         ):
@@ -497,3 +517,130 @@ class TestActualBudgetExporter:
         assert result.status == "completed"
         # Should have only exported 3 out of 5
         assert result.transactions_attempted == 3
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Tests for ExportDelivery cursor
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class TestExportDelivery:
+    """Tests for the export delivery cursor (idempotency)."""
+
+    @pytest.mark.asyncio
+    async def test_update_delivery_creates_new(self, exporter) -> None:
+        """_update_export_delivery creates a new ExportDelivery record."""
+        account_id = str(uuid4())
+        txn_ids = [str(uuid4()), str(uuid4())]
+
+        mock_session = AsyncMock()
+        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session.__aexit__ = AsyncMock(return_value=None)
+        mock_session.add = MagicMock()
+        mock_session.flush = AsyncMock()
+
+        # execute returns a result mock where scalar_one_or_none() -> None
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = None
+        mock_session.execute = AsyncMock(return_value=mock_result)
+
+        await exporter._update_export_delivery(
+            mock_session,
+            account_id=account_id,
+            transaction_ids=txn_ids,
+        )
+
+        # Should have added a new ExportDelivery
+        mock_session.add.assert_called_once()
+        delivery = mock_session.add.call_args[0][0]
+        assert delivery.tenant_id == "tenant_001"
+        assert delivery.account_id == account_id
+        assert delivery.last_exported_transaction_id == txn_ids[-1]
+        mock_session.flush.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_update_delivery_updates_existing(self, exporter) -> None:
+        """_update_export_delivery updates an existing ExportDelivery."""
+        account_id = str(uuid4())
+        txn_ids = [str(uuid4())]
+
+        existing_delivery = MagicMock()
+        existing_delivery.last_exported_transaction_id = "old_txn_id"
+        existing_delivery.tenant_id = "tenant_001"
+        existing_delivery.account_id = account_id
+
+        mock_session = AsyncMock()
+        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session.__aexit__ = AsyncMock(return_value=None)
+        mock_session.add = MagicMock()
+        mock_session.flush = AsyncMock()
+
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = existing_delivery
+        mock_session.execute = AsyncMock(return_value=mock_result)
+
+        await exporter._update_export_delivery(
+            mock_session,
+            account_id=account_id,
+            transaction_ids=txn_ids,
+        )
+
+        # Should NOT have added a new record
+        mock_session.add.assert_not_called()
+        # Should have updated the existing record
+        assert existing_delivery.last_exported_transaction_id == txn_ids[-1]
+
+    @pytest.mark.asyncio
+    async def test_update_delivery_empty_ids_is_noop(self, exporter) -> None:
+        """Empty transaction_ids should be a no-op."""
+        mock_session = AsyncMock()
+        mock_session.execute = AsyncMock()
+
+        await exporter._update_export_delivery(
+            mock_session,
+            account_id=str(uuid4()),
+            transaction_ids=[],
+        )
+
+        mock_session.execute.assert_not_called()
+        mock_session.add.assert_not_called()
+        mock_session.flush.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_get_delivery_returns_none_when_missing(
+        self, exporter
+    ) -> None:
+        """_get_export_delivery returns None when no record exists."""
+        mock_session = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = None
+        mock_session.execute = AsyncMock(return_value=mock_result)
+
+        result = await exporter._get_export_delivery(
+            mock_session,
+            account_id=str(uuid4()),
+        )
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_get_delivery_returns_record(self, exporter) -> None:
+        """_get_export_delivery returns the existing record."""
+        account_id = str(uuid4())
+        expected = MagicMock()
+        expected.account_id = account_id
+        expected.last_exported_transaction_id = "txn_123"
+
+        mock_session = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = expected
+        mock_session.execute = AsyncMock(return_value=mock_result)
+
+        result = await exporter._get_export_delivery(
+            mock_session,
+            account_id=account_id,
+        )
+
+        assert result is not None
+        assert result.account_id == account_id
+        assert result.last_exported_transaction_id == "txn_123"
