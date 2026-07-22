@@ -305,6 +305,17 @@ class TestAuthEndpoints:
     DB session for these integration-level tests.
     """
 
+    def test_register_missing_fields(self, client: TestClient) -> None:
+        resp = client.post("/api/v1/auth/register", json={})
+        assert resp.status_code == 422  # validation error
+
+    def test_register_short_password(self, client: TestClient) -> None:
+        resp = client.post(
+            "/api/v1/auth/register",
+            json={"email": "test@example.com", "password": "short"},
+        )
+        assert resp.status_code == 422  # min_length=8
+
     def test_login_missing_fields(self, client: TestClient) -> None:
         resp = client.post("/api/v1/auth/login", json={})
         assert resp.status_code == 422  # validation error
@@ -327,6 +338,7 @@ class TestAuthEndpoints:
         paths = resp.json()["paths"]
         # Check that auth paths exist
         assert "/api/v1/auth/login" in paths
+        assert "/api/v1/auth/register" in paths
         assert "/api/v1/auth/refresh" in paths
         assert "/api/v1/auth/me" in paths
         assert "/api/v1/auth/api-keys" in paths

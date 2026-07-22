@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>finance-sync — Sign In</title>
+    <title>finance-sync — Create Account</title>
     <style>
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
         :root {
@@ -15,6 +15,7 @@
             --text-muted: #8b8fa3;
             --accent: #6c63ff;
             --accent-hover: #7b73ff;
+            --green: #34d399;
             --red: #f87171;
             --radius: 10px;
             --font: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
@@ -29,21 +30,21 @@
             align-items: center;
             justify-content: center;
         }
-        .login-box {
+        .auth-box {
             background: var(--surface);
             border: 1px solid var(--border);
             border-radius: var(--radius);
             padding: 40px;
-            width: 380px;
+            width: 400px;
             max-width: 95vw;
         }
-        .login-box h1 {
+        .auth-box h1 {
             font-size: 1.3rem;
             margin-bottom: 4px;
             letter-spacing: -0.02em;
         }
-        .login-box h1 span { color: var(--accent); }
-        .login-box .sub {
+        .auth-box h1 span { color: var(--accent); }
+        .auth-box .sub {
             color: var(--text-muted);
             font-size: 0.85rem;
             margin-bottom: 28px;
@@ -94,6 +95,11 @@
             font-size: 0.85rem;
             margin-bottom: 16px;
         }
+        .success {
+            color: var(--green);
+            font-size: 0.85rem;
+            margin-bottom: 16px;
+        }
         .spinner {
             display: inline-block;
             width: 16px;
@@ -118,28 +124,50 @@
             animation: slideIn 0.3s ease;
         }
         .toast-error { background: #7f1d1d; color: #fee2e2; border: 1px solid #dc2626; }
+        .toast-success { background: #065f46; color: #d1fae5; border: 1px solid #059669; }
         @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+        .footer-link {
+            text-align: center;
+            margin-top: 20px;
+            font-size: 0.85rem;
+            color: var(--text-muted);
+        }
+        .footer-link a {
+            color: var(--accent);
+            text-decoration: none;
+        }
+        .footer-link a:hover { color: var(--accent-hover); }
+        .password-hint {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            margin-top: 4px;
+        }
     </style>
 </head>
 <body>
     <div class="toast-container" id="toast-container"></div>
-    <div class="login-box">
+    <div class="auth-box">
         <h1>finance<span>-sync</span></h1>
-        <div class="sub">Sign in to the control panel</div>
-        <div class="error hidden" id="login-error"></div>
-        <form id="login-form" onsubmit="handleLogin(event)">
+        <div class="sub">Create your account</div>
+        <div class="error hidden" id="register-error"></div>
+        <form id="register-form" onsubmit="handleRegister(event)">
             <div class="form-group">
                 <label for="email">Email</label>
-                <input type="email" id="email" placeholder="admin@finance-sync.local" value="admin@finance-sync.local" required autocomplete="email">
+                <input type="email" id="email" placeholder="you@example.com" required autocomplete="email">
+            </div>
+            <div class="form-group">
+                <label for="display_name">Display Name (optional)</label>
+                <input type="text" id="display_name" placeholder="Your name" autocomplete="name">
             </div>
             <div class="form-group">
                 <label for="password">Password</label>
-                <input type="password" id="password" placeholder="Enter your password" required autocomplete="current-password">
+                <input type="password" id="password" placeholder="At least 8 characters" required minlength="8" autocomplete="new-password">
+                <div class="password-hint">Minimum 8 characters</div>
             </div>
-            <button type="submit" class="btn" id="login-btn">Sign In</button>
+            <button type="submit" class="btn" id="register-btn">Create Account</button>
         </form>
-        <div style="text-align: center; margin-top: 20px; font-size: 0.85rem; color: var(--text-muted);">
-            Don't have an account? <a href="/register" style="color: var(--accent); text-decoration: none;">Create one</a>
+        <div class="footer-link">
+            Already have an account? <a href="/login">Sign in</a>
         </div>
     </div>
     <script>
@@ -154,36 +182,37 @@
             setTimeout(() => { el.style.opacity = '0'; el.style.transition = 'opacity 0.3s'; setTimeout(() => el.remove(), 300); }, 4000);
         }
 
-        async function handleLogin(event) {
+        async function handleRegister(event) {
             event.preventDefault();
-            const btn = document.getElementById('login-btn');
-            const errorEl = document.getElementById('login-error');
+            const btn = document.getElementById('register-btn');
+            const errorEl = document.getElementById('register-error');
             btn.disabled = true;
-            btn.innerHTML = '<span class="spinner"></span> Signing in...';
+            btn.innerHTML = '<span class="spinner"></span> Creating account...';
             errorEl.classList.add('hidden');
 
             try {
-                const resp = await fetch(`${API_BASE}/auth/login`, {
+                const resp = await fetch(`${API_BASE}/auth/register`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         email: document.getElementById('email').value,
                         password: document.getElementById('password').value,
+                        display_name: document.getElementById('display_name').value || null,
                     }),
                 });
                 const data = await resp.json();
                 if (!resp.ok) {
-                    throw new Error(data.detail || 'Invalid credentials');
+                    throw new Error(data.detail || 'Registration failed');
                 }
                 localStorage.setItem('fs_token', data.access_token);
-                // Also store refresh token
                 localStorage.setItem('fs_refresh_token', data.refresh_token);
-                window.location.href = '/';
+                toast('Account created! Redirecting...', 'success');
+                setTimeout(() => { window.location.href = '/'; }, 800);
             } catch (e) {
                 errorEl.textContent = e.message;
                 errorEl.classList.remove('hidden');
                 btn.disabled = false;
-                btn.textContent = 'Sign In';
+                btn.textContent = 'Create Account';
             }
         }
 

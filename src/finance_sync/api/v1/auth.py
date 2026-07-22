@@ -26,6 +26,7 @@ from finance_sync.services.auth import (
     create_refresh_token,
     decode_token,
     generate_api_key,
+    hash_password,
     verify_password,
 )
 
@@ -33,6 +34,19 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 
 # ── Request / Response schemas ────────────────────────────────────────
+
+
+class RegisterRequest(BaseModel):
+    email: str = Field(..., max_length=320)
+    password: str = Field(..., min_length=8)
+    display_name: str | None = Field(default=None, max_length=256)
+
+
+class RegisterResponse(BaseModel):
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
+    user: "UserResponse"
 
 
 class LoginRequest(BaseModel):
@@ -105,6 +119,97 @@ class MeResponse(BaseModel):
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────
+
+
+@router.post("/register", response_model=RegisterResponse)
+async def register(
+    body: RegisterRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> RegisterResponse:
+    """Register a new user account and return JWT tokens.
+
+    Creates the user under the default tenant. Requires a password
+    of at least 8 characters.
+    """
+    from sqlalchemy import text as sa_text
+
+    container = get_container(request)
+    settings = container.settings
+
+    # Look up the default tenant
+    tenant_row = await db.execute(
+        sa_text("SELECT id FROM tenants WHERE slug = 'default'")
+    )
+    tenant = tenant_row.first()
+    if tenant is None:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="No default tenant configured — registration is unavailable",
+        )
+    tenant_id = tenant[0]
+
+    # Check if email already exists
+    existing = await db.execute(
+        select(UserModel).where(UserModel.email == body.email)
+    )
+    if existing.scalar_one_or_none() is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A user with this email already exists",
+        )
+
+    hashed = hash_password(body.password)
+    display_name = body.display_name or body.email.split("@")[0]
+    from datetime import UTC, datetime
+
+    now = datetime.now(UTC)
+
+    user_row = await db.execute(
+        sa_text(
+            "INSERT INTO users "
+            "(id, tenant_id, email, hashed_password, display_name, "
+            "role, is_active, created_at, updated_at) "
+            "VALUES (gen_random_uuid(), :tid, :email, :pwd, "
+            ":display_name, 'user', true, :now, :now) "
+            "RETURNING id, email, display_name, role, is_active, tenant_id"
+        ),
+        {
+            "tid": tenant_id,
+            "email": body.email,
+            "pwd": hashed,
+            "display_name": display_name,
+            "now": now,
+        },
+    )
+    user_data = user_row.first()
+    if user_data is None:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to create user",
+        )
+
+    user_id = str(user_data[0])
+    token_data = {
+        "sub": user_id,
+        "tenant_id": str(user_data[5]),
+        "role": "user",
+    }
+    access_token = create_access_token(token_data, settings)
+    refresh_token = create_refresh_token(token_data, settings)
+
+    return RegisterResponse(
+        access_token=access_token,
+        refresh_token=refresh_token,
+        user=UserResponse(
+            id=user_id,
+            email=str(user_data[1]),
+            display_name=str(user_data[2]) if user_data[2] else None,
+            role=str(user_data[3]),
+            is_active=bool(user_data[4]),
+            tenant_id=str(user_data[5]),
+        ),
+    )
 
 
 @router.post("/login", response_model=LoginResponse)
