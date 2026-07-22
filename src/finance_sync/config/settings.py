@@ -419,6 +419,20 @@ class Settings(BaseSettings):
         description="Host address for the MCP SSE server.",
     )
 
+    # ── GitHub issue creation (feedback) ────────────────────────────
+    github_token: str = Field(
+        default="",
+        validation_alias="GITHUB_TOKEN",
+        description=(
+            "GitHub personal access token for creating issues from feedback."
+        ),
+    )
+    github_repo: str = Field(
+        default="rbnbrls/finance-sync",
+        validation_alias="GITHUB_REPO",
+        description="GitHub repository name (owner/repo) for feedback issues.",
+    )
+
     # ── Worker: Retry ──────────────────────────────────────────────
     worker_retry_max_attempts: int = Field(
         default=3,
