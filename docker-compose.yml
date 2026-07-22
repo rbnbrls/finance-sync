@@ -63,6 +63,8 @@ services:
       JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
       MASTER_ENCRYPTION_KEY: ${MASTER_ENCRYPTION_KEY:-}
       CORS_ORIGINS: ${CORS_ORIGINS:-[*]}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      GITHUB_REPO: ${GITHUB_REPO:-rbnbrls/finance-sync}
     volumes:
       - encryption_keys:/app/keys  # Mount for encryption key files if needed
     depends_on:

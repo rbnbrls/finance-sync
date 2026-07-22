@@ -420,6 +420,143 @@
             margin-bottom: 16px;
         }
         .login-box .btn { width: 100%; }
+
+        /* ── Feedback Button ──────────────────────────────────────────── */
+        .feedback-trigger {
+            position: fixed;
+            right: 0;
+            top: 50%;
+            transform: translateY(-50%);
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-right: none;
+            border-radius: 8px 0 0 8px;
+            padding: 12px 8px;
+            cursor: pointer;
+            z-index: 50;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 4px;
+            transition: all 0.2s;
+            color: var(--text-muted);
+            font-size: 0.7rem;
+            font-weight: 500;
+            writing-mode: vertical-lr;
+            letter-spacing: 0.06em;
+        }
+        .feedback-trigger:hover {
+            background: var(--surface-2);
+            color: var(--accent);
+            border-color: var(--accent);
+        }
+        .feedback-trigger .icon {
+            writing-mode: horizontal-tb;
+            font-size: 1.1rem;
+            margin-bottom: 2px;
+        }
+
+        /* ── Feedback Modal ────────────────────────────────────────────── */
+        .feedback-modal {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 28px;
+            width: 520px;
+            max-width: 95vw;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+        .feedback-modal h2 {
+            font-size: 1.15rem;
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+        .feedback-modal .sub {
+            color: var(--text-muted);
+            font-size: 0.85rem;
+            margin-bottom: 20px;
+        }
+        .feedback-modal textarea {
+            width: 100%;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 10px 12px;
+            color: var(--text);
+            font-size: 0.9rem;
+            font-family: var(--font);
+            outline: none;
+            resize: vertical;
+            min-height: 140px;
+            transition: border-color 0.15s;
+        }
+        .feedback-modal textarea:focus {
+            border-color: var(--accent);
+        }
+        .feedback-modal textarea::placeholder {
+            color: var(--text-muted);
+            opacity: 0.6;
+        }
+        .feedback-modal .type-select {
+            display: flex;
+            gap: 8px;
+        }
+        .feedback-modal .type-option {
+            flex: 1;
+            padding: 10px 16px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            background: var(--bg);
+            color: var(--text-muted);
+            cursor: pointer;
+            font-size: 0.85rem;
+            font-weight: 500;
+            text-align: center;
+            transition: all 0.15s;
+            font-family: var(--font);
+        }
+        .feedback-modal .type-option:hover {
+            border-color: var(--accent);
+            color: var(--text);
+        }
+        .feedback-modal .type-option.selected {
+            border-color: var(--accent);
+            background: rgba(108, 99, 255, 0.1);
+            color: var(--accent);
+        }
+        .feedback-modal .type-option .type-icon {
+            display: block;
+            font-size: 1.2rem;
+            margin-bottom: 2px;
+        }
+        .feedback-modal .char-count {
+            text-align: right;
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            margin-top: 4px;
+        }
+        .feedback-modal .char-count.over {
+            color: var(--red);
+        }
+        .feedback-modal .feedback-success {
+            text-align: center;
+            padding: 40px 20px;
+        }
+        .feedback-modal .feedback-success .check {
+            font-size: 2.5rem;
+            margin-bottom: 12px;
+        }
+        .feedback-modal .feedback-success h3 {
+            font-size: 1.1rem;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+        .feedback-modal .feedback-success p {
+            color: var(--text-muted);
+            font-size: 0.85rem;
+            margin-bottom: 20px;
+        }
     </style>
 </head>
 <body>
@@ -481,6 +618,12 @@
             </div>
         </div>
     </main>
+
+    <!-- Feedback trigger button -->
+    <button class="feedback-trigger" id="feedback-trigger" onclick="openFeedbackModal()" title="Send feedback">
+        <span class="icon">&#9993;</span>
+        Feedback
+    </button>
 
     <!-- Modal Container -->
     <div id="modal-container"></div>
@@ -725,8 +868,119 @@
         }
 
         function closeModal() {
-            const modal = document.getElementById('config-modal');
-            if (modal) modal.remove();
+            const modals = document.querySelectorAll('.modal-overlay');
+            modals.forEach(m => m.remove());
+        }
+
+        // ── Feedback ─────────────────────────────────────────────────────
+        function openFeedbackModal() {
+            const modal = document.createElement('div');
+            modal.className = 'modal-overlay';
+            modal.id = 'feedback-modal-overlay';
+            modal.innerHTML = `
+                <div class="feedback-modal">
+                    <div id="feedback-form-view">
+                        <h2>Send Feedback</h2>
+                        <div class="sub">Report a bug or suggest a feature for finance-sync.</div>
+
+                        <div class="form-group">
+                            <label>Type</label>
+                            <div class="type-select">
+                                <div class="type-option selected" data-type="bug" onclick="selectFeedbackType(this)">
+                                    <span class="type-icon">&#128169;</span>
+                                    Bug Report
+                                </div>
+                                <div class="type-option" data-type="feature" onclick="selectFeedbackType(this)">
+                                    <span class="type-icon">&#128161;</span>
+                                    Feature Request
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="feedback-title">Title <span style="color:var(--red)">*</span></label>
+                            <input type="text" id="feedback-title" placeholder="Brief summary of your feedback" required>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="feedback-desc">Description <span style="color:var(--red)">*</span></label>
+                            <textarea id="feedback-desc" placeholder="Describe the bug or feature request in detail. What did you expect? What happened instead?" oninput="updateFeedbackCharCount()"></textarea>
+                            <div class="char-count" id="feedback-char-count">0 / 2000</div>
+                        </div>
+
+                        <div id="feedback-error" class="hidden alert alert-error"></div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+                            <button type="button" class="btn btn-primary" id="feedback-submit" onclick="submitFeedback()">Submit Feedback</button>
+                        </div>
+                    </div>
+                    <div id="feedback-success-view" class="hidden">
+                        <div class="feedback-success">
+                            <div class="check">&#10003;</div>
+                            <h3>Thank You!</h3>
+                            <p>Your feedback has been submitted as a GitHub issue. We'll review it as soon as possible.</p>
+                            <button class="btn btn-primary" onclick="closeModal()">Close</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            document.getElementById('modal-container').appendChild(modal);
+            modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
+            document.getElementById('feedback-title').focus();
+        }
+
+        function selectFeedbackType(el) {
+            document.querySelectorAll('.type-option').forEach(o => o.classList.remove('selected'));
+            el.classList.add('selected');
+        }
+
+        function updateFeedbackCharCount() {
+            const desc = document.getElementById('feedback-desc');
+            const count = document.getElementById('feedback-char-count');
+            const len = desc.value.length;
+            count.textContent = `${len} / 2000`;
+            count.classList.toggle('over', len > 2000);
+        }
+
+        async function submitFeedback() {
+            const title = document.getElementById('feedback-title').value.trim();
+            const desc = document.getElementById('feedback-desc').value.trim();
+            const typeEl = document.querySelector('.type-option.selected');
+            const type = typeEl ? typeEl.dataset.type : 'feature';
+            const errorEl = document.getElementById('feedback-error');
+            const submitBtn = document.getElementById('feedback-submit');
+
+            if (!title) {
+                errorEl.textContent = 'Please enter a title.';
+                errorEl.classList.remove('hidden');
+                return;
+            }
+            if (!desc) {
+                errorEl.textContent = 'Please enter a description.';
+                errorEl.classList.remove('hidden');
+                return;
+            }
+            if (desc.length > 2000) {
+                errorEl.textContent = 'Description must be under 2000 characters.';
+                errorEl.classList.remove('hidden');
+                return;
+            }
+
+            errorEl.classList.add('hidden');
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = '<span class="spinner"></span> Submitting...';
+
+            try {
+                const result = await api('POST', '/feedback', { title, description: desc, type });
+                document.getElementById('feedback-form-view').classList.add('hidden');
+                document.getElementById('feedback-success-view').classList.remove('hidden');
+                toast('Feedback submitted!', 'success');
+            } catch (e) {
+                errorEl.textContent = e.message;
+                errorEl.classList.remove('hidden');
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Submit Feedback';
+            }
         }
 
         // ── Test connection ─────────────────────────────────────────────
