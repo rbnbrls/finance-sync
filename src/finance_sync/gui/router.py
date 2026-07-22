@@ -40,3 +40,12 @@ async def gui_login(request: Request) -> HTMLResponse:
         request=request,
         name="login.html",
     )
+
+
+@router.get("/register", response_class=HTMLResponse, include_in_schema=False)
+async def gui_register(request: Request) -> HTMLResponse:
+    """Serve the standalone registration page."""
+    return templates.TemplateResponse(
+        request=request,
+        name="register.html",
+    )
