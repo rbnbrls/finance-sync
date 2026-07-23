@@ -71,7 +71,8 @@ class TestSubmitFeedback:
     """POST /api/v1/feedback — issue creation endpoint."""
 
     def test_submit_bug_report_creates_issue(
-        self, client: TestClient,
+        self,
+        client: TestClient,
     ) -> None:
         """Submitting a valid bug report calls the service and returns 201."""
         with patch(
@@ -80,9 +81,7 @@ class TestSubmitFeedback:
         ) as mock_create:
             mock_create.return_value = GitHubIssueResult(
                 success=True,
-                issue_url=(
-                    "https://github.com/rbnbrls/finance-sync/issues/99"
-                ),
+                issue_url=("https://github.com/rbnbrls/finance-sync/issues/99"),
                 issue_number=99,
             )
 
@@ -113,7 +112,8 @@ class TestSubmitFeedback:
             assert call_kwargs["repo"] == "finance-sync"
 
     def test_submit_feature_request_creates_issue(
-        self, client: TestClient,
+        self,
+        client: TestClient,
     ) -> None:
         """Feature request uses the 'enhancement' label."""
         with patch(
@@ -149,7 +149,8 @@ class TestSubmitFeedback:
             assert "feedback" in call_kwargs["labels"]
 
     def test_submit_without_title_returns_422(
-        self, client: TestClient,
+        self,
+        client: TestClient,
     ) -> None:
         """Missing title returns 422 Unprocessable Entity."""
         resp = client.post(
@@ -161,7 +162,8 @@ class TestSubmitFeedback:
         assert "Title" in resp.json()["detail"]
 
     def test_submit_without_description_returns_422(
-        self, client: TestClient,
+        self,
+        client: TestClient,
     ) -> None:
         """Missing description returns 422 Unprocessable Entity."""
         resp = client.post(
@@ -173,7 +175,8 @@ class TestSubmitFeedback:
         assert "Description" in resp.json()["detail"]
 
     def test_submit_invalid_type_returns_422(
-        self, client: TestClient,
+        self,
+        client: TestClient,
     ) -> None:
         """An unrecognised type value returns 422."""
         resp = client.post(
@@ -189,7 +192,8 @@ class TestSubmitFeedback:
         assert "Invalid type" in resp.json()["detail"]
 
     def test_service_error_returns_502(
-        self, client: TestClient,
+        self,
+        client: TestClient,
     ) -> None:
         """When GitHubIssueService returns failure, a 502 is returned."""
         with patch(
@@ -215,7 +219,8 @@ class TestSubmitFeedback:
             assert "GitHub API error" in resp.json()["detail"]
 
     def test_service_network_error_returns_503(
-        self, client: TestClient,
+        self,
+        client: TestClient,
     ) -> None:
         """When the service has no status_code (network failure), 503."""
         with patch(
@@ -241,7 +246,9 @@ class TestSubmitFeedback:
             assert "Network error" in resp.json()["detail"]
 
     def test_issue_body_includes_user_email(
-        self, client: TestClient, mock_user: MagicMock,
+        self,
+        client: TestClient,
+        mock_user: MagicMock,
     ) -> None:
         """The issue body should include the authenticated user's email."""
         mock_user.email = "reporter@example.com"
