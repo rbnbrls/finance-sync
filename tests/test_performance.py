@@ -12,7 +12,7 @@ Tests cover:
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, MagicMock
@@ -124,7 +124,9 @@ class TestOpenAPIRegistration:
         paths = client.get("/openapi.json").json()["paths"]
 
         assert "/api/v1/performance/twr" in paths
-        assert paths["/api/v1/performance/twr"]["get"]["tags"] == ["performance"]
+        assert paths["/api/v1/performance/twr"]["get"]["tags"] == [
+            "performance"
+        ]
 
         assert "/api/v1/performance/mwr" in paths
         assert "/api/v1/performance/benchmark" in paths
@@ -188,9 +190,7 @@ class TestPerformanceServiceTWR:
 class TestPerformanceServiceMWR:
     """PerformanceService.calculate_mwr() behaviour."""
 
-    async def test_empty_returns_zero(
-        self, svc: PerformanceService
-    ) -> None:
+    async def test_empty_returns_zero(self, svc: PerformanceService) -> None:
         result = await svc.calculate_mwr(tenant_id="t1")
         assert result.internal_rate_of_return_pct == _ZERO
         assert result.converged is False
@@ -221,9 +221,7 @@ class TestPerformanceServiceBenchmark:
 class TestPerformanceServiceAttribution:
     """PerformanceService.attribution() behaviour."""
 
-    async def test_empty_returns_zero(
-        self, svc: PerformanceService
-    ) -> None:
+    async def test_empty_returns_zero(self, svc: PerformanceService) -> None:
         result = await svc.attribution(tenant_id="t1")
         assert isinstance(result, AttributionResponse)
         assert result.total_excess_return_pct == _ZERO
@@ -253,7 +251,7 @@ class TestTWRCaluclationLogic:
 
     def test_single_period_positive(self) -> None:
         """If Vb=100, Ve=110, no cash flows => return = 10%."""
-        svc = PerformanceService.__new__(PerformanceService)
+        PerformanceService.__new__(PerformanceService)
         # Manually compute via the formula
         # TWR = (1 + (110-100-0)/100) - 1 = 0.1 = 10%
         result = (E("110") - E("100")) / E("100")
@@ -303,10 +301,7 @@ class TestTWRCaluclationLogic:
 
     def test_zero_beginning_value(self) -> None:
         """If Vb=0, return should be 0 (avoid division by zero)."""
-        if E("100") != _ZERO:
-            result = (E("100") - _ZERO) / E("100")
-        else:
-            result = _ZERO
+        result = (E("100") - _ZERO) / E("100") if E("100") != _ZERO else _ZERO
         assert result == E("1")
 
 
@@ -324,9 +319,7 @@ class TestMWRCalculationLogic:
         # Solve: -100 + 110/(1+r) = 0 => r = 0.1
         cash_flows = [-100.0, 110.0]
         time_weights = [0.0, 1.0]
-        irr, converged = PerformanceService._solve_irr(
-            cash_flows, time_weights
-        )
+        irr, converged = PerformanceService._solve_irr(cash_flows, time_weights)
         assert converged
         assert abs(irr - 0.1) < 1e-5
 
@@ -337,9 +330,7 @@ class TestMWRCalculationLogic:
         """
         cash_flows = [-100.0, 0.0, 121.0]
         time_weights = [0.0, 0.5, 1.0]
-        irr, converged = PerformanceService._solve_irr(
-            cash_flows, time_weights
-        )
+        irr, converged = PerformanceService._solve_irr(cash_flows, time_weights)
         assert converged
         # Total-period IRR (2 years) should be approximately 21%
         assert abs(irr - 0.21) < 0.01
@@ -351,9 +342,7 @@ class TestMWRCalculationLogic:
         """
         cash_flows = [-100.0, -10.0, 105.0]
         time_weights = [0.0, 0.5, 1.0]
-        irr, converged = PerformanceService._solve_irr(
-            cash_flows, time_weights
-        )
+        irr, converged = PerformanceService._solve_irr(cash_flows, time_weights)
         assert converged
         # NPV = -100 - 10/(1+r)^0.5 + 105/(1+r) = 0
         # => r ≈ -0.0476
@@ -369,9 +358,7 @@ class TestMWRCalculationLogic:
         """All positive cash flows cannot have an IRR."""
         cash_flows = [100.0, 50.0, 10.0]
         time_weights = [0.0, 0.5, 1.0]
-        irr, converged = PerformanceService._solve_irr(
-            cash_flows, time_weights
-        )
+        irr, converged = PerformanceService._solve_irr(cash_flows, time_weights)
         # Should not converge — no negative CF means no sign change
         assert converged is False
         assert irr == 0.0
@@ -400,7 +387,7 @@ class TestStatisticalHelpers:
             (E("0.01"), E("0.005")),
             (E("-0.02"), E("-0.01")),
         ]
-        alpha, beta = PerformanceService._calculate_alpha_beta(
+        _alpha, beta = PerformanceService._calculate_alpha_beta(
             aligned, E("0.05"), E("0.1")
         )
         assert beta != _ZERO
@@ -434,8 +421,10 @@ class TestStatisticalHelpers:
 
     def test_align_returns_different_lengths(self) -> None:
         """Aligning different-length lists truncates to shorter."""
-        port = [(datetime(2025, 1, 2, tzinfo=UTC), E("0.01")),
-                (datetime(2025, 1, 3, tzinfo=UTC), E("0.02"))]
+        port = [
+            (datetime(2025, 1, 2, tzinfo=UTC), E("0.01")),
+            (datetime(2025, 1, 3, tzinfo=UTC), E("0.02")),
+        ]
         bench = [(None, E("0.005")), (None, E("0.01")), (None, E("0.015"))]
         aligned = PerformanceService._align_returns(port, bench)
         assert len(aligned) == 2
@@ -463,23 +452,17 @@ class TestIRRSolverEdgeCases:
 
     def test_negative_cf_only(self) -> None:
         """Only negative CFs: -100 => no IRR (need sign change)."""
-        _, converged = PerformanceService._solve_irr(
-            [-100.0], [0.0]
-        )
+        _, converged = PerformanceService._solve_irr([-100.0], [0.0])
         assert not converged  # Need at least two CFs of different signs
 
     def test_single_cf(self) -> None:
         """Single CF not enough for IRR calculation."""
-        _, converged = PerformanceService._solve_irr(
-            [100.0], [0.0]
-        )
+        _, converged = PerformanceService._solve_irr([100.0], [0.0])
         assert not converged
 
     def test_zero_cash_flow(self) -> None:
         """Zero CFs should not converge."""
-        _, converged = PerformanceService._solve_irr(
-            [0.0, 0.0], [0.0, 1.0]
-        )
+        _, converged = PerformanceService._solve_irr([0.0, 0.0], [0.0, 1.0])
         assert not converged
 
     def test_large_negative_rate(self) -> None:
@@ -487,9 +470,7 @@ class TestIRRSolverEdgeCases:
         # Invest 100, get back 11 after 1 year => rate ≈ -0.89
         cash_flows = [-100.0, 11.0]
         time_weights = [0.0, 1.0]
-        irr, converged = PerformanceService._solve_irr(
-            cash_flows, time_weights
-        )
+        irr, converged = PerformanceService._solve_irr(cash_flows, time_weights)
         # -100 + 11/(1+r) = 0 => r = -0.89
         expected = -0.89
         if converged:
@@ -512,9 +493,9 @@ class TestPerformanceSummaryModel:
         twr = TWRResponse(total_return_pct=Decimal("5.25"))
         mwr = MWRResponse(
             internal_rate_of_return_pct=Decimal("4.50"),
-            initial_value=Decimal("1000"),
-            final_value=Decimal("1050"),
-            total_cash_flows=Decimal("0"),
+            initial_value=Decimal(1000),
+            final_value=Decimal(1050),
+            total_cash_flows=Decimal(0),
             cash_flow_count=0,
             converged=True,
         )
@@ -530,9 +511,9 @@ class TestPerformanceSummaryModel:
         twr = TWRResponse(total_return_pct=Decimal("10.0"))
         mwr = MWRResponse(
             internal_rate_of_return_pct=Decimal("8.0"),
-            initial_value=Decimal("1000"),
-            final_value=Decimal("1100"),
-            total_cash_flows=Decimal("50"),
+            initial_value=Decimal(1000),
+            final_value=Decimal(1100),
+            total_cash_flows=Decimal(50),
             cash_flow_count=2,
             converged=True,
         )
@@ -565,7 +546,7 @@ class TestTWRResponseModel:
     """TWRResponse serialization."""
 
     def test_defaults(self) -> None:
-        resp = TWRResponse(total_return_pct=Decimal("0"))
+        resp = TWRResponse(total_return_pct=Decimal(0))
         data = resp.model_dump()
         assert data["total_return_pct"] == 0
         assert data["annualized_return_pct"] is None
@@ -578,10 +559,10 @@ class TestMWRResponseModel:
 
     def test_defaults(self) -> None:
         resp = MWRResponse(
-            internal_rate_of_return_pct=Decimal("0"),
-            initial_value=Decimal("0"),
-            final_value=Decimal("0"),
-            total_cash_flows=Decimal("0"),
+            internal_rate_of_return_pct=Decimal(0),
+            initial_value=Decimal(0),
+            final_value=Decimal(0),
+            total_cash_flows=Decimal(0),
             cash_flow_count=0,
             converged=False,
         )

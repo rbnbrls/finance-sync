@@ -17,10 +17,10 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from math import isnan
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field
-from sqlalchemy import and_, desc, func, or_, select
+from sqlalchemy import and_, func, or_, select
 
 from finance_sync.models.holding import Holding
 from finance_sync.models.security import Security
@@ -81,8 +81,8 @@ class BenchmarkComparisonResponse(BaseModel):
 
     portfolio_return_pct: E
     benchmark_return_pct: E
-    alpha_pct: E | None = None        # Jensen's alpha (excess return)
-    beta: E | None = None              # Systematic risk
+    alpha_pct: E | None = None  # Jensen's alpha (excess return)
+    beta: E | None = None  # Systematic risk
     tracking_error_pct: E | None = None
     information_ratio: E | None = None
     correlation: E | None = None
@@ -176,9 +176,7 @@ class PerformanceService:
             )
 
         # 2. Get external cash flows (deposits/withdrawals)
-        cash_flows = await self._get_external_cash_flows(
-            tenant_id, start, end
-        )
+        cash_flows = await self._get_external_cash_flows(tenant_id, start, end)
 
         # 3. Build a timeline of valuation dates + cash flow dates
         #    Merge them chronologically
@@ -200,9 +198,7 @@ class PerformanceService:
         # 4. Sort and merge
         timeline.sort(key=lambda x: x[0])
         # Remove duplicates by date, keeping the last value of the day
-        merged: dict[datetime, E] = {}
-        for d, v in timeline:
-            merged[d] = v
+        merged = dict(timeline)
         sorted_dates = sorted(merged.keys())
 
         if len(sorted_dates) < 2:
@@ -230,10 +226,7 @@ class PerformanceService:
                     cf += cf_amount
 
             # Sub-period return
-            if bv != _ZERO:
-                period_return = (ev - bv - cf) / bv
-            else:
-                period_return = _ZERO
+            period_return = (ev - bv - cf) / bv if bv != _ZERO else _ZERO
 
             linked_return *= _ONE + period_return
 
@@ -296,18 +289,12 @@ class PerformanceService:
         start = date_from or (end - timedelta(days=365))
 
         # Initial portfolio value
-        initial_value = await self._get_portfolio_value_at(
-            tenant_id, start
-        )
+        initial_value = await self._get_portfolio_value_at(tenant_id, start)
         # Final portfolio value
-        final_value = await self._get_portfolio_value_at(
-            tenant_id, end
-        )
+        final_value = await self._get_portfolio_value_at(tenant_id, end)
 
         # Get all cash flows in the period
-        raw_cfs = await self._get_external_cash_flows(
-            tenant_id, start, end
-        )
+        raw_cfs = await self._get_external_cash_flows(tenant_id, start, end)
 
         # Convert to investor-POV cash flow timeline
         # CF_0 = -initial_value (negative = investor invested this)
@@ -317,12 +304,8 @@ class PerformanceService:
         total_cf = _ZERO
 
         for d, amount in raw_cfs:
-            # Provider POV: deposit = positive (money arrived at bank)
-            # Investor POV: deposit = money going *in* = negative CF
-            if amount > _ZERO:
-                cf_amount = -amount  # Deposit: money into portfolio
-            else:
-                cf_amount = abs(amount)  # Withdrawal: money out of portfolio
+            # Provider POV: deposit +; investor POV: deposit = negative CF
+            cf_amount = -amount if amount > _ZERO else abs(amount)
             total_cf += cf_amount
             cash_flows.append((d, cf_amount))
 
@@ -485,9 +468,7 @@ class PerformanceService:
         )
 
         # Align dates for statistical calculations
-        aligned = self._align_returns(
-            port_daily_returns, bench_daily_returns
-        )
+        aligned = self._align_returns(port_daily_returns, bench_daily_returns)
 
         if len(aligned) >= 2:
             alpha, beta_val = self._calculate_alpha_beta(
@@ -513,16 +494,16 @@ class PerformanceService:
             alpha_pct=(
                 alpha.quantize(E("0.0001")) if alpha is not None else None
             ),
-            beta=beta_val.quantize(E("0.0001")) if beta_val is not None else None,
+            beta=beta_val.quantize(E("0.0001"))
+            if beta_val is not None
+            else None,
             tracking_error_pct=(
                 (te * _HUNDRED).quantize(E("0.0001"))
                 if te is not None
                 else None
             ),
             information_ratio=(
-                ir_val.quantize(E("0.0001"))
-                if ir_val is not None
-                else None
+                ir_val.quantize(E("0.0001")) if ir_val is not None else None
             ),
             correlation=(
                 corr.quantize(E("0.0001")) if corr is not None else None
@@ -553,15 +534,11 @@ class PerformanceService:
         start = date_from or (end - timedelta(days=365))
 
         # Get portfolio holdings by security type at start and end
-        start_holdings = await self._get_security_type_weights(
-            tenant_id, start
-        )
-        end_holdings = await self._get_security_type_weights(
-            tenant_id, end
-        )
+        start_holdings = await self._get_security_type_weights(tenant_id, start)
+        end_holdings = await self._get_security_type_weights(tenant_id, end)
 
         # Resolve benchmark or use equal-weight as fallback
-        benchmark = await self._resolve_benchmark(benchmark_security_id)
+        await self._resolve_benchmark(benchmark_security_id)
 
         # Build combined list of all sectors
         all_types = set(start_holdings.keys()) | set(end_holdings.keys())
@@ -575,9 +552,7 @@ class PerformanceService:
             )
 
         # Get returns per sector
-        sector_returns = await self._get_sector_returns(
-            tenant_id, start, end
-        )
+        sector_returns = await self._get_sector_returns(tenant_id, start, end)
 
         # Benchmark weights (equal-weight by default, or from benchmark prices)
         bench_weights: dict[str, E] = {}
@@ -622,33 +597,33 @@ class PerformanceService:
                     benchmark_weight_pct=bw * _HUNDRED,
                     portfolio_return_pct=pr * _HUNDRED,
                     benchmark_return_pct=br * _HUNDRED,
-                    allocation_effect=(
-                        allocation_effect * _HUNDRED
-                    ).quantize(E("0.0001")),
-                    selection_effect=(
-                        selection_effect * _HUNDRED
-                    ).quantize(E("0.0001")),
-                    interaction_effect=(
-                        interaction_effect * _HUNDRED
-                    ).quantize(E("0.0001")),
+                    allocation_effect=(allocation_effect * _HUNDRED).quantize(
+                        E("0.0001")
+                    ),
+                    selection_effect=(selection_effect * _HUNDRED).quantize(
+                        E("0.0001")
+                    ),
+                    interaction_effect=(interaction_effect * _HUNDRED).quantize(
+                        E("0.0001")
+                    ),
                 )
             )
 
         total_excess = total_allocation + total_selection + total_interaction
 
         return AttributionResponse(
-            total_allocation_effect_pct=(
-                total_allocation * _HUNDRED
-            ).quantize(E("0.0001")),
-            total_selection_effect_pct=(
-                total_selection * _HUNDRED
-            ).quantize(E("0.0001")),
+            total_allocation_effect_pct=(total_allocation * _HUNDRED).quantize(
+                E("0.0001")
+            ),
+            total_selection_effect_pct=(total_selection * _HUNDRED).quantize(
+                E("0.0001")
+            ),
             total_interaction_effect_pct=(
                 total_interaction * _HUNDRED
             ).quantize(E("0.0001")),
-            total_excess_return_pct=(
-                total_excess * _HUNDRED
-            ).quantize(E("0.0001")),
+            total_excess_return_pct=(total_excess * _HUNDRED).quantize(
+                E("0.0001")
+            ),
             components=components,
         )
 
@@ -666,12 +641,8 @@ class PerformanceService:
         end = date_to or datetime.now(UTC)
         start = date_from or (end - timedelta(days=365))
 
-        twr = await self.calculate_twr(
-            tenant_id, date_from=start, date_to=end
-        )
-        mwr = await self.calculate_mwr(
-            tenant_id, date_from=start, date_to=end
-        )
+        twr = await self.calculate_twr(tenant_id, date_from=start, date_to=end)
+        mwr = await self.calculate_mwr(tenant_id, date_from=start, date_to=end)
         bench = await self.benchmark_comparison(
             tenant_id,
             date_from=start,
@@ -729,13 +700,10 @@ class PerformanceService:
         at: datetime,
     ) -> E:
         """Get total portfolio market value at a specific point in time."""
-        stmt = (
-            select(func.sum(Holding.market_value))
-            .where(
-                Holding.tenant_id == tenant_id,
-                Holding.observed_at <= at,
-                Holding.market_value.isnot(None),
-            )
+        stmt = select(func.sum(Holding.market_value)).where(
+            Holding.tenant_id == tenant_id,
+            Holding.observed_at <= at,
+            Holding.market_value.isnot(None),
         )
         result = await self._session.execute(stmt)
         val: E | None = result.scalar()
@@ -759,9 +727,13 @@ class PerformanceService:
             Transaction.tenant_id == tenant_id,
             Transaction.occurred_at >= start,
             Transaction.occurred_at <= end,
-            Transaction.transaction_type.in_([
-                "deposit", "withdrawal", "transfer",
-            ]),
+            Transaction.transaction_type.in_(
+                [
+                    "deposit",
+                    "withdrawal",
+                    "transfer",
+                ]
+            ),
             Transaction.status.in_(["booked", "pending"]),
         ]
         stmt = (
@@ -788,18 +760,20 @@ class PerformanceService:
                     Security.id == benchmark_security_id,
                 )
             )
-            return result.scalar_one_or_none()  # noqa: RET504
+            return result.scalar_one_or_none()
 
         # Auto-detect: look for a security whose name contains "index" or
         # whose security_type is something index-like
         result = await self._session.execute(
-            select(Security).where(
+            select(Security)
+            .where(
                 or_(
                     Security.security_type.in_(["index", "benchmark"]),
                     Security.name.ilike("%index%"),
                     Security.name.ilike("%benchmark%"),
                 )
-            ).limit(1)
+            )
+            .limit(1)
         )
         return result.scalar_one_or_none()
 
@@ -831,9 +805,7 @@ class PerformanceService:
         end: datetime,
     ) -> list[tuple[datetime, E]]:
         """Get daily portfolio total returns as (% change, date) pairs."""
-        values = await self._get_daily_portfolio_values(
-            tenant_id, start, end
-        )
+        values = await self._get_daily_portfolio_values(tenant_id, start, end)
         returns: list[tuple[datetime, E]] = []
         for i in range(1, len(values)):
             _, prev_val = values[i - 1]
@@ -846,7 +818,7 @@ class PerformanceService:
     @staticmethod
     def _to_daily_returns(
         prices: list[E],
-        base_value: E | None = None,
+        base_value: E | None = None,  # noqa: ARG004
     ) -> list[tuple[datetime | None, E]]:
         """Convert a price series to daily returns."""
         if len(prices) < 2:
@@ -873,12 +845,9 @@ class PerformanceService:
         min_len = min(len(port_returns), len(bench_returns))
         if min_len < 2:
             return []
-        aligned: list[tuple[E, E]] = []
-        for i in range(min_len):
-            aligned.append(
-                (port_returns[i][1], bench_returns[i][1])
-            )
-        return aligned
+        return [
+            (port_returns[i][1], bench_returns[i][1]) for i in range(min_len)
+        ]
 
     @staticmethod
     def _calculate_alpha_beta(
@@ -906,18 +875,19 @@ class PerformanceService:
             for p, b in zip(port_arr, bench_arr, strict=False)
         ) / (n - 1)
 
-        var_b = sum(
-            (b - mean_b) ** 2
-            for b in bench_arr
-        ) / (n - 1)
+        var_b = sum((b - mean_b) ** 2 for b in bench_arr) / (n - 1)
 
         if var_b == 0:
-            return (portfolio_total_return - benchmark_total_return) * _HUNDRED, _ONE
+            return (
+                portfolio_total_return - benchmark_total_return
+            ) * _HUNDRED, _ONE
 
         beta_val: E = E(str(cov / var_b))
 
         # Alpha using total period returns (R_f ≈ 0 for simplicity)
-        alpha: E = (portfolio_total_return - benchmark_total_return * beta_val) * _HUNDRED
+        alpha: E = (
+            portfolio_total_return - benchmark_total_return * beta_val
+        ) * _HUNDRED
 
         return alpha, beta_val
 
@@ -933,7 +903,7 @@ class PerformanceService:
         diffs = [float(p - b) for p, b in aligned_returns]
         mean_diff = sum(diffs) / n
         variance = sum((d - mean_diff) ** 2 for d in diffs) / (n - 1)
-        return E(str(variance ** 0.5))
+        return E(str(variance**0.5))
 
     @staticmethod
     def _calculate_correlation(
@@ -960,8 +930,7 @@ class PerformanceService:
         if std_p == 0 or std_b == 0:
             return _ZERO
 
-        corr = E(str(cov / (n - 1) / (std_p * std_b)))
-        return corr
+        return E(str(cov / (n - 1) / (std_p * std_b)))
 
     async def _get_security_type_weights(
         self,
@@ -990,16 +959,12 @@ class PerformanceService:
         result = await self._session.execute(stmt)
         rows = result.all()
 
-        total = sum(
-            (row.type_value or _ZERO) for row in rows
-        )
+        total = sum((row.type_value or _ZERO) for row in rows)
         if total == _ZERO:
             return {}
 
         return {
-            str(row.security_type): (
-                (row.type_value or _ZERO) / total
-            )
+            str(row.security_type): ((row.type_value or _ZERO) / total)
             for row in rows
         }
 
@@ -1043,7 +1008,7 @@ class PerformanceService:
         for row in rows:
             val = row.end_value or _ZERO
             if val > _ZERO:
-                sector_returns[str(row.security_type)] = val / _HUNDRED  # placeholder
+                sector_returns[str(row.security_type)] = val / _HUNDRED
             else:
                 sector_returns[str(row.security_type)] = _ZERO
 
