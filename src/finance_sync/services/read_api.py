@@ -1055,7 +1055,7 @@ class ReadService:
         if account_id is not None:
             conditions.append(Transaction.account_id == account_id)  # type: ignore[attr-defined]
 
-        # Aggregate: total_inflows (positive), total_outflows (ABS of negative), count
+        # Aggregate: total_inflows (positive), total_outflows (ABS of negative)
         inflow_expr = func.coalesce(
             func.sum(Transaction.amount).filter(
                 Transaction.amount > 0  # type: ignore[attr-defined]

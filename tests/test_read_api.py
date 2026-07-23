@@ -430,9 +430,7 @@ class TestReadServiceCashflow:
         mock_session.execute.return_value.one.return_value = mock_row
 
         svc = ReadService(mock_session)
-        await svc.get_cashflow(
-            tenant_id="t1", account_id="acct-1"
-        )
+        await svc.get_cashflow(tenant_id="t1", account_id="acct-1")
         _assert_sql_contains(mock_session, "acct-1")
 
     async def test_cashflow_filters_booked_only(
@@ -450,9 +448,7 @@ class TestReadServiceCashflow:
         await svc.get_cashflow(tenant_id="t1")
         _assert_sql_contains(mock_session, "booked")
 
-    async def test_cashflow_history_empty(
-        self, svc: ReadService
-    ) -> None:
+    async def test_cashflow_history_empty(self, svc: ReadService) -> None:
         result = await svc.get_cashflow_history(tenant_id="t1")
         assert result.total == 0
         assert result.items == []

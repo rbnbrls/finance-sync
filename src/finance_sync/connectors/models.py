@@ -104,6 +104,11 @@ class RawTransaction(BaseModel):
         "standard schema",
     )
 
+    quantity: Decimal | None = Field(
+        default=None,
+        description="Number of units / shares transacted (for purchase/sale)",
+    )
+
 
 # ── Canonical (normalised) models ───────────────────────────────────────
 
@@ -169,6 +174,10 @@ class CanonicalTransactionData(BaseModel):
         "interest/dividend/withdrawal/deposit/other"
     )
     description: str | None = Field(default=None)
+    quantity: Decimal | None = Field(
+        default=None,
+        description="Number of units / shares transacted (for purchase/sale)",
+    )
     status: str = Field(
         default="pending",
         description="pending/booked/reversed/cancelled",

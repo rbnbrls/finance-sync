@@ -136,7 +136,12 @@ Add an entry to `pyproject.toml`:
 
 ```toml
 [project.entry-points."finance_sync.connectors"]
-mybank = "finance_sync.connectors.mybank:MyBankConnector"
+bunq = "finance_sync.connectors.bunq:BunqConnector"
+trading212 = "finance_sync.connectors.trading212:Trading212Connector"
+csv_import = "finance_sync.connectors.csv_import:CSVImportConnector"
+manual_expense = "finance_sync.connectors.manual_expense:ManualExpenseConnector"
+plaid_like = "finance_sync.connectors.plaid_like:PlaidLikeConnector"
+ynab = "finance_sync.connectors.ynab:YnabConnector"
 ```
 
 ### Third‑party plugin (separate package)

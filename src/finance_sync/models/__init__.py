@@ -24,6 +24,7 @@ from finance_sync.models.enums import (
     BalanceKind,
     BalanceSource,
     ConnectorProvider,
+    CostBasisMethod,
     HoldingSource,
     OutboxMessageStatus,
     ReconciliationResultKind,
@@ -34,9 +35,12 @@ from finance_sync.models.enums import (
     TransactionStatus,
     TransactionType,
     UserRole,
+    WashSaleAdjustmentType,
     WebhookDeliveryStatus,
     WebhookEventType,
 )
+from finance_sync.models.fundamental_observation import FundamentalObservation
+from finance_sync.models.fx_rate import FxRate
 from finance_sync.models.holding import Holding
 from finance_sync.models.mixins import TenantAwareMixin, TimestampMixin
 from finance_sync.models.outbox import OutboxMessage
@@ -47,8 +51,12 @@ from finance_sync.models.reconciliation import (
 from finance_sync.models.resolution_audit_log import ResolutionAuditLog
 from finance_sync.models.security import Security
 from finance_sync.models.security_listing import SecurityListing
+from finance_sync.models.security_metadata_observation import (
+    SecurityMetadataObservation,
+)
 from finance_sync.models.security_price import SecurityPrice
 from finance_sync.models.sync_run import SyncRun
+from finance_sync.models.tax_lot import TaxLot
 from finance_sync.models.tenant import Tenant
 from finance_sync.models.transaction import Transaction
 from finance_sync.models.unresolved_security import UnresolvedSecurity
@@ -119,10 +127,13 @@ __all__ = [
     "BalanceKind",
     "BalanceSource",
     "ConnectorProvider",
+    "CostBasisMethod",
     "Credential",
     "EnrichmentFreshness",
     "ExportDelivery",
     "ExportRun",
+    "FundamentalObservation",
+    "FxRate",
     "Holding",
     "HoldingSource",
     "OutboxMessage",
@@ -135,10 +146,12 @@ __all__ = [
     "ResolutionAuditLog",
     "Security",
     "SecurityListing",
+    "SecurityMetadataObservation",
     "SecurityPrice",
     "SecurityType",
     "SyncRun",
     "SyncRunStatus",
+    "TaxLot",
     "Tenant",
     # Mixins
     "TenantAwareMixin",
@@ -149,6 +162,7 @@ __all__ = [
     "UnresolvedSecurity",
     "User",
     "UserRole",
+    "WashSaleAdjustmentType",
     "Webhook",
     "WebhookDeliveryLog",
     "WebhookDeliveryStatus",
