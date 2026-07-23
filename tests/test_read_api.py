@@ -147,7 +147,6 @@ class TestOpenAPIRegistration:
 
         assert "/api/v1/cashflow" in paths
         assert paths["/api/v1/cashflow"]["get"]["tags"] == ["cashflow"]
-        assert "/api/v1/cashflow/history" in paths
 
     def test_securities_list_and_prices_registered(
         self, client: TestClient
@@ -192,7 +191,6 @@ class TestAuthGuards:
         ("GET", "/api/v1/net-worth"),
         ("GET", "/api/v1/net-worth/history"),
         ("GET", "/api/v1/cashflow"),
-        ("GET", "/api/v1/cashflow/history"),
         ("GET", "/api/v1/sync-runs"),
         ("GET", "/api/v1/securities"),
         ("GET", "/api/v1/securities/fake-id/prices"),

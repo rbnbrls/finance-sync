@@ -34,18 +34,18 @@ paths:
         - apiKeyAuth: []
 
       parameters:
-        - name: date_start
+        - name: start_date
           in: query
           description: >
             Start of the date range (ISO-8601). Defaults to 365 days before
-            `date_end`.
+            `end_date`.
           schema:
             type: string
             format: date-time
             example: "2025-01-01T00:00:00Z"
           required: false
 
-        - name: date_end
+        - name: end_date
           in: query
           description: >
             End of the date range (ISO-8601). Defaults to the current server
