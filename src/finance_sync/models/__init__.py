@@ -24,6 +24,7 @@ from finance_sync.models.enums import (
     BalanceKind,
     BalanceSource,
     ConnectorProvider,
+    CostBasisMethod,
     HoldingSource,
     OutboxMessageStatus,
     ReconciliationResultKind,
@@ -34,6 +35,7 @@ from finance_sync.models.enums import (
     TransactionStatus,
     TransactionType,
     UserRole,
+    WashSaleAdjustmentType,
     WebhookDeliveryStatus,
     WebhookEventType,
 )
@@ -50,6 +52,7 @@ from finance_sync.models.security import Security
 from finance_sync.models.security_listing import SecurityListing
 from finance_sync.models.security_price import SecurityPrice
 from finance_sync.models.sync_run import SyncRun
+from finance_sync.models.tax_lot import TaxLot
 from finance_sync.models.tenant import Tenant
 from finance_sync.models.transaction import Transaction
 from finance_sync.models.unresolved_security import UnresolvedSecurity
