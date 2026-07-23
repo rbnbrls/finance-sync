@@ -26,6 +26,9 @@ from finance_sync.models.enums import (
     ConnectorProvider,
     HoldingSource,
     OutboxMessageStatus,
+    ReconciliationResultKind,
+    ReconciliationRunStatus,
+    ReconciliationSeverity,
     SecurityType,
     SyncRunStatus,
     TransactionStatus,
@@ -38,6 +41,10 @@ from finance_sync.models.fx_rate import FxRate
 from finance_sync.models.holding import Holding
 from finance_sync.models.mixins import TenantAwareMixin, TimestampMixin
 from finance_sync.models.outbox import OutboxMessage
+from finance_sync.models.reconciliation import (
+    ReconciliationResult,
+    ReconciliationRun,
+)
 from finance_sync.models.resolution_audit_log import ResolutionAuditLog
 from finance_sync.models.security import Security
 from finance_sync.models.security_listing import SecurityListing
@@ -122,6 +129,11 @@ __all__ = [
     "HoldingSource",
     "OutboxMessage",
     "OutboxMessageStatus",
+    "ReconciliationResult",
+    "ReconciliationResultKind",
+    "ReconciliationRun",
+    "ReconciliationRunStatus",
+    "ReconciliationSeverity",
     "ResolutionAuditLog",
     "Security",
     "SecurityListing",
