@@ -476,7 +476,9 @@ class TestSubscriptionDetectorUnit:
     """Test the subscription detector's internal grouping and analysis logic."""
 
     def test_group_by_merchant_netflix(self, monthly_netflix_txns) -> None:
-        """Netflix transactions with different descriptions normalise to same merchant."""
+        """Netflix transactions with different descriptions
+        normalise to same merchant.
+        """
         from finance_sync.services.subscription_detector import (
             SubscriptionDetector,
         )
@@ -490,7 +492,8 @@ class TestSubscriptionDetectorUnit:
 
         groups = detector._group_by_merchant(monthly_netflix_txns)
         # All should group under "Netflix B.V." (first one normalises that way,
-        # but later ones like "Netflix Subscription" normalise to "Netflix Subscription")
+        # but later ones like "Netflix Subscription"
+        # normalise to "Netflix Subscription")
         # Let's check that the same merchant has multiple entries
         for merchant, txns in groups.items():
             if "Netflix" in merchant:
@@ -530,7 +533,9 @@ class TestSubscriptionDetectorUnit:
         pytest.fail("No Netflix group found")
 
     def test_weekly_coffee_not_detected(self, weekly_coffee_txns) -> None:
-        """Regular small purchases without subscription keywords are low confidence."""
+        """Regular small purchases without subscription
+        keywords are low confidence.
+        """
         from finance_sync.services.subscription_detector import (
             SubscriptionDetector,
         )
@@ -545,7 +550,8 @@ class TestSubscriptionDetectorUnit:
             if "Coffee" in merchant:
                 result = detector._analyze_merchant_group(merchant, txns)
                 # Coffee has exact same amount + regular weekly intervals, so it
-                # IS detected as a recurring pattern — but without keywords/category
+                # IS detected as a recurring pattern — but without
+                # keywords/category
                 # it should NOT be HIGH confidence
                 if result is not None:
                     assert result["confidence"] != SubscriptionConfidence.HIGH

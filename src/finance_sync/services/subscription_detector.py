@@ -250,7 +250,9 @@ def _classify_category(description: str | None) -> str | None:
 
 
 def _is_subscription_keyword(description: str | None) -> bool:
-    """Check if a description contains explicit subscription-related keywords."""
+    """Check if a description contains explicit
+    subscription-related keywords.
+    """
     if not description:
         return False
     for pattern in _SUBSCRIPTION_KEYWORDS:
@@ -668,7 +670,9 @@ class SubscriptionDetector:
         merchant: str,
         txns: list[dict[str, Any]],
     ) -> dict[str, Any] | None:
-        """Analyze a single merchant's transactions for subscription patterns."""
+        """Analyze a single merchant's transactions
+        for subscription patterns.
+        """
         # Sort transactions by date for interval computation
         txns_sorted = sorted(txns, key=lambda t: t["occurred_at"])
         amounts = [t["amount"] for t in txns_sorted]

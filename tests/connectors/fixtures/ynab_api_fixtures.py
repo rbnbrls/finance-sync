@@ -81,7 +81,7 @@ BUDGET_TRANSACTIONS_RESPONSE = {
             {
                 "id": "ynab_txn_001",
                 "date": "2025-06-15",
-                "amount": 42500,  # 42.50 outflow in YNAB → -42.50 in finance-sync
+                "amount": 42500,  # 42.50 outflow -> -42.50
                 "memo": "Coffee shop",
                 "cleared": "cleared",
                 "approved": True,
@@ -100,7 +100,7 @@ BUDGET_TRANSACTIONS_RESPONSE = {
             {
                 "id": "ynab_txn_002",
                 "date": "2025-06-14",
-                "amount": -120000,  # -120.00 inflow in YNAB → +120.00 in finance-sync
+                "amount": -120000,  # -120.00 inflow -> +120.00
                 "memo": "Freelance payment",
                 "cleared": "cleared",
                 "approved": True,

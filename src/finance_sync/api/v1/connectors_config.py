@@ -143,7 +143,9 @@ class InlineTestResult(BaseModel):
     message: str
     accounts: list[InlineTestAccount] = Field(
         default_factory=list,
-        description="Accounts available via this connection (if test succeeded)",
+        description=(
+            "Accounts available via this connection (if test succeeded)"
+        ),
     )
 
 
