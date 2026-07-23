@@ -35,6 +35,8 @@ class TransactionType(StrEnum):
     DIVIDEND = "dividend"
     WITHDRAWAL = "withdrawal"
     DEPOSIT = "deposit"
+    CARD_PAYMENT = "card_payment"
+    SCHEDULED_PAYMENT = "scheduled_payment"
     OTHER = "other"
 
 
@@ -182,3 +184,37 @@ class ReconciliationSeverity(StrEnum):
     INFO = "info"
     WARNING = "warning"
     ERROR = "error"
+
+
+class ScheduleFrequency(StrEnum):
+    """Recurrence frequency for scheduled/recurring payments."""
+
+    DAILY = "daily"
+    WEEKLY = "weekly"
+    BIWEEKLY = "biweekly"
+    MONTHLY = "monthly"
+    BIMONTHLY = "bimonthly"
+    QUARTERLY = "quarterly"
+    SEMI_ANNUALLY = "semi_annually"
+    ANNUALLY = "annually"
+    CUSTOM = "custom"
+
+
+class ScheduleStatus(StrEnum):
+    """Lifecycle state of a scheduled/recurring payment."""
+
+    ACTIVE = "active"
+    PAUSED = "paused"
+    COMPLETED = "completed"
+    CANCELLED = "cancelled"
+    FAILED = "failed"
+
+
+class CardAuthorizationType(StrEnum):
+    """Type of card transaction authorization."""
+
+    AUTHORIZATION = "authorization"
+    SETTLEMENT = "settlement"
+    REFUND = "refund"
+    CHARGEBACK = "chargeback"
+    OTHER = "other"
