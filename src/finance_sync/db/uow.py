@@ -12,12 +12,15 @@ from finance_sync.db.repositories import (
     AccountRepository,
     BalanceRepository,
     EnrichmentFreshnessRepository,
+    FundamentalObservationRepository,
+    FxRateRepository,
     HoldingRepository,
     OutboxMessageRepository,
     ReconciliationResultRepository,
     ReconciliationRunRepository,
     ResolutionAuditLogRepository,
     SecurityListingRepository,
+    SecurityMetadataObservationRepository,
     SecurityPriceRepository,
     SecurityRepository,
     SyncRunRepository,
@@ -132,7 +135,21 @@ class UnitOfWork:
 
     @property
     def webhook_delivery_logs(self) -> WebhookDeliveryLogRepository:
-        return self._repo("webhook_delivery_logs", WebhookDeliveryLogRepository)  # type: ignore[return-value]
+        return self._repo(
+            "webhook_delivery_logs", WebhookDeliveryLogRepository
+        )  # type: ignore[return-value]
+
+    @property
+    def fx_rates(self) -> FxRateRepository:
+        return self._repo("fx_rates", FxRateRepository)  # type: ignore[return-value]
+
+    @property
+    def fundamental_observations(self) -> FundamentalObservationRepository:
+        return self._repo("fundamental_observations", FundamentalObservationRepository)  # noqa: E501
+
+    @property
+    def security_metadata_observations(self) -> SecurityMetadataObservationRepository:  # noqa: E501
+        return self._repo("security_metadata_observations", SecurityMetadataObservationRepository)  # noqa: E501
 
     # ── Lifecycle ────────────────────────────────────────────────────
 

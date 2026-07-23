@@ -16,11 +16,18 @@ class TestConnectorRegistryEmpty:
 
     def test_available_empty(self) -> None:
         registry = ConnectorRegistry()
-        assert registry.available == ["bunq", "trading212"]
+        assert registry.available == [
+            "bunq",
+            "csv_import",
+            "manual_expense",
+            "plaid_like",
+            "trading212",
+            "ynab",
+        ]
 
     def test_len_empty(self) -> None:
         registry = ConnectorRegistry()
-        assert len(registry) == 2
+        assert len(registry) == 6
 
     def test_contains_false(self) -> None:
         registry = ConnectorRegistry()
@@ -39,8 +46,9 @@ class TestConnectorRegistryWithMock:
     def test_register_and_list(self, registry_with_mock: tuple) -> None:
         registry, _ = registry_with_mock
         assert "mock_provider" in registry
-        # 2 built-in (bunq, trading212) + 1 mock = 3
-        assert len(registry) == 3
+        # 6 built-in (bunq, csv_import, manual_expense, plaid_like,
+        # trading212, ynab) + 1 mock = 7
+        assert len(registry) == 7
 
         metadata = registry.list_connectors()
         assert "mock_provider" in metadata

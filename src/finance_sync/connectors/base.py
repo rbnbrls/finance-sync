@@ -183,6 +183,7 @@ class Connector(ABC):
                 booked_at=r.booked_at,
                 transaction_type=r.transaction_type or "other",
                 description=r.description,
+                quantity=r.quantity,
                 status=r.status or "pending",
                 provider_fingerprint=r.provider_fingerprint,
             )

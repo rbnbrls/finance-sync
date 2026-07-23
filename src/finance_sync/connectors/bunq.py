@@ -63,7 +63,7 @@ class BunqConnector(Connector):
         accounts = await conn.fetch_accounts()
     """
 
-    display_name = "bunq"
+    display_name = "Bunq"
     sdk_version = "0.1.0"
 
     rate_limit_policy = RateLimitPolicy(
