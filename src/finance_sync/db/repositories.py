@@ -16,6 +16,7 @@ from finance_sync.models import (
     Balance,
     EnrichmentFreshness,
     ExportRun,
+    FundamentalObservation,
     FxRate,
     Holding,
     OutboxMessage,
@@ -24,6 +25,7 @@ from finance_sync.models import (
     ResolutionAuditLog,
     Security,
     SecurityListing,
+    SecurityMetadataObservation,
     SecurityPrice,
     SyncRun,
     TaxLot,
@@ -240,7 +242,7 @@ class TaxLotRepository(Repository[TaxLot]):
         account_id: str,
         security_id: str,
     ) -> list[TaxLot]:
-        """Return all open (unclosed) tax lots for an account+security, ordered by acquisition date.
+        """Return open tax lots for an account+security, ordered by acquisition.
 
         Used by the cost-basis matching engine.
         """
@@ -257,7 +259,7 @@ class TaxLotRepository(Repository[TaxLot]):
         tenant_id: str,
         transaction_id: str,
     ) -> list[TaxLot]:
-        """Find all tax lots linked to a specific transaction (purchase or sale)."""
+        """Find all tax lots linked to a specific transaction."""
         return await self.list(
             TaxLot.tenant_id == tenant_id,  # type: ignore[attr-defined]
             (
@@ -315,6 +317,16 @@ class WebhookRepository(Repository[Webhook]):
 
 class WebhookDeliveryLogRepository(Repository[WebhookDeliveryLog]):
     model_class = WebhookDeliveryLog
+
+
+class FundamentalObservationRepository(Repository[FundamentalObservation]):
+    model_class = FundamentalObservation
+
+
+class SecurityMetadataObservationRepository(
+    Repository[SecurityMetadataObservation]
+):
+    model_class = SecurityMetadataObservation
 
 
 class FxRateRepository(Repository[FxRate]):

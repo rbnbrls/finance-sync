@@ -39,6 +39,7 @@ from finance_sync.models.enums import (
     WebhookDeliveryStatus,
     WebhookEventType,
 )
+from finance_sync.models.fundamental_observation import FundamentalObservation
 from finance_sync.models.fx_rate import FxRate
 from finance_sync.models.holding import Holding
 from finance_sync.models.mixins import TenantAwareMixin, TimestampMixin
@@ -50,6 +51,9 @@ from finance_sync.models.reconciliation import (
 from finance_sync.models.resolution_audit_log import ResolutionAuditLog
 from finance_sync.models.security import Security
 from finance_sync.models.security_listing import SecurityListing
+from finance_sync.models.security_metadata_observation import (
+    SecurityMetadataObservation,
+)
 from finance_sync.models.security_price import SecurityPrice
 from finance_sync.models.sync_run import SyncRun
 from finance_sync.models.tax_lot import TaxLot
@@ -123,10 +127,12 @@ __all__ = [
     "BalanceKind",
     "BalanceSource",
     "ConnectorProvider",
+    "CostBasisMethod",
     "Credential",
     "EnrichmentFreshness",
     "ExportDelivery",
     "ExportRun",
+    "FundamentalObservation",
     "FxRate",
     "Holding",
     "HoldingSource",
@@ -140,10 +146,12 @@ __all__ = [
     "ResolutionAuditLog",
     "Security",
     "SecurityListing",
+    "SecurityMetadataObservation",
     "SecurityPrice",
     "SecurityType",
     "SyncRun",
     "SyncRunStatus",
+    "TaxLot",
     "Tenant",
     # Mixins
     "TenantAwareMixin",
@@ -154,6 +162,7 @@ __all__ = [
     "UnresolvedSecurity",
     "User",
     "UserRole",
+    "WashSaleAdjustmentType",
     "Webhook",
     "WebhookDeliveryLog",
     "WebhookDeliveryStatus",
