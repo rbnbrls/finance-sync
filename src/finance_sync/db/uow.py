@@ -15,6 +15,8 @@ from finance_sync.db.repositories import (
     FundamentalObservationRepository,
     HoldingRepository,
     OutboxMessageRepository,
+    ReconciliationResultRepository,
+    ReconciliationRunRepository,
     ResolutionAuditLogRepository,
     SecurityListingRepository,
     SecurityMetadataObservationRepository,
@@ -115,6 +117,16 @@ class UnitOfWork:
     @property
     def resolution_audit_log(self) -> ResolutionAuditLogRepository:
         return self._repo("resolution_audit_log", ResolutionAuditLogRepository)  # type: ignore[return-value]
+
+    @property
+    def reconciliation_runs(self) -> ReconciliationRunRepository:
+        return self._repo("reconciliation_runs", ReconciliationRunRepository)  # type: ignore[return-value]
+
+    @property
+    def reconciliation_results(self) -> ReconciliationResultRepository:
+        return self._repo(
+            "reconciliation_results", ReconciliationResultRepository
+        )
 
     @property
     def webhooks(self) -> WebhookRepository:
