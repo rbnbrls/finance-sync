@@ -20,6 +20,7 @@ from finance_sync.models.balance import Balance
 from finance_sync.models.card_transaction import CardTransaction
 from finance_sync.models.credential import Credential
 from finance_sync.models.enrichment_freshness import EnrichmentFreshness
+from finance_sync.models.detected_subscription import DetectedSubscription
 from finance_sync.models.enums import (
     AccountType,
     BalanceKind,
@@ -27,6 +28,7 @@ from finance_sync.models.enums import (
     CardAuthorizationType,
     ConnectorProvider,
     CostBasisMethod,
+    DetectionMethod,
     HoldingSource,
     OutboxMessageStatus,
     ReconciliationResultKind,
@@ -35,6 +37,8 @@ from finance_sync.models.enums import (
     ScheduleFrequency,
     ScheduleStatus,
     SecurityType,
+    SubscriptionConfidence,
+    SubscriptionStatus,
     SyncRunStatus,
     TransactionStatus,
     TransactionType,
@@ -136,6 +140,8 @@ __all__ = [
     "ConnectorProvider",
     "CostBasisMethod",
     "Credential",
+    "DetectedSubscription",
+    "DetectionMethod",
     "EnrichmentFreshness",
     "ExportDelivery",
     "ExportRun",
@@ -159,6 +165,8 @@ __all__ = [
     "SecurityMetadataObservation",
     "SecurityPrice",
     "SecurityType",
+    "SubscriptionConfidence",
+    "SubscriptionStatus",
     "SyncRun",
     "SyncRunStatus",
     "TaxLot",
