@@ -234,7 +234,7 @@ class TestReconciliationServiceMocked:
         # Mock the raw session execute for accounts query
         mock_accounts_result = MagicMock()
         mock_accounts_result.scalars.return_value.all = MagicMock(
-            return_value=[_MockAccount(id="acct_1", name="Test Account")]
+            return_value=[_MockAccount(record_id="acct_1", name="Test Account")]
         )
         mock_session.execute = AsyncMock(return_value=mock_accounts_result)
 

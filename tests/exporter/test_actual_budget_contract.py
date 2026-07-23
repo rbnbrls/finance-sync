@@ -9,7 +9,6 @@ expectations (Actual Budget API behaviour).
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
@@ -20,7 +19,9 @@ from finance_sync.exporter.actual_budget.exporter import (
     ActualBudgetExporter,
     ExportResult,
 )
-from finance_sync.exporter.actual_budget.transaction_mapper import map_transaction
+from finance_sync.exporter.actual_budget.transaction_mapper import (
+    map_transaction,
+)
 from tests.exporter.contract_test_template import (
     ExporterConfigContractTest,
     ExportLifecycleContractTest,

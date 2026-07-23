@@ -8,13 +8,6 @@ license = "MIT"
 authors = [
     { name = "rbnbrls", email = "3826339+rbnbrls@users.noreply.github.com" },
 ]
-classifiers = [
-    "Development Status :: 2 - Pre-Alpha",
-    "Intended Audience :: Financial and Insurance Industry",
-    "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.12",
-    "Programming Language :: Python :: 3.13",
-]
 
 dependencies = [
     "fastapi>=0.115",

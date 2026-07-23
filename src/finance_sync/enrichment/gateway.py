@@ -408,7 +408,7 @@ class EnrichmentGateway:
                 weight=_safe_decimal(
                     s.get("weight") or s.get("exposure") or s.get("percentage")
                 )
-                or Decimal("0"),
+                or Decimal(0),
             )
             for s in sector_raw
             if (s.get("sector") or s.get("name"))
@@ -420,7 +420,7 @@ class EnrichmentGateway:
                 weight=_safe_decimal(
                     r.get("weight") or r.get("exposure") or r.get("percentage")
                 )
-                or Decimal("0"),
+                or Decimal(0),
             )
             for r in region_raw
             if (r.get("region") or r.get("name"))

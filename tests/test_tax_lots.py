@@ -25,7 +25,6 @@ if TYPE_CHECKING:
     from collections.abc import Generator
 
     from fastapi import FastAPI
-    from sqlalchemy.ext.asyncio import AsyncSession
 
 import pytest
 from fastapi.testclient import TestClient
@@ -41,7 +40,6 @@ from finance_sync.models.enums import (
 from finance_sync.models.tax_lot import TaxLot
 from finance_sync.models.transaction import Transaction
 from finance_sync.services.tax_lot_service import (
-    compute_all_tax_lots,
     create_tax_lots_for_purchase,
     detect_and_adjust_wash_sales,
     get_tax_lot_summary,
@@ -65,7 +63,7 @@ def _auth_header(token: str = _API_KEY_TOKEN) -> dict[str, str]:
 
 def _make_purchase_txn(
     amount: Decimal = Decimal("-1000.00"),
-    quantity: Decimal = Decimal("10"),
+    quantity: Decimal = Decimal(10),
     occurred_at: datetime | None = None,
     **overrides: Any,
 ) -> Transaction:
@@ -88,7 +86,7 @@ def _make_purchase_txn(
 
 def _make_sale_txn(
     amount: Decimal = Decimal("1500.00"),
-    quantity: Decimal = Decimal("10"),
+    quantity: Decimal = Decimal(10),
     occurred_at: datetime | None = None,
     **overrides: Any,
 ) -> Transaction:
@@ -148,27 +146,27 @@ class TestTaxLotModel:
             account_id=_ACCOUNT_ID,
             security_id=_SECURITY_ID,
             purchase_transaction_id=str(uuid4()),
-            quantity=Decimal("10"),
-            remaining_quantity=Decimal("10"),
+            quantity=Decimal(10),
+            remaining_quantity=Decimal(10),
             cost_basis_total=Decimal("1000.00"),
             cost_basis_per_unit=Decimal("100.00"),
             currency_code="EUR",
             acquired_at=datetime.now(UTC),
             cost_basis_method=CostBasisMethod.FIFO.value,
         )
-        assert lot.quantity == Decimal("10")
-        assert lot.remaining_quantity == Decimal("10")
+        assert lot.quantity == Decimal(10)
+        assert lot.remaining_quantity == Decimal(10)
         assert lot.is_open()
         assert lot.closed_at is None
-        assert lot.closed_quantity == Decimal("0")
+        assert lot.closed_quantity == Decimal(0)
 
     def test_partially_closed_lot(self) -> None:
         lot = TaxLot(
             tenant_id=_TENANT_ID,
             account_id=_ACCOUNT_ID,
             security_id=_SECURITY_ID,
-            quantity=Decimal("10"),
-            remaining_quantity=Decimal("4"),
+            quantity=Decimal(10),
+            remaining_quantity=Decimal(4),
             cost_basis_total=Decimal("1000.00"),
             cost_basis_per_unit=Decimal("100.00"),
             currency_code="EUR",
@@ -176,16 +174,16 @@ class TestTaxLotModel:
             cost_basis_method=CostBasisMethod.FIFO.value,
         )
         assert lot.is_open()
-        assert lot.remaining_quantity == Decimal("4")
-        assert lot.closed_quantity == Decimal("6")
+        assert lot.remaining_quantity == Decimal(4)
+        assert lot.closed_quantity == Decimal(6)
 
     def test_fully_closed_lot(self) -> None:
         lot = TaxLot(
             tenant_id=_TENANT_ID,
             account_id=_ACCOUNT_ID,
             security_id=_SECURITY_ID,
-            quantity=Decimal("10"),
-            remaining_quantity=Decimal("0"),
+            quantity=Decimal(10),
+            remaining_quantity=Decimal(0),
             cost_basis_total=Decimal("1000.00"),
             cost_basis_per_unit=Decimal("100.00"),
             currency_code="EUR",
@@ -203,8 +201,8 @@ class TestTaxLotModel:
             tenant_id=_TENANT_ID,
             account_id=_ACCOUNT_ID,
             security_id=_SECURITY_ID,
-            quantity=Decimal("10"),
-            remaining_quantity=Decimal("10"),
+            quantity=Decimal(10),
+            remaining_quantity=Decimal(10),
             cost_basis_total=Decimal("1000.00"),
             cost_basis_per_unit=Decimal("100.00"),
             currency_code="EUR",
@@ -230,14 +228,14 @@ class TestCreateTaxLots:
 
         txn = _make_purchase_txn(
             amount=Decimal("-1000.00"),
-            quantity=Decimal("10"),
+            quantity=Decimal(10),
         )
         lot = await create_tax_lots_for_purchase(
             session, _TENANT_ID, txn
         )
 
-        assert lot.quantity == Decimal("10")
-        assert lot.remaining_quantity == Decimal("10")
+        assert lot.quantity == Decimal(10)
+        assert lot.remaining_quantity == Decimal(10)
         assert lot.cost_basis_total == Decimal("1000.00")
         assert lot.cost_basis_per_unit == Decimal("100.00")
         assert lot.currency_code == "EUR"
@@ -248,15 +246,15 @@ class TestCreateTaxLots:
     async def test_create_zero_cost_purchase(self) -> None:
         session = AsyncMock()
         txn = _make_purchase_txn(
-            amount=Decimal("0"),
-            quantity=Decimal("10"),
+            amount=Decimal(0),
+            quantity=Decimal(10),
         )
         lot = await create_tax_lots_for_purchase(
             session, _TENANT_ID, txn
         )
-        assert lot.quantity == Decimal("10")  # quantity comes from txn.quantity
-        assert lot.cost_basis_total == Decimal("0")
-        assert lot.cost_basis_per_unit == Decimal("0")
+        assert lot.quantity == Decimal(10)  # quantity comes from txn.quantity
+        assert lot.cost_basis_total == Decimal(0)
+        assert lot.cost_basis_per_unit == Decimal(0)
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -272,7 +270,7 @@ class TestMatchSaleToLotsFIFO:
         """Selling exactly what we bought — one lot."""
         buy_txn = _make_purchase_txn(
             amount=Decimal("-1000.00"),
-            quantity=Decimal("10"),
+            quantity=Decimal(10),
             occurred_at=datetime.now(UTC),
         )
         lot = await create_tax_lots_for_purchase(
@@ -281,14 +279,14 @@ class TestMatchSaleToLotsFIFO:
 
         sell_txn = _make_sale_txn(
             amount=Decimal("1500.00"),  # total proceeds
-            quantity=Decimal("10"),      # shares
+            quantity=Decimal(10),      # shares
             occurred_at=datetime.now(UTC) + timedelta(days=30),
         )
 
         with patch(
             "finance_sync.services.tax_lot_service.TaxLotRepository"
-        ) as MockRepo:
-            mock_repo = MockRepo.return_value
+        ) as mock_repo_cls:
+            mock_repo = mock_repo_cls.return_value
             mock_repo.find_open_lots = AsyncMock(return_value=[lot])
             mock_repo.update = AsyncMock()
 
@@ -298,7 +296,7 @@ class TestMatchSaleToLotsFIFO:
 
         assert len(closures) == 1
         c = closures[0]
-        assert c["quantity_sold"] == Decimal("10")
+        assert c["quantity_sold"] == Decimal(10)
         assert c["cost_basis_used"] == Decimal("1000.00")
         # proceeds = 10 * (1500/10) = 1500
         assert c["proceeds"] == Decimal("1500.00")
@@ -309,7 +307,7 @@ class TestMatchSaleToLotsFIFO:
         """Selling half of a single lot."""
         buy_txn = _make_purchase_txn(
             amount=Decimal("-1000.00"),
-            quantity=Decimal("10"),
+            quantity=Decimal(10),
             occurred_at=datetime.now(UTC),
         )
         lot = await create_tax_lots_for_purchase(
@@ -318,14 +316,14 @@ class TestMatchSaleToLotsFIFO:
 
         sell_txn = _make_sale_txn(
             amount=Decimal("750.00"),
-            quantity=Decimal("5"),
+            quantity=Decimal(5),
             occurred_at=datetime.now(UTC) + timedelta(days=30),
         )
 
         with patch(
             "finance_sync.services.tax_lot_service.TaxLotRepository"
-        ) as MockRepo:
-            mock_repo = MockRepo.return_value
+        ) as mock_repo_cls:
+            mock_repo = mock_repo_cls.return_value
             mock_repo.find_open_lots = AsyncMock(return_value=[lot])
             mock_repo.update = AsyncMock()
 
@@ -335,12 +333,12 @@ class TestMatchSaleToLotsFIFO:
 
         assert len(closures) == 1
         c = closures[0]
-        assert c["quantity_sold"] == Decimal("5")
+        assert c["quantity_sold"] == Decimal(5)
         assert c["cost_basis_used"] == Decimal("500.00")  # 5 * 100
         assert c["realized_pl"] == Decimal("250.00")  # 750 - 500
 
         # Lot should be updated
-        assert lot.remaining_quantity == Decimal("5")
+        assert lot.remaining_quantity == Decimal(5)
 
     @pytest.mark.asyncio
     async def test_multiple_lots_fifo(self) -> None:
@@ -354,8 +352,8 @@ class TestMatchSaleToLotsFIFO:
             account_id=_ACCOUNT_ID,
             security_id=_SECURITY_ID,
             purchase_transaction_id=str(uuid4()),
-            quantity=Decimal("10"),
-            remaining_quantity=Decimal("10"),
+            quantity=Decimal(10),
+            remaining_quantity=Decimal(10),
             cost_basis_total=Decimal("800.00"),
             cost_basis_per_unit=Decimal("80.00"),
             currency_code="EUR",
@@ -368,8 +366,8 @@ class TestMatchSaleToLotsFIFO:
             account_id=_ACCOUNT_ID,
             security_id=_SECURITY_ID,
             purchase_transaction_id=str(uuid4()),
-            quantity=Decimal("10"),
-            remaining_quantity=Decimal("10"),
+            quantity=Decimal(10),
+            remaining_quantity=Decimal(10),
             cost_basis_total=Decimal("1200.00"),
             cost_basis_per_unit=Decimal("120.00"),
             currency_code="EUR",
@@ -380,14 +378,14 @@ class TestMatchSaleToLotsFIFO:
         # Sell 15 shares at 150 each = 2250
         sell_txn = _make_sale_txn(
             amount=Decimal("2250.00"),
-            quantity=Decimal("15"),
+            quantity=Decimal(15),
             occurred_at=datetime.now(UTC),
         )
 
         with patch(
             "finance_sync.services.tax_lot_service.TaxLotRepository"
-        ) as MockRepo:
-            mock_repo = MockRepo.return_value
+        ) as mock_repo_cls:
+            mock_repo = mock_repo_cls.return_value
             mock_repo.find_open_lots = AsyncMock(return_value=[lot1, lot2])
             mock_repo.update = AsyncMock()
 
@@ -398,11 +396,11 @@ class TestMatchSaleToLotsFIFO:
         assert len(closures) == 2
 
         # First closure: lot1 fully (10 shares)
-        assert closures[0]["quantity_sold"] == Decimal("10")
+        assert closures[0]["quantity_sold"] == Decimal(10)
         assert closures[0]["cost_basis_used"] == Decimal("800.00")
 
         # Second closure: lot2 partially (5 shares)
-        assert closures[1]["quantity_sold"] == Decimal("5")
+        assert closures[1]["quantity_sold"] == Decimal(5)
         assert closures[1]["cost_basis_used"] == Decimal("600.00")  # 5 * 120
 
         # Total realised P&L
@@ -411,14 +409,14 @@ class TestMatchSaleToLotsFIFO:
         assert total_pl == Decimal("850.00")
 
         # lot2 remaining
-        assert lot2.remaining_quantity == Decimal("5")
+        assert lot2.remaining_quantity == Decimal(5)
 
     @pytest.mark.asyncio
     async def test_sale_exceeds_open_lots(self) -> None:
         """Selling more than we have (short sale / data gap)."""
         buy_txn = _make_purchase_txn(
             amount=Decimal("-500.00"),
-            quantity=Decimal("5"),
+            quantity=Decimal(5),
             occurred_at=datetime.now(UTC),
         )
         lot = await create_tax_lots_for_purchase(
@@ -428,13 +426,13 @@ class TestMatchSaleToLotsFIFO:
         # Try to sell 10
         sell_txn = _make_sale_txn(
             amount=Decimal("1500.00"),
-            quantity=Decimal("10"),
+            quantity=Decimal(10),
         )
 
         with patch(
             "finance_sync.services.tax_lot_service.TaxLotRepository"
-        ) as MockRepo:
-            mock_repo = MockRepo.return_value
+        ) as mock_repo_cls:
+            mock_repo = mock_repo_cls.return_value
             mock_repo.find_open_lots = AsyncMock(return_value=[lot])
             mock_repo.update = AsyncMock()
 
@@ -443,9 +441,9 @@ class TestMatchSaleToLotsFIFO:
             )
 
         assert len(closures) == 2
-        assert closures[0]["quantity_sold"] == Decimal("5")
+        assert closures[0]["quantity_sold"] == Decimal(5)
         # Second record is the unmatched remainder
-        assert closures[1].get("unmatched_quantity") == Decimal("5")
+        assert closures[1].get("unmatched_quantity") == Decimal(5)
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -461,7 +459,7 @@ class TestRealizedPL:
         """Sale at a profit."""
         buy_txn = _make_purchase_txn(
             amount=Decimal("-1000.00"),
-            quantity=Decimal("10"),
+            quantity=Decimal(10),
         )
         lot = await create_tax_lots_for_purchase(
             AsyncMock(), _TENANT_ID, buy_txn
@@ -469,13 +467,13 @@ class TestRealizedPL:
 
         sell_txn = _make_sale_txn(
             amount=Decimal("1500.00"),
-            quantity=Decimal("10"),
+            quantity=Decimal(10),
         )
 
         with patch(
             "finance_sync.services.tax_lot_service.TaxLotRepository"
-        ) as MockRepo:
-            mock_repo = MockRepo.return_value
+        ) as mock_repo_cls:
+            mock_repo = mock_repo_cls.return_value
             mock_repo.find_open_lots = AsyncMock(return_value=[lot])
             mock_repo.update = AsyncMock()
 
@@ -490,7 +488,7 @@ class TestRealizedPL:
         """Sale at a loss."""
         buy_txn = _make_purchase_txn(
             amount=Decimal("-1000.00"),
-            quantity=Decimal("10"),
+            quantity=Decimal(10),
         )
         lot = await create_tax_lots_for_purchase(
             AsyncMock(), _TENANT_ID, buy_txn
@@ -498,13 +496,13 @@ class TestRealizedPL:
 
         sell_txn = _make_sale_txn(
             amount=Decimal("800.00"),
-            quantity=Decimal("10"),
+            quantity=Decimal(10),
         )
 
         with patch(
             "finance_sync.services.tax_lot_service.TaxLotRepository"
-        ) as MockRepo:
-            mock_repo = MockRepo.return_value
+        ) as mock_repo_cls:
+            mock_repo = mock_repo_cls.return_value
             mock_repo.find_open_lots = AsyncMock(return_value=[lot])
             mock_repo.update = AsyncMock()
 
@@ -528,13 +526,13 @@ class TestWashSaleDetection:
         """No wash sale when sale is at a profit."""
         sell_txn = _make_sale_txn(
             amount=Decimal("1500.00"),
-            quantity=Decimal("10"),
+            quantity=Decimal(10),
         )
 
         with patch(
             "finance_sync.services.tax_lot_service.TaxLotRepository"
-        ) as MockRepo:
-            mock_repo = MockRepo.return_value
+        ) as mock_repo_cls:
+            mock_repo = mock_repo_cls.return_value
             mock_repo.find_lots_for_transaction = AsyncMock(return_value=[])
             mock_repo.list = AsyncMock(return_value=[])
 
@@ -555,8 +553,8 @@ class TestWashSaleDetection:
             tenant_id=_TENANT_ID,
             account_id=_ACCOUNT_ID,
             security_id=_SECURITY_ID,
-            quantity=Decimal("10"),
-            remaining_quantity=Decimal("0"),
+            quantity=Decimal(10),
+            remaining_quantity=Decimal(0),
             cost_basis_total=Decimal("1000.00"),
             cost_basis_per_unit=Decimal("100.00"),
             currency_code="EUR",
@@ -573,8 +571,8 @@ class TestWashSaleDetection:
             account_id=_ACCOUNT_ID,
             security_id=_SECURITY_ID,
             purchase_transaction_id=str(uuid4()),
-            quantity=Decimal("10"),
-            remaining_quantity=Decimal("10"),
+            quantity=Decimal(10),
+            remaining_quantity=Decimal(10),
             cost_basis_total=Decimal("1100.00"),
             cost_basis_per_unit=Decimal("110.00"),
             currency_code="EUR",
@@ -585,14 +583,14 @@ class TestWashSaleDetection:
 
         sell_txn = _make_sale_txn(
             amount=Decimal("800.00"),
-            quantity=Decimal("10"),
+            quantity=Decimal(10),
             occurred_at=now,
         )
 
         with patch(
             "finance_sync.services.tax_lot_service.TaxLotRepository"
-        ) as MockRepo:
-            mock_repo = MockRepo.return_value
+        ) as mock_repo_cls:
+            mock_repo = mock_repo_cls.return_value
             mock_repo.find_lots_for_transaction = AsyncMock(
                 return_value=[closed_lot]
             )
@@ -646,15 +644,15 @@ class TestProcessTransaction:
         """Sale with no prior lots — should still process gracefully."""
         with patch(
             "finance_sync.services.tax_lot_service.TaxLotRepository"
-        ) as MockRepo:
-            mock_repo = MockRepo.return_value
+        ) as mock_repo_cls:
+            mock_repo = mock_repo_cls.return_value
             mock_repo.find_open_lots = AsyncMock(return_value=[])
             mock_repo.list = AsyncMock(return_value=[])
             mock_repo.find_lots_for_transaction = AsyncMock(return_value=[])
 
             txn = _make_sale_txn(
                 amount=Decimal("500.00"),
-                quantity=Decimal("5"),
+                quantity=Decimal(5),
             )
             actions = await process_transaction(
                 AsyncMock(), _TENANT_ID, txn
@@ -675,8 +673,8 @@ class TestTaxLotSummary:
     async def test_empty_summary(self) -> None:
         with patch(
             "finance_sync.services.tax_lot_service.TaxLotRepository"
-        ) as MockRepo:
-            mock_repo = MockRepo.return_value
+        ) as mock_repo_cls:
+            mock_repo = mock_repo_cls.return_value
             mock_repo.list = AsyncMock(return_value=[])
 
             summary = await get_tax_lot_summary(
@@ -686,7 +684,7 @@ class TestTaxLotSummary:
         assert summary["total_lots"] == 0
         assert summary["open_lots"] == 0
         assert summary["closed_lots"] == 0
-        assert summary["total_realized_pl"] == Decimal("0")
+        assert summary["total_realized_pl"] == Decimal(0)
 
 
 # ═══════════════════════════════════════════════════════════════════════

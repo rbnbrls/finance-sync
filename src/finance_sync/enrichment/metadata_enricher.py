@@ -15,10 +15,8 @@ from typing import TYPE_CHECKING, Any
 
 from finance_sync.enrichment.models import (
     ETFComposition,
-    ETFHolding,
     FundamentalObservationData,
     FundamentalRatioSummary,
-    RegionExposure,
     SectorExposure,
     SecurityMetadataObservationData,
 )
@@ -176,7 +174,7 @@ class MetadataEnricher:
                 identifier=identifier,
                 identifier_type=identifier_type,
             )
-        except Exception:  # noqa: BLE001
+        except Exception:
             return None
 
     async def compute_ratio_summary(
@@ -229,7 +227,7 @@ class MetadataEnricher:
                 identifier=identifier,
                 identifier_type=identifier_type,
             )
-        except Exception:  # noqa: BLE001
+        except Exception:
             return None
 
     # ── Sector Exposure ──────────────────────────────────────────────────
@@ -430,7 +428,7 @@ class MetadataEnricher:
                         )
                         await self._store_metadata_observation(obs)
                         return obs
-            except Exception:  # noqa: BLE001
+            except Exception:
                 pass
 
         return None

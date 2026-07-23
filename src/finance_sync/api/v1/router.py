@@ -6,7 +6,7 @@ from fastapi import APIRouter
 
 from finance_sync.api.v1.accounts import router as accounts_router
 from finance_sync.api.v1.ai_summary import router as ai_summary_router
-from finance_sync.api.v1.cashflow import router as cashflow_router
+from finance_sync.api.v1.allocation import router as allocation_router
 from finance_sync.api.v1.auth import router as auth_router
 from finance_sync.api.v1.cashflow import router as cashflow_router
 from finance_sync.api.v1.connectors_config import (
@@ -35,6 +35,7 @@ router.include_router(enrichment_router)
 router.include_router(feedback_router)
 router.include_router(securities_router)
 router.include_router(accounts_router)
+router.include_router(allocation_router)
 router.include_router(ha_integration_router)
 router.include_router(performance_router)
 router.include_router(portfolio_router)

@@ -18,8 +18,8 @@ import pytest
 
 from finance_sync.exporter.wealthfolio.config import WealthfolioConfig
 from finance_sync.exporter.wealthfolio.exporter import (
-    WealthfolioExportResult,
     WealthfolioExporter,
+    WealthfolioExportResult,
 )
 from finance_sync.exporter.wealthfolio.transaction_mapper import (
     WF_ACTIVITY_BUY,
@@ -50,15 +50,12 @@ from tests.exporter.fixtures.wf_fixtures import (
     SECURITY_VWCE,
     WF_ACCOUNT_BROKERAGE,
     WF_ACCOUNT_CASH,
-    WF_ACCOUNT_DEPOSIT_ONLY,
     WF_HOLDING_AAPL,
-    WF_HOLDING_BTC,
     WF_HOLDING_VWCE,
     WF_MAP_TEST_CASES,
     WF_TRANSACTION_BUY_AAPL,
     WF_TRANSACTION_BUY_VWCE,
     WF_TRANSACTION_DEPOSIT,
-    WF_TRANSACTION_DEPOSIT_ONLY,
     WF_TRANSACTION_DIVIDEND,
     WF_TRANSACTION_FEE,
     WF_TRANSACTION_INTEREST,
@@ -291,7 +288,7 @@ class TestWFTransactionMapping(TransactionMappingContractTest):
         holding_no_sec.account_id = str(uuid4())
         holding_no_sec.security_id = "nonexistent"
         holding_no_sec.observed_at = datetime(2025, 6, 30, 23, 59, tzinfo=UTC)
-        holding_no_sec.quantity = Decimal("100")
+        holding_no_sec.quantity = Decimal(100)
         holding_no_sec.cost_basis = Decimal("10000.00")
         holding_no_sec.cost_basis_currency = "EUR"
         holding_no_sec.market_value = Decimal("10000.00")
@@ -551,8 +548,8 @@ class TestWealthfolioLifecycle(ExportLifecycleContractTest):
         self, wf_exporter, wf_since_time
     ) -> None:
         """Transactions should be mapped and CSV written."""
-        from unittest.mock import MagicMock, patch
         from pathlib import Path
+        from unittest.mock import MagicMock, patch
 
         mock_run = MagicMock()
         mock_run.id = str(uuid4())
@@ -608,8 +605,8 @@ class TestWealthfolioLifecycle(ExportLifecycleContractTest):
         self, wf_exporter, wf_since_time
     ) -> None:
         """Holdings should be exported when config.export_holdings is True."""
-        from unittest.mock import MagicMock, patch
         from pathlib import Path
+        from unittest.mock import MagicMock, patch
 
         mock_run = MagicMock()
         mock_run.id = str(uuid4())
@@ -696,8 +693,8 @@ class TestWealthfolioLifecycle(ExportLifecycleContractTest):
         self, wf_exporter, wf_since_time
     ) -> None:
         """Export with account_ids filter processes only matching accounts."""
-        from unittest.mock import MagicMock, patch
         from pathlib import Path
+        from unittest.mock import MagicMock, patch
 
         mock_run = MagicMock()
         mock_run.id = str(uuid4())
@@ -758,8 +755,8 @@ class TestWealthfolioLifecycle(ExportLifecycleContractTest):
         self, wf_exporter, wf_since_time
     ) -> None:
         """When export_holdings=False, holdings should not be exported."""
-        from unittest.mock import MagicMock, patch
         from pathlib import Path
+        from unittest.mock import MagicMock, patch
 
         # Temporarily disable holdings export
         wf_exporter._wf_config.export_holdings = False

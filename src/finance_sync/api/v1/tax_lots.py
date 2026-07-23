@@ -10,11 +10,10 @@ from __future__ import annotations
 
 from datetime import datetime
 from decimal import Decimal
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from finance_sync.api.deps.auth import AuthContext, require_permission
 from finance_sync.db.repositories import TaxLotRepository
@@ -22,10 +21,11 @@ from finance_sync.dependencies import get_db
 from finance_sync.models.tax_lot import TaxLot
 from finance_sync.services.tax_lot_service import (
     compute_all_tax_lots,
-    compute_unrealized_pl,
     get_tax_lot_summary,
-    process_transaction,
 )
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
 
 router = APIRouter(prefix="/tax-lots", tags=["tax-lots"])
 
@@ -133,13 +133,12 @@ async def tax_lot_summary(
     security_id: str | None = Query(default=None),
 ) -> dict[str, Any]:
     """Return aggregate summary of tax lots."""
-    summary = await get_tax_lot_summary(
+    return await get_tax_lot_summary(
         db,
         tenant_id=auth.tenant_id,
         account_id=account_id,
         security_id=security_id,
     )
-    return summary
 
 
 @router.post("/compute", response_model=ComputeResult)
@@ -158,7 +157,7 @@ async def recompute_tax_lots(
     return {
         "status": "completed",
         **stats,
-        "total_realized_pl": str(stats.get("total_realized_pl", Decimal("0"))),
+        "total_realized_pl": str(stats.get("total_realized_pl", Decimal(0))),
     }
 
 
