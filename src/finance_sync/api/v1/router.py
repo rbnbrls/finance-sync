@@ -14,6 +14,7 @@ from finance_sync.api.v1.enrichment import router as enrichment_router
 from finance_sync.api.v1.feedback import router as feedback_router
 from finance_sync.api.v1.ha_integration import router as ha_integration_router
 from finance_sync.api.v1.net_worth import router as net_worth_router
+from finance_sync.api.v1.performance import router as performance_router
 from finance_sync.api.v1.portfolio import router as portfolio_router
 from finance_sync.api.v1.root import router as root_router
 from finance_sync.api.v1.securities import router as securities_router
@@ -30,6 +31,7 @@ router.include_router(feedback_router)
 router.include_router(securities_router)
 router.include_router(accounts_router)
 router.include_router(ha_integration_router)
+router.include_router(performance_router)
 router.include_router(portfolio_router)
 router.include_router(net_worth_router)
 router.include_router(sync_runs_router)
