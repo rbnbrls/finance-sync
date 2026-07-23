@@ -86,6 +86,16 @@ def mock_session() -> AsyncMock:
     mock_result.scalar.return_value = 0
     mock_result.scalar_one_or_none.return_value = None
     mock_result.all.return_value = []
+
+    # Default row for result.one() — all fields as Decimal("0") / 0 / None
+    default_row = MagicMock()
+    default_row.total_inflows = Decimal("0")
+    default_row.total_outflows = Decimal("0")
+    default_row.transaction_count = 0
+    default_row.period_start = None
+    default_row.period_end = None
+    mock_result.one.return_value = default_row
+
     session.execute.return_value = mock_result
     return session
 
@@ -132,6 +142,13 @@ class TestOpenAPIRegistration:
         assert "/api/v1/sync-runs" in paths
         assert paths["/api/v1/sync-runs"]["get"]["tags"] == ["sync-runs"]
 
+    def test_cashflow_endpoints_registered(self, client: TestClient) -> None:
+        paths = client.get("/openapi.json").json()["paths"]
+
+        assert "/api/v1/cashflow" in paths
+        assert paths["/api/v1/cashflow"]["get"]["tags"] == ["cashflow"]
+        assert "/api/v1/cashflow/history" in paths
+
     def test_securities_list_and_prices_registered(
         self, client: TestClient
     ) -> None:
@@ -174,6 +191,8 @@ class TestAuthGuards:
         ("GET", "/api/v1/portfolio/history"),
         ("GET", "/api/v1/net-worth"),
         ("GET", "/api/v1/net-worth/history"),
+        ("GET", "/api/v1/cashflow"),
+        ("GET", "/api/v1/cashflow/history"),
         ("GET", "/api/v1/sync-runs"),
         ("GET", "/api/v1/securities"),
         ("GET", "/api/v1/securities/fake-id/prices"),
@@ -349,6 +368,113 @@ class TestReadServiceNetWorth:
         assert result.net_worth == Decimal(0)
         assert result.total_assets == Decimal(0)
         assert result.accounts == []
+
+
+class TestReadServiceCashflow:
+    """ReadService cashflow methods behaviour."""
+
+    async def test_cashflow_empty_tenant(self, svc: ReadService) -> None:
+        result = await svc.get_cashflow(tenant_id="t1")
+        assert result.total_inflows == Decimal(0)
+        assert result.total_outflows == Decimal(0)
+        assert result.net_cashflow == Decimal(0)
+        assert result.transaction_count == 0
+
+    async def test_cashflow_passes_tenant_filter(
+        self, mock_session: AsyncMock
+    ) -> None:
+        # Mock result.one() to return a proper row-like object
+        mock_row = MagicMock()
+        mock_row.total_inflows = Decimal("0")
+        mock_row.total_outflows = Decimal("0")
+        mock_row.transaction_count = 0
+        mock_row.period_start = None
+        mock_row.period_end = None
+        mock_session.execute.return_value.one.return_value = mock_row
+
+        svc = ReadService(mock_session)
+        await svc.get_cashflow(tenant_id="tenant-xyz")
+        _assert_sql_contains(mock_session, "tenant-xyz")
+
+    async def test_cashflow_date_range_filter(
+        self, mock_session: AsyncMock
+    ) -> None:
+        mock_row = MagicMock()
+        mock_row.total_inflows = Decimal("0")
+        mock_row.total_outflows = Decimal("0")
+        mock_row.transaction_count = 0
+        mock_row.period_start = None
+        mock_row.period_end = None
+        mock_session.execute.return_value.one.return_value = mock_row
+
+        svc = ReadService(mock_session)
+        since = datetime(2025, 1, 1, tzinfo=UTC)
+        until = datetime(2025, 6, 30, tzinfo=UTC)
+        await svc.get_cashflow(
+            tenant_id="t1",
+            date_from=since,
+            date_to=until,
+        )
+        _assert_sql_contains(mock_session, "2025-01-01")
+        _assert_sql_contains(mock_session, "2025-06-30")
+
+    async def test_cashflow_account_filter(
+        self, mock_session: AsyncMock
+    ) -> None:
+        mock_row = MagicMock()
+        mock_row.total_inflows = Decimal("0")
+        mock_row.total_outflows = Decimal("0")
+        mock_row.transaction_count = 0
+        mock_row.period_start = None
+        mock_row.period_end = None
+        mock_session.execute.return_value.one.return_value = mock_row
+
+        svc = ReadService(mock_session)
+        await svc.get_cashflow(
+            tenant_id="t1", account_id="acct-1"
+        )
+        _assert_sql_contains(mock_session, "acct-1")
+
+    async def test_cashflow_filters_booked_only(
+        self, mock_session: AsyncMock
+    ) -> None:
+        mock_row = MagicMock()
+        mock_row.total_inflows = Decimal("0")
+        mock_row.total_outflows = Decimal("0")
+        mock_row.transaction_count = 0
+        mock_row.period_start = None
+        mock_row.period_end = None
+        mock_session.execute.return_value.one.return_value = mock_row
+
+        svc = ReadService(mock_session)
+        await svc.get_cashflow(tenant_id="t1")
+        _assert_sql_contains(mock_session, "booked")
+
+    async def test_cashflow_history_empty(
+        self, svc: ReadService
+    ) -> None:
+        result = await svc.get_cashflow_history(tenant_id="t1")
+        assert result.total == 0
+        assert result.items == []
+
+    async def test_cashflow_history_passes_tenant(
+        self, mock_session: AsyncMock
+    ) -> None:
+        svc = ReadService(mock_session)
+        await svc.get_cashflow_history(tenant_id="tenant-abc")
+        _assert_sql_contains(mock_session, "tenant-abc")
+
+    async def test_cashflow_history_date_range(
+        self, mock_session: AsyncMock
+    ) -> None:
+        svc = ReadService(mock_session)
+        since = datetime(2025, 3, 1, tzinfo=UTC)
+        until = datetime(2025, 4, 30, tzinfo=UTC)
+        await svc.get_cashflow_history(
+            tenant_id="t1", date_from=since, date_to=until
+        )
+        _assert_sql_contains(mock_session, "2025-03-01")
+        _assert_sql_contains(mock_session, "2025-04-30")
 
 
 # ═══════════════════════════════════════════════════════════════════════

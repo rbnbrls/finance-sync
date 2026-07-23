@@ -203,6 +203,44 @@ class NetWorthHistoryResponse(BaseModel):
     offset: int
 
 
+class CashflowResponse(BaseModel):
+    """Cash flow summary for a given period.
+
+    Uses transaction-level data: positive amounts = inflows,
+    negative amounts = outflows.
+    """
+
+    total_inflows: E | None = None
+    total_outflows: E | None = None
+    net_cashflow: E | None = None
+    transaction_count: int = 0
+    currency_code: str = "EUR"
+    period_start: datetime | None = None
+    period_end: datetime | None = None
+
+
+class CashflowHistoryEntry(BaseModel):
+    """Single day's cash flow aggregated from transactions."""
+
+    date: datetime
+    inflows: E
+    outflows: E
+    net: E
+    transaction_count: int = 0
+    currency_code: str = "EUR"
+
+
+class CashflowHistoryResponse(BaseModel):
+    """Paginated time-series of cash flow data."""
+
+    items: list[CashflowHistoryEntry]
+    total: int
+    limit: int
+    offset: int
+    period_start: datetime | None = None
+    period_end: datetime | None = None
+
+
 class SyncRunResponse(BaseModel):
     id: str
     connector: str
@@ -988,6 +1026,170 @@ class ReadService:
             total=total,
             limit=limit,
             offset=offset,
+        )
+
+    # ── Cashflow ──────────────────────────────────────────────────────
+
+    async def get_cashflow(
+        self,
+        tenant_id: str,
+        *,
+        date_from: datetime | None = None,
+        date_to: datetime | None = None,
+        account_id: str | None = None,
+    ) -> CashflowResponse:
+        """Return aggregate cash flow for a given period.
+
+        Uses booked transactions: positive amounts = inflows,
+        negative amounts → ABS = outflows.
+        """
+        conditions: list[Any] = [
+            Transaction.tenant_id == tenant_id,  # type: ignore[attr-defined]
+            Transaction.status == "booked",  # type: ignore[attr-defined]
+        ]
+
+        if date_from is not None:
+            conditions.append(Transaction.occurred_at >= date_from)  # type: ignore[attr-defined]
+        if date_to is not None:
+            conditions.append(Transaction.occurred_at <= date_to)  # type: ignore[attr-defined]
+        if account_id is not None:
+            conditions.append(Transaction.account_id == account_id)  # type: ignore[attr-defined]
+
+        # Aggregate: total_inflows (positive), total_outflows (ABS of negative), count
+        inflow_expr = func.coalesce(
+            func.sum(Transaction.amount).filter(
+                Transaction.amount > 0  # type: ignore[attr-defined]
+            ),
+            E("0"),
+        ).label("total_inflows")
+
+        outflow_expr = func.coalesce(
+            func.sum(-Transaction.amount).filter(
+                Transaction.amount < 0  # type: ignore[attr-defined]
+            ),
+            E("0"),
+        ).label("total_outflows")
+
+        agg_q = (
+            select(
+                inflow_expr,
+                outflow_expr,
+                func.count().label("transaction_count"),
+                func.min(Transaction.occurred_at).label("period_start"),  # type: ignore[attr-defined]
+                func.max(Transaction.occurred_at).label("period_end"),  # type: ignore[attr-defined]
+            )
+            .select_from(Transaction)
+            .where(_expr(*conditions))
+        )
+        result = await self._session.execute(agg_q)
+        row = result.one()
+
+        total_inflows = row.total_inflows or E("0")
+        total_outflows = row.total_outflows or E("0")
+        net_cashflow = total_inflows - total_outflows
+
+        return CashflowResponse(
+            total_inflows=total_inflows,
+            total_outflows=total_outflows,
+            net_cashflow=net_cashflow,
+            transaction_count=row.transaction_count or 0,
+            period_start=row.period_start,
+            period_end=row.period_end,
+        )
+
+    async def get_cashflow_history(
+        self,
+        tenant_id: str,
+        *,
+        limit: int = 90,
+        offset: int = 0,
+        date_from: datetime | None = None,
+        date_to: datetime | None = None,
+        account_id: str | None = None,
+    ) -> CashflowHistoryResponse:
+        """Return cash flow time series (daily buckets).
+
+        Uses booked transactions, aggregated by day.
+        """
+        conditions: list[Any] = [
+            Transaction.tenant_id == tenant_id,  # type: ignore[attr-defined]
+            Transaction.status == "booked",  # type: ignore[attr-defined]
+        ]
+
+        if date_from is not None:
+            conditions.append(Transaction.occurred_at >= date_from)  # type: ignore[attr-defined]
+        if date_to is not None:
+            conditions.append(Transaction.occurred_at <= date_to)  # type: ignore[attr-defined]
+        if account_id is not None:
+            conditions.append(Transaction.account_id == account_id)  # type: ignore[attr-defined]
+
+        date_col = func.date_trunc("day", Transaction.occurred_at)  # type: ignore[attr-defined]
+
+        inflow_expr = func.coalesce(
+            func.sum(Transaction.amount).filter(
+                Transaction.amount > 0  # type: ignore[attr-defined]
+            ),
+            E("0"),
+        ).label("inflows")
+
+        outflow_expr = func.coalesce(
+            func.sum(-Transaction.amount).filter(
+                Transaction.amount < 0  # type: ignore[attr-defined]
+            ),
+            E("0"),
+        ).label("outflows")
+
+        agg_q = (
+            select(
+                date_col.label("date"),
+                inflow_expr,
+                outflow_expr,
+                func.sum(Transaction.amount).label("net"),  # type: ignore[attr-defined]
+                func.count().label("transaction_count"),
+            )
+            .where(_expr(*conditions))
+            .group_by(date_col)
+            .order_by(desc(date_col))
+            .offset(offset)
+            .limit(limit)
+        )
+        result = await self._session.execute(agg_q)
+        rows = result.all()
+
+        items = [
+            CashflowHistoryEntry(
+                date=row.date,
+                inflows=row.inflows or E("0"),
+                outflows=row.outflows or E("0"),
+                net=row.net or E("0"),
+                transaction_count=row.transaction_count or 0,
+            )
+            for row in rows
+        ]
+
+        # Total count of distinct days
+        count_q = (
+            select(func.count(func.distinct(date_col)))
+            .select_from(Transaction)
+            .where(_expr(*conditions))
+        )
+        count_result = await self._session.execute(count_q)
+        total: int = count_result.scalar() or 0  # type: ignore[assignment]
+
+        # Get actual period bounds from data
+        period_start: datetime | None = None
+        period_end: datetime | None = None
+        if items:
+            period_start = min(i.date for i in items)
+            period_end = max(i.date for i in items)
+
+        return CashflowHistoryResponse(
+            items=items,
+            total=total,
+            limit=limit,
+            offset=offset,
+            period_start=period_start,
+            period_end=period_end,
         )
 
     # ── Sync Runs ─────────────────────────────────────────────────────

@@ -113,6 +113,38 @@ class ConnectorTestResult(BaseModel):
     message: str
 
 
+class InlineTestRequest(BaseModel):
+    """Payload for testing a connection with inline (not yet saved) credentials."""
+
+    credentials: dict[str, str] = Field(
+        default_factory=dict,
+        description="Provider-specific secrets (API keys, tokens, …)",
+    )
+    options: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Non-secret configuration (sandbox mode, custom endpoints)",
+    )
+
+
+class InlineTestAccount(BaseModel):
+    """A single account returned by an inline connection test."""
+
+    id: str = Field(description="Provider account ID")
+    label: str = Field(description="Human-readable account label")
+    iban: str | None = Field(default=None, description="IBAN if available")
+
+
+class InlineTestResult(BaseModel):
+    """Result of an inline connection test (may include accounts)."""
+
+    success: bool
+    message: str
+    accounts: list[InlineTestAccount] = Field(
+        default_factory=list,
+        description="Accounts available via this connection (if test succeeded)",
+    )
+
+
 class ConnectorConfigUpdate(BaseModel):
     """Payload for updating an existing connector configuration."""
 
@@ -227,7 +259,7 @@ async def list_available_connectors() -> list[ConnectorInfo]:
 
 @router.get("/configs", response_model=list[ConnectorConfigResponse])
 async def list_connector_configs(
-    auth: AuthContext = Depends(require_role("admin", "user")),
+    auth: AuthContext = Depends(require_role("admin")),
     db: AsyncSession = Depends(get_db),
 ) -> list[ConnectorConfigResponse]:
     """List all saved connector configurations for the current tenant."""
@@ -239,13 +271,16 @@ async def list_connector_configs(
     for row in rows:
         options: dict[str, Any] = {}
         is_configured = bool(row.encrypted_payload)
+        label = row.description
         with contextlib.suppress(json.JSONDecodeError, TypeError):
             options = json.loads(row.description or "{}")
+            if isinstance(options, dict):
+                label = options.pop("_label", label) or label
         configs.append(
             ConnectorConfigResponse(
                 id=row.id,
                 provider_type=row.provider_key,
-                description=row.description,
+                description=label,
                 options=options,
                 is_configured=is_configured,
                 created_at=row.created_at,
@@ -263,7 +298,7 @@ async def list_connector_configs(
 async def create_connector_config(
     body: ConnectorConfigCreate,
     request: Request,
-    auth: AuthContext = Depends(require_role("admin", "user")),
+    auth: AuthContext = Depends(require_role("admin")),
     db: AsyncSession = Depends(get_db),
 ) -> ConnectorConfigResponse:
     """Create a new connector configuration (encrypts credentials)."""
@@ -293,8 +328,9 @@ async def create_connector_config(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=(
-                f"A configuration for '{body.provider_type}' already exists."
-                " Use PUT to update it, or DELETE first."
+                "A configuration for "
+                f"'{body.provider_type}' already exists. "
+                "Use PUT to update it, or DELETE first."
             ),
         )
 
@@ -305,10 +341,18 @@ async def create_connector_config(
         plaintext = json.dumps(body.credentials, separators=(",", ":"))
         encrypted_payload, nonce = encrypt_credential(plaintext, settings)
 
-    # Store options in the description field as JSON (for simplicity)
-    options_json = (
-        json.dumps(body.options, separators=(",", ":"))
-        if body.options
+    # Merge human-readable label into options so it survives updates
+    merged_options = dict(body.options)
+    if body.description:
+        merged_options["_label"] = body.description
+    elif "_label" in merged_options:
+        # Strip stale label if description was cleared
+        del merged_options["_label"]
+
+    # Store the merged payload (options + optional _label) in description column
+    merged_json = (
+        json.dumps(merged_options, separators=(",", ":"))
+        if merged_options
         else "{}"
     )
 
@@ -318,17 +362,19 @@ async def create_connector_config(
         provider_key=body.provider_type,
         encrypted_payload=encrypted_payload,
         nonce=nonce,
-        description=options_json,
+        description=merged_json,
         created_at=now,
         updated_at=now,
     )
     db.add(cred)
     await db.flush()
 
+    label = body.description or merged_options.get("_label", "")
+
     return ConnectorConfigResponse(
         id=cred.id,
         provider_type=cred.provider_key,
-        description=body.description or options_json,
+        description=label,
         options=body.options,
         is_configured=bool(body.credentials),
         created_at=cred.created_at,
@@ -341,7 +387,7 @@ async def update_connector_config(
     config_id: str,
     body: ConnectorConfigUpdate,
     request: Request,
-    auth: AuthContext = Depends(require_role("admin", "user")),
+    auth: AuthContext = Depends(require_role("admin")),
     db: AsyncSession = Depends(get_db),
 ) -> ConnectorConfigResponse:
     """Update an existing connector configuration."""
@@ -373,26 +419,47 @@ async def update_connector_config(
             cred.encrypted_payload = b""
             cred.nonce = b""
 
-    # Update options if provided
+    # Update options if provided (preserve _label from existing)
     if body.options is not None:
-        cred.description = json.dumps(body.options, separators=(",", ":"))
+        merged_options = dict(body.options)
+        if body.description is not None:
+            if body.description:
+                merged_options["_label"] = body.description
+            elif "_label" in merged_options:
+                del merged_options["_label"]
+        else:
+            # Preserve existing _label
+            with contextlib.suppress(json.JSONDecodeError, TypeError):
+                existing = json.loads(cred.description or "{}")
+                if isinstance(existing, dict) and "_label" in existing:
+                    merged_options["_label"] = existing["_label"]
+        cred.description = json.dumps(merged_options, separators=(",", ":"))
 
-    # Update description label
-    if body.description is not None:
-        # We store the human-readable description as-is
-        pass
+    # Update description label (standalone, when options unchanged)
+    if body.description is not None and body.options is None:
+        with contextlib.suppress(json.JSONDecodeError, TypeError):
+            existing = json.loads(cred.description or "{}")
+            if isinstance(existing, dict):
+                if body.description:
+                    existing["_label"] = body.description
+                else:
+                    existing.pop("_label", None)
+                cred.description = json.dumps(existing, separators=(",", ":"))
 
     cred.updated_at = datetime.now(UTC)
     await db.flush()
 
     options: dict[str, Any] = {}
+    label = cred.description
     with contextlib.suppress(json.JSONDecodeError, TypeError):
         options = json.loads(cred.description or "{}")
+        if isinstance(options, dict):
+            label = options.pop("_label", label) or label
 
     return ConnectorConfigResponse(
         id=cred.id,
         provider_type=cred.provider_key,
-        description=cred.description,
+        description=label,
         options=options,
         is_configured=bool(cred.encrypted_payload),
         created_at=cred.created_at,
@@ -403,7 +470,7 @@ async def update_connector_config(
 @router.delete("/configs/{config_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_connector_config(
     config_id: str,
-    auth: AuthContext = Depends(require_role("admin", "user")),
+    auth: AuthContext = Depends(require_role("admin")),
     db: AsyncSession = Depends(get_db),
 ) -> None:
     """Delete a connector configuration."""
@@ -427,7 +494,7 @@ async def delete_connector_config(
 async def test_connector_connection(
     config_id: str,
     request: Request,
-    auth: AuthContext = Depends(require_role("admin", "user")),
+    auth: AuthContext = Depends(require_role("admin")),
     db: AsyncSession = Depends(get_db),
 ) -> ConnectorTestResult:
     """Test a connector configuration by calling its ``health`` method."""
@@ -482,6 +549,83 @@ async def test_connector_connection(
         )
     except Exception as exc:
         return ConnectorTestResult(
+            success=False,
+            message=str(exc),
+        )
+
+
+@router.post(
+    "/{provider_type}/test",
+    response_model=InlineTestResult,
+)
+async def test_connector_inline(
+    provider_type: str,
+    body: InlineTestRequest,
+) -> InlineTestResult:
+    """Test a connector connection with inline (not yet saved) credentials.
+
+    Used by the frontend to validate credentials before saving a config.
+    Can optionally return a list of available accounts when the provider
+    supports account enumeration (e.g. bunq).
+    """
+    registry = _get_registry()
+
+    # Validate provider exists
+    if provider_type not in registry:
+        available = registry.available
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=(
+                f"Unknown connector '{provider_type}'. "
+                f"Available: {available}"
+            ),
+        )
+
+    # Instantiate connector with inline credentials
+    connector_config = ConnectorConfigModel(
+        provider_type=provider_type,
+        credentials=body.credentials,
+        options=body.options,
+    )
+
+    try:
+        connector = registry.get_connector(connector_config)
+        health = await connector.health()
+
+        if not health.healthy:
+            return InlineTestResult(
+                success=False,
+                message=health.message or "Connection test failed",
+            )
+
+        # Optionally fetch accounts to return to the caller
+        accounts: list[InlineTestAccount] = []
+        try:
+            raw_accounts = await connector.fetch_accounts()
+            for acc in raw_accounts:
+                iban = None
+                if acc.provider_metadata:
+                    iban = acc.provider_metadata.get("iban")
+                accounts.append(
+                    InlineTestAccount(
+                        id=acc.external_account_id,
+                        label=acc.name,
+                        iban=iban,
+                    )
+                )
+        except Exception:
+            # Account listing is optional — don't fail the test if
+            # accounts can't be fetched (e.g. Trading212 may need
+            # additional scopes)
+            pass
+
+        return InlineTestResult(
+            success=True,
+            message="Connection successful",
+            accounts=accounts,
+        )
+    except Exception as exc:
+        return InlineTestResult(
             success=False,
             message=str(exc),
         )
