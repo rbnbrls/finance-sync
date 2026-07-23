@@ -152,6 +152,9 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*", "async_test_*"]
+markers = [
+    "e2e: End-to-end tests that require Playwright and a browser (run separately).",
+]
 
 [tool.coverage.run]
 source = ["finance_sync", "src"]
