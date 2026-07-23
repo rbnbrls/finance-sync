@@ -1,0 +1,510 @@
+openapi: "3.1.0"
+info:
+  title: Finance Sync REST API — Cashflow
+  version: "1.0.0"
+  description: |
+    Cashflow analytics endpoint. Computes aggregate income/expense figures,
+    category breakdowns, and paginated time-series period entries from
+    booked transactions.
+  license:
+    name: MIT
+    identifier: MIT
+
+servers:
+  - url: /api/v1
+    description: Local development server path prefix.
+
+paths:
+  /api/v1/cashflow:
+    get:
+      operationId: getCashflow
+      summary: Cashflow report
+      description: |
+        Return a cashflow report with aggregate summary, category breakdown
+        by transaction type, and paginated time-series period entries.
+
+        Only **booked** transactions are included. Positive amounts count as
+        inflows; negative amounts as outflows.
+
+      tags:
+        - cashflow
+
+      security:
+        - bearerAuth: []
+        - apiKeyAuth: []
+
+      parameters:
+        - name: date_start
+          in: query
+          description: >
+            Start of the date range (ISO-8601). Defaults to 365 days before
+            `date_end`.
+          schema:
+            type: string
+            format: date-time
+            example: "2025-01-01T00:00:00Z"
+          required: false
+
+        - name: date_end
+          in: query
+          description: >
+            End of the date range (ISO-8601). Defaults to the current server
+            time.
+          schema:
+            type: string
+            format: date-time
+            example: "2025-12-31T23:59:59Z"
+          required: false
+
+        - name: account_ids
+          in: query
+          description: >
+            Optional list of account UUIDs to filter by. Repeat the parameter
+            for multiple values (e.g. `?account_ids=a&account_ids=b`).
+          schema:
+            type: array
+            items:
+              type: string
+              format: uuid
+              example: "3a1f2e8b-7c4d-4f9a-b1e2-3d5c8a0b7f6e"
+            example:
+              - "3a1f2e8b-7c4d-4f9a-b1e2-3d5c8a0b7f6e"
+              - "9c0d4e2f-1a3b-5c6d-8e7f-2b3a4c5d6e7f"
+          required: false
+          explode: true
+
+        - name: category
+          in: query
+          description: >
+            Filter by transaction type / category. Only entries matching
+            this transaction type are included in the breakdown and period
+            history. Examples: `deposit`, `payment`, `interest`, `fee`,
+            `withdrawal`, `dividend`, `purchase`.
+          schema:
+            type: string
+            example: deposit
+          required: false
+
+        - name: interval
+          in: query
+          description: >
+            Period interval for time-series entries. Controls how dates are
+            truncated when grouping transactions.
+          schema:
+            type: string
+            enum:
+              - day
+              - week
+              - month
+              - year
+            default: month
+            example: month
+          required: false
+
+        - name: limit
+          in: query
+          description: Maximum number of period entries to return.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 365
+            default: 12
+            example: 12
+          required: false
+
+        - name: offset
+          in: query
+          description: Number of period entries to skip (for pagination).
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+            example: 0
+          required: false
+
+      responses:
+        "200":
+          description: Successful cashflow report.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CashflowPaginatedResponse"
+              example:
+                summary:
+                  total_inflows: "5000.00"
+                  total_outflows: "3200.00"
+                  net_cashflow: "1800.00"
+                  transaction_count: 42
+                  currency_code: EUR
+                  period_start: "2025-01-01T00:00:00Z"
+                  period_end: "2025-12-31T23:59:59Z"
+                by_category:
+                  - transaction_type: deposit
+                    total_amount: "3000.00"
+                    transaction_count: 10
+                    is_income: true
+                  - transaction_type: payment
+                    total_amount: "-2000.00"
+                    transaction_count: 20
+                    is_income: false
+                  - transaction_type: interest
+                    total_amount: "2000.00"
+                    transaction_count: 5
+                    is_income: true
+                  - transaction_type: fee
+                    total_amount: "-1200.00"
+                    transaction_count: 7
+                    is_income: false
+                items:
+                  - date: "2025-01-01T00:00:00Z"
+                    inflows: "1200"
+                    outflows: "800"
+                    net: "400"
+                    transaction_count: 10
+                  - date: "2025-02-01T00:00:00Z"
+                    inflows: "1500"
+                    outflows: "900"
+                    net: "600"
+                    transaction_count: 12
+                  - date: "2025-03-01T00:00:00Z"
+                    inflows: "2300"
+                    outflows: "1500"
+                    net: "800"
+                    transaction_count: 20
+                total: 12
+                limit: 12
+                offset: 0
+
+        "400":
+          description: Bad request.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+              example:
+                type: about:blank
+                title: Bad Request
+                status: 400
+                detail: "Invalid query parameters"
+                correlationId: "cf-8a3f1e2b"
+
+        "401":
+          description: Missing or invalid authentication.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+              example:
+                type: about:blank
+                title: Unauthorised
+                status: 401
+                detail: "Missing Bearer token"
+                correlationId: "cf-8a3f1e2b"
+
+        "403":
+          description: Insufficient permissions.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+              example:
+                type: about:blank
+                title: Forbidden
+                status: 403
+                detail: "Missing required permission: transactions:read"
+                correlationId: "cf-8a3f1e2b"
+
+        "422":
+          description: |
+            Validation error. Returned when query parameters fail
+            validation — invalid date range, unrecognised interval,
+            limit out of range, or negative offset. The response body
+            contains a descriptive message in the `detail` field.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/ProblemDetail"
+                  - $ref: "#/components/schemas/ValidationError"
+              examples:
+                invalidDateRange:
+                  summary: date_start after date_end
+                  value:
+                    type: about:blank
+                    title: Unprocessable Entity
+                    status: 422
+                    detail: "date_from (2025-12-31T00:00:00+00:00) must not be after date_to (2025-01-01T00:00:00+00:00)"
+                    correlationId: "cf-8a3f1e2b"
+                invalidInterval:
+                  summary: Unrecognised interval value
+                  value:
+                    type: about:blank
+                    title: Unprocessable Entity
+                    status: 422
+                    detail: "Invalid interval 'decade'. Must be one of: day, week, month, year"
+                    correlationId: "cf-8a3f1e2b"
+                parameterOutOfRange:
+                  summary: Query parameter validation failure
+                  value:
+                    detail:
+                      - loc:
+                          - query
+                          - limit
+                        msg: "Input should be less than or equal to 365"
+                        type: less_than_equal
+                        input: 999
+                    body: {}
+
+        "500":
+          description: Internal server error. The cashflow computation or data retrieval failed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+              example:
+                type: about:blank
+                title: Internal Server Error
+                status: 500
+                detail: "Failed to compute cashflow summary: Database connection error"
+                correlationId: "cf-8a3f1e2b"
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >
+        JWT Bearer token obtained via the authentication endpoint. The token
+        must include `sub` (user ID), `tenant_id`, and `role` claims.
+
+    apiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: >
+        API key authentication. Keys are provisioned per tenant with
+        granular permission scopes.
+
+  schemas:
+    CashflowSummary:
+      description: |
+        Aggregate cash-flow figures for the queried date range.
+        All monetary values are encoded as decimal strings.
+      type: object
+      required:
+        - total_inflows
+        - total_outflows
+        - net_cashflow
+        - transaction_count
+        - currency_code
+        - period_start
+        - period_end
+      properties:
+        total_inflows:
+          type: string
+          description: Sum of all positive (inflow) transaction amounts.
+          example: "5000.00"
+        total_outflows:
+          type: string
+          description: Sum of the absolute value of all negative (outflow) transaction amounts.
+          example: "3200.00"
+        net_cashflow:
+          type: string
+          description: Net cash flow (total_inflows minus total_outflows).
+          example: "1800.00"
+        transaction_count:
+          type: integer
+          description: Number of booked transactions included in the computation.
+          example: 42
+        currency_code:
+          type: string
+          description: ISO 4217 currency code for all monetary values.
+          example: EUR
+        period_start:
+          description: >
+            Earliest transaction date in the range. `null` when there are
+            no transactions.
+          oneOf:
+            - type: string
+              format: date-time
+            - type: "null"
+          example: "2025-01-01T00:00:00Z"
+        period_end:
+          description: >
+            Latest transaction date in the range. `null` when there are
+            no transactions.
+          oneOf:
+            - type: string
+              format: date-time
+            - type: "null"
+          example: "2025-12-31T23:59:59Z"
+
+    CategoryBreakdown:
+      description: |
+        Cash-flow figures for a single transaction category (transaction
+        type).
+      type: object
+      required:
+        - transaction_type
+        - total_amount
+        - transaction_count
+        - is_income
+      properties:
+        transaction_type:
+          type: string
+          description: The transaction category / type label.
+          example: deposit
+        total_amount:
+          type: string
+          description: "Sum of amounts for this category (can be negative for expenses)."
+          example: "3000.00"
+        transaction_count:
+          type: integer
+          description: Number of transactions in this category.
+          example: 10
+        is_income:
+          type: boolean
+          description: >
+            Whether this category is classified as an income type
+            (deposit, interest, dividend).
+          example: true
+
+    PeriodEntry:
+      description: |
+        Single period's cash-flow figures in the time-series. The period
+        boundaries are determined by the `interval` query parameter.
+      type: object
+      required:
+        - date
+        - inflows
+        - outflows
+        - net
+        - transaction_count
+      properties:
+        date:
+          type: string
+          format: date-time
+          description: The truncated date marking the period boundary.
+          example: "2025-01-01T00:00:00Z"
+        inflows:
+          type: string
+          description: Sum of positive transaction amounts in this period.
+          example: "1200"
+        outflows:
+          type: string
+          description: Sum of absolute negative transaction amounts in this period.
+          example: "800"
+        net:
+          type: string
+          description: Net cash flow for this period (inflows minus outflows).
+          example: "400"
+        transaction_count:
+          type: integer
+          description: Number of booked transactions in this period.
+          example: 10
+
+    CashflowPaginatedResponse:
+      description: |
+        Complete cashflow response combining aggregate summary, category
+        breakdown, and paginated period history.
+      type: object
+      required:
+        - summary
+        - by_category
+        - items
+        - total
+        - limit
+        - offset
+      properties:
+        summary:
+          $ref: "#/components/schemas/CashflowSummary"
+        by_category:
+          type: array
+          description: >
+            Breakdown of cash-flow figures grouped by transaction type.
+            When the `category` filter is applied, only the matching
+            category is included.
+          items:
+            $ref: "#/components/schemas/CategoryBreakdown"
+        items:
+          type: array
+          description: Paginated list of period-based cashflow entries.
+          items:
+            $ref: "#/components/schemas/PeriodEntry"
+        total:
+          type: integer
+          description: Total number of distinct periods matching the query.
+          example: 12
+        limit:
+          type: integer
+          description: Maximum entries returned (from request or default).
+          example: 12
+        offset:
+          type: integer
+          description: Zero-based offset into the period list.
+          example: 0
+
+    ProblemDetail:
+      description: |
+        RFC 9457 Problem Details response for error conditions. The body
+        includes a `correlationId` for tracing.
+      type: object
+      properties:
+        type:
+          type: string
+          format: uri
+          description: A URI reference identifying the problem type.
+          default: about:blank
+        title:
+          type: string
+          description: A short, human-readable summary of the problem.
+          example: Unprocessable Entity
+        status:
+          type: integer
+          description: The HTTP status code.
+          example: 422
+        detail:
+          type: string
+          description: A human-readable explanation of this specific occurrence.
+          example: "Invalid interval 'decade'. Must be one of: day, week, month, year"
+        correlationId:
+          type: string
+          description: Correlation ID for tracing the request across services.
+          example: "cf-8a3f1e2b"
+
+    ValidationError:
+      description: |
+        FastAPI-style validation error detail. Returned when a query
+        parameter fails Pydantic-level validation (e.g. limit outside
+        range, negative offset).
+      type: object
+      properties:
+        detail:
+          type: array
+          description: List of validation error items.
+          items:
+            type: object
+            properties:
+              loc:
+                type: array
+                description: Location of the error (e.g. `["query", "limit"]`).
+                items:
+                  type: string
+                example:
+                  - query
+                  - limit
+              msg:
+                type: string
+                description: Validation error message.
+                example: "Input should be less than or equal to 365"
+              type:
+                type: string
+                description: Error type identifier.
+                example: less_than_equal
+              input:
+                description: The invalid input value.
+                example: 999
+        body:
+          type: object
+          description: Request body (empty for query validation errors).
