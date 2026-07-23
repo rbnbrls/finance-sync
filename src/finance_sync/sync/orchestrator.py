@@ -361,6 +361,7 @@ class SyncOrchestrator:
                 "booked_at",
                 "transaction_type",
                 "description",
+                "quantity",
                 "status",
             ):
                 new_val = getattr(ct, field, None)
@@ -407,6 +408,7 @@ class SyncOrchestrator:
             booked_at=ct.booked_at,
             transaction_type=txn_type,
             description=ct.description,
+            quantity=ct.quantity,
             status=txn_status,
             revision=1,
         )

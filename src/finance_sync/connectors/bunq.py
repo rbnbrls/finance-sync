@@ -31,7 +31,12 @@ from finance_sync.connectors.exceptions import (
     RateLimitError,
     TransientError,
 )
-from finance_sync.connectors.models import RawAccount, RawTransaction
+from finance_sync.connectors.models import (
+    RawAccount,
+    RawCardTransaction,
+    RawScheduledPayment,
+    RawTransaction,
+)
 from finance_sync.connectors.rate_limiter import RateLimitPolicy
 
 if TYPE_CHECKING:
@@ -63,7 +68,7 @@ class BunqConnector(Connector):
         accounts = await conn.fetch_accounts()
     """
 
-    display_name = "bunq"
+    display_name = "Bunq"
     sdk_version = "0.1.0"
 
     rate_limit_policy = RateLimitPolicy(
@@ -358,6 +363,276 @@ class BunqConnector(Connector):
             },
         )
 
+    # ── Scheduled / recurring payments ─────────────────────────────────
+
+    async def fetch_scheduled_payments(
+        self,
+        *,
+        account_id: str | None = None,
+    ) -> list[RawScheduledPayment]:
+        """Fetch scheduled / recurring payments for one or all accounts.
+
+        Uses the bunq ``/schedule-payment`` endpoint which returns payment
+        templates with recurrence rules.
+
+        When *account_id* is provided, only fetches for that account.
+        Otherwise fetches for every known monetary account.
+        """
+        if not self._user_id:
+            msg = "BunqConnector not authenticated"
+            raise PermanentError(msg)
+
+        if account_id:
+            account_ids: Sequence[str] = [account_id]
+        else:
+            raw_accounts = await self.fetch_accounts()
+            account_ids = [a.external_account_id for a in raw_accounts]
+
+        all_schedules: list[RawScheduledPayment] = []
+        for aid in account_ids:
+            schedules = await self._fetch_account_schedule_payments(aid)
+            all_schedules.extend(schedules)
+
+        return all_schedules
+
+    async def _fetch_account_schedule_payments(
+        self,
+        account_id: str,
+    ) -> list[RawScheduledPayment]:
+        """Fetch schedule-payment entries for a single monetary account."""
+        items: list[RawScheduledPayment] = []
+        url = (
+            f"/monetary-account/{account_id}/schedule-payment"
+            f"?count={_DEFAULT_COUNT}"
+        )
+
+        while url:
+            data = await self._request_paginated(url)
+            for entry in data.get("Response", []):
+                schedule = entry.get("SchedulePayment")
+                if schedule is None:
+                    continue
+                items.append(self._parse_schedule_payment(schedule, account_id))
+            url = self._next_page_url(data)
+
+        return items
+
+    @staticmethod
+    def _parse_schedule_payment(
+        data: dict[str, Any],
+        account_id: str,
+    ) -> RawScheduledPayment:
+        """Map a bunq SchedulePayment JSON object to a RawScheduledPayment."""
+        schedule_id = str(data.get("id", ""))
+
+        # The payment template inside the schedule
+        payment_data = data.get("payment", {})
+        amount_data = payment_data.get("amount", {})
+        amount = Decimal(amount_data.get("value", "0"))
+        currency = amount_data.get("currency", "EUR")
+        description = payment_data.get("description", "") or None
+
+        # Counterparty info
+        counterparty = payment_data.get("counterparty_alias") or {}
+        counterparty_iban = counterparty.get("value", "")
+        counterparty_name = counterparty.get("name", "")
+
+        # Schedule recurrence info
+        schedule_data = data.get("schedule", {})
+        schedule_time_unit = schedule_data.get("time_unit", "")
+        raw_frequency = schedule_data.get("interval", 1)
+        schedule_start = _parse_bunq_datetime(
+            (schedule_data.get("start") or {}).get("value", "")
+        )
+        schedule_end = _parse_bunq_datetime(
+            (schedule_data.get("end") or {}).get("value", "")
+        )
+        schedule_status = schedule_data.get("status", "")
+
+        # Count executions from the schedule
+        schedule_instances = data.get("schedule_instance", [])
+        execution_count = len(schedule_instances) if schedule_instances else 0
+
+        return RawScheduledPayment(
+            external_schedule_id=schedule_id,
+            external_account_id=account_id,
+            amount=amount,
+            currency_code=currency,
+            frequency=schedule_time_unit,
+            interval=raw_frequency,
+            next_execution_date=(
+                _parse_bunq_datetime(
+                    (schedule_data.get("next_execution") or {}).get("value", "")
+                )
+                or schedule_start
+            ),
+            end_date=schedule_end if schedule_end.timestamp() > 0 else None,
+            execution_count=execution_count,
+            counterparty_name=counterparty_name or None,
+            counterparty_iban=counterparty_iban or None,
+            description=description,
+            status=_map_schedule_status(schedule_status),
+            provider_metadata={
+                "schedule_type": schedule_data.get("type"),
+                "schedule_status": schedule_status,
+                "schedule_start": schedule_start.isoformat()
+                if schedule_start.timestamp() > 0
+                else None,
+                "schedule_end": schedule_end.isoformat()
+                if schedule_end and schedule_end.timestamp() > 0
+                else None,
+                "payment_id": str(payment_data.get("id", "")),
+            },
+        )
+
+    # ── Card transactions ──────────────────────────────────────────────
+
+    async def fetch_card_transactions(
+        self,
+        since: datetime,
+        *,
+        limit: int | None = None,
+    ) -> list[RawCardTransaction]:
+        """Fetch card transactions for all known cards.
+
+        Bunq exposes card payments via ``/card/{card_id}/card-payment``.
+        This method first fetches all active cards for the user, then
+        fetches payments for each card.
+
+        Args:
+            since: Only return transactions on or after this time.
+            limit: Maximum number of transactions to return.
+
+        Returns:
+            A chronologically-sorted list of raw card transactions.
+        """
+        if not self._user_id:
+            msg = "BunqConnector not authenticated"
+            raise PermanentError(msg)
+
+        cards = await self._fetch_cards()
+        all_txns: list[RawCardTransaction] = []
+
+        for card in cards:
+            card_id = card["id"]
+            txns = await self._fetch_card_payments(card_id, since, limit)
+            all_txns.extend(txns)
+            if limit and len(all_txns) >= limit:
+                all_txns = all_txns[:limit]
+                break
+
+        # Sort chronologically (most recent first)
+        all_txns.sort(key=lambda t: t.occurred_at, reverse=True)
+        return all_txns
+
+    async def _fetch_cards(self) -> list[dict[str, Any]]:
+        """Fetch all cards for the authenticated user."""
+        items: list[dict[str, Any]] = []
+        url = f"/user/{self._user_id}/card?count={_DEFAULT_COUNT}"
+
+        while url:
+            data = await self._request_paginated(url)
+            for entry in data.get("Response", []):
+                card_data = entry.get("Card")
+                if card_data is None:
+                    continue
+                items.append({
+                    "id": str(card_data["id"]),
+                    "type": card_data.get("type", ""),
+                    "status": card_data.get("status", ""),
+                    "name": card_data.get("name", ""),
+                    "last_four": card_data.get("last_four", ""),
+                })
+            url = self._next_page_url(data)
+
+        return items
+
+    async def _fetch_card_payments(
+        self,
+        card_id: str,
+        since: datetime,
+        limit: int | None,
+    ) -> list[RawCardTransaction]:
+        """Fetch card-payment entries for a single card with pagination.
+
+        Filters out transactions older than *since* client-side.
+        """
+        items: list[RawCardTransaction] = []
+        url = f"/card/{card_id}/card-payment?count={_DEFAULT_COUNT}"
+
+        while url:
+            data = await self._request_paginated(url)
+            for entry in data.get("Response", []):
+                payment = entry.get("CardPayment")
+                if payment is None:
+                    continue
+                txn = self._parse_card_payment(payment, card_id)
+                if txn.occurred_at >= since:
+                    items.append(txn)
+                    if limit and len(items) >= limit:
+                        return items
+            url = self._next_page_url(data)
+
+        return items
+
+    @staticmethod
+    def _parse_card_payment(
+        data: dict[str, Any],
+        card_id: str,
+    ) -> RawCardTransaction:
+        """Map a bunq CardPayment JSON object to a RawCardTransaction."""
+        payment_id = str(data.get("id", ""))
+        amount_data = data.get("amount", {})
+        amount = Decimal(amount_data.get("value", "0"))
+        currency = amount_data.get("currency", "EUR")
+
+        created = _parse_bunq_datetime(data.get("created", ""))
+        updated = _parse_bunq_datetime(data.get("updated", ""))
+
+        merchant_name = data.get("merchant_name") or (
+            data.get("merchant", {}).get("name")
+        )
+        merchant_city = data.get("merchant_city") or (
+            data.get("merchant", {}).get("city")
+        )
+        merchant_country = data.get(
+            "merchant_country"
+        ) or data.get("merchant", {}).get("country")
+        mcc = data.get("mcc")
+
+        card_data = data.get("card", {}) or {}
+        card_uuid = str(card_data.get("id", "")) or str(data.get("card_id", ""))
+        card_type = data.get("card_type") or card_data.get("type", "")
+
+        auth_status = data.get("authorisation_status", data.get("status", ""))
+        description = data.get("description", "") or None
+
+        return RawCardTransaction(
+            external_card_transaction_id=payment_id,
+            external_account_id=card_id,
+            amount=amount,
+            currency_code=currency,
+            merchant_name=merchant_name or None,
+            merchant_city=merchant_city or None,
+            merchant_country=merchant_country or None,
+            mcc=str(mcc) if mcc is not None else None,
+            card_id=card_uuid or card_id,
+            card_type=card_type or None,
+            card_last_four=data.get("card_last_four") or None,
+            occurred_at=created,
+            booked_at=updated or created,
+            authorization_type=_map_auth_status(auth_status),
+            description=description,
+            status=_map_card_payment_status(auth_status),
+            provider_metadata={
+                "auth_status": auth_status,
+                "original_card_id": card_id,
+                "card_uuid": card_uuid,
+                "mcc_raw": mcc,
+                "merchant_raw": data.get("merchant", {}),
+            },
+        )
+
     # ── Pagination helper ───────────────────────────────────────────────
 
     async def _request_paginated(
@@ -506,6 +781,47 @@ def _map_status(raw: str) -> str:
         "ACCEPTED": "booked",
         "PENDING": "pending",
         "REJECTED": "cancelled",
+        "CANCELLED": "cancelled",
+        "REVERSED": "reversed",
+    }
+    return mapping.get(raw.upper(), "pending")
+
+
+def _map_schedule_status(raw: str) -> str:
+    """Map bunq schedule status to canonical schedule status."""
+    mapping = {
+        "ACTIVE": "active",
+        "INACTIVE": "paused",
+        "CANCELLED": "cancelled",
+        "COMPLETED": "completed",
+        "FAILED": "failed",
+    }
+    return mapping.get(raw.upper(), "active")
+
+
+def _map_auth_status(raw: str) -> str:
+    """Map bunq card authorisation status to canonical auth type."""
+    mapping = {
+        "AUTHORISATION": "authorization",
+        "AUTHORIZATION": "authorization",
+        "SETTLEMENT": "settlement",
+        "REFUND": "refund",
+        "CHARGEBACK": "chargeback",
+        "CANCELLED": "other",
+        "REVERSED": "chargeback",
+    }
+    return mapping.get(raw.upper(), "authorization")
+
+
+def _map_card_payment_status(raw: str) -> str:
+    """Map bunq card payment status to canonical transaction status."""
+    mapping = {
+        "AUTHORISATION": "pending",
+        "AUTHORIZATION": "pending",
+        "SETTLEMENT": "booked",
+        "REFUND": "booked",
+        "CHARGEBACK": "booked",
+        "COMPLETED": "booked",
         "CANCELLED": "cancelled",
         "REVERSED": "reversed",
     }

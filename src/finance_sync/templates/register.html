@@ -339,6 +339,10 @@
                 <input type="password" id="password" placeholder="At least 8 characters" required minlength="8" autocomplete="new-password">
                 <div class="password-hint">Minimum 8 characters</div>
             </div>
+            <div class="form-group">
+                <label for="confirm-password">Confirm Password</label>
+                <input type="password" id="confirm-password" placeholder="Repeat your password" required minlength="8" autocomplete="new-password">
+            </div>
             <button type="submit" class="btn" id="register-btn">Create Account</button>
         </form>
         <div class="footer-link">
@@ -374,6 +378,16 @@
             event.preventDefault();
             const btn = document.getElementById('register-btn');
             const errorEl = document.getElementById('register-error');
+            const password = document.getElementById('password').value;
+            const confirm = document.getElementById('confirm-password').value;
+
+            // Client-side password confirmation check
+            if (password !== confirm) {
+                errorEl.textContent = 'Passwords do not match';
+                errorEl.classList.remove('hidden');
+                return;
+            }
+
             btn.disabled = true;
             btn.innerHTML = '<span class="spinner"></span> Creating account...';
             errorEl.classList.add('hidden');

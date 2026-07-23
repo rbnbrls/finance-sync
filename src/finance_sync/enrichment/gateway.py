@@ -23,9 +23,14 @@ if TYPE_CHECKING:
 import httpx
 
 from finance_sync.enrichment.models import (
+    ETFComposition,
+    ETFHolding,
+    FundamentalObservationData,
     PriceObservation,
     QuoteResult,
+    RegionExposure,
     ResolvedSecurity,
+    SectorExposure,
 )
 from finance_sync.models.enrichment_freshness import EnrichmentFreshness
 
@@ -218,6 +223,227 @@ class EnrichmentGateway:
                     source=quote.source,
                 )
             ]
+        )
+
+    # ── Fundamentals ────────────────────────────────────────────────────
+
+    async def get_fundamentals(
+        self,
+        identifier: str,
+        identifier_type: str = "ticker",
+    ) -> FundamentalObservationData | None:
+        """Fetch fundamental ratio data for a security from OpenBB.
+
+        Returns the fundamental observation data or None if
+        degraded / unavailable.
+        """
+        if self._degraded:
+            return None
+
+        try:
+            response = await self.http_client.get(
+                f"/api/{self._settings.openbb_api_version}"
+                "/market/fundamentals",
+                params={
+                    "symbol": identifier,
+                    "type": identifier_type,
+                },
+            )
+            response.raise_for_status()
+            data: dict[str, Any] = response.json()
+            return self._parse_fundamentals(data)
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code in (404, 429):
+                return None
+            return None
+        except (httpx.TimeoutException, httpx.HTTPError):
+            return None
+
+    @staticmethod
+    def _parse_fundamentals(
+        data: dict[str, Any],
+    ) -> FundamentalObservationData:
+        """Parse an OpenBB fundamentals response into a
+        FundamentalObservationData DTO.
+        """
+        from datetime import UTC, datetime
+
+        return FundamentalObservationData(
+            security_id="",
+            timestamp=datetime.now(UTC),
+            pe_ratio=_safe_decimal(data.get("peRatio") or data.get("pe_ratio")),
+            forward_pe=_safe_decimal(
+                data.get("forwardPE") or data.get("forward_pe")
+            ),
+            peg_ratio=_safe_decimal(
+                data.get("pegRatio") or data.get("peg_ratio")
+            ),
+            eps=_safe_decimal(data.get("eps") or data.get("trailingEps")),
+            eps_forward=_safe_decimal(
+                data.get("forwardEps") or data.get("eps_forward")
+            ),
+            book_value_per_share=_safe_decimal(
+                data.get("bookValue") or data.get("book_value_per_share")
+            ),
+            dividend_yield=_safe_decimal(
+                data.get("dividendYield")
+                or data.get("dividend_yield")
+            ),
+            dividend_rate=_safe_decimal(
+                data.get("dividendRate") or data.get("dividend_rate")
+            ),
+            market_cap=_safe_decimal(
+                data.get("marketCap") or data.get("market_cap")
+            ),
+            enterprise_value=_safe_decimal(
+                data.get("enterpriseValue")
+                or data.get("enterprise_value")
+            ),
+            shares_outstanding=_safe_decimal(
+                data.get("sharesOutstanding")
+                or data.get("shares_outstanding")
+            ),
+            beta=_safe_decimal(data.get("beta")),
+            high_52w=_safe_decimal(
+                data.get("high52w")
+                or data.get("fiftyTwoWeekHigh")
+                or data.get("high_52w")
+            ),
+            low_52w=_safe_decimal(
+                data.get("low52w")
+                or data.get("fiftyTwoWeekLow")
+                or data.get("low_52w")
+            ),
+            source="openbb",
+            provider_metadata={
+                k: v
+                for k, v in data.items()
+                if k
+                not in (
+                    "peRatio",
+                    "pe_ratio",
+                    "forwardPE",
+                    "forward_pe",
+                    "eps",
+                    "marketCap",
+                    "market_cap",
+                    "dividendYield",
+                    "beta",
+                )
+            },
+        )
+
+    # ── ETF Composition ─────────────────────────────────────────────────
+
+    async def get_etf_composition(
+        self,
+        identifier: str,
+        identifier_type: str = "ticker",
+    ) -> ETFComposition | None:
+        """Fetch ETF composition (holdings, sector/region exposures)
+        from OpenBB.
+
+        Returns None in degraded mode or for non-ETF securities.
+        """
+        if self._degraded:
+            return None
+
+        try:
+            response = await self.http_client.get(
+                f"/api/{self._settings.openbb_api_version}"
+                "/market/etf/composition",
+                params={
+                    "symbol": identifier,
+                    "type": identifier_type,
+                },
+            )
+            response.raise_for_status()
+            data: dict[str, Any] = response.json()
+            return self._parse_etf_composition(data, symbol=identifier)
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code in (404, 429):
+                return None
+            return None
+        except (httpx.TimeoutException, httpx.HTTPError):
+            return None
+
+    def _parse_etf_composition(
+        self, data: dict[str, Any], symbol: str = "Unknown ETF"
+    ) -> ETFComposition:
+        """Parse an OpenBB ETF composition response into an
+        ETFComposition DTO.
+        """
+        holdings_raw = data.get("holdings") or data.get("topHoldings") or []
+        sector_raw = (
+            data.get("sectorExposures")
+            or data.get("sector_exposures")
+            or data.get("sectorWeights")
+            or []
+        )
+        region_raw = (
+            data.get("regionExposures")
+            or data.get("region_exposures")
+            or []
+        )
+
+        holdings = [
+            ETFHolding(
+                ticker=h.get("ticker") or h.get("symbol"),
+                name=h.get("name") or h.get("description"),
+                weight=_safe_decimal(
+                    h.get("weight") or h.get("percentage")
+                ),
+                sector=h.get("sector"),
+                market_value=_safe_decimal(
+                    h.get("marketValue") or h.get("market_value")
+                ),
+                shares=_safe_decimal(h.get("shares")),
+            )
+            for h in holdings_raw
+        ]
+
+        sector_exposures = [
+            SectorExposure(
+                sector=s.get("sector") or s.get("name") or s.get("industry"),
+                weight=_safe_decimal(
+                    s.get("weight") or s.get("exposure") or s.get("percentage")
+                )
+                or Decimal(0),
+            )
+            for s in sector_raw
+            if (s.get("sector") or s.get("name"))
+        ]
+
+        region_exposures = [
+            RegionExposure(
+                region=r.get("region") or r.get("name"),
+                weight=_safe_decimal(
+                    r.get("weight") or r.get("exposure") or r.get("percentage")
+                )
+                or Decimal(0),
+            )
+            for r in region_raw
+            if (r.get("region") or r.get("name"))
+        ]
+
+        return ETFComposition(
+            etf_name=data.get("name") or data.get("etfName") or data.get("etf_name") or symbol,
+            total_holdings=data.get("totalHoldings")
+            or data.get("total_holdings")
+            or len(holdings),
+            holdings=holdings,
+            sector_exposures=sector_exposures,
+            region_exposures=region_exposures,
+            expense_ratio=_safe_decimal(
+                data.get("expenseRatio")
+                or data.get("expense_ratio")
+                or data.get("expenseRatio")
+            ),
+            dividend_yield=_safe_decimal(
+                data.get("dividendYield")
+                or data.get("dividend_yield")
+            ),
+            source="openbb",
         )
 
     # ── Historical Prices ────────────────────────────────────────────────

@@ -4,17 +4,9 @@ version = "0.1.0"
 description = "Self-hosted, API-first financial data platform"
 readme = "README.md"
 requires-python = ">=3.12"
-license = { text = "MIT" }
+license = "MIT"
 authors = [
     { name = "rbnbrls", email = "3826339+rbnbrls@users.noreply.github.com" },
-]
-classifiers = [
-    "Development Status :: 2 - Pre-Alpha",
-    "Intended Audience :: Financial and Insurance Industry",
-    "License :: OSI Approved :: MIT License",
-    "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.12",
-    "Programming Language :: Python :: 3.13",
 ]
 
 dependencies = [
@@ -66,6 +58,10 @@ mcp = [
 # Built-in connectors
 bunq = "finance_sync.connectors.bunq:BunqConnector"
 trading212 = "finance_sync.connectors.trading212:Trading212Connector"
+csv_import = "finance_sync.connectors.csv_import:CSVImportConnector"
+manual_expense = "finance_sync.connectors.manual_expense:ManualExpenseConnector"
+plaid_like = "finance_sync.connectors.plaid_like:PlaidLikeConnector"
+ynab = "finance_sync.connectors.ynab:YnabConnector"
 
 [tool.ruff]
 # Enable all default rules and a curated set of optional ones
@@ -148,6 +144,9 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*", "async_test_*"]
+markers = [
+    "e2e: End-to-end tests that require Playwright and a browser (run separately).",
+]
 
 [tool.coverage.run]
 source = ["finance_sync", "src"]

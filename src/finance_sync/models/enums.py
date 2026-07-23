@@ -35,6 +35,8 @@ class TransactionType(StrEnum):
     DIVIDEND = "dividend"
     WITHDRAWAL = "withdrawal"
     DEPOSIT = "deposit"
+    CARD_PAYMENT = "card_payment"
+    SCHEDULED_PAYMENT = "scheduled_payment"
     OTHER = "other"
 
 
@@ -103,6 +105,21 @@ class OutboxMessageStatus(StrEnum):
     FAILED = "failed"
 
 
+class CostBasisMethod(StrEnum):
+    """Cost basis calculation method for tax lots."""
+
+    FIFO = "fifo"
+    LIFO = "lifo"
+    SPECIFIC_ID = "specific_id"
+
+
+class WashSaleAdjustmentType(StrEnum):
+    """Type of wash sale adjustment applied to a tax lot."""
+
+    LOSS_DISALLOWED = "loss_disallowed"
+    BASIS_ADJUSTED = "basis_adjusted"
+
+
 class ConnectorProvider(StrEnum):
     """Known connector / provider identifiers."""
 
@@ -141,3 +158,89 @@ class WebhookDeliveryStatus(StrEnum):
     DELIVERED = "delivered"
     FAILED = "failed"
     RATE_LIMITED = "rate_limited"
+
+
+class ReconciliationRunStatus(StrEnum):
+    """Lifecycle state of a reconciliation run."""
+
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+class ReconciliationResultKind(StrEnum):
+    """Classification of a reconciliation finding."""
+
+    DUPLICATE_TRANSACTION = "duplicate_transaction"
+    MISSING_TRANSACTION = "missing_transaction"
+    CROSS_CONNECTOR_MISMATCH = "cross_connector_mismatch"
+    AMOUNT_MISMATCH = "amount_mismatch"
+
+
+class ReconciliationSeverity(StrEnum):
+    """Severity level of a reconciliation finding."""
+
+    INFO = "info"
+    WARNING = "warning"
+    ERROR = "error"
+
+
+class ScheduleFrequency(StrEnum):
+    """Recurrence frequency for scheduled/recurring payments."""
+
+    DAILY = "daily"
+    WEEKLY = "weekly"
+    BIWEEKLY = "biweekly"
+    MONTHLY = "monthly"
+    BIMONTHLY = "bimonthly"
+    QUARTERLY = "quarterly"
+    SEMI_ANNUALLY = "semi_annually"
+    ANNUALLY = "annually"
+    CUSTOM = "custom"
+
+
+class ScheduleStatus(StrEnum):
+    """Lifecycle state of a scheduled/recurring payment."""
+
+    ACTIVE = "active"
+    PAUSED = "paused"
+    COMPLETED = "completed"
+    CANCELLED = "cancelled"
+    FAILED = "failed"
+
+
+class CardAuthorizationType(StrEnum):
+    """Type of card transaction authorization."""
+
+    AUTHORIZATION = "authorization"
+    SETTLEMENT = "settlement"
+    REFUND = "refund"
+    CHARGEBACK = "chargeback"
+    OTHER = "other"
+
+
+class SubscriptionStatus(StrEnum):
+    """Lifecycle state of a detected subscription."""
+
+    ACTIVE = "active"
+    PAUSED = "paused"
+    CANCELLED = "cancelled"
+    UNKNOWN = "unknown"
+
+
+class SubscriptionConfidence(StrEnum):
+    """Confidence level of a subscription detection."""
+
+    HIGH = "high"
+    MEDIUM = "medium"
+    LOW = "low"
+
+
+class DetectionMethod(StrEnum):
+    """Method used to detect a recurring transaction pattern."""
+
+    EXACT_AMOUNT = "exact_amount"
+    SIMILAR_AMOUNT = "similar_amount"
+    REGULAR_INTERVAL = "regular_interval"
+    MERCHANT_CLASSIFICATION = "merchant_classification"

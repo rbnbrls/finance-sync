@@ -4,6 +4,12 @@ This document describes how to build, register, and distribute a
 third-party connector or exporter plugin for **finance-sync** using the
 `finance-sync-sdk` package.
 
+See also:
+- [SDK Compatibility & Versioning Policy](../sdks/finance-sync-sdk/COMPATIBILITY.md)
+  — versioning guarantees, deprecation policy, and dependency strategy.
+- [SDK Reference](../sdks/finance-sync-sdk/README.md) — package overview
+  and API reference.
+
 ---
 
 ## 1. Overview
