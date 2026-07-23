@@ -90,6 +90,19 @@
         }
         .btn:hover { background: var(--accent-hover); }
         .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn-primary {
+            background: var(--accent);
+            color: #fff;
+            border-color: var(--accent);
+        }
+        .btn-primary:hover { background: var(--accent-hover); }
+        .btn-secondary {
+            background: transparent;
+            color: var(--text);
+            border-color: var(--border);
+        }
+        .btn-secondary:hover { background: var(--surface-2); }
+        .btn-sm { padding: 6px 12px; font-size: 0.8rem; }
         .error {
             color: var(--red);
             font-size: 0.85rem;
@@ -123,8 +136,8 @@
             font-weight: 500;
             animation: slideIn 0.3s ease;
         }
-        .toast-error { background: #7f1d1d; color: #fee2e2; border: 1px solid #dc2626; }
         .toast-success { background: #065f46; color: #d1fae5; border: 1px solid #059669; }
+        .toast-error { background: #7f1d1d; color: #fee2e2; border: 1px solid #dc2626; }
         @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
         .footer-link {
             text-align: center;
@@ -141,6 +154,168 @@
             font-size: 0.75rem;
             color: var(--text-muted);
             margin-top: 4px;
+        }
+
+        /* ── Feedback Button ──────────────────────────────────────────── */
+        .feedback-trigger {
+            position: fixed;
+            right: 0;
+            top: 50%;
+            transform: translateY(-50%);
+            background: transparent;
+            border: 1px solid transparent;
+            border-right: none;
+            border-radius: 8px 0 0 8px;
+            padding: 10px 6px;
+            cursor: pointer;
+            z-index: 50;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 3px;
+            transition: all 0.25s ease;
+            color: var(--text-muted);
+            font-size: 0.65rem;
+            font-weight: 500;
+            writing-mode: vertical-lr;
+            letter-spacing: 0.04em;
+            font-family: var(--font);
+            opacity: 0.5;
+        }
+        .feedback-trigger:hover {
+            opacity: 1;
+            background: color-mix(in srgb, var(--surface) 70%, transparent);
+            color: var(--accent);
+            border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+            padding: 12px 8px;
+        }
+        .feedback-trigger .icon {
+            writing-mode: horizontal-tb;
+            font-size: 1rem;
+            margin-bottom: 1px;
+            opacity: 0.7;
+            transition: opacity 0.2s;
+        }
+        .feedback-trigger:hover .icon {
+            opacity: 1;
+        }
+
+        /* ── Shared Utilities ──────────────────────────────────────────── */
+        .hidden { display: none !important; }
+        .modal-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.6);
+            backdrop-filter: blur(4px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 100;
+            animation: fadeIn 0.2s;
+        }
+        .modal-footer {
+            display: flex;
+            justify-content: flex-end;
+            gap: 8px;
+            margin-top: 20px;
+            padding-top: 16px;
+            border-top: 1px solid var(--border);
+        }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+        /* ── Feedback Modal ──────────────────────────────────────────── */
+        .feedback-modal {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 28px;
+            width: 520px;
+            max-width: 95vw;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+        .feedback-modal h2 {
+            font-size: 1.15rem;
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+        .feedback-modal .sub {
+            color: var(--text-muted);
+            font-size: 0.85rem;
+            margin-bottom: 20px;
+        }
+        .feedback-modal textarea {
+            width: 100%;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 10px 12px;
+            color: var(--text);
+            font-size: 0.9rem;
+            font-family: var(--font);
+            outline: none;
+            resize: vertical;
+            min-height: 140px;
+            transition: border-color 0.15s;
+        }
+        .feedback-modal textarea:focus { border-color: var(--accent); }
+        .feedback-modal textarea::placeholder { color: var(--text-muted); opacity: 0.6; }
+        .feedback-modal .type-select {
+            display: flex;
+            gap: 8px;
+        }
+        .feedback-modal .type-option {
+            flex: 1;
+            padding: 10px 16px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            background: var(--bg);
+            color: var(--text-muted);
+            cursor: pointer;
+            font-size: 0.85rem;
+            font-weight: 500;
+            text-align: center;
+            transition: all 0.15s;
+            font-family: var(--font);
+        }
+        .feedback-modal .type-option:hover {
+            border-color: var(--accent);
+            color: var(--text);
+        }
+        .feedback-modal .type-option.selected {
+            border-color: var(--accent);
+            background: rgba(108, 99, 255, 0.1);
+            color: var(--accent);
+        }
+        .feedback-modal .type-option .type-icon {
+            display: block;
+            font-size: 1.2rem;
+            margin-bottom: 2px;
+        }
+        .feedback-modal .char-count {
+            text-align: right;
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            margin-top: 4px;
+        }
+        .feedback-modal .char-count.over { color: var(--red); }
+        .feedback-modal .feedback-success {
+            text-align: center;
+            padding: 40px 20px;
+        }
+        .feedback-modal .feedback-success .check {
+            font-size: 2.5rem;
+            margin-bottom: 12px;
+        }
+        .feedback-modal .feedback-success h3 {
+            font-size: 1.1rem;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+        .feedback-modal .feedback-success p {
+            color: var(--text-muted);
+            font-size: 0.85rem;
+            margin-bottom: 20px;
         }
     </style>
 </head>
@@ -170,8 +345,21 @@
             Already have an account? <a href="/login">Sign in</a>
         </div>
     </div>
+
+    <!-- Feedback trigger button — emits custom event for integration layer -->
+    <button class="feedback-trigger" id="feedback-trigger" title="Send feedback" aria-label="Send feedback">
+        <span class="icon">&#9993;</span>
+        Feedback
+    </button>
+
+    <!-- Modal Container — integration layer injects feedback modal here -->
+    <div id="modal-container"></div>
+
     <script>
         const API_BASE = '/api/v1';
+
+        // ── Feedback submission guard ────────────────────────────────────
+        let __feedbackSubmitting = false;  // state machine: prevents double-submit
 
         function toast(message, type = 'error') {
             const container = document.getElementById('toast-container');
@@ -228,6 +416,215 @@
                 } catch {}
             }
         })();
+    </script>
+
+    <script>
+        // ── Feedback button event wiring ────────────────────────────────
+        document.addEventListener('DOMContentLoaded', function () {
+            const btn = document.getElementById('feedback-trigger');
+            if (btn) {
+                btn.addEventListener('click', function () {
+                    document.dispatchEvent(new CustomEvent('open-feedback-form'));
+                });
+            }
+        });
+
+        // ── Feedback Modal ──────────────────────────────────────────────
+        function openFeedbackModal(onSubmit) {
+            const modal = document.createElement('div');
+            modal.className = 'modal-overlay';
+            modal.id = 'feedback-modal-overlay';
+            // Store the optional callback for the integration layer.
+            // onSubmit receives { type, description, contact } when provided.
+            modal._onSubmit = typeof onSubmit === 'function' ? onSubmit : null;
+            modal.innerHTML = `
+                <div class="feedback-modal">
+                    <div id="feedback-form-view">
+                        <h2>Send Feedback</h2>
+                        <div class="sub">Report a bug or suggest a feature for finance-sync.</div>
+
+                        <div class="form-group">
+                            <label>Type</label>
+                            <div class="type-select">
+                                <div class="type-option selected" data-type="bug" onclick="selectFeedbackType(this)">
+                                    <span class="type-icon">&#128169;</span>
+                                    Bug Report
+                                </div>
+                                <div class="type-option" data-type="feature" onclick="selectFeedbackType(this)">
+                                    <span class="type-icon">&#128161;</span>
+                                    Feature Request
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="feedback-title">Title <span style="color:var(--red)">*</span></label>
+                            <input type="text" id="feedback-title" placeholder="Brief summary of your feedback" maxlength="200" required>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="feedback-desc">Description <span style="color:var(--red)">*</span></label>
+                            <textarea id="feedback-desc" placeholder="Describe the bug or feature request in detail." maxlength="2000" oninput="updateFeedbackCharCount()"></textarea>
+                            <div class="char-count" id="feedback-char-count">0 / 2000</div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="feedback-email">Email <span style="color:var(--text-muted);font-size:0.8rem;">(optional — for follow-up)</span></label>
+                            <input type="email" id="feedback-email" placeholder="your@email.com">
+                        </div>
+
+                        <div id="feedback-error" class="hidden alert alert-error"></div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+                            <button type="button" class="btn btn-primary" id="feedback-submit" onclick="submitFeedback()">Submit Feedback</button>
+                        </div>
+                    </div>
+                    <div id="feedback-success-view" class="hidden">
+                        <div class="feedback-success">
+                            <div class="check">&#10003;</div>
+                            <h3>Thank You!</h3>
+                            <p>Your feedback has been submitted. We'll review it as soon as possible.</p>
+                            <p><a href="#" class="issue-link hidden" target="_blank" rel="noopener" style="color:var(--accent);font-weight:600;">View issue</a></p>
+                            <button class="btn btn-primary" onclick="closeModal()">Close</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            document.getElementById('modal-container').appendChild(modal);
+            modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
+            document.getElementById('feedback-title').focus();
+        }
+
+        function selectFeedbackType(el) {
+            document.querySelectorAll('.type-option').forEach(o => o.classList.remove('selected'));
+            el.classList.add('selected');
+        }
+
+        function updateFeedbackCharCount() {
+            const desc = document.getElementById('feedback-desc');
+            const count = document.getElementById('feedback-char-count');
+            const len = desc.value.length;
+            count.textContent = `${len} / 2000`;
+            count.classList.toggle('over', len > 2000);
+        }
+
+        function closeModal() {
+            __feedbackSubmitting = false;
+            const modals = document.querySelectorAll('.modal-overlay');
+            modals.forEach(m => m.remove());
+        }
+
+        async function submitFeedback() {
+            // ── State machine: reject if already submitting ─────────────
+            if (__feedbackSubmitting) return;
+            __feedbackSubmitting = true;
+
+            const title = document.getElementById('feedback-title').value.trim();
+            const desc = document.getElementById('feedback-desc').value.trim();
+            const typeEl = document.querySelector('.type-option.selected');
+            const type = typeEl ? typeEl.dataset.type : 'feature';
+            const email = document.getElementById('feedback-email').value.trim();
+            const errorEl = document.getElementById('feedback-error');
+            const submitBtn = document.getElementById('feedback-submit');
+
+            // ── Validation ─────────────────────────────────────────────
+            if (!title) {
+                __feedbackSubmitting = false;
+                errorEl.textContent = 'Please enter a title.';
+                errorEl.classList.remove('hidden');
+                return;
+            }
+            if (!desc) {
+                __feedbackSubmitting = false;
+                errorEl.textContent = 'Please enter a description.';
+                errorEl.classList.remove('hidden');
+                return;
+            }
+            if (desc.length > 2000) {
+                __feedbackSubmitting = false;
+                errorEl.textContent = 'Description must be under 2000 characters.';
+                errorEl.classList.remove('hidden');
+                return;
+            }
+
+            errorEl.classList.add('hidden');
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = '<span class="spinner"></span> Submitting...';
+
+            // ── Structured payload for the integration layer ──────────
+            const modal = document.getElementById('feedback-modal-overlay');
+            const payload = { type, description: desc, contact: email };
+
+            // If an onSubmit callback was provided, delegate to it.
+            if (modal && modal._onSubmit) {
+                try {
+                    await modal._onSubmit(payload);
+                    // On success, show the default thank-you view
+                    document.getElementById('feedback-form-view').classList.add('hidden');
+                    document.getElementById('feedback-success-view').classList.remove('hidden');
+                    toast('Feedback submitted — thank you!', 'success');
+                } catch (e) {
+                    __feedbackSubmitting = false;
+                    errorEl.textContent = e.message || 'Failed to submit feedback. Please try again.';
+                    errorEl.classList.remove('hidden');
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = 'Submit Feedback';
+                }
+                __feedbackSubmitting = false;
+                return;
+            }
+
+            // ── Default: call the feedback API ────────────────────────
+            const apiPayload = { title, description: desc, type };
+            if (email) apiPayload.email = email;
+
+            try {
+                const headers = { 'Content-Type': 'application/json' };
+                const token = localStorage.getItem('fs_token');
+                if (token) headers['Authorization'] = `Bearer ${token}`;
+
+                const resp = await fetch(`${API_BASE}/feedback`, {
+                    method: 'POST',
+                    headers,
+                    body: JSON.stringify(apiPayload),
+                });
+
+                if (resp.status === 401) {
+                    throw new Error('Please sign in to submit feedback.');
+                }
+                if (!resp.ok) {
+                    const data = await resp.json().catch(() => ({}));
+                    throw new Error(data.detail || `Request failed (${resp.status})`);
+                }
+
+                const result = await resp.json();
+
+                // Show success view with issue link
+                document.getElementById('feedback-form-view').classList.add('hidden');
+                document.getElementById('feedback-success-view').classList.remove('hidden');
+
+                const link = document.querySelector('.issue-link');
+                if (link && result.issue_url) {
+                    link.href = result.issue_url;
+                    link.textContent = `View Issue #${result.issue_number}`;
+                    link.classList.remove('hidden');
+                }
+
+                toast('Feedback submitted — thank you!', 'success');
+                __feedbackSubmitting = false;
+            } catch (e) {
+                __feedbackSubmitting = false;
+                errorEl.textContent = e.message || 'Failed to submit feedback. Please try again.';
+                errorEl.classList.remove('hidden');
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Submit Feedback';
+            }
+        }
+
+        // Listen for the custom event to open the feedback modal
+        document.addEventListener('open-feedback-form', function () {
+            openFeedbackModal();
+        });
     </script>
 </body>
 </html>

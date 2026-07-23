@@ -427,33 +427,42 @@
             right: 0;
             top: 50%;
             transform: translateY(-50%);
-            background: var(--surface);
-            border: 1px solid var(--border);
+            background: transparent;
+            border: 1px solid transparent;
             border-right: none;
             border-radius: 8px 0 0 8px;
-            padding: 12px 8px;
+            padding: 10px 6px;
             cursor: pointer;
             z-index: 50;
             display: flex;
             flex-direction: column;
             align-items: center;
-            gap: 4px;
-            transition: all 0.2s;
+            gap: 3px;
+            transition: all 0.25s ease;
             color: var(--text-muted);
-            font-size: 0.7rem;
+            font-size: 0.65rem;
             font-weight: 500;
             writing-mode: vertical-lr;
-            letter-spacing: 0.06em;
+            letter-spacing: 0.04em;
+            opacity: 0.5;
+            backdrop-filter: none;
         }
         .feedback-trigger:hover {
-            background: var(--surface-2);
+            opacity: 1;
+            background: color-mix(in srgb, var(--surface) 70%, transparent);
             color: var(--accent);
-            border-color: var(--accent);
+            border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+            padding: 12px 8px;
         }
         .feedback-trigger .icon {
             writing-mode: horizontal-tb;
-            font-size: 1.1rem;
-            margin-bottom: 2px;
+            font-size: 1rem;
+            margin-bottom: 1px;
+            opacity: 0.7;
+            transition: opacity 0.2s;
+        }
+        .feedback-trigger:hover .icon {
+            opacity: 1;
         }
 
         /* ── Feedback Modal ────────────────────────────────────────────── */
@@ -498,37 +507,26 @@
             color: var(--text-muted);
             opacity: 0.6;
         }
-        .feedback-modal .type-select {
-            display: flex;
-            gap: 8px;
-        }
-        .feedback-modal .type-option {
-            flex: 1;
-            padding: 10px 16px;
+        .feedback-modal select {
+            width: 100%;
+            background: var(--bg);
             border: 1px solid var(--border);
             border-radius: 6px;
-            background: var(--bg);
-            color: var(--text-muted);
-            cursor: pointer;
-            font-size: 0.85rem;
-            font-weight: 500;
-            text-align: center;
-            transition: all 0.15s;
-            font-family: var(--font);
-        }
-        .feedback-modal .type-option:hover {
-            border-color: var(--accent);
+            padding: 9px 12px;
             color: var(--text);
+            font-size: 0.9rem;
+            font-family: var(--font);
+            outline: none;
+            cursor: pointer;
+            transition: border-color 0.15s;
+            appearance: auto;
         }
-        .feedback-modal .type-option.selected {
+        .feedback-modal select:focus {
             border-color: var(--accent);
-            background: rgba(108, 99, 255, 0.1);
-            color: var(--accent);
         }
-        .feedback-modal .type-option .type-icon {
-            display: block;
-            font-size: 1.2rem;
-            margin-bottom: 2px;
+        .feedback-modal select option {
+            background: var(--surface);
+            color: var(--text);
         }
         .feedback-modal .char-count {
             text-align: right;
@@ -619,8 +617,8 @@
         </div>
     </main>
 
-    <!-- Feedback trigger button -->
-    <button class="feedback-trigger" id="feedback-trigger" onclick="openFeedbackModal()" title="Send feedback">
+    <!-- Feedback trigger button — emits custom event for integration layer -->
+    <button class="feedback-trigger" id="feedback-trigger" title="Send feedback">
         <span class="icon">&#9993;</span>
         Feedback
     </button>
@@ -634,6 +632,9 @@
         let token = localStorage.getItem('fs_token');
         let connectors = [];     // available connector types
         let configs = [];        // saved configs
+
+        // ── Feedback submission guard ────────────────────────────────────
+        let __feedbackSubmitting = false;  // state machine: prevents double-submit
 
         // ── Auth helpers ────────────────────────────────────────────────
         function authHeaders() {
@@ -868,15 +869,19 @@
         }
 
         function closeModal() {
+            __feedbackSubmitting = false;
             const modals = document.querySelectorAll('.modal-overlay');
             modals.forEach(m => m.remove());
         }
 
         // ── Feedback ─────────────────────────────────────────────────────
-        function openFeedbackModal() {
+        function openFeedbackModal(onSubmit) {
             const modal = document.createElement('div');
             modal.className = 'modal-overlay';
             modal.id = 'feedback-modal-overlay';
+            // Store the optional callback for the integration layer.
+            // onSubmit receives { type, description, contact } when provided.
+            modal._onSubmit = typeof onSubmit === 'function' ? onSubmit : null;
             modal.innerHTML = `
                 <div class="feedback-modal">
                     <div id="feedback-form-view">
@@ -884,28 +889,27 @@
                         <div class="sub">Report a bug or suggest a feature for finance-sync.</div>
 
                         <div class="form-group">
-                            <label>Type</label>
-                            <div class="type-select">
-                                <div class="type-option selected" data-type="bug" onclick="selectFeedbackType(this)">
-                                    <span class="type-icon">&#128169;</span>
-                                    Bug Report
-                                </div>
-                                <div class="type-option" data-type="feature" onclick="selectFeedbackType(this)">
-                                    <span class="type-icon">&#128161;</span>
-                                    Feature Request
-                                </div>
-                            </div>
+                            <label for="feedback-type">Type</label>
+                            <select id="feedback-type">
+                                <option value="bug">&#128169; Bug Report</option>
+                                <option value="feature">&#128161; Feature Request</option>
+                            </select>
                         </div>
 
                         <div class="form-group">
                             <label for="feedback-title">Title <span style="color:var(--red)">*</span></label>
-                            <input type="text" id="feedback-title" placeholder="Brief summary of your feedback" required>
+                            <input type="text" id="feedback-title" placeholder="Brief summary of your feedback" maxlength="200" required>
                         </div>
 
                         <div class="form-group">
                             <label for="feedback-desc">Description <span style="color:var(--red)">*</span></label>
-                            <textarea id="feedback-desc" placeholder="Describe the bug or feature request in detail. What did you expect? What happened instead?" oninput="updateFeedbackCharCount()"></textarea>
+                            <textarea id="feedback-desc" placeholder="Describe the bug or feature request in detail. What did you expect? What happened instead?" maxlength="2000" oninput="updateFeedbackCharCount()"></textarea>
                             <div class="char-count" id="feedback-char-count">0 / 2000</div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="feedback-email">Email <span style="color:var(--text-muted);font-size:0.8rem;">(optional — for follow-up)</span></label>
+                            <input type="email" id="feedback-email" placeholder="your@email.com">
                         </div>
 
                         <div id="feedback-error" class="hidden alert alert-error"></div>
@@ -919,6 +923,7 @@
                             <div class="check">&#10003;</div>
                             <h3>Thank You!</h3>
                             <p>Your feedback has been submitted as a GitHub issue. We'll review it as soon as possible.</p>
+                            <p><a href="#" class="issue-link hidden" target="_blank" rel="noopener" style="color:var(--accent);font-weight:600;">View issue</a></p>
                             <button class="btn btn-primary" onclick="closeModal()">Close</button>
                         </div>
                     </div>
@@ -927,11 +932,6 @@
             document.getElementById('modal-container').appendChild(modal);
             modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
             document.getElementById('feedback-title').focus();
-        }
-
-        function selectFeedbackType(el) {
-            document.querySelectorAll('.type-option').forEach(o => o.classList.remove('selected'));
-            el.classList.add('selected');
         }
 
         function updateFeedbackCharCount() {
@@ -943,24 +943,32 @@
         }
 
         async function submitFeedback() {
+            // ── State machine: reject if already submitting ─────────────
+            if (__feedbackSubmitting) return;
+            __feedbackSubmitting = true;
+
             const title = document.getElementById('feedback-title').value.trim();
             const desc = document.getElementById('feedback-desc').value.trim();
-            const typeEl = document.querySelector('.type-option.selected');
-            const type = typeEl ? typeEl.dataset.type : 'feature';
+            const type = document.getElementById('feedback-type').value;
+            const email = document.getElementById('feedback-email').value.trim();
             const errorEl = document.getElementById('feedback-error');
             const submitBtn = document.getElementById('feedback-submit');
 
+            // ── Validation ─────────────────────────────────────────────
             if (!title) {
+                __feedbackSubmitting = false;
                 errorEl.textContent = 'Please enter a title.';
                 errorEl.classList.remove('hidden');
                 return;
             }
             if (!desc) {
+                __feedbackSubmitting = false;
                 errorEl.textContent = 'Please enter a description.';
                 errorEl.classList.remove('hidden');
                 return;
             }
             if (desc.length > 2000) {
+                __feedbackSubmitting = false;
                 errorEl.textContent = 'Description must be under 2000 characters.';
                 errorEl.classList.remove('hidden');
                 return;
@@ -970,13 +978,52 @@
             submitBtn.disabled = true;
             submitBtn.innerHTML = '<span class="spinner"></span> Submitting...';
 
+            // ── Structured payload for the integration layer ──────────
+            const modal = document.getElementById('feedback-modal-overlay');
+            const payload = { type, description: desc, contact: email };
+
+            // If an onSubmit callback was provided, delegate to it.
+            if (modal && modal._onSubmit) {
+                try {
+                    await modal._onSubmit(payload);
+                    // On success, show the default thank-you view
+                    document.getElementById('feedback-form-view').classList.add('hidden');
+                    document.getElementById('feedback-success-view').classList.remove('hidden');
+                    toast('Feedback submitted — thank you!', 'success');
+                } catch (e) {
+                    __feedbackSubmitting = false;
+                    errorEl.textContent = e.message || 'Failed to submit feedback. Please try again.';
+                    errorEl.classList.remove('hidden');
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = 'Submit Feedback';
+                }
+                __feedbackSubmitting = false;
+                return;
+            }
+
+            // ── Default: call the feedback API ────────────────────────
+            const apiPayload = { title, description: desc, type };
+            if (email) apiPayload.email = email;
+
             try {
-                const result = await api('POST', '/feedback', { title, description: desc, type });
+                const result = await api('POST', '/feedback', apiPayload);
+
+                // Show success view with issue link
                 document.getElementById('feedback-form-view').classList.add('hidden');
                 document.getElementById('feedback-success-view').classList.remove('hidden');
-                toast('Feedback submitted!', 'success');
+
+                const link = document.querySelector('.issue-link');
+                if (link && result.issue_url) {
+                    link.href = result.issue_url;
+                    link.textContent = `View Issue #${result.issue_number}`;
+                    link.classList.remove('hidden');
+                }
+
+                toast('Feedback submitted — thank you!', 'success');
+                __feedbackSubmitting = false;
             } catch (e) {
-                errorEl.textContent = e.message;
+                __feedbackSubmitting = false;
+                errorEl.textContent = e.message || 'Failed to submit feedback. Please try again.';
                 errorEl.classList.remove('hidden');
                 submitBtn.disabled = false;
                 submitBtn.textContent = 'Submit Feedback';
@@ -1012,6 +1059,21 @@
                 toast(`Failed to remove: ${e.message}`, 'error');
             }
         }
+
+        // ── Feedback button event wiring ────────────────────────────────
+        document.addEventListener('DOMContentLoaded', function () {
+            const btn = document.getElementById('feedback-trigger');
+            if (btn) {
+                btn.addEventListener('click', function () {
+                    document.dispatchEvent(new CustomEvent('open-feedback-form'));
+                });
+            }
+        });
+
+        // Listen for the custom event and open the feedback modal
+        document.addEventListener('open-feedback-form', function () {
+            openFeedbackModal();
+        });
 
         // ── Init ─────────────────────────────────────────────────────────
         (async function init() {
