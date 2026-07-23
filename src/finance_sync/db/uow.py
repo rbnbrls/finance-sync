@@ -122,7 +122,9 @@ class UnitOfWork:
 
     @property
     def reconciliation_results(self) -> ReconciliationResultRepository:
-        return self._repo("reconciliation_results", ReconciliationResultRepository)  # type: ignore[return-value]
+        return self._repo(
+            "reconciliation_results", ReconciliationResultRepository
+        )
 
     @property
     def webhooks(self) -> WebhookRepository:

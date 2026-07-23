@@ -150,15 +150,18 @@ class TransactionRepository(Repository[Transaction]):
         for group in groups.values():
             if len(group) < 2:
                 continue
-            # Sort by occurred_at within the group
-            group.sort(key=lambda t: t.occurred_at or datetime(1970, 1, 1, tzinfo=UTC))
+            # Sort by occurred_at
+            group.sort(
+                key=lambda t: t.occurred_at or datetime(1970, 1, 1, tzinfo=UTC)
+            )
             for i in range(len(group)):
                 for j in range(i + 1, len(group)):
                     a, b = group[i], group[j]
-                    # Skip if they have the same provider key AND same external ID
+                    # Skip if same provider key AND same external ID
                     if (
                         a.provider_key == b.provider_key
-                        and a.external_transaction_id == b.external_transaction_id
+                        and a.external_transaction_id
+                        == b.external_transaction_id
                     ):
                         continue
                     # Check time proximity
@@ -179,7 +182,7 @@ class TransactionRepository(Repository[Transaction]):
         tenant_id: str,
         account_id: str,
     ) -> list[str]:
-        """Return distinct provider_keys that have transactions for this account."""
+        """Return distinct provider_keys with transactions for this account."""
         from sqlalchemy import select
 
         stmt = (

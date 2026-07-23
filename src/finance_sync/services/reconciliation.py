@@ -126,7 +126,6 @@ class ReconciliationService:
             scope["account_ids"] = account_ids
 
         async with self._session_factory() as session:
-
             run = ReconciliationRun(
                 tenant_id=self._tenant_id,
                 status=ReconciliationRunStatus.RUNNING,
@@ -141,7 +140,12 @@ class ReconciliationService:
             try:
                 # Phase 1: Duplicate detection
                 dups = await self._detect_duplicates(
-                    session, run, account_ids, _date_from, _date_to, threshold_hours
+                    session,
+                    run,
+                    account_ids,
+                    _date_from,
+                    _date_to,
+                    threshold_hours,
                 )
                 findings.extend(dups)
                 log.debug("duplicates_detected", count=len(dups))
@@ -227,7 +231,9 @@ class ReconciliationService:
                     else ReconciliationSeverity.WARNING
                 )
 
-                amount_diff = abs((tx_a.amount or Decimal(0)) - (tx_b.amount or Decimal(0)))
+                amt_a = tx_a.amount or Decimal(0)
+                amt_b = tx_b.amount or Decimal(0)
+                amount_diff = abs(amt_a - amt_b)
 
                 findings.append(
                     ReconciliationResult(
@@ -257,7 +263,10 @@ class ReconciliationService:
                                 abs(
                                     (
                                         (tx_a.occurred_at or datetime.now(UTC))
-                                        - (tx_b.occurred_at or datetime.now(UTC))
+                                        - (
+                                            tx_b.occurred_at
+                                            or datetime.now(UTC)
+                                        )
                                     ).total_seconds()
                                 )
                                 / 3600,
@@ -309,14 +318,20 @@ class ReconciliationService:
                 )
 
             if len(providers) < 2:
-                continue  # Single-provider account — no cross-connector check needed
+                continue  # Single-provider — no cross-connector check
 
             # For each provider, get its transaction date range
-            provider_ranges: dict[str, tuple[datetime | None, datetime | None]] = {}
+            provider_ranges: dict[
+                str, tuple[datetime | None, datetime | None]
+            ] = {}
             async with UnitOfWork(session) as uow:
                 for p in providers:
-                    provider_ranges[p] = await uow.transactions.get_transaction_date_range(
-                        run.tenant_id, account_id=str(acct.id), provider_key=p
+                    provider_ranges[
+                        p
+                    ] = await uow.transactions.get_transaction_date_range(
+                        run.tenant_id,
+                        account_id=str(acct.id),
+                        provider_key=p,
                     )
 
             # Find the overall range
@@ -340,8 +355,8 @@ class ReconciliationService:
                             account_id=str(acct.id),
                             provider_key=provider_key,
                             description=(
-                                f"Connector '{provider_key}' has no transactions "
-                                f"for account '{acct.name}' while other providers do"
+                                f"Connector '{provider_key}' has no transactions for "  # noqa: E501
+                                f"'{acct.name}' (other providers do)"
                             ),
                             details={
                                 "account_name": acct.name,
@@ -366,9 +381,8 @@ class ReconciliationService:
                             provider_key=provider_key,
                             description=(
                                 f"Connector '{provider_key}' started recording "
-                                f"transactions for '{acct.name}' "
-                                f"{start_diff / 86400:.0f} days after the earliest "
-                                f"provider"
+                                f"for '{acct.name}' "
+                                f"{start_diff / 86400:.0f}d after earliest provider"  # noqa: E501
                             ),
                             details={
                                 "account_name": acct.name,
@@ -420,7 +434,10 @@ class ReconciliationService:
 
             for provider_key in providers:
                 async with UnitOfWork(session) as uow:
-                    p_start, _p_end = await uow.transactions.get_transaction_date_range(
+                    (
+                        p_start,
+                        _p_end,
+                    ) = await uow.transactions.get_transaction_date_range(
                         run.tenant_id,
                         account_id=str(acct.id),
                         provider_key=provider_key,
@@ -429,7 +446,7 @@ class ReconciliationService:
                 if p_start is None:
                     continue  # Already flagged in gap detection
 
-                # Check if the provider's coverage doesn't extend to the analysis boundary
+                # Check if provider coverage extends to analysis boundary
                 if p_start > _date_from:
                     gap_days = (p_start - _date_from).total_seconds() / 86400
                     if gap_days > 7:
@@ -442,8 +459,8 @@ class ReconciliationService:
                                 account_id=str(acct.id),
                                 provider_key=provider_key,
                                 description=(
-                                    f"Connector '{provider_key}' has a {gap_days:.0f}-day "
-                                    f"gap at the start of the analysis window "
+                                    f"Connector '{provider_key}' {gap_days:.0f}d gap at "  # noqa: E501
+                                    "start of analysis window "
                                     f"for '{acct.name}'"
                                 ),
                                 details={
@@ -476,7 +493,9 @@ class ReconciliationService:
         by_severity: dict[str, int] = {}
         for f in findings:
             by_kind[str(f.kind)] = by_kind.get(str(f.kind), 0) + 1
-            by_severity[str(f.severity)] = by_severity.get(str(f.severity), 0) + 1
+            by_severity[str(f.severity)] = (
+                by_severity.get(str(f.severity), 0) + 1
+            )
 
         run.finding_count = len(findings)
         run.summary = {

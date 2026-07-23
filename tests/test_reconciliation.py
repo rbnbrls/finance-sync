@@ -18,7 +18,6 @@ from finance_sync.models.enums import (
     ReconciliationRunStatus,
 )
 
-
 # ═══════════════════════════════════════════════════════════════════════
 # Enums & model basics
 # ═══════════════════════════════════════════════════════════════════════
@@ -28,9 +27,18 @@ class TestReconciliationEnums:
     """Verify enum values used by reconciliation."""
 
     def test_kind_values(self) -> None:
-        assert ReconciliationResultKind.DUPLICATE_TRANSACTION == "duplicate_transaction"
-        assert ReconciliationResultKind.MISSING_TRANSACTION == "missing_transaction"
-        assert ReconciliationResultKind.CROSS_CONNECTOR_MISMATCH == "cross_connector_mismatch"
+        assert (
+            ReconciliationResultKind.DUPLICATE_TRANSACTION
+            == "duplicate_transaction"
+        )
+        assert (
+            ReconciliationResultKind.MISSING_TRANSACTION
+            == "missing_transaction"
+        )
+        assert (
+            ReconciliationResultKind.CROSS_CONNECTOR_MISMATCH
+            == "cross_connector_mismatch"
+        )
         assert ReconciliationResultKind.AMOUNT_MISMATCH == "amount_mismatch"
 
     def test_run_status_values(self) -> None:
@@ -57,7 +65,7 @@ class _MockTxn:
     def __init__(
         self,
         *,
-        id: str | None = None,
+        record_id: str | None = None,
         tenant_id: str = "tenant_1",
         provider_key: str = "bunq",
         external_transaction_id: str = "ext_1",
@@ -69,7 +77,7 @@ class _MockTxn:
         transaction_type: str = "payment",
         status: str = "booked",
     ):
-        self.id = id or str(uuid4())
+        self.id = record_id or str(uuid4())
         self.tenant_id = tenant_id
         self.provider_key = provider_key
         self.external_transaction_id = external_transaction_id
@@ -83,8 +91,10 @@ class _MockTxn:
 
 
 class _MockAccount:
-    def __init__(self, *, id: str, name: str, tenant_id: str = "tenant_1"):
-        self.id = id
+    def __init__(
+        self, *, record_id: str, name: str, tenant_id: str = "tenant_1"
+    ):
+        self.id = record_id
         self.name = name
         self.tenant_id = tenant_id
 
@@ -121,13 +131,15 @@ class TestReconciliationServiceMocked:
 
         from finance_sync.db.uow import UnitOfWork
         from finance_sync.services.reconciliation import (
-            ReconciliationService as RS,
+            ReconciliationService as RS,  # noqa: N817
         )
 
         mock_uow = MagicMock()
         mock_uow.__aenter__ = AsyncMock(return_value=mock_uow)
         mock_uow.__aexit__ = AsyncMock(return_value=None)
-        mock_uow.transactions.find_duplicate_candidates = AsyncMock(return_value=[])
+        mock_uow.transactions.find_duplicate_candidates = AsyncMock(
+            return_value=[]
+        )
 
         from finance_sync.models.reconciliation import ReconciliationRun
 
@@ -154,7 +166,7 @@ class TestReconciliationServiceMocked:
 
         from finance_sync.db.uow import UnitOfWork
         from finance_sync.services.reconciliation import (
-            ReconciliationService as RS,
+            ReconciliationService as RS,  # noqa: N817
         )
 
         tx_a = _MockTxn(
@@ -214,7 +226,7 @@ class TestReconciliationServiceMocked:
 
         from finance_sync.db.uow import UnitOfWork
         from finance_sync.services.reconciliation import (
-            ReconciliationService as RS,
+            ReconciliationService as RS,  # noqa: N817
         )
 
         mock_session = AsyncMock()
@@ -264,9 +276,7 @@ class TestReconciliationServiceMocked:
             ReconciliationResultKind.CROSS_CONNECTOR_MISMATCH,
         )
 
-    async def test_list_runs(
-        self, svc, session_factory
-    ) -> None:
+    async def test_list_runs(self, svc, session_factory) -> None:
         """list_runs returns runs from the DB."""
         mock_session = AsyncMock()
         mock_result = MagicMock()
@@ -309,12 +319,13 @@ class TestReconciliationServiceMocked:
 class TestDuplicateCandidateLogic:
     """Test the grouping/matching logic that find_duplicate_candidates uses,
     exercised via a lightweight in-memory test."""
+
     # This tests the algorithm from Finance_sync/db/repositories.py
     # by directly testing the grouping and pair matching logic.
 
     @staticmethod
     def _find_pairs(txns: list, threshold_hours: int = 48) -> list:
-        """Replicate the core pair-finding logic from find_duplicate_candidates."""
+        """Replicate core pair-finding from find_duplicate_candidates."""
         from collections import defaultdict
 
         groups: dict[tuple[str, str], list] = defaultdict(list)
@@ -323,16 +334,19 @@ class TestDuplicateCandidateLogic:
             groups[key].append(t)
 
         pairs = []
-        for _key, group in groups.items():
+        for group in groups.values():
             if len(group) < 2:
                 continue
-            group.sort(key=lambda t: t.occurred_at or datetime(1970, 1, 1))
+            group.sort(
+                key=lambda t: t.occurred_at or datetime(1970, 1, 1, tzinfo=UTC)
+            )
             for i in range(len(group)):
                 for j in range(i + 1, len(group)):
                     a, b = group[i], group[j]
                     if (
                         a.provider_key == b.provider_key
-                        and a.external_transaction_id == b.external_transaction_id
+                        and a.external_transaction_id
+                        == b.external_transaction_id
                     ):
                         continue
                     t_a = a.occurred_at
@@ -349,9 +363,15 @@ class TestDuplicateCandidateLogic:
     def test_no_duplicates_when_all_distinct(self) -> None:
         now = datetime.now(UTC)
         txns = [
-            _MockTxn(amount=Decimal("-10.00"), occurred_at=now - timedelta(hours=2)),
-            _MockTxn(amount=Decimal("-20.00"), occurred_at=now - timedelta(hours=6)),
-            _MockTxn(amount=Decimal("-30.00"), occurred_at=now - timedelta(hours=24)),
+            _MockTxn(
+                amount=Decimal("-10.00"), occurred_at=now - timedelta(hours=2)
+            ),
+            _MockTxn(
+                amount=Decimal("-20.00"), occurred_at=now - timedelta(hours=6)
+            ),
+            _MockTxn(
+                amount=Decimal("-30.00"), occurred_at=now - timedelta(hours=24)
+            ),
         ]
         pairs = self._find_pairs(txns)
         assert len(pairs) == 0
@@ -375,9 +395,12 @@ class TestDuplicateCandidateLogic:
         pairs = self._find_pairs(txns)
         assert len(pairs) == 1
         a, b = pairs[0]
-        # The pair is sorted by occurred_at, so 'a' is the earlier one (t1, 3h ago)
+        # The pair is sorted by occurred_at, so 'a' is the earlier one (t1, 3h ago)  # noqa: E501
         # and 'b' is the later one (b1, 2h ago)
-        assert {a.external_transaction_id, b.external_transaction_id} == {"b1", "t1"}
+        assert {a.external_transaction_id, b.external_transaction_id} == {
+            "b1",
+            "t1",
+        }
 
     def test_ignores_same_provider_same_id(self) -> None:
         now = datetime.now(UTC)
@@ -425,8 +448,12 @@ class TestDuplicateCandidateLogic:
     def test_different_amounts_not_duplicates(self) -> None:
         now = datetime.now(UTC)
         txns = [
-            _MockTxn(amount=Decimal("-50.00"), occurred_at=now - timedelta(hours=2)),
-            _MockTxn(amount=Decimal("-51.00"), occurred_at=now - timedelta(hours=3)),
+            _MockTxn(
+                amount=Decimal("-50.00"), occurred_at=now - timedelta(hours=2)
+            ),
+            _MockTxn(
+                amount=Decimal("-51.00"), occurred_at=now - timedelta(hours=3)
+            ),
         ]
         pairs = self._find_pairs(txns)
         assert len(pairs) == 0

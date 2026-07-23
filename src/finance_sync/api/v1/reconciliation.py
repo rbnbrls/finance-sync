@@ -7,12 +7,12 @@ because FastAPI needs runtime type introspection for OpenAPI generation.
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from decimal import Decimal
+from decimal import Decimal  # noqa: TC003
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession  # noqa: TC002
 
 from finance_sync.api.deps.auth import AuthContext, require_permission
 from finance_sync.dependencies import get_container, get_db
@@ -254,7 +254,10 @@ async def get_reconciliation_run(
         )
 
     if run.tenant_id != auth.tenant_id:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Not found",
+        )
 
     return {
         "run": _run_to_response(run).model_dump(),
