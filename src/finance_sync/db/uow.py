@@ -12,6 +12,7 @@ from finance_sync.db.repositories import (
     AccountRepository,
     BalanceRepository,
     EnrichmentFreshnessRepository,
+    FxRateRepository,
     HoldingRepository,
     OutboxMessageRepository,
     ReconciliationResultRepository,
@@ -132,7 +133,13 @@ class UnitOfWork:
 
     @property
     def webhook_delivery_logs(self) -> WebhookDeliveryLogRepository:
-        return self._repo("webhook_delivery_logs", WebhookDeliveryLogRepository)  # type: ignore[return-value]
+        return self._repo(
+            "webhook_delivery_logs", WebhookDeliveryLogRepository
+        )  # type: ignore[return-value]
+
+    @property
+    def fx_rates(self) -> FxRateRepository:
+        return self._repo("fx_rates", FxRateRepository)  # type: ignore[return-value]
 
     # ── Lifecycle ────────────────────────────────────────────────────
 
