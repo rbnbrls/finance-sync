@@ -14,6 +14,7 @@ from finance_sync.models import (
     Balance,
     EnrichmentFreshness,
     ExportRun,
+    FxRate,
     Holding,
     OutboxMessage,
     ResolutionAuditLog,
@@ -132,3 +133,7 @@ class WebhookRepository(Repository[Webhook]):
 
 class WebhookDeliveryLogRepository(Repository[WebhookDeliveryLog]):
     model_class = WebhookDeliveryLog
+
+
+class FxRateRepository(Repository[FxRate]):
+    model_class = FxRate

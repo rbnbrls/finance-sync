@@ -34,6 +34,7 @@ from finance_sync.models.enums import (
     WebhookDeliveryStatus,
     WebhookEventType,
 )
+from finance_sync.models.fx_rate import FxRate
 from finance_sync.models.holding import Holding
 from finance_sync.models.mixins import TenantAwareMixin, TimestampMixin
 from finance_sync.models.outbox import OutboxMessage
@@ -116,6 +117,7 @@ __all__ = [
     "EnrichmentFreshness",
     "ExportDelivery",
     "ExportRun",
+    "FxRate",
     "Holding",
     "HoldingSource",
     "OutboxMessage",
