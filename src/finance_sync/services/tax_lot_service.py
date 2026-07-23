@@ -21,7 +21,7 @@ Design notes
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any
 
@@ -415,7 +415,6 @@ async def get_tax_lot_summary(
 
     Returns counts and totals for open and closed lots.
     """
-    from sqlalchemy import func, select
 
     repo = TaxLotRepository(session)
     conditions: list[Any] = [TaxLot.tenant_id == tenant_id]  # type: ignore[attr-defined]

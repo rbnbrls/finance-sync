@@ -5,9 +5,8 @@ from __future__ import annotations
 from fastapi import APIRouter
 
 from finance_sync.api.v1.accounts import router as accounts_router
-from finance_sync.api.v1.allocation import router as allocation_router
 from finance_sync.api.v1.ai_summary import router as ai_summary_router
-from finance_sync.api.v1.cashflow import router as cashflow_router
+from finance_sync.api.v1.allocation import router as allocation_router
 from finance_sync.api.v1.auth import router as auth_router
 from finance_sync.api.v1.cashflow import router as cashflow_router
 from finance_sync.api.v1.connectors_config import (

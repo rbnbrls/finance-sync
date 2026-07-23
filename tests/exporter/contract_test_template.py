@@ -26,13 +26,13 @@ provides fixtures that the mixin uses to verify the exporter contract.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 import pytest
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+    from datetime import datetime
     from unittest.mock import MagicMock
 
 pytestmark = pytest.mark.asyncio
@@ -152,7 +152,6 @@ class ExportResultContractTest:
     async def test_zero_counts_acceptable(self) -> None:
         """Zero transaction counts should be valid (no-ops)."""
         # This test is intentionally vague: concrete classes override.
-        pass
 
 
 # ═══════════════════════════════════════════════════════════════════════
