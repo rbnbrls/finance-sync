@@ -17,6 +17,7 @@ from finance_sync.models import (
     EnrichmentFreshness,
     ExportRun,
     FundamentalObservation,
+    FxRate,
     Holding,
     OutboxMessage,
     ReconciliationResult,
@@ -27,6 +28,7 @@ from finance_sync.models import (
     SecurityMetadataObservation,
     SecurityPrice,
     SyncRun,
+    TaxLot,
     Tenant,
     Transaction,
     UnresolvedSecurity,
@@ -231,6 +233,42 @@ class HoldingRepository(Repository[Holding]):
     model_class = Holding
 
 
+class TaxLotRepository(Repository[TaxLot]):
+    model_class = TaxLot
+
+    async def find_open_lots(
+        self,
+        tenant_id: str,
+        account_id: str,
+        security_id: str,
+    ) -> list[TaxLot]:
+        """Return open tax lots for an account+security, ordered by acquisition.
+
+        Used by the cost-basis matching engine.
+        """
+        return await self.list(
+            TaxLot.tenant_id == tenant_id,  # type: ignore[attr-defined]
+            TaxLot.account_id == account_id,  # type: ignore[attr-defined]
+            TaxLot.security_id == security_id,  # type: ignore[attr-defined]
+            TaxLot.closed_at.is_(None),  # type: ignore[attr-defined]
+            order_by=TaxLot.acquired_at.asc(),  # type: ignore[attr-defined]
+        )
+
+    async def find_lots_for_transaction(
+        self,
+        tenant_id: str,
+        transaction_id: str,
+    ) -> list[TaxLot]:
+        """Find all tax lots linked to a specific transaction."""
+        return await self.list(
+            TaxLot.tenant_id == tenant_id,  # type: ignore[attr-defined]
+            (
+                (TaxLot.purchase_transaction_id == transaction_id)  # type: ignore[attr-defined]
+                | (TaxLot.sale_transaction_id == transaction_id)  # type: ignore[attr-defined]
+            ),
+        )
+
+
 class BalanceRepository(Repository[Balance]):
     model_class = Balance
 
@@ -289,3 +327,7 @@ class SecurityMetadataObservationRepository(
     Repository[SecurityMetadataObservation]
 ):
     model_class = SecurityMetadataObservation
+
+
+class FxRateRepository(Repository[FxRate]):
+    model_class = FxRate

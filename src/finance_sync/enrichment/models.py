@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime  # noqa: TC003
-from decimal import Decimal  # noqa: TC003
+from decimal import Decimal
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -91,6 +91,62 @@ class PriceObservation(BaseModel):
     interval: str = Field(default="1d")
     currency_code: str = Field(default="EUR")
     provider_metadata: dict[str, Any] | None = Field(default=None)
+
+
+class FxRateObservation(BaseModel):
+    """A single exchange rate observation."""
+
+    base_currency: str = Field(
+        description="ISO-4217 base currency code (e.g. 'EUR')"
+    )
+    quote_currency: str = Field(
+        description="ISO-4217 quote currency code (e.g. 'USD')"
+    )
+    rate: Decimal = Field(description="Exchange rate value")
+    timestamp: datetime = Field(
+        description="When the rate observation was recorded"
+    )
+    source: str = Field(default="openbb", description="Data source identifier")
+
+    def inverse(self) -> FxRateObservation:
+        """Return the inverse rate observation (quote → base)."""
+        return FxRateObservation(
+            base_currency=self.quote_currency,
+            quote_currency=self.base_currency,
+            rate=round(Decimal(1) / self.rate, 12),
+            timestamp=self.timestamp,
+            source=self.source,
+        )
+
+
+class FxConversionRequest(BaseModel):
+    """Request to convert an amount from one currency to another."""
+
+    from_currency: str = Field(
+        description="Source ISO-4217 currency code",
+    )
+    to_currency: str = Field(
+        description="Target ISO-4217 currency code",
+    )
+    amount: Decimal = Field(description="Amount to convert")
+    at_timestamp: datetime | None = Field(
+        default=None,
+        description="Optional timestamp for historical rate lookup",
+    )
+
+
+class FxConversionResult(BaseModel):
+    """Result of a currency conversion."""
+
+    from_currency: str = Field(description="Source currency code")
+    to_currency: str = Field(description="Target currency code")
+    original_amount: Decimal = Field(description="Amount before conversion")
+    converted_amount: Decimal = Field(description="Amount after conversion")
+    rate_used: Decimal = Field(description="Exchange rate applied")
+    rate_timestamp: datetime = Field(
+        description="When the used rate was observed"
+    )
+    source: str = Field(description="Data source of the rate")
 
 
 class EnrichmentStatusSummary(BaseModel):
@@ -301,6 +357,9 @@ UnresolvedSecurity.model_rebuild()
 QuoteResult.model_rebuild()
 HistoricalPriceRequest.model_rebuild()
 PriceObservation.model_rebuild()
+FxRateObservation.model_rebuild()
+FxConversionRequest.model_rebuild()
+FxConversionResult.model_rebuild()
 EnrichmentStatusSummary.model_rebuild()
 FundamentalObservationData.model_rebuild()
 FundamentalRatioSummary.model_rebuild()

@@ -103,6 +103,21 @@ class OutboxMessageStatus(StrEnum):
     FAILED = "failed"
 
 
+class CostBasisMethod(StrEnum):
+    """Cost basis calculation method for tax lots."""
+
+    FIFO = "fifo"
+    LIFO = "lifo"
+    SPECIFIC_ID = "specific_id"
+
+
+class WashSaleAdjustmentType(StrEnum):
+    """Type of wash sale adjustment applied to a tax lot."""
+
+    LOSS_DISALLOWED = "loss_disallowed"
+    BASIS_ADJUSTED = "basis_adjusted"
+
+
 class ConnectorProvider(StrEnum):
     """Known connector / provider identifiers."""
 
