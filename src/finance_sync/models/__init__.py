@@ -40,6 +40,8 @@ from finance_sync.models.outbox import OutboxMessage
 from finance_sync.models.resolution_audit_log import ResolutionAuditLog
 from finance_sync.models.security import Security
 from finance_sync.models.security_listing import SecurityListing
+from finance_sync.models.fundamental_observation import FundamentalObservation
+from finance_sync.models.security_metadata_observation import SecurityMetadataObservation
 from finance_sync.models.security_price import SecurityPrice
 from finance_sync.models.sync_run import SyncRun
 from finance_sync.models.tenant import Tenant
@@ -116,6 +118,7 @@ __all__ = [
     "EnrichmentFreshness",
     "ExportDelivery",
     "ExportRun",
+    "FundamentalObservation",
     "Holding",
     "HoldingSource",
     "OutboxMessage",
@@ -123,6 +126,7 @@ __all__ = [
     "ResolutionAuditLog",
     "Security",
     "SecurityListing",
+    "SecurityMetadataObservation",
     "SecurityPrice",
     "SecurityType",
     "SyncRun",

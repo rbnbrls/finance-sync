@@ -23,6 +23,7 @@ if TYPE_CHECKING:
     from finance_sync.config.settings import Settings
     from finance_sync.db.uow import UnitOfWork
     from finance_sync.enrichment.gateway import EnrichmentGateway
+    from finance_sync.enrichment.metadata_enricher import MetadataEnricher
     from finance_sync.enrichment.price_store import PriceStore
     from finance_sync.enrichment.security_resolver import SecurityResolver
     from finance_sync.identity.resolver import IdentityResolutionService
@@ -47,6 +48,7 @@ class Container:
         self._enrichment_gateway: EnrichmentGateway | None = None
         self._price_store: PriceStore | None = None
         self._security_resolver: SecurityResolver | None = None
+        self._metadata_enricher: MetadataEnricher | None = None
         self._identity_resolution_service: IdentityResolutionService | None = (
             None
         )
@@ -171,6 +173,20 @@ class Container:
                 gateway=self.enrichment_gateway,
             )
         return self._security_resolver
+
+    @property
+    def metadata_enricher(self) -> MetadataEnricher:
+        """Lazy-init the metadata enricher."""
+        if self._metadata_enricher is None:
+            from finance_sync.enrichment.metadata_enricher import (
+                MetadataEnricher,
+            )
+
+            self._metadata_enricher = MetadataEnricher(
+                uow=self._make_uow(),
+                gateway=self.enrichment_gateway,
+            )
+        return self._metadata_enricher
 
     @property
     def identity_resolution_service(self) -> IdentityResolutionService:

@@ -12,10 +12,12 @@ from finance_sync.db.repositories import (
     AccountRepository,
     BalanceRepository,
     EnrichmentFreshnessRepository,
+    FundamentalObservationRepository,
     HoldingRepository,
     OutboxMessageRepository,
     ResolutionAuditLogRepository,
     SecurityListingRepository,
+    SecurityMetadataObservationRepository,
     SecurityPriceRepository,
     SecurityRepository,
     SyncRunRepository,
@@ -121,6 +123,14 @@ class UnitOfWork:
     @property
     def webhook_delivery_logs(self) -> WebhookDeliveryLogRepository:
         return self._repo("webhook_delivery_logs", WebhookDeliveryLogRepository)  # type: ignore[return-value]
+
+    @property
+    def fundamental_observations(self) -> FundamentalObservationRepository:
+        return self._repo("fundamental_observations", FundamentalObservationRepository)  # type: ignore[return-value]
+
+    @property
+    def security_metadata_observations(self) -> SecurityMetadataObservationRepository:
+        return self._repo("security_metadata_observations", SecurityMetadataObservationRepository)  # type: ignore[return-value]
 
     # ── Lifecycle ────────────────────────────────────────────────────
 

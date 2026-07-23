@@ -14,11 +14,13 @@ from finance_sync.models import (
     Balance,
     EnrichmentFreshness,
     ExportRun,
+    FundamentalObservation,
     Holding,
     OutboxMessage,
     ResolutionAuditLog,
     Security,
     SecurityListing,
+    SecurityMetadataObservation,
     SecurityPrice,
     SyncRun,
     Tenant,
@@ -132,3 +134,13 @@ class WebhookRepository(Repository[Webhook]):
 
 class WebhookDeliveryLogRepository(Repository[WebhookDeliveryLog]):
     model_class = WebhookDeliveryLog
+
+
+class FundamentalObservationRepository(Repository[FundamentalObservation]):
+    model_class = FundamentalObservation
+
+
+class SecurityMetadataObservationRepository(
+    Repository[SecurityMetadataObservation]
+):
+    model_class = SecurityMetadataObservation
