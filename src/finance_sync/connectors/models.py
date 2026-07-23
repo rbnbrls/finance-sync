@@ -185,6 +185,182 @@ class CanonicalTransactionData(BaseModel):
     provider_fingerprint: str | None = Field(default=None)
 
 
+class RawScheduledPayment(BaseModel):
+    """Raw scheduled/recurring payment data as returned by a provider."""
+
+    external_schedule_id: str = Field(
+        description="Provider's unique identifier for this schedule"
+    )
+    external_account_id: str = Field(
+        description="Provider account ID this schedule belongs to"
+    )
+    amount: Decimal = Field(
+        description="Signed amount (positive = inflow, negative = outflow)"
+    )
+    currency_code: str = Field(
+        default="EUR", description="ISO-4217 currency code"
+    )
+    frequency: str = Field(
+        description="Provider-native frequency description, "
+        "e.g. 'WEEKLY', 'MONTHLY'"
+    )
+    interval: int | None = Field(
+        default=None,
+        description="Every N units of frequency (e.g. 2 for every 2 weeks)",
+    )
+    next_execution_date: datetime | None = Field(
+        default=None, description="Next scheduled execution date"
+    )
+    end_date: datetime | None = Field(
+        default=None, description="Schedule end date"
+    )
+    max_executions: int | None = Field(
+        default=None, description="Maximum number of executions"
+    )
+    execution_count: int | None = Field(
+        default=None, description="Times executed so far"
+    )
+    counterparty_name: str | None = Field(default=None)
+    counterparty_iban: str | None = Field(default=None)
+    description: str | None = Field(default=None)
+    status: str | None = Field(
+        default=None,
+        description="Provider-native status, "
+        "e.g. 'ACTIVE', 'PAUSED', 'CANCELLED'",
+    )
+    provider_metadata: dict[str, Any] | None = Field(default=None)
+
+
+class RawCardTransaction(BaseModel):
+    """Raw card transaction data as returned by a provider."""
+
+    external_card_transaction_id: str = Field(
+        description="Provider's unique card transaction identifier"
+    )
+    external_account_id: str = Field(
+        description="Provider account ID this card belongs to"
+    )
+    amount: Decimal = Field(
+        description="Signed amount (positive = inflow, negative = outflow)"
+    )
+    currency_code: str = Field(
+        default="EUR", description="ISO-4217 currency code"
+    )
+    merchant_name: str | None = Field(default=None)
+    merchant_city: str | None = Field(default=None)
+    merchant_country: str | None = Field(default=None)
+    mcc: str | None = Field(
+        default=None, description="Merchant Category Code"
+    )
+    card_id: str | None = Field(
+        default=None, description="Provider card identifier"
+    )
+    card_type: str | None = Field(
+        default=None, description="debit/credit/prepaid/virtual"
+    )
+    card_last_four: str | None = Field(
+        default=None, description="Last four digits of card PAN"
+    )
+    occurred_at: datetime = Field(
+        description="When the transaction occurred (provider time)"
+    )
+    booked_at: datetime | None = Field(default=None)
+    authorization_type: str | None = Field(
+        default=None,
+        description="Provider-native type: "
+        "authorization/settlement/refund/chargeback",
+    )
+    description: str | None = Field(default=None)
+    status: str | None = Field(
+        default=None,
+        description="Provider-native status, "
+        "e.g. 'PENDING', 'BOOKED', 'REVERSED'",
+    )
+    provider_metadata: dict[str, Any] | None = Field(default=None)
+
+
+class CanonicalScheduledPaymentData(BaseModel):
+    """Normalised, provider-agnostic scheduled payment ready for upsert.
+
+    Maps to the ``scheduled_payments`` table.
+    """
+
+    provider_key: str = Field(
+        description="Connector name, e.g. 'bunq', 'trading212'"
+    )
+    external_schedule_id: str = Field(
+        description="Provider's unique schedule ID"
+    )
+    external_account_id: str = Field(
+        description="Provider account ID this schedule belongs to"
+    )
+    amount: Decimal = Field(
+        description="Signed amount (positive = inflow, negative = outflow)"
+    )
+    currency_code: str = Field(
+        default="EUR", description="ISO-4217 currency code"
+    )
+    frequency: str = Field(
+        description="Normalised frequency: daily/weekly/biweekly/monthly/"
+        "bimonthly/quarterly/semi_annually/annually/custom"
+    )
+    interval: int | None = Field(default=None)
+    next_execution_date: datetime | None = Field(default=None)
+    end_date: datetime | None = Field(default=None)
+    max_executions: int | None = Field(default=None)
+    execution_count: int = Field(default=0)
+    counterparty_name: str | None = Field(default=None)
+    counterparty_iban: str | None = Field(default=None)
+    description: str | None = Field(default=None)
+    status: str = Field(
+        default="active",
+        description="active/paused/completed/cancelled/failed",
+    )
+
+
+class CanonicalCardTransactionData(BaseModel):
+    """Normalised, provider-agnostic card transaction ready for upsert.
+
+    Maps to the ``card_transactions`` table.
+    """
+
+    provider_key: str = Field(
+        description="Connector name, e.g. 'bunq', 'trading212'"
+    )
+    external_card_transaction_id: str = Field(
+        description="Provider's unique card transaction ID"
+    )
+    external_account_id: str = Field(
+        description="Provider account ID this card belongs to"
+    )
+    amount: Decimal = Field(
+        description="Signed amount (positive = inflow, negative = outflow)"
+    )
+    currency_code: str = Field(
+        default="EUR", description="ISO-4217 currency code"
+    )
+    merchant_name: str | None = Field(default=None)
+    merchant_city: str | None = Field(default=None)
+    merchant_country: str | None = Field(default=None)
+    mcc: str | None = Field(default=None)
+    card_id: str | None = Field(default=None)
+    card_type: str | None = Field(default=None)
+    card_last_four: str | None = Field(default=None)
+    occurred_at: datetime = Field(
+        description="When the transaction occurred"
+    )
+    booked_at: datetime | None = Field(default=None)
+    authorization_type: str = Field(
+        default="authorization",
+        description="authorization/settlement/refund/chargeback/other",
+    )
+    description: str | None = Field(default=None)
+    status: str = Field(
+        default="pending",
+        description="pending/booked/reversed/cancelled",
+    )
+
+
 # ── Configuration models ────────────────────────────────────────────────
 
 
@@ -230,3 +406,7 @@ RawAccount.model_rebuild()
 RawTransaction.model_rebuild()
 CanonicalAccountData.model_rebuild()
 CanonicalTransactionData.model_rebuild()
+RawScheduledPayment.model_rebuild()
+RawCardTransaction.model_rebuild()
+CanonicalScheduledPaymentData.model_rebuild()
+CanonicalCardTransactionData.model_rebuild()
