@@ -182,3 +182,29 @@ class ReconciliationSeverity(StrEnum):
     INFO = "info"
     WARNING = "warning"
     ERROR = "error"
+
+
+class SubscriptionStatus(StrEnum):
+    """Lifecycle state of a detected subscription."""
+
+    ACTIVE = "active"
+    PAUSED = "paused"
+    CANCELLED = "cancelled"
+    UNKNOWN = "unknown"
+
+
+class SubscriptionConfidence(StrEnum):
+    """Confidence level of a subscription detection."""
+
+    HIGH = "high"
+    MEDIUM = "medium"
+    LOW = "low"
+
+
+class DetectionMethod(StrEnum):
+    """Method used to detect a recurring transaction pattern."""
+
+    EXACT_AMOUNT = "exact_amount"
+    SIMILAR_AMOUNT = "similar_amount"
+    REGULAR_INTERVAL = "regular_interval"
+    MERCHANT_CLASSIFICATION = "merchant_classification"

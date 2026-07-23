@@ -14,6 +14,7 @@ from finance_sync.models import (
     Account,
     ActualBudgetAccountMapping,
     Balance,
+    DetectedSubscription,
     EnrichmentFreshness,
     ExportRun,
     FundamentalObservation,
@@ -331,3 +332,9 @@ class SecurityMetadataObservationRepository(
 
 class FxRateRepository(Repository[FxRate]):
     model_class = FxRate
+
+
+class DetectedSubscriptionRepository(Repository[DetectedSubscription]):
+    """Repository for detected subscription records."""
+
+    model_class = DetectedSubscription
