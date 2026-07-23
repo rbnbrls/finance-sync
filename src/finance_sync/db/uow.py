@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Self
 from finance_sync.db.repositories import (
     AccountRepository,
     BalanceRepository,
+    DetectedSubscriptionRepository,
     EnrichmentFreshnessRepository,
     FundamentalObservationRepository,
     FxRateRepository,
@@ -150,6 +151,12 @@ class UnitOfWork:
     @property
     def security_metadata_observations(self) -> SecurityMetadataObservationRepository:  # noqa: E501
         return self._repo("security_metadata_observations", SecurityMetadataObservationRepository)  # noqa: E501
+
+    @property
+    def detected_subscriptions(self) -> DetectedSubscriptionRepository:
+        return self._repo(
+            "detected_subscriptions", DetectedSubscriptionRepository
+        )  # type: ignore[return-value]
 
     # ── Lifecycle ────────────────────────────────────────────────────
 
