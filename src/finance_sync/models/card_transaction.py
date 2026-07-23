@@ -125,9 +125,7 @@ class CardTransaction(TimestampMixin, Base):
         nullable=False,
         comment="authorization / settlement / refund / chargeback / other",
     )
-    description: Mapped[str | None] = mapped_column(
-        String(1024), nullable=True
-    )
+    description: Mapped[str | None] = mapped_column(String(1024), nullable=True)
 
     status: Mapped[TransactionStatus] = mapped_column(
         String(32),

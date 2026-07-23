@@ -8,7 +8,6 @@ Exposes:
 
 from __future__ import annotations
 
-from datetime import datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any
 
@@ -25,6 +24,8 @@ from finance_sync.services.tax_lot_service import (
 )
 
 if TYPE_CHECKING:
+    from datetime import datetime
+
     from sqlalchemy.ext.asyncio import AsyncSession
 
 router = APIRouter(prefix="/tax-lots", tags=["tax-lots"])
@@ -118,7 +119,7 @@ async def list_tax_lots(
     )
 
     return {
-        "items": [_lot_to_response(l) for l in lots],
+        "items": [_lot_to_response(lot) for lot in lots],
         "total": total,
         "limit": limit,
         "offset": offset,
@@ -183,4 +184,3 @@ def _lot_to_response(lot: TaxLot) -> dict[str, Any]:
         "created_at": lot.created_at,
         "updated_at": lot.updated_at,
     }
-

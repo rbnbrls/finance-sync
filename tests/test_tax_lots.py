@@ -230,9 +230,7 @@ class TestCreateTaxLots:
             amount=Decimal("-1000.00"),
             quantity=Decimal(10),
         )
-        lot = await create_tax_lots_for_purchase(
-            session, _TENANT_ID, txn
-        )
+        lot = await create_tax_lots_for_purchase(session, _TENANT_ID, txn)
 
         assert lot.quantity == Decimal(10)
         assert lot.remaining_quantity == Decimal(10)
@@ -249,9 +247,7 @@ class TestCreateTaxLots:
             amount=Decimal(0),
             quantity=Decimal(10),
         )
-        lot = await create_tax_lots_for_purchase(
-            session, _TENANT_ID, txn
-        )
+        lot = await create_tax_lots_for_purchase(session, _TENANT_ID, txn)
         assert lot.quantity == Decimal(10)  # quantity comes from txn.quantity
         assert lot.cost_basis_total == Decimal(0)
         assert lot.cost_basis_per_unit == Decimal(0)
@@ -279,7 +275,7 @@ class TestMatchSaleToLotsFIFO:
 
         sell_txn = _make_sale_txn(
             amount=Decimal("1500.00"),  # total proceeds
-            quantity=Decimal(10),      # shares
+            quantity=Decimal(10),  # shares
             occurred_at=datetime.now(UTC) + timedelta(days=30),
         )
 
@@ -633,9 +629,7 @@ class TestProcessTransaction:
     async def test_process_purchase(self) -> None:
         session = AsyncMock()
         txn = _make_purchase_txn()
-        actions = await process_transaction(
-            session, _TENANT_ID, txn
-        )
+        actions = await process_transaction(session, _TENANT_ID, txn)
         assert len(actions) >= 1
         assert actions[0]["action"] == "lot_created"
 
@@ -654,9 +648,7 @@ class TestProcessTransaction:
                 amount=Decimal("500.00"),
                 quantity=Decimal(5),
             )
-            actions = await process_transaction(
-                AsyncMock(), _TENANT_ID, txn
-            )
+            actions = await process_transaction(AsyncMock(), _TENANT_ID, txn)
 
         assert len(actions) >= 1
 
@@ -677,9 +669,7 @@ class TestTaxLotSummary:
             mock_repo = mock_repo_cls.return_value
             mock_repo.list = AsyncMock(return_value=[])
 
-            summary = await get_tax_lot_summary(
-                AsyncMock(), _TENANT_ID
-            )
+            summary = await get_tax_lot_summary(AsyncMock(), _TENANT_ID)
 
         assert summary["total_lots"] == 0
         assert summary["open_lots"] == 0
@@ -725,9 +715,7 @@ class TestTaxLotsAPI:
         )
         assert resp.status_code in (200, 401)
 
-    def test_compute_endpoint_requires_auth(
-        self, client: TestClient
-    ) -> None:
+    def test_compute_endpoint_requires_auth(self, client: TestClient) -> None:
         """Compute endpoint requires authentication."""
         resp = client.post(
             "/api/v1/tax-lots/compute",

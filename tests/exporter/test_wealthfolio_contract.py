@@ -345,9 +345,17 @@ class TestWFCsvExport(CsvExportContractTest):
         csv = map_transactions_to_csv([WF_TRANSACTION_BUY_AAPL])
         header = csv.split("\n")[0].strip()
         expected_cols = [
-            "date", "symbol", "instrumentType", "quantity",
-            "activityType", "unitPrice", "currency", "fee",
-            "amount", "fxRate", "comment",
+            "date",
+            "symbol",
+            "instrumentType",
+            "quantity",
+            "activityType",
+            "unitPrice",
+            "currency",
+            "fee",
+            "amount",
+            "fxRate",
+            "comment",
         ]
         for col in expected_cols:
             assert col in header
@@ -372,7 +380,7 @@ class TestWFCsvExport(CsvExportContractTest):
             [WF_HOLDING_AAPL, WF_HOLDING_VWCE],
             security_map=sec_map,
         )
-        lines = [l for l in csv.strip().split("\n") if l.strip()]
+        lines = [line for line in csv.strip().split("\n") if line.strip()]
         assert len(lines) == 3  # header + 2 holdings
         assert "AAPL" in csv
         assert "VWCE" in csv
@@ -474,9 +482,7 @@ def run_wf_export(wf_exporter, wf_since_time):
                 "_fetch_current_holdings",
                 return_value=[],
             ),
-            patch.object(
-                wf_exporter, "_mark_exported", return_value=None
-            ),
+            patch.object(wf_exporter, "_mark_exported", return_value=None),
             patch.object(
                 wf_exporter,
                 "_write_csv_file",
@@ -485,7 +491,9 @@ def run_wf_export(wf_exporter, wf_since_time):
             patch.object(
                 wf_exporter,
                 "_write_manifest",
-                return_value=Path("/tmp/test_wf_contract_exports/manifest.json"),
+                return_value=Path(
+                    "/tmp/test_wf_contract_exports/manifest.json"
+                ),
             ),
             patch.object(wf_exporter, "_complete_run", return_value=None),
             patch(
@@ -559,7 +567,9 @@ class TestWealthfolioLifecycle(ExportLifecycleContractTest):
                 wf_exporter, "_last_export_time", return_value=wf_since_time
             ),
             patch.object(
-                wf_exporter, "_load_accounts", return_value=[WF_ACCOUNT_BROKERAGE]
+                wf_exporter,
+                "_load_accounts",
+                return_value=[WF_ACCOUNT_BROKERAGE],
             ),
             patch.object(wf_exporter, "_load_securities", return_value={}),
             patch.object(
@@ -616,7 +626,9 @@ class TestWealthfolioLifecycle(ExportLifecycleContractTest):
                 wf_exporter, "_last_export_time", return_value=wf_since_time
             ),
             patch.object(
-                wf_exporter, "_load_accounts", return_value=[WF_ACCOUNT_BROKERAGE]
+                wf_exporter,
+                "_load_accounts",
+                return_value=[WF_ACCOUNT_BROKERAGE],
             ),
             patch.object(wf_exporter, "_load_securities", return_value={}),
             patch.object(
@@ -769,7 +781,9 @@ class TestWealthfolioLifecycle(ExportLifecycleContractTest):
                 wf_exporter, "_last_export_time", return_value=wf_since_time
             ),
             patch.object(
-                wf_exporter, "_load_accounts", return_value=[WF_ACCOUNT_BROKERAGE]
+                wf_exporter,
+                "_load_accounts",
+                return_value=[WF_ACCOUNT_BROKERAGE],
             ),
             patch.object(wf_exporter, "_load_securities", return_value={}),
             patch.object(
@@ -783,7 +797,9 @@ class TestWealthfolioLifecycle(ExportLifecycleContractTest):
                 return_value=[],
             ),
             patch.object(
-                wf_exporter, "_fetch_current_holdings", return_value=[WF_HOLDING_AAPL]
+                wf_exporter,
+                "_fetch_current_holdings",
+                return_value=[WF_HOLDING_AAPL],
             ),
             patch.object(wf_exporter, "_mark_exported", return_value=None),
             patch.object(

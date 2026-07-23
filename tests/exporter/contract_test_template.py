@@ -137,9 +137,7 @@ class ExportResultContractTest:
         assert hasattr(completed_result, "duration_s")
         assert isinstance(completed_result.duration_s, float)
 
-    async def test_failed_result_has_error(
-        self, failed_result: Any
-    ) -> None:
+    async def test_failed_result_has_error(self, failed_result: Any) -> None:
         """Failed result should carry an error message."""
         assert failed_result.status == "failed"
         assert failed_result.error_message is not None
@@ -357,7 +355,7 @@ class CsvExportContractTest:
         if not sample_transactions:
             pytest.skip("No sample transactions provided")
         csv = csv_transactions_function(sample_transactions)
-        lines = [l for l in csv.strip().split("\n") if l.strip()]
+        lines = [line for line in csv.strip().split("\n") if line.strip()]
         assert len(lines) == len(sample_transactions) + 1
 
     async def test_csv_empty_input(
@@ -389,7 +387,7 @@ class CsvExportContractTest:
         if not sample_holdings:
             pytest.skip("No sample holdings provided")
         csv = csv_holdings_function(sample_holdings)
-        lines = [l for l in csv.strip().split("\n") if l.strip()]
+        lines = [line for line in csv.strip().split("\n") if line.strip()]
         assert len(lines) == len(sample_holdings) + 1
 
     async def test_holdings_csv_empty_input(

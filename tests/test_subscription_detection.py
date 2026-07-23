@@ -8,6 +8,7 @@ Covers:
 - Category classification
 - Full detection pipeline
 """
+
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
@@ -48,10 +49,15 @@ class TestMerchantNormalisation:
         assert _normalise_merchant("DEB Spotify AB") == "Spotify Ab"
 
     def test_strips_direct_debit(self) -> None:
-        assert _normalise_merchant("DIRECT DEBIT Microsoft 365") == "Microsoft 365"
+        assert (
+            _normalise_merchant("DIRECT DEBIT Microsoft 365") == "Microsoft 365"
+        )
 
     def test_strips_sepa(self) -> None:
-        assert _normalise_merchant("SEPA Google Ireland Ltd") == "Google Ireland Ltd"
+        assert (
+            _normalise_merchant("SEPA Google Ireland Ltd")
+            == "Google Ireland Ltd"
+        )
 
     def test_strips_card_payment(self) -> None:
         assert _normalise_merchant("CARD PAYMENT Amazon EU") == "Amazon Eu"
@@ -184,7 +190,7 @@ class TestFrequencyDetection:
 
     def test_monthly_with_tolerance(self) -> None:
         # 26-34 day range should still be monthly
-        days, label = _detect_frequency([26.0, 28.0, 27.0])
+        _days, label = _detect_frequency([26.0, 28.0, 27.0])
         assert label == "monthly"
 
 
@@ -579,7 +585,7 @@ class TestSubscriptionDetectorUnit:
         groups = detector._group_by_merchant(monthly_netflix_txns)
         # The _analyze_groups method filters by min_occurrences
         # but we can test _analyze_merchant_group directly
-        for merchant, txns in groups.items():
+        for txns in groups.values():
             if len(txns) < 10:
                 pass  # verified: group count doesn't meet threshold
         # Verify the grouping works correctly
@@ -657,9 +663,7 @@ class TestSubscriptionDetectorListUpdate:
         factory.return_value = mock_session
         return factory
 
-    async def test_list_subscriptions_empty(
-        self, mock_session_factory
-    ) -> None:
+    async def test_list_subscriptions_empty(self, mock_session_factory) -> None:
         from finance_sync.services.subscription_detector import (
             SubscriptionDetector,
         )

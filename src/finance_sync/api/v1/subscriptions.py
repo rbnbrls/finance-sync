@@ -3,6 +3,7 @@
 NOTE: ``from __future__ import annotations`` is intentionally omitted
 because FastAPI needs runtime type introspection for OpenAPI generation.
 """
+
 from __future__ import annotations
 
 from datetime import UTC, datetime
@@ -211,8 +212,9 @@ async def get_subscription(
     )
 
     stmt = (
-        select(DetectedSubscription)
-        .where(DetectedSubscription.id == subscription_id)  # type: ignore[attr-defined]
+        select(DetectedSubscription).where(
+            DetectedSubscription.id == subscription_id
+        )  # type: ignore[attr-defined]
     )
     result = await db.execute(stmt)
     sub = result.scalar_one_or_none()

@@ -268,16 +268,16 @@ class MetadataEnricher:
         """
         result: list[SectorExposure] = []
         for item in raw_exposures:
-            sector_raw = item.get("sector") or item.get("name") or item.get("industry")
+            sector_raw = (
+                item.get("sector") or item.get("name") or item.get("industry")
+            )
             if not sector_raw:
                 continue
 
             normalised = self.classify_sector(sector_raw) or sector_raw.title()
             weight = _extract_weight(item)
             if weight is not None:
-                result.append(
-                    SectorExposure(sector=normalised, weight=weight)
-                )
+                result.append(SectorExposure(sector=normalised, weight=weight))
 
         return result
 
@@ -334,12 +334,10 @@ class MetadataEnricher:
             "total_holdings": etf_data.total_holdings,
             "holdings": [h.model_dump(mode="json") for h in etf_data.holdings],
             "sector_exposures": [
-                s.model_dump(mode="json")
-                for s in etf_data.sector_exposures
+                s.model_dump(mode="json") for s in etf_data.sector_exposures
             ],
             "region_exposures": [
-                r.model_dump(mode="json")
-                for r in etf_data.region_exposures
+                r.model_dump(mode="json") for r in etf_data.region_exposures
             ],
             "expense_ratio": (
                 str(etf_data.expense_ratio)
@@ -492,9 +490,7 @@ class MetadataEnricher:
                 if fund_data.forward_pe is not None
                 else None
             ),
-            "eps": (
-                str(fund_data.eps) if fund_data.eps is not None else None
-            ),
+            "eps": (str(fund_data.eps) if fund_data.eps is not None else None),
             "dividend_yield": (
                 str(fund_data.dividend_yield)
                 if fund_data.dividend_yield is not None

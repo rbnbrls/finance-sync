@@ -72,9 +72,7 @@ class TestFxServiceDegraded:
         assert result.rate == Decimal("1.0945")
         assert result.source == "openbb"
 
-    async def test_get_inverted_local_rate(
-        self, service, mock_uow
-    ) -> None:
+    async def test_get_inverted_local_rate(self, service, mock_uow) -> None:
         """get_rate inverts cached rate when stored in opposite direction."""
         mock_row = MagicMock()
         mock_row.base_currency = "USD"
@@ -84,9 +82,7 @@ class TestFxServiceDegraded:
         mock_row.source = "openbb"
 
         # First call looks up EUR/USD (empty), second USD/EUR (found)
-        mock_uow.fx_rates.list = AsyncMock(
-            side_effect=[[], [mock_row]]
-        )
+        mock_uow.fx_rates.list = AsyncMock(side_effect=[[], [mock_row]])
 
         result = await service.get_rate("EUR", "USD")
         assert result is not None
@@ -119,9 +115,7 @@ class TestFxServiceDegraded:
         result = await service.convert(request)
         assert result is None
 
-    async def test_convert_with_local_rate(
-        self, service, mock_uow
-    ) -> None:
+    async def test_convert_with_local_rate(self, service, mock_uow) -> None:
         """convert uses local rate to perform conversion."""
         mock_row = MagicMock()
         mock_row.base_currency = "EUR"
@@ -142,9 +136,7 @@ class TestFxServiceDegraded:
         assert result.rate_used == Decimal("1.0945")
         assert result.original_amount == Decimal("100.00")
 
-    async def test_get_rates_for_base(
-        self, service, mock_uow
-    ) -> None:
+    async def test_get_rates_for_base(self, service, mock_uow) -> None:
         """get_rates_for_base returns rates for requested targets."""
         mock_usd = MagicMock()
         mock_usd.base_currency = "EUR"
@@ -173,9 +165,7 @@ class TestFxServiceDegraded:
         assert "GBP" in result
         assert result["GBP"] == Decimal("0.8600")
 
-    async def test_get_rates_for_base_same_currency(
-        self, service
-    ) -> None:
+    async def test_get_rates_for_base_same_currency(self, service) -> None:
         """get_rates_for_base returns 1 for same currency target."""
         result = await service.get_rates_for_base(
             "EUR",

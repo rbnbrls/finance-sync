@@ -114,7 +114,9 @@ class ConnectorTestResult(BaseModel):
 
 
 class InlineTestRequest(BaseModel):
-    """Payload for testing a connection with inline (not yet saved) credentials."""
+    """Payload for testing a connection with inline
+    (not yet saved) credentials.
+    """
 
     credentials: dict[str, str] = Field(
         default_factory=dict,
@@ -576,8 +578,7 @@ async def test_connector_inline(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=(
-                f"Unknown connector '{provider_type}'. "
-                f"Available: {available}"
+                f"Unknown connector '{provider_type}'. Available: {available}"
             ),
         )
 
