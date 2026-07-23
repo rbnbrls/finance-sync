@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Self-hosted, API-first financial data platform"
 readme = "README.md"
 requires-python = ">=3.12"
-license = { text = "MIT" }
+license = "MIT"
 authors = [
     { name = "rbnbrls", email = "3826339+rbnbrls@users.noreply.github.com" },
 ]

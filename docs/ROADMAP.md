@@ -13,7 +13,7 @@ Every milestone ships migrations, typed configuration, structured logs, health s
 | 3. Enrichment | Market-data-backed security projections | P0: security/listing resolver; P0: OpenBB gateway and cache policy; P0: latest/historical prices; P1: fundamentals/ETF metadata; P1: FX valuation. Cached data honors TTL and records provenance/freshness. |
 | 4. Consumer API | Stable downstream contracts | P0: read REST endpoints/OpenAPI; P0: portfolio, allocation, cashflow/net-worth services; P0: Actual Budget exporter; P0: Wealthfolio exporter; P1: exporter contract suites. Consumer failure retries without source data loss. |
 | 5. Automation/insights | Operational integrations | P0: AI summary endpoints; P0: Home Assistant pull integration; P0: Grafana dashboard/alerts; P1: performance analytics; P1: subscription detection. Every aggregate declares as-of/freshness/coverage. |
-| 6. Ecosystem | Extensible platform | P0: versioned plugin SDK and compatibility policy; P1: MCP server; P1: additional connectors; P1: tax lots/calculations. Third-party plugin can be installed/configured without core source edits. |
+|| 6. Ecosystem | Extensible platform | ✅ P0: versioned plugin SDK and compatibility policy; P1: MCP server; P1: additional connectors; P1: tax lots/calculations. Third-party plugin can be installed/configured without core source edits. |
 
 ## GitHub labels and issue ordering
 
