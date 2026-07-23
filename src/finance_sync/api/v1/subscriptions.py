@@ -42,6 +42,29 @@ class DetectionTriggerRequest(BaseModel):
     )
 
 
+class AnalysisTriggerRequest(BaseModel):
+    """Request body to trigger dry-run subscription analysis."""
+
+    date_from: datetime | None = Field(
+        default=None,
+        description="Earliest transaction date (default 365 days ago)",
+    )
+    date_to: datetime | None = Field(
+        default=None,
+        description="Latest transaction date (default now)",
+    )
+    min_occurrences: int = Field(
+        default=2,
+        ge=2,
+        le=24,
+        description="Minimum occurrences to consider a pattern",
+    )
+    use_merchant_classifier: bool = Field(
+        default=True,
+        description="Whether to enrich with merchant sector/classification data",
+    )
+
+
 class SubscriptionResponse(BaseModel):
     """Public representation of a detected subscription."""
 
@@ -83,7 +106,7 @@ class SubscriptionUpdateRequest(BaseModel):
 
     status: str | None = Field(
         default=None,
-        description="New status: active, paused, cancelled",
+        description="New status: active, paused, cancelled, ignored",
     )
     category: str | None = Field(
         default=None,
@@ -93,6 +116,30 @@ class SubscriptionUpdateRequest(BaseModel):
         default=None,
         description="User notes or label",
     )
+
+
+class ConfirmSubscriptionRequest(BaseModel):
+    """Request body to confirm a detected subscription."""
+
+    user_notes: str | None = Field(
+        default=None,
+        description="Optional confirmation notes",
+    )
+
+
+class IgnoreSubscriptionRequest(BaseModel):
+    """Request body to ignore a detected subscription."""
+
+    reason: str | None = Field(
+        default=None,
+        description="Reason for ignoring this subscription",
+    )
+
+
+class DeleteSubscriptionResponse(BaseModel):
+    """Response after deleting a subscription."""
+
+    deleted: bool = Field(..., description="Whether the record was deleted")
 
 
 # ── Helpers ───────────────────────────────────────────────────────────
@@ -161,6 +208,39 @@ async def detect_subscriptions(
     )
 
     return [_sub_to_response(s).model_dump() for s in subscriptions]
+
+
+@router.post(
+    "/analyze",
+    response_model=list[dict[str, Any]],
+    status_code=status.HTTP_200_OK,
+)
+async def analyze_subscriptions(
+    body: AnalysisTriggerRequest,
+    request: Request,
+    auth: AuthContext = Depends(require_permission("subscriptions", "write")),
+) -> list[dict[str, Any]]:
+    """Dry-run subscription detection without persisting results.
+
+    Runs the full detection pipeline — merchant-based grouping, pattern
+    clustering, cross-account matching, and merchant classification —
+    but returns raw findings as dicts instead of saving them to the
+    database.  Useful for previewing what would be detected.
+    """
+    container = get_container(request)
+    svc = SubscriptionDetector(
+        session_factory=container.session_factory,
+        tenant_id=auth.tenant_id,
+    )
+
+    results = await svc.analyze(
+        date_from=body.date_from,
+        date_to=body.date_to,
+        min_occurrences=body.min_occurrences,
+        use_merchant_classifier=body.use_merchant_classifier,
+    )
+
+    return results
 
 
 @router.get("", response_model=SubscriptionListResponse)
@@ -259,3 +339,109 @@ async def update_subscription(
         )
 
     return _sub_to_response(sub).model_dump()
+
+
+@router.post(
+    "/{subscription_id}/confirm",
+    response_model=SubscriptionResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def confirm_subscription(
+    subscription_id: str,
+    body: ConfirmSubscriptionRequest,
+    request: Request,
+    auth: AuthContext = Depends(require_permission("subscriptions", "write")),
+) -> dict[str, Any]:
+    """Confirm a detected subscription as legitimate.
+
+    Sets the subscription status to ``active`` and optionally records
+    confirmation notes.  Use this when a user verifies the detected
+    pattern is a real subscription they want to track.
+    """
+    container = get_container(request)
+    svc = SubscriptionDetector(
+        session_factory=container.session_factory,
+        tenant_id=auth.tenant_id,
+    )
+
+    sub = await svc.confirm_subscription(
+        subscription_id,
+        user_notes=body.user_notes,
+    )
+
+    if sub is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Subscription {subscription_id!r} not found",
+        )
+
+    return _sub_to_response(sub).model_dump()
+
+
+@router.post(
+    "/{subscription_id}/ignore",
+    response_model=SubscriptionResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def ignore_subscription(
+    subscription_id: str,
+    body: IgnoreSubscriptionRequest,
+    request: Request,
+    auth: AuthContext = Depends(require_permission("subscriptions", "write")),
+) -> dict[str, Any]:
+    """Ignore a detected subscription.
+
+    Sets the subscription status to ``ignored`` and optionally records
+    an ignore reason.  Use this when a user dismisses a false positive
+    or decides not to track a particular subscription.
+    """
+    container = get_container(request)
+    svc = SubscriptionDetector(
+        session_factory=container.session_factory,
+        tenant_id=auth.tenant_id,
+    )
+
+    sub = await svc.ignore_subscription(
+        subscription_id,
+        reason=body.reason,
+    )
+
+    if sub is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Subscription {subscription_id!r} not found",
+        )
+
+    return _sub_to_response(sub).model_dump()
+
+
+@router.delete(
+    "/{subscription_id}",
+    response_model=DeleteSubscriptionResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def delete_subscription(
+    subscription_id: str,
+    request: Request,
+    auth: AuthContext = Depends(require_permission("subscriptions", "write")),
+) -> dict[str, Any]:
+    """Permanently delete a detected subscription record.
+
+    Removes the subscription from the database entirely.  Unlike
+    ignoring (which marks the status), this cannot be undone.
+    """
+    container = get_container(request)
+    svc = SubscriptionDetector(
+        session_factory=container.session_factory,
+        tenant_id=auth.tenant_id,
+    )
+
+    deleted = await svc.delete_subscription(subscription_id)
+
+    if not deleted:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Subscription {subscription_id!r} not found",
+        )
+
+    return {"deleted": True}

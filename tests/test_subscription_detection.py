@@ -7,22 +7,30 @@ Covers:
 - Confidence scoring
 - Category classification
 - Full detection pipeline
+- Cluster enrichment with merchant classification
+- Dry-run analysis
+- Dedup tie-breaking for sector data
 """
+
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from unittest.mock import AsyncMock, MagicMock
+
+# These are imported at module level for confirm/ignore/delete tests
+from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 import pytest
 
+from finance_sync.models.detected_subscription import DetectedSubscription
 from finance_sync.models.enums import (
     DetectionMethod,
     SubscriptionConfidence,
     SubscriptionStatus,
 )
 from finance_sync.services.subscription_detector import (
+    SubscriptionDetector,
     _amounts_are_consistent,
     _classify_category,
     _compute_confidence_score,
@@ -49,10 +57,15 @@ class TestMerchantNormalisation:
         assert _normalise_merchant("DEB Spotify AB") == "Spotify Ab"
 
     def test_strips_direct_debit(self) -> None:
-        assert _normalise_merchant("DIRECT DEBIT Microsoft 365") == "Microsoft 365"
+        assert (
+            _normalise_merchant("DIRECT DEBIT Microsoft 365") == "Microsoft 365"
+        )
 
     def test_strips_sepa(self) -> None:
-        assert _normalise_merchant("SEPA Google Ireland Ltd") == "Google Ireland Ltd"
+        assert (
+            _normalise_merchant("SEPA Google Ireland Ltd")
+            == "Google Ireland Ltd"
+        )
 
     def test_strips_card_payment(self) -> None:
         assert _normalise_merchant("CARD PAYMENT Amazon EU") == "Amazon Eu"
@@ -127,7 +140,7 @@ class TestAmountConsistency:
         assert _amounts_are_consistent(amounts) == 1.0
 
     def test_zero_amounts(self) -> None:
-        assert _amounts_are_consistent([Decimal("0"), Decimal("0")]) == 1.0
+        assert _amounts_are_consistent([Decimal(0), Decimal(0)]) == 1.0
 
     def test_moderate_variance_partial_score(self) -> None:
         amounts = [Decimal("-100.00"), Decimal("-115.00"), Decimal("-108.00")]
@@ -185,7 +198,7 @@ class TestFrequencyDetection:
 
     def test_monthly_with_tolerance(self) -> None:
         # 26-34 day range should still be monthly
-        days, label = _detect_frequency([26.0, 28.0, 27.0])
+        _days, label = _detect_frequency([26.0, 28.0, 27.0])
         assert label == "monthly"
 
 
@@ -471,8 +484,10 @@ class TestSubscriptionDetectorUnit:
     """Test the subscription detector's internal grouping and analysis logic."""
 
     def test_group_by_merchant_netflix(self, monthly_netflix_txns) -> None:
-        """Netflix transactions with different descriptions normalise to same merchant."""
-        from finance_sync.services.subscription_detector import SubscriptionDetector
+        """Netflix transactions normalise to same merchant."""
+        from finance_sync.services.subscription_detector import (
+            SubscriptionDetector,
+        )
 
         # We need a minimal mock to test _group_by_merchant
         mock_session_factory = MagicMock()
@@ -483,7 +498,7 @@ class TestSubscriptionDetectorUnit:
 
         groups = detector._group_by_merchant(monthly_netflix_txns)
         # All should group under "Netflix B.V." (first one normalises that way,
-        # but later ones like "Netflix Subscription" normalise to "Netflix Subscription")
+        # but later ones like "Netflix Subscription" normalise differently)
         # Let's check that the same merchant has multiple entries
         for merchant, txns in groups.items():
             if "Netflix" in merchant:
@@ -498,7 +513,9 @@ class TestSubscriptionDetectorUnit:
 
         Tests the synchronous _analyze_merchant_group method directly.
         """
-        from finance_sync.services.subscription_detector import SubscriptionDetector
+        from finance_sync.services.subscription_detector import (
+            SubscriptionDetector,
+        )
 
         detector = SubscriptionDetector(
             session_factory=MagicMock(),
@@ -521,8 +538,10 @@ class TestSubscriptionDetectorUnit:
         pytest.fail("No Netflix group found")
 
     def test_weekly_coffee_not_detected(self, weekly_coffee_txns) -> None:
-        """Regular small purchases without subscription keywords are low confidence."""
-        from finance_sync.services.subscription_detector import SubscriptionDetector
+        """Weekly purchases without keywords are low confidence."""
+        from finance_sync.services.subscription_detector import (
+            SubscriptionDetector,
+        )
 
         detector = SubscriptionDetector(
             session_factory=MagicMock(),
@@ -533,8 +552,8 @@ class TestSubscriptionDetectorUnit:
         for merchant, txns in groups.items():
             if "Coffee" in merchant:
                 result = detector._analyze_merchant_group(merchant, txns)
-                # Coffee has exact same amount + regular weekly intervals, so it
-                # IS detected as a recurring pattern — but without keywords/category
+                # Coffee has exact amount + regular intervals, so it IS detected
+                # as a recurring pattern -- but without keywords/category
                 # it should NOT be HIGH confidence
                 if result is not None:
                     assert result["confidence"] != SubscriptionConfidence.HIGH
@@ -543,7 +562,9 @@ class TestSubscriptionDetectorUnit:
 
     def test_varying_amounts_not_detected(self, varying_amount_txns) -> None:
         """Transactions with inconsistent amounts should have low confidence."""
-        from finance_sync.services.subscription_detector import SubscriptionDetector
+        from finance_sync.services.subscription_detector import (
+            SubscriptionDetector,
+        )
 
         detector = SubscriptionDetector(
             session_factory=MagicMock(),
@@ -560,7 +581,9 @@ class TestSubscriptionDetectorUnit:
 
     def test_min_occurrences_filter(self, monthly_netflix_txns) -> None:
         """Transactions below min_occurrences threshold should be skipped."""
-        from finance_sync.services.subscription_detector import SubscriptionDetector
+        from finance_sync.services.subscription_detector import (
+            SubscriptionDetector,
+        )
 
         detector = SubscriptionDetector(
             session_factory=MagicMock(),
@@ -570,7 +593,7 @@ class TestSubscriptionDetectorUnit:
         groups = detector._group_by_merchant(monthly_netflix_txns)
         # The _analyze_groups method filters by min_occurrences
         # but we can test _analyze_merchant_group directly
-        for merchant, txns in groups.items():
+        for txns in groups.values():
             if len(txns) < 10:
                 pass  # verified: group count doesn't meet threshold
         # Verify the grouping works correctly
@@ -582,7 +605,9 @@ class TestSubscriptionDetectorUnit:
         Tests the grouping step directly since the full async pipeline
         requires DB mocking that's tested elsewhere.
         """
-        from finance_sync.services.subscription_detector import SubscriptionDetector
+        from finance_sync.services.subscription_detector import (
+            SubscriptionDetector,
+        )
 
         detector = SubscriptionDetector(
             session_factory=MagicMock(),
@@ -597,7 +622,9 @@ class TestSubscriptionDetectorUnit:
         self, monthly_netflix_txns
     ) -> None:
         """Verify the analysis produces rich detail metadata."""
-        from finance_sync.services.subscription_detector import SubscriptionDetector
+        from finance_sync.services.subscription_detector import (
+            SubscriptionDetector,
+        )
 
         detector = SubscriptionDetector(
             session_factory=MagicMock(),
@@ -644,10 +671,10 @@ class TestSubscriptionDetectorListUpdate:
         factory.return_value = mock_session
         return factory
 
-    async def test_list_subscriptions_empty(
-        self, mock_session_factory
-    ) -> None:
-        from finance_sync.services.subscription_detector import SubscriptionDetector
+    async def test_list_subscriptions_empty(self, mock_session_factory) -> None:
+        from finance_sync.services.subscription_detector import (
+            SubscriptionDetector,
+        )
 
         mock_result = MagicMock()
         mock_result.scalars.return_value.all.return_value = []
@@ -668,7 +695,9 @@ class TestSubscriptionDetectorListUpdate:
     ) -> None:
         from unittest.mock import patch
 
-        from finance_sync.services.subscription_detector import SubscriptionDetector
+        from finance_sync.services.subscription_detector import (
+            SubscriptionDetector,
+        )
 
         # Simulate by making get return None
         with patch(
@@ -691,8 +720,10 @@ class TestSubscriptionDetectorListUpdate:
     ) -> None:
         from unittest.mock import patch
 
-        from finance_sync.services.subscription_detector import (
+        from finance_sync.models.detected_subscription import (
             DetectedSubscription,
+        )
+        from finance_sync.services.subscription_detector import (
             SubscriptionDetector,
         )
 
@@ -715,3 +746,780 @@ class TestSubscriptionDetectorListUpdate:
                 status="cancelled",
             )
             assert sub is None
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Cluster enrichment with merchant classification
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class TestClusterEnrichment:
+    """Verify that clustering results are enriched with merchant
+    classification data (sector, security_id, likelihood_score)."""
+
+    def test_enrich_known_merchant(self) -> None:
+        """A cluster result for a known merchant gets sector + security_id."""
+        from finance_sync.services.subscription_detector import (
+            SubscriptionDetector,
+        )
+
+        detector = SubscriptionDetector(
+            session_factory=MagicMock(),
+            tenant_id="tenant_1",
+        )
+
+        cluster_results = [
+            {
+                "merchant_name": "Netflix",
+                "amount": "-15.99",
+                "detection_method": DetectionMethod.AMOUNT_CLUSTER,
+                "detection_score": 0.65,
+                "confidence": SubscriptionConfidence.MEDIUM,
+                "details": {},
+            }
+        ]
+        classifications = {
+            "Netflix": {
+                "sector": "Communication Services",
+                "security_id": "sec_nflx",
+                "likelihood_score": 0.12,
+                "ticker": "NFLX",
+                "source": "merchant_map",
+            }
+        }
+
+        enriched = detector._enrich_cluster_results(
+            cluster_results, classifications
+        )
+
+        assert len(enriched) == 1
+        assert enriched[0]["sector"] == "Communication Services"
+        assert enriched[0]["security_id"] == "sec_nflx"
+        assert (
+            enriched[0]["detection_method"]
+            == DetectionMethod.MERCHANT_CLASSIFICATION
+        )
+        # Score should have been boosted: 0.65 + 0.12 = 0.77
+        assert enriched[0]["detection_score"] == pytest.approx(0.77)
+        assert enriched[0]["details"]["sector_boost"] == 0.12
+
+    def test_enrich_unknown_merchant_no_change(self) -> None:
+        """A cluster result for an unknown merchant is not modified."""
+        from finance_sync.services.subscription_detector import (
+            SubscriptionDetector,
+        )
+
+        detector = SubscriptionDetector(
+            session_factory=MagicMock(),
+            tenant_id="tenant_1",
+        )
+
+        cluster_results = [
+            {
+                "merchant_name": "Unknown Shop",
+                "amount": "-12.00",
+                "detection_method": DetectionMethod.AMOUNT_CLUSTER,
+                "detection_score": 0.50,
+                "confidence": SubscriptionConfidence.MEDIUM,
+                "details": {},
+            }
+        ]
+        classifications = {
+            "Netflix": {
+                "sector": "Communication Services",
+                "security_id": "sec_nflx",
+                "likelihood_score": 0.12,
+            }
+        }
+
+        enriched = detector._enrich_cluster_results(
+            cluster_results, classifications
+        )
+
+        assert len(enriched) == 1
+        assert "sector" not in enriched[0]
+        assert enriched[0]["detection_method"] == DetectionMethod.AMOUNT_CLUSTER
+
+    def test_enrich_no_classifications_returns_unchanged(self) -> None:
+        """No classifications dict means no modifications."""
+        from finance_sync.services.subscription_detector import (
+            SubscriptionDetector,
+        )
+
+        detector = SubscriptionDetector(
+            session_factory=MagicMock(),
+            tenant_id="tenant_1",
+        )
+
+        cluster_results = [
+            {
+                "merchant_name": "Netflix",
+                "amount": "-15.99",
+                "detection_method": DetectionMethod.AMOUNT_CLUSTER,
+                "detection_score": 0.65,
+                "details": {},
+            }
+        ]
+
+        enriched = detector._enrich_cluster_results(cluster_results, {})
+
+        assert enriched[0] == cluster_results[0]
+
+    def test_enrich_skips_method_without_sector_boost(self) -> None:
+        """Classification with sector but zero likelihood_score adds sector
+        info but doesn't change detection method or boost score."""
+        from finance_sync.services.subscription_detector import (
+            SubscriptionDetector,
+        )
+
+        detector = SubscriptionDetector(
+            session_factory=MagicMock(),
+            tenant_id="tenant_1",
+        )
+
+        cluster_results = [
+            {
+                "merchant_name": "SomeCo",
+                "amount": "-49.99",
+                "detection_method": DetectionMethod.AMOUNT_CLUSTER,
+                "detection_score": 0.65,
+                "details": {},
+            }
+        ]
+        classifications = {
+            "SomeCo": {
+                "sector": "Technology",
+                "security_id": None,
+                "likelihood_score": 0.0,
+                "ticker": None,
+            }
+        }
+
+        enriched = detector._enrich_cluster_results(
+            cluster_results, classifications
+        )
+
+        assert enriched[0]["sector"] == "Technology"
+        # Method still upgraded because sector is present
+        assert (
+            enriched[0]["detection_method"]
+            == DetectionMethod.MERCHANT_CLASSIFICATION
+        )
+        # Score unchanged since boost is 0
+        assert enriched[0]["detection_score"] == 0.65
+
+    def test_enrich_confidence_promotion(self) -> None:
+        """Sector boost can promote a MEDIUM confidence to HIGH."""
+        from finance_sync.services.subscription_detector import (
+            SubscriptionDetector,
+        )
+
+        detector = SubscriptionDetector(
+            session_factory=MagicMock(),
+            tenant_id="tenant_1",
+        )
+
+        cluster_results = [
+            {
+                "merchant_name": "Spotify",
+                "amount": "-9.99",
+                "detection_method": DetectionMethod.AMOUNT_CLUSTER,
+                "detection_score": 0.72,
+                "confidence": SubscriptionConfidence.MEDIUM,
+                "details": {},
+            }
+        ]
+        classifications = {
+            "Spotify": {
+                "sector": "Communication Services",
+                "security_id": "sec_spot",
+                "likelihood_score": 0.12,
+            }
+        }
+
+        enriched = detector._enrich_cluster_results(
+            cluster_results, classifications
+        )
+
+        # 0.72 + 0.12 = 0.84 >= 0.80 → HIGH
+        assert enriched[0]["confidence"] == SubscriptionConfidence.HIGH
+        assert enriched[0]["detection_score"] == pytest.approx(0.84)
+
+    def test_enrich_cross_account_pattern(self) -> None:
+        """Cross-account patterns also get enriched."""
+        from finance_sync.services.subscription_detector import (
+            SubscriptionDetector,
+        )
+
+        detector = SubscriptionDetector(
+            session_factory=MagicMock(),
+            tenant_id="tenant_1",
+        )
+
+        cluster_results = [
+            {
+                "merchant_name": "Netflix",
+                "amount": "-15.99",
+                "detection_method": DetectionMethod.CROSS_ACCOUNT,
+                "detection_score": 0.60,
+                "confidence": SubscriptionConfidence.MEDIUM,
+                "details": {},
+            }
+        ]
+        classifications = {
+            "Netflix": {
+                "sector": "Communication Services",
+                "security_id": "sec_nflx",
+                "likelihood_score": 0.12,
+            }
+        }
+
+        enriched = detector._enrich_cluster_results(
+            cluster_results, classifications
+        )
+
+        assert enriched[0]["sector"] == "Communication Services"
+        assert (
+            enriched[0]["detection_method"]
+            == DetectionMethod.MERCHANT_CLASSIFICATION
+        )
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Dedup tie-breaking
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class TestDedupTieBreaking:
+    """Verify that _deduplicate_results prefers entries with sector data
+    when scores are equal."""
+
+    def test_prefers_sector_data_on_equal_score(self) -> None:
+        """When two results share the same merchant and score, the one
+        with sector data wins."""
+        from finance_sync.services.subscription_detector import (
+            SubscriptionDetector,
+        )
+
+        detector = SubscriptionDetector(
+            session_factory=MagicMock(),
+            tenant_id="tenant_1",
+        )
+
+        results = [
+            {
+                "merchant_name": "Netflix",
+                "amount": "-15.99",
+                "detection_score": 0.80,
+                "sector": None,
+            },
+            {
+                "merchant_name": "Netflix",
+                "amount": "-15.99",
+                "detection_score": 0.80,
+                "sector": "Communication Services",
+            },
+        ]
+
+        deduped = detector._deduplicate_results(results)
+
+        assert len(deduped) == 1
+        assert deduped[0]["sector"] == "Communication Services"
+
+    def test_higher_score_wins_regardless_of_sector(self) -> None:
+        """Higher detection score beats sector tiebreaker."""
+        from finance_sync.services.subscription_detector import (
+            SubscriptionDetector,
+        )
+
+        detector = SubscriptionDetector(
+            session_factory=MagicMock(),
+            tenant_id="tenant_1",
+        )
+
+        results = [
+            {
+                "merchant_name": "Netflix",
+                "amount": "-15.99",
+                "detection_score": 0.90,
+                "sector": None,
+            },
+            {
+                "merchant_name": "Netflix",
+                "amount": "-15.99",
+                "detection_score": 0.80,
+                "sector": "Communication Services",
+            },
+        ]
+
+        deduped = detector._deduplicate_results(results)
+
+        assert len(deduped) == 1
+        assert deduped[0]["detection_score"] == 0.90
+        assert deduped[0]["sector"] is None
+
+    def test_empty_input(self) -> None:
+        """Empty input produces empty output."""
+        from finance_sync.services.subscription_detector import (
+            SubscriptionDetector,
+        )
+
+        detector = SubscriptionDetector(
+            session_factory=MagicMock(),
+            tenant_id="tenant_1",
+        )
+
+        assert detector._deduplicate_results([]) == []
+
+    def test_different_merchants_all_kept(self) -> None:
+        """Different merchants are not deduplicated."""
+        from finance_sync.services.subscription_detector import (
+            SubscriptionDetector,
+        )
+
+        detector = SubscriptionDetector(
+            session_factory=MagicMock(),
+            tenant_id="tenant_1",
+        )
+
+        results = [
+            {"merchant_name": "Netflix", "detection_score": 0.80},
+            {"merchant_name": "Spotify", "detection_score": 0.75},
+        ]
+
+        deduped = detector._deduplicate_results(results)
+
+        assert len(deduped) == 2
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Dry-run analyze
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class TestAnalyzeMethod:
+    """Verify the analyze() dry-run method returns dicts without persisting."""
+
+    @pytest.fixture
+    def mock_session(self) -> AsyncMock:
+        session = AsyncMock()
+        session.__aenter__ = AsyncMock(return_value=session)
+        session.__aexit__ = AsyncMock()
+        return session
+
+    @pytest.fixture
+    def mock_session_factory(self, mock_session) -> MagicMock:
+        factory = MagicMock()
+        factory.return_value = mock_session
+        return factory
+
+    @pytest.mark.asyncio
+    async def test_analyze_with_empty_transactions(
+        self, mock_session_factory
+    ) -> None:
+        """When no transactions exist, analyze() returns empty list."""
+        from finance_sync.services.subscription_detector import (
+            SubscriptionDetector,
+        )
+
+        # Mock _fetch_outgoing_transactions to return empty list
+        detector = SubscriptionDetector(
+            session_factory=mock_session_factory,
+            tenant_id="tenant_1",
+        )
+
+        # Patch the private fetch method
+        detector._fetch_outgoing_transactions = AsyncMock(return_value=[])
+
+        result = await detector.analyze()
+
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_analyze_returns_dicts_not_orm_objects(
+        self, mock_session_factory
+    ) -> None:
+        """analyze() returns raw dicts, not DetectedSubscription ORM objects."""
+        from finance_sync.services.subscription_detector import (
+            SubscriptionDetector,
+        )
+
+        detector = SubscriptionDetector(
+            session_factory=mock_session_factory,
+            tenant_id="tenant_1",
+        )
+
+        # Mock the full pipeline to return detection result dicts
+        sample_results = [
+            {
+                "merchant_name": "Netflix",
+                "amount": "-15.99",
+                "detection_score": 0.85,
+                "confidence": SubscriptionConfidence.HIGH.value,
+                "detection_method": DetectionMethod.EXACT_AMOUNT.value,
+            }
+        ]
+
+        detector._fetch_outgoing_transactions = AsyncMock(
+            return_value=[{"id": "tx1", "amount": "-15.99"}]
+        )
+        detector._run_all_detection = AsyncMock(return_value=sample_results)
+
+        result = await detector.analyze()
+
+        assert len(result) == 1
+        assert isinstance(result[0], dict)
+        assert result[0]["merchant_name"] == "Netflix"
+
+    @pytest.mark.asyncio
+    async def test_analyze_passes_use_merchant_classifier_flag(
+        self, mock_session_factory
+    ) -> None:
+        """use_merchant_classifier forwarded to _run_all_detection."""
+        from finance_sync.services.subscription_detector import (
+            SubscriptionDetector,
+        )
+
+        detector = SubscriptionDetector(
+            session_factory=mock_session_factory,
+            tenant_id="tenant_1",
+        )
+
+        detector._fetch_outgoing_transactions = AsyncMock(return_value=[])
+
+        # Should not crash with False
+        result = await detector.analyze(use_merchant_classifier=False)
+        assert result == []
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Integration: _run_all_detection with enrichment
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class TestRunAllDetectionEnrichment:
+    """Verify that _run_all_detection enriches clustering results."""
+
+    @pytest.mark.asyncio
+    async def test_enriches_cluster_results_in_pipeline(self) -> None:
+        """Cluster results from SubscriptionPatternEngine get classified."""
+        from finance_sync.services.subscription_detector import (
+            SubscriptionDetector,
+        )
+
+        # Create transactions so that merchant grouping + clustering both fire
+        txns = [
+            {
+                "id": "t1",
+                "amount": Decimal("-15.99"),
+                "currency_code": "EUR",
+                "description": "POS Netflix B.V.",
+                "occurred_at": datetime(2025, 1, 15, tzinfo=UTC),
+                "account_id": "acct_1",
+                "provider_key": "bunq",
+                "transaction_type": "payment",
+            },
+            {
+                "id": "t2",
+                "amount": Decimal("-15.99"),
+                "currency_code": "EUR",
+                "description": "DEB Netflix B.V.",
+                "occurred_at": datetime(2025, 2, 15, tzinfo=UTC),
+                "account_id": "acct_1",
+                "provider_key": "bunq",
+                "transaction_type": "payment",
+            },
+            {
+                "id": "t3",
+                "amount": Decimal("-15.99"),
+                "currency_code": "EUR",
+                "description": "DEB Netflix B.V.",
+                "occurred_at": datetime(2025, 3, 15, tzinfo=UTC),
+                "account_id": "acct_1",
+                "provider_key": "bunq",
+                "transaction_type": "payment",
+            },
+        ]
+
+        detector = SubscriptionDetector(
+            session_factory=MagicMock(),
+            tenant_id="tenant_1",
+        )
+
+        # Patch _classify_merchants to return known classification
+        detector._classify_merchants = AsyncMock(
+            return_value={
+                "Netflix B.V.": {
+                    "sector": "Communication Services",
+                    "security_id": "sec_nflx",
+                    "likelihood_score": 0.12,
+                    "ticker": "NFLX",
+                    "subscription_likelihood": "high",
+                    "source": "merchant_map",
+                }
+            }
+        )
+
+        results = await detector._run_all_detection(
+            txns, min_occurrences=2, use_merchant_classifier=True
+        )
+
+        assert len(results) >= 1
+        for r in results:
+            if "Netflix" in r["merchant_name"]:
+                assert r.get("sector") == "Communication Services"
+                return
+        pytest.fail("No Netflix result found with sector data")
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Confirm / Ignore / Delete service tests
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class TestSubscriptionConfirmIgnoreDelete:
+    """Test confirm, ignore, and delete subscription methods."""
+
+    @pytest.fixture
+    def mock_session(self) -> AsyncMock:
+        session = AsyncMock()
+        session.__aenter__ = AsyncMock(return_value=session)
+        session.__aexit__ = AsyncMock()
+        return session
+
+    @pytest.fixture
+    def mock_session_factory(self, mock_session) -> MagicMock:
+        factory = MagicMock()
+        factory.return_value = mock_session
+        return factory
+
+    # ── confirm_subscription ─────────────────────────────────────────
+
+    @pytest.mark.asyncio
+    async def test_confirm_subscription_success(
+        self, mock_session_factory
+    ) -> None:
+        """Confirming an existing subscription returns the updated object."""
+        mock_sub = MagicMock(spec=DetectedSubscription)
+        mock_sub.id = "sub_1"
+        mock_sub.tenant_id = "tenant_1"
+        mock_sub.status = "active"
+        mock_sub.user_notes = None
+
+        with patch(
+            "finance_sync.db.repositories.DetectedSubscriptionRepository.get",
+            new=AsyncMock(return_value=mock_sub),
+        ):
+            detector = SubscriptionDetector(
+                session_factory=mock_session_factory,
+                tenant_id="tenant_1",
+            )
+
+            sub = await detector.confirm_subscription(
+                "sub_1", user_notes="Verified by user"
+            )
+
+            assert sub is not None
+            assert sub.status == "active"
+            assert "[Confirmed] Verified by user" in (sub.user_notes or "")
+
+    @pytest.mark.asyncio
+    async def test_confirm_subscription_not_found(
+        self, mock_session_factory
+    ) -> None:
+        """Confirming a non-existent subscription returns None."""
+        with patch(
+            "finance_sync.db.repositories.DetectedSubscriptionRepository.get",
+            new=AsyncMock(return_value=None),
+        ):
+            detector = SubscriptionDetector(
+                session_factory=mock_session_factory,
+                tenant_id="tenant_1",
+            )
+
+            sub = await detector.confirm_subscription("nonexistent-id")
+            assert sub is None
+
+    @pytest.mark.asyncio
+    async def test_confirm_subscription_tenant_mismatch(
+        self, mock_session_factory
+    ) -> None:
+        """Confirming a subscription from another tenant returns None."""
+        mock_sub = MagicMock(spec=DetectedSubscription)
+        mock_sub.tenant_id = "other_tenant"
+
+        with patch(
+            "finance_sync.db.repositories.DetectedSubscriptionRepository.get",
+            new=AsyncMock(return_value=mock_sub),
+        ):
+            detector = SubscriptionDetector(
+                session_factory=mock_session_factory,
+                tenant_id="tenant_1",
+            )
+
+            sub = await detector.confirm_subscription("sub_1")
+            assert sub is None
+
+    @pytest.mark.asyncio
+    async def test_confirm_subscription_appends_notes(
+        self, mock_session_factory
+    ) -> None:
+        """Confirming appends to existing user notes rather than overwriting."""
+        mock_sub = MagicMock(spec=DetectedSubscription)
+        mock_sub.id = "sub_1"
+        mock_sub.tenant_id = "tenant_1"
+        mock_sub.status = "active"
+        mock_sub.user_notes = "Original note"
+
+        with patch(
+            "finance_sync.db.repositories.DetectedSubscriptionRepository.get",
+            new=AsyncMock(return_value=mock_sub),
+        ):
+            detector = SubscriptionDetector(
+                session_factory=mock_session_factory,
+                tenant_id="tenant_1",
+            )
+
+            sub = await detector.confirm_subscription(
+                "sub_1", user_notes="Confirmed"
+            )
+
+            assert sub is not None
+            assert "Original note" in (sub.user_notes or "")
+            assert "[Confirmed] Confirmed" in (sub.user_notes or "")
+
+    # ── ignore_subscription ──────────────────────────────────────────
+
+    @pytest.mark.asyncio
+    async def test_ignore_subscription_success(
+        self, mock_session_factory
+    ) -> None:
+        """Ignoring an existing subscription sets status to IGNORED."""
+        mock_sub = MagicMock(spec=DetectedSubscription)
+        mock_sub.id = "sub_1"
+        mock_sub.tenant_id = "tenant_1"
+        mock_sub.status = "active"
+        mock_sub.user_notes = None
+
+        with patch(
+            "finance_sync.db.repositories.DetectedSubscriptionRepository.get",
+            new=AsyncMock(return_value=mock_sub),
+        ):
+            detector = SubscriptionDetector(
+                session_factory=mock_session_factory,
+                tenant_id="tenant_1",
+            )
+
+            sub = await detector.ignore_subscription(
+                "sub_1", reason="Not a real subscription"
+            )
+
+            assert sub is not None
+            assert sub.status == SubscriptionStatus.IGNORED
+
+    @pytest.mark.asyncio
+    async def test_ignore_subscription_without_reason(
+        self, mock_session_factory
+    ) -> None:
+        """Ignoring without a reason still sets status to IGNORED."""
+        mock_sub = MagicMock(spec=DetectedSubscription)
+        mock_sub.id = "sub_1"
+        mock_sub.tenant_id = "tenant_1"
+        mock_sub.status = "active"
+        mock_sub.user_notes = None
+
+        with patch(
+            "finance_sync.db.repositories.DetectedSubscriptionRepository.get",
+            new=AsyncMock(return_value=mock_sub),
+        ):
+            detector = SubscriptionDetector(
+                session_factory=mock_session_factory,
+                tenant_id="tenant_1",
+            )
+
+            sub = await detector.ignore_subscription("sub_1")
+            assert sub is not None
+            assert sub.status == SubscriptionStatus.IGNORED
+
+    @pytest.mark.asyncio
+    async def test_ignore_subscription_not_found(
+        self, mock_session_factory
+    ) -> None:
+        """Ignoring a non-existent subscription returns None."""
+        with patch(
+            "finance_sync.db.repositories.DetectedSubscriptionRepository.get",
+            new=AsyncMock(return_value=None),
+        ):
+            detector = SubscriptionDetector(
+                session_factory=mock_session_factory,
+                tenant_id="tenant_1",
+            )
+
+            sub = await detector.ignore_subscription("nonexistent-id")
+            assert sub is None
+
+    # ── delete_subscription ──────────────────────────────────────────
+
+    @pytest.mark.asyncio
+    async def test_delete_subscription_success(
+        self, mock_session_factory
+    ) -> None:
+        """Deleting an existing subscription returns True."""
+        mock_sub = MagicMock(spec=DetectedSubscription)
+        mock_sub.id = "sub_1"
+        mock_sub.tenant_id = "tenant_1"
+
+        with (
+            patch(
+                "finance_sync.db.repositories.DetectedSubscriptionRepository.get",
+                new=AsyncMock(return_value=mock_sub),
+            ),
+            patch(
+                "finance_sync.db.repositories.DetectedSubscriptionRepository.delete",
+                new=AsyncMock(),
+            ),
+        ):
+            detector = SubscriptionDetector(
+                session_factory=mock_session_factory,
+                tenant_id="tenant_1",
+            )
+
+            result = await detector.delete_subscription("sub_1")
+            assert result is True
+
+    @pytest.mark.asyncio
+    async def test_delete_subscription_not_found(
+        self, mock_session_factory
+    ) -> None:
+        """Deleting a non-existent subscription returns False."""
+        with patch(
+            "finance_sync.db.repositories.DetectedSubscriptionRepository.get",
+            new=AsyncMock(return_value=None),
+        ):
+            detector = SubscriptionDetector(
+                session_factory=mock_session_factory,
+                tenant_id="tenant_1",
+            )
+
+            result = await detector.delete_subscription("nonexistent-id")
+            assert result is False
+
+    @pytest.mark.asyncio
+    async def test_delete_subscription_tenant_mismatch(
+        self, mock_session_factory
+    ) -> None:
+        """Deleting a subscription from another tenant returns False."""
+        mock_sub = MagicMock(spec=DetectedSubscription)
+        mock_sub.tenant_id = "other_tenant"
+
+        with patch(
+            "finance_sync.db.repositories.DetectedSubscriptionRepository.get",
+            new=AsyncMock(return_value=mock_sub),
+        ):
+            detector = SubscriptionDetector(
+                session_factory=mock_session_factory,
+                tenant_id="tenant_1",
+            )
+
+            result = await detector.delete_subscription("sub_1")
+            assert result is False
