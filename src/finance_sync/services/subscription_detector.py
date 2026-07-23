@@ -10,7 +10,7 @@ import re
 from collections import defaultdict
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from statistics import median, stdev
+from statistics import median
 from typing import TYPE_CHECKING, Any
 
 import structlog
@@ -359,11 +359,11 @@ def _amounts_are_consistent(
     abs_amounts = [abs(a) for a in amounts]
     mean_amt = sum(abs_amounts) / Decimal(str(len(abs_amounts)))
 
-    if mean_amt == Decimal("0"):
+    if mean_amt == Decimal(0):
         # All amounts are zero — perfectly consistent
         return 1.0
 
-    max_dev = Decimal("0")
+    max_dev = Decimal(0)
     for a in abs_amounts:
         dev = abs(a - mean_amt)
         if dev > max_dev:

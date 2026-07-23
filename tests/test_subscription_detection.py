@@ -20,7 +20,6 @@ import pytest
 from finance_sync.models.enums import (
     DetectionMethod,
     SubscriptionConfidence,
-    SubscriptionStatus,
 )
 from finance_sync.services.subscription_detector import (
     _amounts_are_consistent,
@@ -127,7 +126,7 @@ class TestAmountConsistency:
         assert _amounts_are_consistent(amounts) == 1.0
 
     def test_zero_amounts(self) -> None:
-        assert _amounts_are_consistent([Decimal("0"), Decimal("0")]) == 1.0
+        assert _amounts_are_consistent([Decimal(0), Decimal(0)]) == 1.0
 
     def test_moderate_variance_partial_score(self) -> None:
         amounts = [Decimal("-100.00"), Decimal("-115.00"), Decimal("-108.00")]
@@ -472,7 +471,9 @@ class TestSubscriptionDetectorUnit:
 
     def test_group_by_merchant_netflix(self, monthly_netflix_txns) -> None:
         """Netflix transactions with different descriptions normalise to same merchant."""
-        from finance_sync.services.subscription_detector import SubscriptionDetector
+        from finance_sync.services.subscription_detector import (
+            SubscriptionDetector,
+        )
 
         # We need a minimal mock to test _group_by_merchant
         mock_session_factory = MagicMock()
@@ -498,7 +499,9 @@ class TestSubscriptionDetectorUnit:
 
         Tests the synchronous _analyze_merchant_group method directly.
         """
-        from finance_sync.services.subscription_detector import SubscriptionDetector
+        from finance_sync.services.subscription_detector import (
+            SubscriptionDetector,
+        )
 
         detector = SubscriptionDetector(
             session_factory=MagicMock(),
@@ -522,7 +525,9 @@ class TestSubscriptionDetectorUnit:
 
     def test_weekly_coffee_not_detected(self, weekly_coffee_txns) -> None:
         """Regular small purchases without subscription keywords are low confidence."""
-        from finance_sync.services.subscription_detector import SubscriptionDetector
+        from finance_sync.services.subscription_detector import (
+            SubscriptionDetector,
+        )
 
         detector = SubscriptionDetector(
             session_factory=MagicMock(),
@@ -543,7 +548,9 @@ class TestSubscriptionDetectorUnit:
 
     def test_varying_amounts_not_detected(self, varying_amount_txns) -> None:
         """Transactions with inconsistent amounts should have low confidence."""
-        from finance_sync.services.subscription_detector import SubscriptionDetector
+        from finance_sync.services.subscription_detector import (
+            SubscriptionDetector,
+        )
 
         detector = SubscriptionDetector(
             session_factory=MagicMock(),
@@ -560,7 +567,9 @@ class TestSubscriptionDetectorUnit:
 
     def test_min_occurrences_filter(self, monthly_netflix_txns) -> None:
         """Transactions below min_occurrences threshold should be skipped."""
-        from finance_sync.services.subscription_detector import SubscriptionDetector
+        from finance_sync.services.subscription_detector import (
+            SubscriptionDetector,
+        )
 
         detector = SubscriptionDetector(
             session_factory=MagicMock(),
@@ -582,7 +591,9 @@ class TestSubscriptionDetectorUnit:
         Tests the grouping step directly since the full async pipeline
         requires DB mocking that's tested elsewhere.
         """
-        from finance_sync.services.subscription_detector import SubscriptionDetector
+        from finance_sync.services.subscription_detector import (
+            SubscriptionDetector,
+        )
 
         detector = SubscriptionDetector(
             session_factory=MagicMock(),
@@ -597,7 +608,9 @@ class TestSubscriptionDetectorUnit:
         self, monthly_netflix_txns
     ) -> None:
         """Verify the analysis produces rich detail metadata."""
-        from finance_sync.services.subscription_detector import SubscriptionDetector
+        from finance_sync.services.subscription_detector import (
+            SubscriptionDetector,
+        )
 
         detector = SubscriptionDetector(
             session_factory=MagicMock(),
@@ -647,7 +660,9 @@ class TestSubscriptionDetectorListUpdate:
     async def test_list_subscriptions_empty(
         self, mock_session_factory
     ) -> None:
-        from finance_sync.services.subscription_detector import SubscriptionDetector
+        from finance_sync.services.subscription_detector import (
+            SubscriptionDetector,
+        )
 
         mock_result = MagicMock()
         mock_result.scalars.return_value.all.return_value = []
@@ -668,7 +683,9 @@ class TestSubscriptionDetectorListUpdate:
     ) -> None:
         from unittest.mock import patch
 
-        from finance_sync.services.subscription_detector import SubscriptionDetector
+        from finance_sync.services.subscription_detector import (
+            SubscriptionDetector,
+        )
 
         # Simulate by making get return None
         with patch(

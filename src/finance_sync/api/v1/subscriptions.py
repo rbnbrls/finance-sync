@@ -6,7 +6,7 @@ because FastAPI needs runtime type introspection for OpenAPI generation.
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from decimal import Decimal  # noqa: TC003
+from decimal import Decimal
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
@@ -104,7 +104,7 @@ def _sub_to_response(sub: object) -> SubscriptionResponse:
         id=str(getattr(sub, "id", "")),
         merchant_name=str(getattr(sub, "merchant_name", "")),
         raw_description=getattr(sub, "raw_description", None),
-        amount=getattr(sub, "amount", Decimal("0")),
+        amount=getattr(sub, "amount", Decimal(0)),
         currency_code=str(getattr(sub, "currency_code", "EUR")),
         frequency_days=getattr(sub, "frequency_days", None),
         frequency_label=getattr(sub, "frequency_label", None),

@@ -19,8 +19,8 @@ from finance_sync.models.api_key import ApiKey
 from finance_sync.models.balance import Balance
 from finance_sync.models.card_transaction import CardTransaction
 from finance_sync.models.credential import Credential
-from finance_sync.models.enrichment_freshness import EnrichmentFreshness
 from finance_sync.models.detected_subscription import DetectedSubscription
+from finance_sync.models.enrichment_freshness import EnrichmentFreshness
 from finance_sync.models.enums import (
     AccountType,
     BalanceKind,
