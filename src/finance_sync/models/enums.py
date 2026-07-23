@@ -156,3 +156,29 @@ class WebhookDeliveryStatus(StrEnum):
     DELIVERED = "delivered"
     FAILED = "failed"
     RATE_LIMITED = "rate_limited"
+
+
+class ReconciliationRunStatus(StrEnum):
+    """Lifecycle state of a reconciliation run."""
+
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+class ReconciliationResultKind(StrEnum):
+    """Classification of a reconciliation finding."""
+
+    DUPLICATE_TRANSACTION = "duplicate_transaction"
+    MISSING_TRANSACTION = "missing_transaction"
+    CROSS_CONNECTOR_MISMATCH = "cross_connector_mismatch"
+    AMOUNT_MISMATCH = "amount_mismatch"
+
+
+class ReconciliationSeverity(StrEnum):
+    """Severity level of a reconciliation finding."""
+
+    INFO = "info"
+    WARNING = "warning"
+    ERROR = "error"
