@@ -267,12 +267,12 @@ class TestYnabConnectorAuth:
         ynab_mock_transport: YnabApiMockTransport,
     ) -> None:
         """After auth, connector should have populated budget IDs."""
-        assert len(ynab_connector._budget_ids) == 0  # noqa: SLF001
+        assert len(ynab_connector._budget_ids) == 0
 
         await ynab_connector.authenticate()
 
-        assert len(ynab_connector._budget_ids) == 1  # noqa: SLF001
-        assert ynab_connector._budget_ids[0] == "ynab_budget_001"  # noqa: SLF001
+        assert len(ynab_connector._budget_ids) == 1
+        assert ynab_connector._budget_ids[0] == "ynab_budget_001"
 
         # Should have made exactly 1 GET to /budgets
         budget_calls = [
@@ -303,7 +303,7 @@ class TestYnabConnectorAuth:
         )
         conn = YnabConnector(config=config, http_client=http_client)
         await conn.authenticate()
-        assert len(conn._budget_ids) >= 1  # noqa: SLF001
+        assert len(conn._budget_ids) >= 1
 
 
 class TestYnabTransactionMapping:
@@ -377,7 +377,7 @@ class TestYnabTransactionMapping:
             config=ConnectorConfig(provider_type="ynab", credentials={})
         )
         # YNAB: positive amount = outflow (42.50 EUR spent)
-        txn = conn._parse_transaction(  # noqa: SLF001
+        txn = conn._parse_transaction(
             {
                 "id": "test_txn_001",
                 "date": "2025-06-15",

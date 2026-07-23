@@ -6,7 +6,6 @@ and returns canned responses from :mod:`ynab_api_fixtures`.
 
 from __future__ import annotations
 
-from decimal import Decimal
 from typing import Any
 
 import httpx
@@ -15,10 +14,9 @@ import pytest
 from finance_sync.connectors.models import ConnectorConfig
 from finance_sync.connectors.ynab import YnabConnector
 from tests.connectors.fixtures.ynab_api_fixtures import (
-    BUDGETS_RESPONSE,
     BUDGET_ACCOUNTS_RESPONSE,
     BUDGET_TRANSACTIONS_RESPONSE,
-    FIXTURE_TXN_AMOUNTS,
+    BUDGETS_RESPONSE,
 )
 
 
