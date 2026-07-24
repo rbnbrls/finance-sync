@@ -145,6 +145,50 @@ class TestOutboxHelpers:
             assert msg.payload["changed_fields"] == {"amount": "50.00"}
 
 
+class TestOutboxReconciliationCompleted:
+    """Test the reconciliation.completed outbox helper."""
+
+    async def test_outbox_reconciliation_completed(self, session) -> None:
+        """Creates a reconciliation.completed message with correct payload."""
+        from finance_sync.db.uow import UnitOfWork
+        from finance_sync.sync.outbox import outbox_reconciliation_completed
+
+        async with UnitOfWork(session) as uow:
+            msg = await outbox_reconciliation_completed(
+                uow,
+                run_id="run_abc123",
+                tenant_id="tenant_1",
+                finding_count=5,
+                summary={"by_kind": {"duplicate": 3, "missing": 2}},
+            )
+            assert msg.event_type == "reconciliation.completed"
+            assert msg.aggregate_id == "run_abc123"
+            assert msg.aggregate_type == "reconciliation"
+            assert msg.idempotency_key == "reconciliation:run_abc123:completed"
+            assert msg.payload["run_id"] == "run_abc123"
+            assert msg.payload["tenant_id"] == "tenant_1"
+            assert msg.payload["finding_count"] == 5
+            assert msg.payload["summary"]["by_kind"]["duplicate"] == 3
+
+    async def test_outbox_reconciliation_completed_minimal(
+        self, session
+    ) -> None:
+        """Works with minimal payload (no summary)."""
+        from finance_sync.db.uow import UnitOfWork
+        from finance_sync.sync.outbox import outbox_reconciliation_completed
+
+        async with UnitOfWork(session) as uow:
+            msg = await outbox_reconciliation_completed(
+                uow,
+                run_id="run_minimal",
+                tenant_id="tenant_2",
+                finding_count=0,
+            )
+            assert msg.event_type == "reconciliation.completed"
+            assert msg.payload["finding_count"] == 0
+            assert msg.payload["summary"] == {}
+
+
 # ── Tests for OutboxPublisher ─────────────────────────────────────
 
 

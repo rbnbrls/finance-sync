@@ -22,6 +22,9 @@ Authentication is `Authorization: Bearer <JWT>` or `X-API-Key`. Mutations requir
 | `POST /sync` | `sync:write` | Starts allowed connections; `{providers?, resources?, force?}`. Returns 202 sync-run links. |
 | `POST /sync/{provider}` | `sync:write` | Starts one configured provider; provider is registry key, not a URL. |
 | `GET /sync-runs/{id}` | `sync:read` | Status, cursors, counts, warnings, error code. |
+| `POST /reconciliation` | `reconciliation:write` | Trigger a reconciliation analysis synchronously. Returns the run summary. |
+| `GET /reconciliation` | `reconciliation:read` | List reconciliation runs for the tenant. |
+| `GET /reconciliation/{id}` | `reconciliation:read` | Get a reconciliation run with its findings. |
 | `GET /health` | public/internal | Liveness/readiness/dependency checks; redact details publicly. |
 | `GET /metrics` | internal | Prometheus exposition, network-restricted. |
 
@@ -45,3 +48,58 @@ Example response shape:
 ```
 
 Version only breaking changes in `/api/v2`; add optional fields and endpoints without a major version. Publish OpenAPI at `/openapi.json`, Swagger at `/docs`, and a generated client only after API contract tests are established.
+
+## CLI: Reconciliation
+
+Two CLI commands are available for ad-hoc reconciliation runs.
+
+### `reconcile` — Full analysis
+
+```
+python -m finance_sync reconcile [OPTIONS]
+```
+
+Options:
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--tenant-id` | (all tenants) | Reconcile a single tenant instead of all tenants. |
+| `--account-ids` | (all accounts) | Comma-separated list of account IDs to analyze. |
+| `--provider-keys` | (all providers) | Comma-separated provider/connector keys to compare (e.g. `bunq,trading212`). |
+| `--date-from` | (90 days ago) | Explicit start date in ISO-8601 format (e.g. `2026-01-01` or `2026-01-01T00:00:00Z`). Overrides `--days-back`. |
+| `--date-to` | (now) | Explicit end date in ISO-8601 format. Overrides `--days-back`. |
+| `--days-back` | 90 | Look-back window for the analysis (ignored when `--date-from`/`--date-to` are set). |
+| `--threshold-hours` | 48 | Max hour gap for duplicate candidates. |
+
+Exit codes:
+
+- **0** — Success, no discrepancies found.
+- **1** — Success, discrepancies detected.
+- **2** — Error (settings, DB, unexpected exception).
+
+### `compare` — Connector comparison
+
+```
+python -m finance_sync compare <connector_a> <connector_b> [OPTIONS]
+```
+
+Arguments:
+
+| Argument | Description |
+|----------|-------------|
+| `connector_a` | First connector/provider key (e.g. `bunq`). |
+| `connector_b` | Second connector/provider key (e.g. `trading212`). Must differ from `connector_a`. |
+
+Options:
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--tenant-id` | (first tenant) | Tenant ID to reconcile. |
+| `--date-from` | (90 days ago) | Explicit start date in ISO-8601 format. |
+| `--date-to` | (now) | Explicit end date in ISO-8601 format. |
+| `--threshold-hours` | 48 | Max hour gap for duplicate candidates. |
+
+Exit codes match the `reconcile` command.
+
+Both commands create the same `ReconciliationService` used by the API endpoint,
+so findings are stored in the database and visible through API queries.

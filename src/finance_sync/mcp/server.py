@@ -291,6 +291,7 @@ async def tool_run_sync(ctx: Context, connector_type: str) -> str:
         session_factory=container.session_factory,
         registry=registry,
         tenant_id=tenant_id,
+        settings=container.settings,
     )
 
     result = await orchestrator.run_sync(
