@@ -125,8 +125,14 @@ class Settings(BaseSettings):
         validation_alias="OPENBB_REQUEST_TIMEOUT",
         description="Timeout in seconds for OpenBB HTTP requests.",
     )
+    fx_rate_cache_ttl_seconds: int = Field(
+        default=3600,
+        ge=60,
+        validation_alias="FX_RATE_CACHE_TTL_SECONDS",
+        description="TTL in seconds for cached FX rates before re-fetch.",
+    )
 
-    # ── Price-store pruning ──────────────────────────────────────────
+    # -- Price-store pruning --
     price_store_keep_minute_days: int = Field(
         default=30,
         ge=1,
