@@ -226,6 +226,7 @@ class SubscriptionStatus(StrEnum):
     ACTIVE = "active"
     PAUSED = "paused"
     CANCELLED = "cancelled"
+    IGNORED = "ignored"
     UNKNOWN = "unknown"
 
 
@@ -244,3 +245,6 @@ class DetectionMethod(StrEnum):
     SIMILAR_AMOUNT = "similar_amount"
     REGULAR_INTERVAL = "regular_interval"
     MERCHANT_CLASSIFICATION = "merchant_classification"
+    AMOUNT_CLUSTER = "amount_cluster"
+    CROSS_ACCOUNT = "cross_account"
+    HYBRID = "hybrid"
