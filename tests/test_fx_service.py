@@ -1578,6 +1578,79 @@ class TestConvertCurrency:
         assert result == Decimal("-54.50")  # -50 * 1.09
 
 
+class TestFxServiceConvertWithTimestamp:
+    """Tests for FxService.convert() with timestamp propagation."""
+
+    @pytest.fixture
+    def settings(self, live_settings):
+        return live_settings
+
+    @pytest.fixture
+    def mock_uow(self, mock_uow):
+        return mock_uow
+
+    @pytest.fixture
+    def service(self, settings, mock_uow):
+        return FxService(settings=settings, uow=mock_uow)
+
+    async def test_convert_with_at_timestamp_historical(
+        self, service, mock_uow
+    ) -> None:
+        """convert() uses at_timestamp from FxConversionRequest."""
+        historical_ts = datetime(2025, 6, 1, tzinfo=UTC)
+        mock_row = MagicMock()
+        mock_row.base_currency = "EUR"
+        mock_row.quote_currency = "USD"
+        mock_row.rate = Decimal("1.05")
+        mock_row.timestamp = historical_ts
+        mock_row.source = "openbb"
+        mock_uow.fx_rates.list = AsyncMock(return_value=[mock_row])
+
+        request = FxConversionRequest(
+            from_currency="EUR",
+            to_currency="USD",
+            amount=Decimal("200.00"),
+            at_timestamp=historical_ts,
+        )
+        result = await service.convert(request)
+        assert result is not None
+        assert result.converted_amount == Decimal("210.00")  # 200 * 1.05
+        assert result.rate_timestamp == historical_ts
+
+    async def test_convert_with_timestamp_no_data_returns_none(
+        self, service, mock_uow
+    ) -> None:
+        """convert() returns None when historical rate has no data
+        and no API is available."""
+        mock_uow.fx_rates.list = AsyncMock(return_value=[])
+        request = FxConversionRequest(
+            from_currency="EUR",
+            to_currency="USD",
+            amount=Decimal("100.00"),
+            at_timestamp=datetime(2020, 1, 1, tzinfo=UTC),
+        )
+        result = await service.convert(request)
+        assert result is None
+
+    async def test_get_rates_for_base_with_timestamp(
+        self, service, mock_uow
+    ) -> None:
+        """get_rates_for_base propagates at_timestamp to get_rate."""
+        historical_ts = datetime(2025, 6, 1, tzinfo=UTC)
+        mock_row = MagicMock()
+        mock_row.base_currency = "EUR"
+        mock_row.quote_currency = "USD"
+        mock_row.rate = Decimal("1.05")
+        mock_row.timestamp = historical_ts
+        mock_row.source = "openbb"
+        mock_uow.fx_rates.list = AsyncMock(return_value=[mock_row])
+
+        result = await service.get_rates_for_base(
+            "EUR", targets=["USD"], at_timestamp=historical_ts,
+        )
+        assert result["USD"] == Decimal("1.05")
+
+
 class TestFxServiceCaseInsensitivity:
     """Tests for case-insensitive currency code handling."""
 

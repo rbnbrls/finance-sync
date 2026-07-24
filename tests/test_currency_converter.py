@@ -543,6 +543,100 @@ class TestEdgeCases:
             )
 
 
+# -- Tests: convert_currency_rate with timestamp -------------------------------
+
+
+class TestConvertCurrencyRateHistorical:
+    """convert_currency_rate() with at_timestamp for historical lookups."""
+
+    async def test_indirect_path_with_historical_timestamp(
+        self, mock_fx_service: MagicMock
+    ) -> None:
+        """Indirect path works with historical timestamp."""
+        ts = datetime(2025, 6, 1, tzinfo=UTC)
+
+        async def _side(base: str, quote: str, **kw: Any) -> Any:
+            if base == "GBP" and quote == "USD":
+                return FxRateObservation(
+                    base_currency="GBP", quote_currency="USD",
+                    rate=Decimal("1.25"),
+                    timestamp=ts, source="test",
+                )
+            if base == "USD" and quote == "JPY":
+                return FxRateObservation(
+                    base_currency="USD", quote_currency="JPY",
+                    rate=Decimal("140.00"),
+                    timestamp=ts, source="test",
+                )
+            return None
+
+        mock_fx_service.get_rate = AsyncMock(side_effect=_side)
+        result = await convert_currency_rate(
+            Decimal(100), "GBP", "JPY",
+            at_timestamp=ts, fx_service=mock_fx_service,
+        )
+        # 100 * (1.25 * 140.00) = 100 * 175.0 = 17500.00
+        assert result == Decimal("17500.00")
+        # Verify at_timestamp was forwarded
+        for call in mock_fx_service.get_rate.await_args_list:
+            assert call[1]["at_timestamp"] == ts
+
+    async def test_historical_timestamp_all_paths_exhausted(
+        self, mock_fx_service: MagicMock
+    ) -> None:
+        """Raises NoRateError when historical timestamp has no data."""
+        mock_fx_service.get_rate = AsyncMock(return_value=None)
+        ts = datetime(2020, 1, 1, tzinfo=UTC)
+        with pytest.raises(NoRateError, match="No exchange rate"):
+            await convert_currency_rate(
+                Decimal(100), "ABC", "XYZ",
+                at_timestamp=ts, fx_service=mock_fx_service,
+            )
+
+
+# -- Tests: convert_portfolio_items with timestamp -----------------------------
+
+
+class TestConvertPortfolioItemsHistorical:
+    """convert_portfolio_items() with at_timestamp."""
+
+    async def test_batch_with_historical_timestamp(
+        self, mock_fx_service: MagicMock
+    ) -> None:
+        """Portfolio batch conversion forwards at_timestamp."""
+        ts = datetime(2025, 6, 1, tzinfo=UTC)
+        mock_fx_service.convert = AsyncMock(
+            return_value=_make_result(
+                from_currency="USD", to_currency="EUR",
+                rate=Decimal("0.90"), ts=ts,
+            )
+        )
+        items = [
+            _TestPosition(Decimal(200), "USD"),
+            _TestPosition(Decimal(100), "USD"),
+        ]
+        results = await convert_portfolio_items(
+            items, "EUR", at_timestamp=ts, fx_service=mock_fx_service,
+        )
+        assert len(results) == 2
+        assert results[0].converted_amount == Decimal("180.00")
+        # Verify at_timestamp was forwarded
+        call_request = mock_fx_service.convert.await_args[0][0]
+        assert call_request.at_timestamp == ts
+
+    async def test_identity_skips_timestamp_lookup(
+        self, mock_fx_service: MagicMock
+    ) -> None:
+        """Identity conversion does not call convert even with timestamp."""
+        ts = datetime(2025, 6, 1, tzinfo=UTC)
+        items = [_TestPosition(Decimal(100), "EUR")]
+        results = await convert_portfolio_items(
+            items, "EUR", at_timestamp=ts, fx_service=mock_fx_service,
+        )
+        assert results[0].converted_amount == Decimal("100.00")
+        mock_fx_service.convert.assert_not_called()
+
+
 # -- Tests: convert() ---------------------------------------------------------
 
 
