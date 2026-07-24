@@ -181,7 +181,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     if settings.database_url is not None:
         # Ensure lazy-loaded exporter models are registered on metadata
         ensure_exporter_models_loaded()
-        await _init_database(container, settings)
+        await _init_database(container)
 
     async with container.dispose():
         yield  # app runs here
