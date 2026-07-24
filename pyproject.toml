@@ -116,6 +116,7 @@ line-ending = "auto"
 "tests/**" = ["T20", "D", "ARG", "SLF", "ASYNC"]
 "src/finance_sync/api/**" = ["B008"]
 "src/finance_sync/__init__.py" = ["T20"]
+"src/finance_sync/cli.py" = ["T20"]
 "src/finance_sync/models/*" = ["TC001", "TC003"]
 "src/finance_sync/db/repository.py" = ["A002", "TC002"]
 "src/finance_sync/db/uow.py" = ["TC002", "TC003"]

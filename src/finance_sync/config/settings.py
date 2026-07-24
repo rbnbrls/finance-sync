@@ -306,6 +306,14 @@ class Settings(BaseSettings):
         validation_alias="WORKER_JOB_RECONCILIATION_CRON",
         description="Cron expression for nightly full reconciliation (UTC).",
     )
+    worker_job_reconciliation_after_sync_enabled: bool = Field(
+        default=True,
+        validation_alias="WORKER_JOB_RECONCILIATION_AFTER_SYNC_ENABLED",
+        description=(
+            "Run reconciliation automatically after each successful "
+            "connector sync cycle."
+        ),
+    )
 
     # ── Worker: Outbox consumer job ────────────────────────────────
     worker_job_outbox_enabled: bool = Field(

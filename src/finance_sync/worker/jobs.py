@@ -201,6 +201,7 @@ async def sync_connector_job(
                 session_factory=container.session_factory,
                 registry=registry,
                 tenant_id=_tenant.id,
+                settings=container.settings,
             )
             since = datetime.now(UTC) - timedelta(days=since_days)
             result = await orchestrator.run_sync(
@@ -228,6 +229,9 @@ async def sync_connector_job(
                 "sync_job_tenant_complete",
                 **tenant_result,
             )
+
+            # Note: auto-reconciliation is handled inside run_sync() in
+            # the orchestrator — no need to run it again here.
         except Exception as exc:
             tenant_result = {
                 "tenant_id": tenant.id,
@@ -337,18 +341,20 @@ async def enrich_prices_job(container: Container) -> dict[str, Any]:
 
 
 async def nightly_reconciliation_job(container: Container) -> dict[str, Any]:
-    """Nightly full reconciliation: re-sync all connectors for all tenants.
+    """Nightly full reconciliation: re-sync all connectors for all tenants
+    and run reconciliation analysis on the fresh data.
 
     This is a heavy job that re-fetches all transactions from all
-    configured connectors and reconciles them against the local data store.
+    configured connectors, reconciles them against the local data store,
+    and emits reconciliation results via the outbox.
     """
     log = logger.bind()
     log.info("reconciliation_job_starting")
 
     results: list[dict[str, Any]] = []
 
+    # ── Phase 1: Re-sync all connectors ─────────────────────────────
     try:
-        # Re-sync bunq
         bunq_result = await sync_bunq_job(container)
         results.append(bunq_result)
     except Exception as exc:
@@ -362,7 +368,51 @@ async def nightly_reconciliation_job(container: Container) -> dict[str, Any]:
         results.append({"provider": "trading212", "error": str(exc)[:300]})
         log.error("reconciliation_t212_failed", error=str(exc)[:200])
 
-    # Prune old price data during nightly reconciliation
+    # ── Phase 2: Run reconciliation analysis per tenant ─────────────
+    async with container.session_factory() as session:
+        uow = UnitOfWork(session)
+        session.info["settings"] = container.settings
+
+        tenants = await uow.tenants.list(limit=100)
+        log.info("reconciliation_phase2_starting", tenant_count=len(tenants))
+
+        for tenant in tenants:
+            tenant_log = log.bind(tenant_id=tenant.id)
+            try:
+                orchestrator = SyncOrchestrator(
+                    session_factory=container.session_factory,
+                    registry=ConnectorRegistry(),
+                    tenant_id=tenant.id,
+                    settings=container.settings,
+                )
+                summary = await orchestrator.run_reconciliation()
+                tenant_log.info(
+                    "reconciliation_tenant_complete",
+                    run_id=summary.run_id,
+                    status=summary.status.value,
+                    findings=summary.finding_count,
+                )
+                results.append(
+                    {
+                        "tenant_id": tenant.id,
+                        "reconciliation_run_id": summary.run_id,
+                        "status": summary.status.value,
+                        "findings": summary.finding_count,
+                    }
+                )
+            except Exception as exc:
+                tenant_log.error(
+                    "reconciliation_tenant_failed",
+                    error=str(exc)[:300],
+                )
+                results.append(
+                    {
+                        "tenant_id": tenant.id,
+                        "error": str(exc)[:300],
+                    }
+                )
+
+    # ── Phase 3: Prune old price data during nightly reconciliation
     try:
         async with container.session_factory() as session:
             from finance_sync.enrichment.price_store import PriceStore

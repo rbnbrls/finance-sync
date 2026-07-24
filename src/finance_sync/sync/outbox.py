@@ -72,6 +72,34 @@ async def outbox_entity_created(
     )
 
 
+async def outbox_reconciliation_completed(
+    uow: UnitOfWork,
+    *,
+    run_id: str,
+    tenant_id: str,
+    finding_count: int,
+    summary: dict[str, Any] | None = None,
+) -> OutboxMessage:
+    """Emit an outbox message for a completed reconciliation run.
+
+    The idempotency key is derived from ``reconciliation:{run_id}:completed``
+    so re-publishing the same completion event is safe.
+    """
+    return await add_outbox_message(
+        uow,
+        aggregate_id=run_id,
+        aggregate_type="reconciliation",
+        event_type="reconciliation.completed",
+        payload={
+            "run_id": run_id,
+            "tenant_id": tenant_id,
+            "finding_count": finding_count,
+            "summary": summary or {},
+        },
+        idempotency_key=f"reconciliation:{run_id}:completed",
+    )
+
+
 async def outbox_entity_updated(
     uow: UnitOfWork,
     *,

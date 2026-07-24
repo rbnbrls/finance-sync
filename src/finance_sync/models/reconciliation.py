@@ -57,7 +57,9 @@ class ReconciliationRun(Base):
     scope: Mapped[dict[str, Any] | None] = mapped_column(
         JSONB,
         nullable=True,
-        comment="Run scope: account_ids, date_from, date_to",
+        comment=(
+            "Run scope: {account_ids: [..], date_from: '..', date_to: '..'}"
+        ),
     )
 
     # ── Outcome ────────────────────────────────────────────────────
@@ -132,7 +134,9 @@ class ReconciliationResult(Base):
         String(64), nullable=True, comment="Primary connector involved"
     )
     other_provider_key: Mapped[str | None] = mapped_column(
-        String(64), nullable=True, comment="Secondary connector"
+        String(64),
+        nullable=True,
+        comment="Secondary connector (for cross-connector)",
     )
 
     # ── Transaction references ─────────────────────────────────────

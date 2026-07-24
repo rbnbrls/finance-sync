@@ -1,21 +1,18 @@
-"""Reconciliation API endpoints — trigger runs and view findings.
-
-NOTE: ``from __future__ import annotations`` is intentionally omitted
-because FastAPI needs runtime type introspection for OpenAPI generation.
-"""
+"""Reconciliation API endpoints — trigger runs and view findings."""
 
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from decimal import Decimal  # noqa: TC003
+from decimal import (
+    Decimal,  # noqa: TC003 — runtime-import needed by Pydantic models
+)
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
-from sqlalchemy.ext.asyncio import AsyncSession  # noqa: TC002
 
 from finance_sync.api.deps.auth import AuthContext, require_permission
-from finance_sync.dependencies import get_container, get_db
+from finance_sync.dependencies import get_container
 from finance_sync.services.reconciliation import ReconciliationService
 
 router = APIRouter(prefix="/reconciliation", tags=["reconciliation"])
@@ -45,6 +42,88 @@ class ReconciliationTriggerRequest(BaseModel):
         le=720,
         description="Max hour gap for duplicate candidates",
     )
+
+
+class TriggerReconciliationRequest(BaseModel):
+    """Trigger a reconciliation with optional connector comparison."""
+
+    connector_a: str | None = Field(
+        default=None,
+        min_length=1,
+        description=(
+            "First connector/provider key (e.g. 'bunq', 'trading212'). "
+            "When provided together with connector_b, triggers a "
+            "targeted comparison between the two connectors."
+        ),
+    )
+    connector_b: str | None = Field(
+        default=None,
+        min_length=1,
+        description=(
+            "Second connector/provider key (e.g. 'bunq', 'trading212'). "
+            "Must be different from connector_a."
+        ),
+    )
+    detect_duplicates: bool = Field(
+        default=True,
+        description="Whether to scan for duplicate transactions",
+    )
+    account_ids: list[str] | None = Field(
+        default=None,
+        description="Optional subset of account IDs to analyze",
+    )
+    date_from: datetime | None = Field(
+        default=None,
+        description="Earliest transaction date (default 90 days ago)",
+    )
+    date_to: datetime | None = Field(
+        default=None,
+        description="Latest transaction date (default now)",
+    )
+    threshold_hours: int = Field(
+        default=48,
+        ge=1,
+        le=720,
+        description="Max hour gap for duplicate candidates",
+    )
+
+
+class CompareConnectorsRequest(BaseModel):
+    """Request body to compare two specific connectors/providers."""
+
+    connector_a: str = Field(
+        ...,
+        min_length=1,
+        description="First connector/provider key (e.g. 'bunq', 'trading212')",
+    )
+    connector_b: str = Field(
+        ...,
+        min_length=1,
+        description="Second connector/provider key (e.g. 'bunq', 'trading212')",
+    )
+    date_from: datetime | None = Field(
+        default=None,
+        description="Earliest transaction date (default 90 days ago)",
+    )
+    date_to: datetime | None = Field(
+        default=None,
+        description="Latest transaction date (default now)",
+    )
+    threshold_hours: int = Field(
+        default=48,
+        ge=1,
+        le=720,
+        description="Max hour gap for duplicate candidates",
+    )
+
+
+class CompareConnectorsResponse(BaseModel):
+    """Response from a connector-to-connector comparison."""
+
+    connector_a: str
+    connector_b: str
+    run: ReconciliationRunResponse
+    message: str = ""
 
 
 class ReconciliationSummary(BaseModel):
@@ -201,16 +280,131 @@ async def trigger_reconciliation(
     return _run_to_response(run).model_dump()
 
 
+@router.post(
+    "/compare",
+    response_model=CompareConnectorsResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def compare_connectors(
+    body: CompareConnectorsRequest,
+    request: Request,
+    auth: AuthContext = Depends(require_permission("reconciliation", "write")),
+) -> dict[str, Any]:
+    """Compare two specific connectors/providers and return findings.
+
+    Runs a reconciliation analysis limited to transactions from the two
+    specified connector/provider keys.  Both connector keys are required
+    and must be non-empty strings.  Returns the completed run with
+    finding count, summary stats, and the compared connector IDs.
+    """
+    if body.connector_a == body.connector_b:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"Connector IDs must be different, got "
+                f"'{body.connector_a}' for both"
+            ),
+        )
+
+    container = get_container(request)
+    svc = ReconciliationService(
+        session_factory=container.session_factory,
+        tenant_id=auth.tenant_id,
+    )
+
+    run = await svc.reconcile(
+        provider_keys=[body.connector_a, body.connector_b],
+        date_from=body.date_from,
+        date_to=body.date_to,
+        threshold_hours=body.threshold_hours,
+    )
+
+    if run.status == "failed":
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=(
+                f"Reconciliation failed: "
+                f"{run.error_message or 'Unknown error'}"
+            ),
+        )
+
+    return CompareConnectorsResponse(
+        connector_a=body.connector_a,
+        connector_b=body.connector_b,
+        run=_run_to_response(run),
+        message=f"Compared '{body.connector_a}' vs '{body.connector_b}'",
+    ).model_dump()
+
+
+@router.post(
+    "/trigger",
+    response_model=ReconciliationRunResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def trigger_reconciliation_v2(
+    body: TriggerReconciliationRequest,
+    request: Request,
+    auth: AuthContext = Depends(require_permission("reconciliation", "write")),
+) -> dict[str, Any]:
+    """Trigger a reconciliation run with optional connector comparison.
+
+    Accepts optional ``connector_a`` and ``connector_b`` to limit the
+    analysis to a specific pair of providers.  Also accepts scanning
+    options such as ``detect_duplicates``.
+
+    When ``connector_a`` and ``connector_b`` are both provided, the
+    reconciliation is scoped to those two connectors.  When omitted,
+    a full reconciliation across all connectors is performed.
+    """
+    provider_keys: list[str] | None = None
+    if body.connector_a and body.connector_b:
+        if body.connector_a == body.connector_b:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"Connector IDs must be different, got "
+                    f"'{body.connector_a}' for both"
+                ),
+            )
+        provider_keys = [body.connector_a, body.connector_b]
+    elif body.connector_a or body.connector_b:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "Both connector_a and connector_b must be provided "
+                "when specifying a connector comparison"
+            ),
+        )
+
+    container = get_container(request)
+    svc = ReconciliationService(
+        session_factory=container.session_factory,
+        tenant_id=auth.tenant_id,
+    )
+
+    run = await svc.reconcile(
+        account_ids=body.account_ids,
+        provider_keys=provider_keys,
+        date_from=body.date_from,
+        date_to=body.date_to,
+        threshold_hours=body.threshold_hours,
+        detect_duplicates=body.detect_duplicates,
+    )
+
+    return _run_to_response(run).model_dump()
+
+
 @router.get("", response_model=ReconciliationRunListResponse)
 async def list_reconciliation_runs(
+    request: Request,
     auth: AuthContext = Depends(require_permission("reconciliation", "read")),
-    db: AsyncSession = Depends(get_db),
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
 ) -> dict[str, Any]:
     """List reconciliation runs for the tenant."""
+    container = get_container(request)
     svc = ReconciliationService(
-        session_factory=db.session_factory,  # type: ignore[union-attr]
+        session_factory=container.session_factory,
         tenant_id=auth.tenant_id,
     )
 
@@ -226,16 +420,17 @@ async def list_reconciliation_runs(
 @router.get("/{run_id}", response_model=ReconciliationRunDetailResponse)
 async def get_reconciliation_run(
     run_id: str,
+    request: Request,
     auth: AuthContext = Depends(require_permission("reconciliation", "read")),
-    db: AsyncSession = Depends(get_db),
     result_limit: int = Query(default=100, ge=1, le=500),
     result_offset: int = Query(default=0, ge=0),
     kind: str | None = Query(default=None),
     severity: str | None = Query(default=None),
 ) -> dict[str, Any]:
     """Get a reconciliation run with its findings."""
+    container = get_container(request)
     svc = ReconciliationService(
-        session_factory=db.session_factory,  # type: ignore[union-attr]
+        session_factory=container.session_factory,
         tenant_id=auth.tenant_id,
     )
 
@@ -255,8 +450,7 @@ async def get_reconciliation_run(
 
     if run.tenant_id != auth.tenant_id:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Not found",
+            status_code=status.HTTP_404_NOT_FOUND, detail="Not found"
         )
 
     return {
