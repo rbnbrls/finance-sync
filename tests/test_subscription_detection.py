@@ -718,8 +718,8 @@ class TestSubscriptionDetectorListUpdate:
     ) -> None:
         from unittest.mock import patch
 
+        from finance_sync.models.detected_subscription import DetectedSubscription
         from finance_sync.services.subscription_detector import (
-            DetectedSubscription,
             SubscriptionDetector,
         )
 

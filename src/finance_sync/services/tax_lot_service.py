@@ -451,6 +451,7 @@ async def get_tax_lot_summary(
     return {
         "total_lots": len(lots),
         "open_lots": len(open_lots),
+        "closed_lots": len(closed_lots),
         "open_cost_basis": total_cost,
         "total_realized_pl": total_realized_pl,
         "wash_sale_adjusted_lots": sum(

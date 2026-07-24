@@ -225,7 +225,7 @@ def _normalise_merchant(description: str | None) -> str:
     text = re.sub(r"\s+", " ", text).strip()
 
     # Take first meaningful segment (up to first comma/semicolon/dash)
-    text = re.split(r"[,;--|]", text)[0].strip()
+    text = re.split(r"[,;|-]", text)[0].strip()
 
     # Title-case for consistency
     text = text.title()
