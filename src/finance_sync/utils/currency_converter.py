@@ -9,6 +9,7 @@ direct exchange rate is unavailable.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
@@ -18,7 +19,6 @@ from finance_sync.enrichment.models import FxConversionRequest
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
-    from datetime import datetime
 
     from finance_sync.services.fx_service import FxService
 
@@ -124,11 +124,72 @@ async def convert_single(
     return result.converted_amount
 
 
+async def convert(
+    amount: Decimal,
+    from_currency: str,
+    to_currency: str,
+    *,
+    at_date: date | None = None,
+    fx_service: FxService,
+) -> Decimal:
+    """Convert an amount from one currency to another, with cross-rate fallback.
+
+    This is the primary multi-currency conversion entry point matching the
+    Phase 4 API surface.  It supports:
+
+    * **Direct conversion** — when a direct exchange rate exists for the
+      requested pair.
+    * **Cross-rate (indirect) conversion** — when the direct rate is
+      unavailable, falls back through major intermediary currencies
+      (USD → EUR → GBP → …) to find a path.
+    * **Historical conversion** — pass ``at_date`` for a point-in-time
+      rate (falls back to the latest available rate if no historical
+      data exists for that date).
+
+    Args:
+        amount:         The monetary amount to convert.
+        from_currency:  Source ISO-4217 currency code (e.g. ``"EUR"``).
+        to_currency:    Target ISO-4217 currency code (e.g. ``"USD"``).
+        at_date:        Optional date for historical rate lookup.
+                        Internally converted to a UTC datetime at
+                        midnight for compatibility with :class:`FxService`.
+        fx_service:     Initialised :class:`FxService` instance.
+
+    Returns:
+        The converted amount, rounded to 2 decimal places.
+
+    Raises:
+        NoRateError: If no exchange rate is available through any
+            resolution path (direct or cross-rate).
+
+    Example:
+        >>> from decimal import Decimal
+        >>> from finance_sync.utils.currency_converter import convert
+        >>> result = await convert(
+        ...     Decimal("100.00"), "EUR", "USD", fx_service=service,
+        ... )
+        >>> isinstance(result, Decimal)
+        True
+    """
+    if from_currency == to_currency:
+        return amount
+
+    at_timestamp: datetime | None = (
+        datetime.combine(at_date, datetime.min.time(), tzinfo=UTC)
+        if at_date is not None
+        else None
+    )
+
+    return await convert_currency_rate(
+        amount,
+        from_currency,
+        to_currency,
+        at_timestamp=at_timestamp,
+        fx_service=fx_service,
+    )
+
+
 # -- Intermediate currencies for indirect path resolution --------------------
-#
-# Currencies tried as intermediaries when a direct FX rate is unavailable.
-# Ordered by liquidity (most traded first) so the first successful
-# cross-rate is also the most reliable.
 _INDIRECT_PATH_INTERMEDIARIES: tuple[str, ...] = (
     "USD",
     "EUR",

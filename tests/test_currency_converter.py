@@ -24,6 +24,7 @@ from finance_sync.utils.currency_converter import (
     ConvertedItem,
     HasCurrency,
     NoRateError,
+    convert,
     convert_currency_rate,
     convert_portfolio_items,
     convert_single,
@@ -485,3 +486,178 @@ class TestEdgeCases:
         )
         # Direct EUR->USD rate = 1.09, so 100 EUR = 109 USD
         assert result == Decimal("109.00")
+
+    async def test_skips_intermediary_matching_from_currency(
+        self, mock_fx_service: MagicMock,
+    ) -> None:
+        """Skips intermediaries that match from_currency or to_currency."""
+
+        async def _side(base: str, quote: str, **kw: Any) -> Any:
+            if base == "USD" and quote == "EUR":
+                return FxRateObservation(
+                    base_currency="USD", quote_currency="EUR",
+                    rate=Decimal("0.9174"),
+                    timestamp=datetime(2026, 7, 23, tzinfo=UTC),
+                    source="test",
+                )
+            if base == "EUR" and quote == "GBP":
+                return FxRateObservation(
+                    base_currency="EUR", quote_currency="GBP",
+                    rate=Decimal("0.86"),
+                    timestamp=datetime(2026, 7, 23, tzinfo=UTC),
+                    source="test",
+                )
+            return None
+
+        mock_fx_service.get_rate = AsyncMock(side_effect=_side)
+
+        # USD->GBP via EUR — the first intermediary is "USD" which should be
+        # skipped (matches from_currency), then "EUR" tried next
+        result = await convert_currency_rate(
+            Decimal(100), "USD", "GBP", fx_service=mock_fx_service,
+        )
+        # 100 * (0.9174 * 0.86) = 100 * 0.788964 = 78.90
+        assert result == Decimal("78.90")
+
+    async def test_leg1_succeeds_leg2_fails_no_path(
+        self, mock_fx_service: MagicMock,
+    ) -> None:
+        """Raises NoRateError when leg1 succeeds but leg2 fails."""
+        async def _side(base: str, quote: str, **kw: Any) -> Any:
+            if base == "GBP" and quote == "USD":
+                return FxRateObservation(
+                    base_currency="GBP", quote_currency="USD",
+                    rate=Decimal("1.27"),
+                    timestamp=datetime(2026, 7, 23, tzinfo=UTC),
+                    source="test",
+                )
+            if base == "USD" and quote == "XYZ":
+                # Leg2 for USD->XYZ also fails — no path exists
+                return None
+            return None
+
+        mock_fx_service.get_rate = AsyncMock(side_effect=_side)
+        with pytest.raises(NoRateError, match="No exchange rate"):
+            await convert_currency_rate(
+                Decimal(100), "GBP", "XYZ", fx_service=mock_fx_service,
+            )
+
+
+# -- Tests: convert() ---------------------------------------------------------
+
+
+class TestConvert:
+    """convert() — the primary multi-currency conversion entry point."""
+
+    async def test_identity_conversion(
+        self, mock_fx_service: MagicMock
+    ) -> None:
+        """Same-currency conversion returns the amount unchanged."""
+        result = await convert(
+            Decimal("150.00"), "USD", "USD", fx_service=mock_fx_service
+        )
+        assert result == Decimal("150.00")
+        mock_fx_service.get_rate.assert_not_called()
+
+    async def test_direct_conversion(
+        self, mock_fx_service: MagicMock
+    ) -> None:
+        """Delegates to FxService.get_rate with the direct pair."""
+        mock_fx_service.get_rate = AsyncMock(
+            return_value=FxRateObservation(
+                base_currency="EUR",
+                quote_currency="USD",
+                rate=Decimal("1.09"),
+                timestamp=datetime(2026, 7, 23, tzinfo=UTC),
+                source="test",
+            )
+        )
+        result = await convert(
+            Decimal(100), "EUR", "USD", fx_service=mock_fx_service
+        )
+        assert result == Decimal("109.00")
+        mock_fx_service.get_rate.assert_awaited()
+
+    async def test_raises_on_missing_rate(
+        self, mock_fx_service: MagicMock
+    ) -> None:
+        """Raises NoRateError when no rate available via any path."""
+        mock_fx_service.get_rate = AsyncMock(return_value=None)
+        with pytest.raises(NoRateError, match="No exchange rate"):
+            await convert(
+                Decimal(100), "EUR", "JPY", fx_service=mock_fx_service
+            )
+
+    async def test_with_at_date(
+        self, mock_fx_service: MagicMock
+    ) -> None:
+        """Passes at_date as a UTC-midnight at_timestamp to get_rate."""
+        from datetime import date
+
+        ts = date(2025, 6, 1)
+        mock_fx_service.get_rate = AsyncMock(
+            return_value=FxRateObservation(
+                base_currency="EUR",
+                quote_currency="USD",
+                rate=Decimal("1.05"),
+                timestamp=datetime(2025, 6, 1, 0, 0, 0, tzinfo=UTC),
+                source="test",
+            )
+        )
+        result = await convert(
+            Decimal(1), "EUR", "USD", at_date=ts, fx_service=mock_fx_service
+        )
+        assert result == Decimal("1.05")
+        # Verify the timestamp was converted to midnight UTC
+        call_kwargs = mock_fx_service.get_rate.await_args[1]
+        assert call_kwargs.get("at_timestamp") == datetime(
+            2025, 6, 1, 0, 0, 0, tzinfo=UTC
+        )
+
+    async def test_at_date_none(
+        self, mock_fx_service: MagicMock
+    ) -> None:
+        """at_date=None passes at_timestamp=None (latest rate)."""
+        mock_fx_service.get_rate = AsyncMock(
+            return_value=FxRateObservation(
+                base_currency="EUR",
+                quote_currency="USD",
+                rate=Decimal("1.1"),
+                timestamp=datetime(2026, 7, 23, tzinfo=UTC),
+                source="test",
+            )
+        )
+        await convert(
+            Decimal(50), "EUR", "USD", fx_service=mock_fx_service
+        )
+        call_kwargs = mock_fx_service.get_rate.await_args[1]
+        assert call_kwargs.get("at_timestamp") is None
+
+    async def test_cross_rate_conversion(
+        self, mock_fx_service: MagicMock
+    ) -> None:
+        """Falls back to indirect path (cross-rate) when direct rate is
+        unavailable."""
+        async def _side(base: str, quote: str, **kw: Any) -> Any:
+            if base == "GBP" and quote == "USD":
+                return FxRateObservation(
+                    base_currency="GBP", quote_currency="USD",
+                    rate=Decimal("1.27"),
+                    timestamp=datetime(2026, 7, 23, tzinfo=UTC),
+                    source="test",
+                )
+            if base == "USD" and quote == "JPY":
+                return FxRateObservation(
+                    base_currency="USD", quote_currency="JPY",
+                    rate=Decimal("149.50"),
+                    timestamp=datetime(2026, 7, 23, tzinfo=UTC),
+                    source="test",
+                )
+            return None  # direct GBP->JPY missing
+
+        mock_fx_service.get_rate = AsyncMock(side_effect=_side)
+        result = await convert(
+            Decimal(10), "GBP", "JPY", fx_service=mock_fx_service
+        )
+        # 10 * (1.27 * 149.50) = 10 * 189.865 = 1898.65
+        assert result == Decimal("1898.65")
