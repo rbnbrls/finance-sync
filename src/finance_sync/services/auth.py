@@ -192,6 +192,8 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
         "webhooks:read",
         "webhooks:write",
         "webhooks:delete",
+        "connectors:read",
+        "connectors:write",
     },
     "readonly": {
         "transactions:read",

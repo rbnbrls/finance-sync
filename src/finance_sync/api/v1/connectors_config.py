@@ -17,7 +17,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from finance_sync.api.deps.auth import AuthContext, require_role
+from finance_sync.api.deps.auth import AuthContext, get_auth_context, require_role
 from finance_sync.connectors.models import (
     ConnectorConfig as ConnectorConfigModel,
 )
@@ -263,7 +263,7 @@ async def list_available_connectors() -> list[ConnectorInfo]:
 
 @router.get("/configs", response_model=list[ConnectorConfigResponse])
 async def list_connector_configs(
-    auth: AuthContext = Depends(require_role("admin")),
+    auth: AuthContext = Depends(get_auth_context),
     db: AsyncSession = Depends(get_db),
 ) -> list[ConnectorConfigResponse]:
     """List all saved connector configurations for the current tenant."""
@@ -302,7 +302,7 @@ async def list_connector_configs(
 async def create_connector_config(
     body: ConnectorConfigCreate,
     request: Request,
-    auth: AuthContext = Depends(require_role("admin")),
+    auth: AuthContext = Depends(get_auth_context),
     db: AsyncSession = Depends(get_db),
 ) -> ConnectorConfigResponse:
     """Create a new connector configuration (encrypts credentials)."""
@@ -391,7 +391,7 @@ async def update_connector_config(
     config_id: str,
     body: ConnectorConfigUpdate,
     request: Request,
-    auth: AuthContext = Depends(require_role("admin")),
+    auth: AuthContext = Depends(get_auth_context),
     db: AsyncSession = Depends(get_db),
 ) -> ConnectorConfigResponse:
     """Update an existing connector configuration."""
@@ -474,7 +474,7 @@ async def update_connector_config(
 @router.delete("/configs/{config_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_connector_config(
     config_id: str,
-    auth: AuthContext = Depends(require_role("admin")),
+    auth: AuthContext = Depends(get_auth_context),
     db: AsyncSession = Depends(get_db),
 ) -> None:
     """Delete a connector configuration."""
@@ -498,7 +498,7 @@ async def delete_connector_config(
 async def test_connector_connection(
     config_id: str,
     request: Request,
-    auth: AuthContext = Depends(require_role("admin")),
+    auth: AuthContext = Depends(get_auth_context),
     db: AsyncSession = Depends(get_db),
 ) -> ConnectorTestResult:
     """Test a connector configuration by calling its ``health`` method."""
