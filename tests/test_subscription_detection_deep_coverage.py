@@ -25,7 +25,6 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
@@ -38,7 +37,6 @@ from finance_sync.models.enums import (
 )
 from finance_sync.services.subscription_detector.pattern_detector import (
     PatternDetector,
-    PatternResult,
 )
 from finance_sync.services.subscription_detector.service import (
     Subscription,
@@ -106,14 +104,18 @@ def _make_monthly_txns(
 
 class _BadStrTypeError:
     """Helper: __str__ raises TypeError to test exception handlers."""
+
     def __str__(self) -> str:
-        raise TypeError("simulated str conversion error")
+        msg = "simulated str conversion error"
+        raise TypeError(msg)
 
 
 class _BadStrValueError:
     """Helper: __str__ raises ValueError to test exception handlers."""
+
     def __str__(self) -> str:
-        raise ValueError("simulated str conversion error")
+        msg = "simulated str conversion error"
+        raise ValueError(msg)
 
 
 class TestPatternDetectorIsOutgoingEdgeCases:
@@ -138,9 +140,7 @@ class TestPatternDetectorIsOutgoingEdgeCases:
 
     def test_positive_amount_not_outgoing_falls_through(self) -> None:
         """Positive amount (not < 0) continues to transaction_type check."""
-        result = PatternDetector._is_outgoing(
-            {"amount": Decimal("100.00")}
-        )
+        result = PatternDetector._is_outgoing({"amount": Decimal("100.00")})
         assert result is False  # no transaction_type → empty string → False
 
 
@@ -166,12 +166,12 @@ class TestPatternDetectorAmountOkEdgeCases:
     def test_zero_amount_default_not_allowed(self) -> None:
         """Zero amount with allow_zero_amount=False returns False."""
         detector = PatternDetector()
-        assert not detector._amount_ok({"amount": Decimal("0")})
+        assert not detector._amount_ok({"amount": Decimal(0)})
 
     def test_zero_amount_when_allowed(self) -> None:
         """Zero amount with allow_zero_amount=True returns True."""
         detector = PatternDetector(allow_zero_amount=True)
-        assert detector._amount_ok({"amount": Decimal("0")})
+        assert detector._amount_ok({"amount": Decimal(0)})
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -493,7 +493,10 @@ class TestAnalyzeGroupEdgeCases:
         result = svc._analyze_group("Test", txns, classification=cls_dict)
         assert result is not None
         assert result["sector"] == "Technology"
-        assert result["detection_method"] == DetectionMethod.MERCHANT_CLASSIFICATION
+        assert (
+            result["detection_method"]
+            == DetectionMethod.MERCHANT_CLASSIFICATION
+        )
 
     def test_classification_as_unknown_object(self) -> None:
         """Classification that is neither MerchantClass nor dict — no sector."""
@@ -659,7 +662,7 @@ class TestResolveOverlapsEdgeCases:
             Subscription(
                 merchant_name="Netflix",
                 raw_description="POS Netflix",
-                amount=Decimal("0"),  # zero amount
+                amount=Decimal(0),  # zero amount
                 currency_code="EUR",
                 frequency_days=30,
                 frequency_label="monthly",
@@ -723,7 +726,7 @@ class TestResolveOverlapsEdgeCases:
             Subscription(
                 merchant_name="Freebie",
                 raw_description="Free Service",
-                amount=Decimal("0"),
+                amount=Decimal(0),
                 currency_code="EUR",
                 frequency_days=None,
                 frequency_label=None,
@@ -738,7 +741,7 @@ class TestResolveOverlapsEdgeCases:
             Subscription(
                 merchant_name="Freebie",
                 raw_description="Free Service",
-                amount=Decimal("0"),
+                amount=Decimal(0),
                 currency_code="EUR",
                 frequency_days=None,
                 frequency_label=None,
@@ -956,9 +959,7 @@ class TestFindClassifiedWithoutPattern:
         mc = MagicMock()
         mc.is_subscription = False
         merchants = {"Test": mc}
-        results = svc._find_classified_without_pattern(
-            merchants, {}, []
-        )
+        results = svc._find_classified_without_pattern(merchants, {}, [])
         assert len(results) == 0
 
     def test_merchant_in_pattern_skipped(self) -> None:
@@ -981,9 +982,7 @@ class TestFindClassifiedWithoutPattern:
         txns = [
             _make_txn(amount=Decimal("100.00"), description="Netflix")
         ]  # positive = incoming
-        results = svc._find_classified_without_pattern(
-            merchants, {}, txns
-        )
+        results = svc._find_classified_without_pattern(merchants, {}, txns)
         assert len(results) == 0
 
     def test_merchant_below_threshold_skipped(self) -> None:
@@ -992,12 +991,8 @@ class TestFindClassifiedWithoutPattern:
         mc.is_subscription = True
         mc.confidence = 0.50  # below 0.70
         merchants = {"Netflix": mc}
-        txns = [
-            _make_txn(amount=Decimal("-15.99"), description="Netflix")
-        ]
-        results = svc._find_classified_without_pattern(
-            merchants, {}, txns
-        )
+        txns = [_make_txn(amount=Decimal("-15.99"), description="Netflix")]
+        results = svc._find_classified_without_pattern(merchants, {}, txns)
         assert len(results) == 0
 
     def test_merchant_confidence_threshold_passed(self) -> None:
@@ -1006,12 +1001,8 @@ class TestFindClassifiedWithoutPattern:
         mc.is_subscription = True
         mc.confidence = 0.85
         merchants = {"Netflix": mc}
-        txns = [
-            _make_txn(amount=Decimal("-15.99"), description="Netflix")
-        ]
-        results = svc._find_classified_without_pattern(
-            merchants, {}, txns
-        )
+        txns = [_make_txn(amount=Decimal("-15.99"), description="Netflix")]
+        results = svc._find_classified_without_pattern(merchants, {}, txns)
         assert len(results) == 1
         assert results[0][0] == "Netflix"
 
@@ -1025,7 +1016,9 @@ class TestDetectSubscriptionsEdgeCases:
     """Cover additional branches in detect_subscriptions."""
 
     @pytest.mark.asyncio
-    async def test_classifier_not_subscription_no_cross_validation(self) -> None:
+    async def test_classifier_not_subscription_no_cross_validation(
+        self,
+    ) -> None:
         """When merchant is classified but not a subscription,
         cross-validation is skipped."""
         svc = SubscriptionDetectionService()
@@ -1033,7 +1026,8 @@ class TestDetectSubscriptionsEdgeCases:
             _make_txn(
                 amount=Decimal("-15.99"),
                 description="Some Merchant",
-                occurred_at=datetime(2025, 1, 15, tzinfo=UTC) + timedelta(days=30 * i),
+                occurred_at=datetime(2025, 1, 15, tzinfo=UTC)
+                + timedelta(days=30 * i),
             )
             for i in range(3)
         ]
@@ -1075,7 +1069,7 @@ class TestDetectSubscriptionsEdgeCases:
         ]
         txns.append(
             _make_txn(
-                amount=Decimal("0"),
+                amount=Decimal(0),
                 description="Netflix Cancellation",
                 occurred_at=base + timedelta(days=150),
             )
@@ -1251,9 +1245,8 @@ class TestDetectSubscriptionsExceptionHandlers:
         """Step 3a: construction of a specific merchant's subscription
         fails — other merchants are unaffected."""
         svc = SubscriptionDetectionService()
-        txns = (
-            _make_monthly_txns("Netflix", "-15.99", 3)
-            + _make_monthly_txns("Spotify", "-9.99", 3)
+        txns = _make_monthly_txns("Netflix", "-15.99", 3) + _make_monthly_txns(
+            "Spotify", "-9.99", 3
         )
         with patch.object(
             svc,
@@ -1515,7 +1508,7 @@ class TestAnalyzeGroupNoneDates:
         # One None date means only 0 or 1 valid intervals → no label
         assert result["frequency_label"] is None or result[
             "frequency_label"
-        ] in ("monthly",)
+        ] == "monthly"
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -1709,9 +1702,7 @@ class TestPatternDetectorClassificationEdgeCases:
         ]
         results = detector.detect(
             txns,
-            classifications={
-                "Some Service": {"sector": "Technology"}
-            },
+            classifications={"Some Service": {"sector": "Technology"}},
         )
         assert len(results) >= 1
         assert results[0].details["sector_boost"] == 0.0

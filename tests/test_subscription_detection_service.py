@@ -30,15 +30,14 @@ from finance_sync.models.enums import (
     SubscriptionConfidence,
     SubscriptionStatus,
 )
+from finance_sync.services.subscription_detector.merchant_classifier import (
+    MerchantClass,
+)
 from finance_sync.services.subscription_detector.service import (
     Subscription,
     SubscriptionDetectionService,
     _has_cancellation_signal,
 )
-from finance_sync.services.subscription_detector.merchant_classifier import (
-    MerchantClass,
-)
-
 
 # ═══════════════════════════════════════════════════════════════════════
 # Helpers
@@ -368,7 +367,7 @@ class TestDetectSubscriptionsCrossValidation:
                 user_id="test", transactions=txns
             )
 
-        # Low confidence merchant (< 0.60 threshold) not included without pattern
+        # Low confidence merchant (< 0.60 threshold) not included without pattern  # noqa: E501
         assert len(results) == 0
 
 
@@ -382,7 +381,7 @@ class TestDetectSubscriptionsCancellation:
 
     @pytest.mark.asyncio
     async def test_cancelled_subscription_marked_cancelled(self) -> None:
-        """A subscription with a cancellation transaction gets CANCELLED status."""
+        """A subscription with a cancellation transaction gets CANCELLED status."""  # noqa: E501
         base = datetime(2025, 1, 15, tzinfo=UTC)
         txns = _make_monthly_txns("Netflix", "-15.99", 5, base=base)
         # Add a cancellation transaction
@@ -779,7 +778,7 @@ class TestResultToSubscription:
 
 
 class TestMerchantOnlySubscription:
-    """Verify _merchant_only_subscription builds Subscription from classification."""
+    """Verify _merchant_only_subscription builds Subscription from classification."""  # noqa: E501
 
     @pytest.mark.asyncio
     async def test_merchant_only_result(self) -> None:
@@ -820,7 +819,7 @@ class TestMerchantOnlySubscription:
 
     @pytest.mark.asyncio
     async def test_low_confidence_merchant_only(self) -> None:
-        """Low-confidence merchant classification still produces a Subscription."""
+        """Low-confidence merchant classification still produces a Subscription."""  # noqa: E501
         svc = SubscriptionDetectionService()
         merchant_class = _make_merchant_class(
             sector="Energy",
@@ -1090,10 +1089,10 @@ class TestResolveOverlaps:
         assert resolved[0].detection_score == 0.90  # highest kept
 
     def test_overlap_with_zero_amount_excluded(self, svc) -> None:
-        """Subscriptions with zero amount don't interfere with overlap detection."""
+        """Subscriptions with zero amount don't interfere with overlap detection."""  # noqa: E501
         subs = [
             self._make_sub("Netflix", amount=Decimal("15.99"), score=0.80),
-            self._make_sub("Netflix", amount=Decimal("0"), score=0.70),
+            self._make_sub("Netflix", amount=Decimal(0), score=0.70),
         ]
         resolved = svc._resolve_overlaps(subs)
         # Zero-amount subscriptions skip the amount-comparison and
@@ -1444,7 +1443,7 @@ class TestDetectSubscriptionsFundamentals:
     async def test_no_merchant_classifier_falls_back_to_standalone(
         self,
     ) -> None:
-        """Without MerchantClassifier, the standalone classify_merchant is used."""
+        """Without MerchantClassifier, the standalone classify_merchant is used."""  # noqa: E501
         txns = _make_monthly_txns("Netflix", "-15.99", 6)
         svc = SubscriptionDetectionService()
         results = await svc.detect_subscriptions(
@@ -1461,7 +1460,7 @@ class TestDetectSubscriptionsFundamentals:
     async def test_merchant_classifier_enriches_with_fundamentals(
         self,
     ) -> None:
-        """When MerchantClassifier is provided, fundamentals data enriches results."""
+        """When MerchantClassifier is provided, fundamentals data enriches results."""  # noqa: E501
         txns = _make_monthly_txns("Netflix", "-15.99", 6)
 
         # Mock the MerchantClassifier

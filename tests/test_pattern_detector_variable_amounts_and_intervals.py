@@ -114,9 +114,7 @@ class TestAmountStepChangeScore:
 
     def test_less_than_3_amounts_returns_0_0(self) -> None:
         """Fewer than 3 amounts can't form a meaningful step pattern."""
-        score = _amounts_step_change_score(
-            [Decimal("10.00"), Decimal("20.00")]
-        )
+        score = _amounts_step_change_score([Decimal("10.00"), Decimal("20.00")])
         assert score == 0.0
 
     def test_small_absolute_fluctuation_single_cluster(self) -> None:

@@ -26,7 +26,6 @@ from finance_sync.models.enums import (
 from finance_sync.services.pattern_clustering import (
     AmountCluster,
     AmountClusterDetector,
-    CrossAccountMatch,
     CrossAccountMatcher,
     PeriodicPatternDetector,
     SubscriptionPatternEngine,
@@ -54,7 +53,9 @@ class TestDensityCluster1D:
             Decimal("-9.99"),
             Decimal("-5.00"),
         ]
-        clusters = _density_cluster_1d(values, eps_abs=Decimal("0.01"), min_pts=2)
+        clusters = _density_cluster_1d(
+            values, eps_abs=Decimal("0.01"), min_pts=2
+        )
         # The three -9.99 values should form a cluster; -5.00 may be noise
         assert len(clusters) == 1
         assert len(clusters[0]) >= 3
@@ -66,7 +67,9 @@ class TestDensityCluster1D:
             Decimal("-9.98"),
             Decimal("-50.00"),
         ]
-        clusters = _density_cluster_1d(values, eps_abs=Decimal("0.05"), min_pts=2)
+        clusters = _density_cluster_1d(
+            values, eps_abs=Decimal("0.05"), min_pts=2
+        )
         # -9.99, -10.00, -9.98 should be within eps of each other
         assert len(clusters) == 1
         assert len(clusters[0]) >= 3
@@ -94,13 +97,17 @@ class TestDensityCluster1D:
             Decimal("-50.00"),
             Decimal("-100.00"),
         ]
-        clusters = _density_cluster_1d(values, eps_abs=Decimal("1.00"), min_pts=2)
+        clusters = _density_cluster_1d(
+            values, eps_abs=Decimal("1.00"), min_pts=2
+        )
         # None are within €1 of each other
         assert len(clusters) == 0
 
     def test_not_enough_points_for_cluster(self) -> None:
         values = [Decimal("-9.99"), Decimal("-9.99")]
-        clusters = _density_cluster_1d(values, eps_abs=Decimal("0.01"), min_pts=3)
+        clusters = _density_cluster_1d(
+            values, eps_abs=Decimal("0.01"), min_pts=3
+        )
         assert len(clusters) == 0
 
     def test_empty_list(self) -> None:
@@ -112,15 +119,19 @@ class TestDensityCluster1D:
         assert len(clusters) == 0
 
     def test_zero_amounts(self) -> None:
-        values = [Decimal("0"), Decimal("0"), Decimal("0")]
-        clusters = _density_cluster_1d(values, eps_abs=Decimal("0.01"), min_pts=2)
+        values = [Decimal(0), Decimal(0), Decimal(0)]
+        clusters = _density_cluster_1d(
+            values, eps_abs=Decimal("0.01"), min_pts=2
+        )
         assert len(clusters) == 1
         assert len(clusters[0]) == 3
 
     def test_mixed_sign_amounts(self) -> None:
         # Absolute values should be compared
         values = [Decimal("-9.99"), Decimal("9.99"), Decimal("-10.00")]
-        clusters = _density_cluster_1d(values, eps_abs=Decimal("0.05"), min_pts=2)
+        clusters = _density_cluster_1d(
+            values, eps_abs=Decimal("0.05"), min_pts=2
+        )
         assert len(clusters) == 1
         assert len(clusters[0]) == 3
 
@@ -173,10 +184,18 @@ class TestAmountClusterDetector:
 
     def test_same_amount_cluster(self) -> None:
         txns = [
-            _make_txn_dict(_MockTxn(amount=Decimal("-9.99"), description="Netflix")),
-            _make_txn_dict(_MockTxn(amount=Decimal("-9.99"), description="Netflix B.V.")),
-            _make_txn_dict(_MockTxn(amount=Decimal("-9.99"), description="NETFLIX.COM")),
-            _make_txn_dict(_MockTxn(amount=Decimal("-50.00"), description="Other")),
+            _make_txn_dict(
+                _MockTxn(amount=Decimal("-9.99"), description="Netflix")
+            ),
+            _make_txn_dict(
+                _MockTxn(amount=Decimal("-9.99"), description="Netflix B.V.")
+            ),
+            _make_txn_dict(
+                _MockTxn(amount=Decimal("-9.99"), description="NETFLIX.COM")
+            ),
+            _make_txn_dict(
+                _MockTxn(amount=Decimal("-50.00"), description="Other")
+            ),
         ]
         detector = AmountClusterDetector()
         clusters = detector.detect_clusters(txns)
@@ -197,13 +216,27 @@ class TestAmountClusterDetector:
 
     def test_multiple_clusters(self) -> None:
         txns = [
-            _make_txn_dict(_MockTxn(amount=Decimal("-9.99"), description="Netflix")),
-            _make_txn_dict(_MockTxn(amount=Decimal("-9.99"), description="Netflix")),
-            _make_txn_dict(_MockTxn(amount=Decimal("-9.99"), description="Netflix")),
-            _make_txn_dict(_MockTxn(amount=Decimal("-49.99"), description="Internet")),
-            _make_txn_dict(_MockTxn(amount=Decimal("-49.99"), description="Internet")),
-            _make_txn_dict(_MockTxn(amount=Decimal("-49.99"), description="Internet")),
-            _make_txn_dict(_MockTxn(amount=Decimal("-100.00"), description="One-off")),
+            _make_txn_dict(
+                _MockTxn(amount=Decimal("-9.99"), description="Netflix")
+            ),
+            _make_txn_dict(
+                _MockTxn(amount=Decimal("-9.99"), description="Netflix")
+            ),
+            _make_txn_dict(
+                _MockTxn(amount=Decimal("-9.99"), description="Netflix")
+            ),
+            _make_txn_dict(
+                _MockTxn(amount=Decimal("-49.99"), description="Internet")
+            ),
+            _make_txn_dict(
+                _MockTxn(amount=Decimal("-49.99"), description="Internet")
+            ),
+            _make_txn_dict(
+                _MockTxn(amount=Decimal("-49.99"), description="Internet")
+            ),
+            _make_txn_dict(
+                _MockTxn(amount=Decimal("-100.00"), description="One-off")
+            ),
         ]
         detector = AmountClusterDetector(min_points=3)
         clusters = detector.detect_clusters(txns)
@@ -222,10 +255,9 @@ class TestAmountClusterDetector:
         assert detector.detect_clusters([]) == []
 
     def test_clusters_sorted_by_count(self) -> None:
-        txns = (
-            [_make_txn_dict(_MockTxn(amount=Decimal("-5.00")))] * 5
-            + [_make_txn_dict(_MockTxn(amount=Decimal("-10.00")))] * 10
-        )
+        txns = [_make_txn_dict(_MockTxn(amount=Decimal("-5.00")))] * 5 + [
+            _make_txn_dict(_MockTxn(amount=Decimal("-10.00")))
+        ] * 10
         detector = AmountClusterDetector(min_points=3)
         clusters = detector.detect_clusters(txns)
         assert len(clusters) >= 2
@@ -399,7 +431,7 @@ class TestDetectPeriodsFromIntervals:
         intervals = [30.0] * 10 + [7.0] * 3
         periods = _detect_periods_from_intervals(intervals, min_occurrences=2)
         assert len(periods) >= 2
-        # Monthly (peak at 30, count=10) should rank higher than weekly (peak at 7, count=3)
+        # Monthly (peak at 30, count=10) should rank higher than weekly (peak at 7, count=3)  # noqa: E501
         assert periods[0].period_days == 30
 
 
@@ -521,8 +553,12 @@ class TestCrossAccountMatcher:
     def test_same_merchant_different_accounts(self) -> None:
         matcher = CrossAccountMatcher()
         patterns = [
-            self._make_pattern(merchant="Netflix", account_id="acct_1", provider="bunq"),
-            self._make_pattern(merchant="Netflix", account_id="acct_2", provider="trading212"),
+            self._make_pattern(
+                merchant="Netflix", account_id="acct_1", provider="bunq"
+            ),
+            self._make_pattern(
+                merchant="Netflix", account_id="acct_2", provider="trading212"
+            ),
         ]
         matches = matcher.find_cross_account_matches(patterns)
         assert len(matches) >= 1
@@ -544,12 +580,16 @@ class TestCrossAccountMatcher:
         matcher = CrossAccountMatcher()
         patterns = [
             self._make_pattern(
-                merchant="Google Youtube", amount=Decimal("-15.99"),
-                account_id="acct_1", freq_days=30,
+                merchant="Google Youtube",
+                amount=Decimal("-15.99"),
+                account_id="acct_1",
+                freq_days=30,
             ),
             self._make_pattern(
-                merchant="YOUTUBE PREMIUM", amount=Decimal("-15.99"),
-                account_id="acct_2", freq_days=30,
+                merchant="YOUTUBE PREMIUM",
+                amount=Decimal("-15.99"),
+                account_id="acct_2",
+                freq_days=30,
             ),
         ]
         matches = matcher.find_cross_account_matches(patterns)
@@ -558,8 +598,16 @@ class TestCrossAccountMatcher:
     def test_incompatible_amounts_no_match(self) -> None:
         matcher = CrossAccountMatcher()
         patterns = [
-            self._make_pattern(merchant="Netflix", amount=Decimal("-15.99"), account_id="acct_1"),
-            self._make_pattern(merchant="Netflix", amount=Decimal("-99.99"), account_id="acct_2"),
+            self._make_pattern(
+                merchant="Netflix",
+                amount=Decimal("-15.99"),
+                account_id="acct_1",
+            ),
+            self._make_pattern(
+                merchant="Netflix",
+                amount=Decimal("-99.99"),
+                account_id="acct_2",
+            ),
         ]
         matches = matcher.find_cross_account_matches(patterns)
         assert len(matches) == 0
@@ -568,10 +616,14 @@ class TestCrossAccountMatcher:
         matcher = CrossAccountMatcher()
         patterns = [
             self._make_pattern(
-                merchant="Netflix", freq_days=30, account_id="acct_1",
+                merchant="Netflix",
+                freq_days=30,
+                account_id="acct_1",
             ),
             self._make_pattern(
-                merchant="Netflix", freq_days=365, account_id="acct_2",
+                merchant="Netflix",
+                freq_days=365,
+                account_id="acct_2",
             ),
         ]
         matches = matcher.find_cross_account_matches(patterns)
@@ -581,11 +633,13 @@ class TestCrossAccountMatcher:
         matcher = CrossAccountMatcher()
         patterns = [
             self._make_pattern(
-                merchant="Netflix", account_id="acct_1",
+                merchant="Netflix",
+                account_id="acct_1",
                 confidence=SubscriptionConfidence.MEDIUM,
             ),
             self._make_pattern(
-                merchant="Netflix", account_id="acct_2",
+                merchant="Netflix",
+                account_id="acct_2",
                 confidence=SubscriptionConfidence.MEDIUM,
             ),
         ]
@@ -712,7 +766,7 @@ class TestSubscriptionPatternEngine:
 
         # Monthly subscription at €15.99
         for i in range(6):
-            txns.append(
+            txns.append(  # noqa: PERF401
                 _make_txn_dict(
                     _MockTxn(
                         amount=Decimal("-15.99"),
@@ -725,7 +779,7 @@ class TestSubscriptionPatternEngine:
 
         # Weekly subscription at €4.99
         for i in range(8):
-            txns.append(
+            txns.append(  # noqa: PERF401
                 _make_txn_dict(
                     _MockTxn(
                         amount=Decimal("-4.99"),
@@ -738,7 +792,7 @@ class TestSubscriptionPatternEngine:
 
         # Random one-offs
         for i in range(5):
-            txns.append(
+            txns.append(  # noqa: PERF401
                 _make_txn_dict(
                     _MockTxn(
                         amount=Decimal(f"-{10 + i * 5}.00"),
@@ -761,7 +815,7 @@ class TestSubscriptionPatternEngine:
 
         # Netflix on account 1 at €15.99 (monthly)
         for i in range(6):
-            txns.append(
+            txns.append(  # noqa: PERF401
                 _make_txn_dict(
                     _MockTxn(
                         amount=Decimal("-15.99"),
@@ -776,7 +830,7 @@ class TestSubscriptionPatternEngine:
         # Netflix on account 2 at €9.99 (different price tier) —
         # still within 50% overlap for cross-account matching
         for i in range(6):
-            txns.append(
+            txns.append(  # noqa: PERF401
                 _make_txn_dict(
                     _MockTxn(
                         amount=Decimal("-9.99"),
@@ -794,7 +848,9 @@ class TestSubscriptionPatternEngine:
         engine = SubscriptionPatternEngine(min_occurrences=2)
         patterns = engine.detect(netflix_txns)
         # Should find Netflix as a pattern
-        netflix_patterns = [p for p in patterns if "Netflix" in p["merchant_name"]]
+        netflix_patterns = [
+            p for p in patterns if "Netflix" in p["merchant_name"]
+        ]
         assert len(netflix_patterns) >= 1
         pattern = netflix_patterns[0]
         assert pattern["frequency_label"] == "monthly"
@@ -817,7 +873,8 @@ class TestSubscriptionPatternEngine:
         patterns = engine.detect(cross_account_txns)
         # Should produce at least one cross-account pattern
         cross_account = [
-            p for p in patterns
+            p
+            for p in patterns
             if p["detection_method"] == DetectionMethod.CROSS_ACCOUNT
         ]
         assert len(cross_account) >= 1
@@ -846,12 +903,12 @@ class TestSubscriptionPatternEngine:
             assert "details" in p
 
     def test_different_amounts_produce_diff_clusters(self) -> None:
-        """Two different subscriptions at different amounts should both be detected."""
+        """Two different subscriptions at different amounts should both be detected."""  # noqa: E501
         base = datetime(2025, 1, 1, tzinfo=UTC)
         txns = []
         # Netflix €15.99 monthly
         for i in range(6):
-            txns.append(
+            txns.append(  # noqa: PERF401
                 _make_txn_dict(
                     _MockTxn(
                         amount=Decimal("-15.99"),
@@ -862,7 +919,7 @@ class TestSubscriptionPatternEngine:
             )
         # Spotify €9.99 monthly
         for i in range(6):
-            txns.append(
+            txns.append(  # noqa: PERF401
                 _make_txn_dict(
                     _MockTxn(
                         amount=Decimal("-9.99"),
@@ -926,9 +983,12 @@ class TestEdgeCases:
     def test_period_detection_with_gaps(self) -> None:
         """Period detection should handle missing transactions (gaps)."""
         intervals = [
-            30.0, 30.0, 30.0,  # Three monthly
-            60.0,  # One skipped (60 = 2× monthly)
-            30.0, 30.0,  # Normal again
+            30.0,
+            30.0,
+            30.0,  # Three monthly
+            60.0,  # One skipped (60 = 2× monthly)  # noqa: RUF003
+            30.0,
+            30.0,  # Normal again
         ]
         periods = _detect_periods_from_intervals(intervals, min_occurrences=2)
         assert len(periods) >= 1
@@ -938,14 +998,14 @@ class TestEdgeCases:
     def test_amount_clustering_with_zero_values(self) -> None:
         """Zero values should cluster and not cause division errors."""
         txns = [
-            _make_txn_dict(_MockTxn(amount=Decimal("0"))),
-            _make_txn_dict(_MockTxn(amount=Decimal("0"))),
-            _make_txn_dict(_MockTxn(amount=Decimal("0"))),
+            _make_txn_dict(_MockTxn(amount=Decimal(0))),
+            _make_txn_dict(_MockTxn(amount=Decimal(0))),
+            _make_txn_dict(_MockTxn(amount=Decimal(0))),
         ]
         detector = AmountClusterDetector()
         clusters = detector.detect_clusters(txns)
         assert len(clusters) == 1
-        assert clusters[0].amount == Decimal("0")
+        assert clusters[0].amount == Decimal(0)
 
     def test_cross_account_missing_dates(self) -> None:
         """Missing date fields should not crash the matcher."""

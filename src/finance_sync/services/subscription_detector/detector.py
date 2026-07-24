@@ -298,7 +298,7 @@ def _detect_frequency(
     return best_interval, best_label
 
 
-def _detect_frequency_robust(
+def _detect_frequency_robust(  # pyright: ignore[reportUnusedFunction]
     intervals_days: list[float],
 ) -> tuple[int | None, str | None]:
     """Detect frequency even when there are skipped payments.

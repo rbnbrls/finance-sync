@@ -350,9 +350,7 @@ class SubscriptionDetectionService:
                     # Check whether merchant classification also flagged
                     # this merchant — apply cross-validation if so.
                     mc = classified_merchants.get(merchant)
-                    if mc is not None and getattr(
-                        mc, "is_subscription", False
-                    ):
+                    if mc is not None and getattr(mc, "is_subscription", False):
                         subs = self._apply_cross_validation(subs, mc)
 
                     subscriptions.append(subs)
@@ -380,8 +378,7 @@ class SubscriptionDetectionService:
                     txns_for_merchant = [
                         t
                         for t in transactions
-                        if _normalise_merchant(t.get("description"))
-                        == merchant
+                        if _normalise_merchant(t.get("description")) == merchant
                     ]
                     subs = self._merchant_only_subscription(
                         merchant,
@@ -412,9 +409,7 @@ class SubscriptionDetectionService:
 
         # 4b. Final sort by detection score (most confident first)
         try:
-            subscriptions.sort(
-                key=lambda s: s.detection_score, reverse=True
-            )
+            subscriptions.sort(key=lambda s: s.detection_score, reverse=True)
         except Exception:
             self._log.exception("subscription_sort_failed")
 

@@ -16,21 +16,15 @@ from uuid import uuid4
 from finance_sync.models.enums import DetectionMethod, SubscriptionConfidence
 from finance_sync.services.pattern_clustering import (
     AmountCluster,
-    AmountClusterDetector,
     CrossAccountMatch,
-    CrossAccountMatcher,
     PeriodCandidate,
-    PeriodicPatternDetector,
     SubscriptionPatternEngine,
-    _compute_cluster_confidence,
     _compute_cluster_confidence,
     _density_cluster_1d,
     _detect_periods_from_intervals,
-    _map_period_to_label,
     _median_decimal,
     _smooth_series,
 )
-
 
 # ═══════════════════════════════════════════════════════════════════════
 # Data class representation tests
@@ -77,19 +71,25 @@ class TestMedianDecimal:
     """Verify decimal median computation."""
 
     def test_odd_count(self) -> None:
-        assert _median_decimal([Decimal("1"), Decimal("3"), Decimal("5")]) == Decimal("3")
+        assert _median_decimal([Decimal(1), Decimal(3), Decimal(5)]) == Decimal(
+            3
+        )
 
     def test_even_count(self) -> None:
-        assert _median_decimal([Decimal("1"), Decimal("2"), Decimal("3"), Decimal("4")]) == Decimal("2.5")
+        assert _median_decimal(
+            [Decimal(1), Decimal(2), Decimal(3), Decimal(4)]
+        ) == Decimal("2.5")
 
     def test_single_value(self) -> None:
-        assert _median_decimal([Decimal("42")]) == Decimal("42")
+        assert _median_decimal([Decimal(42)]) == Decimal(42)
 
     def test_empty_returns_zero(self) -> None:
-        assert _median_decimal([]) == Decimal("0")
+        assert _median_decimal([]) == Decimal(0)
 
     def test_unsorted_input(self) -> None:
-        assert _median_decimal([Decimal("5"), Decimal("1"), Decimal("3")]) == Decimal("3")
+        assert _median_decimal([Decimal(5), Decimal(1), Decimal(3)]) == Decimal(
+            3
+        )
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -101,7 +101,7 @@ class TestDensityClusterBranchCoverage:
     """Branch coverage for _density_cluster_1d."""
 
     def test_cluster_with_relative_tolerance_only(self) -> None:
-        """Large amounts far apart in absolute terms but within 5% relative should cluster."""
+        """Large amounts far apart in absolute terms but within 5% relative should cluster."""  # noqa: E501
         values = [
             Decimal("100.00"),
             Decimal("104.00"),
@@ -134,9 +134,16 @@ class TestDetectPeriodsExtras:
 
     def test_no_bands_match_returns_empty(self) -> None:
         """When no band has enough intervals, returns empty."""
-        intervals = [3.0, 47.0, 5.0, 90.0]  # scattered, not matching any band well
+        intervals = [
+            3.0,
+            47.0,
+            5.0,
+            90.0,
+        ]  # scattered, not matching any band well
         periods = _detect_periods_from_intervals(intervals, min_occurrences=2)
-        assert len(periods) >= 0  # May find raw-peak candidates depending on smoothing
+        assert (
+            len(periods) >= 0
+        )  # May find raw-peak candidates depending on smoothing
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -149,7 +156,7 @@ class TestClusterConfidenceEdgeCases:
 
     def test_very_high_cross_account_bonus_pushes_over_80(self) -> None:
         """Cross-account bonus can push a near-miss over 0.80."""
-        level, score = _compute_cluster_confidence(
+        _level, score = _compute_cluster_confidence(
             occurrence_count=3,
             amount_consistency=0.8,
             interval_regularity=0.7,
@@ -161,13 +168,16 @@ class TestClusterConfidenceEdgeCases:
 
     def test_boundary_just_below_80_is_medium(self) -> None:
         """Score just below 0.80 maps to MEDIUM."""
-        level, score = _compute_cluster_confidence(
+        level, _score = _compute_cluster_confidence(
             occurrence_count=12,
             amount_consistency=0.7,
             interval_regularity=0.5,
             cluster_size=3,
         )
-        assert level == SubscriptionConfidence.MEDIUM or level == SubscriptionConfidence.HIGH
+        assert (
+            level == SubscriptionConfidence.MEDIUM
+            or level == SubscriptionConfidence.HIGH
+        )
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -285,10 +295,12 @@ class TestPatternEngineExtras:
         ]
         engine = SubscriptionPatternEngine(min_occurrences=2)
         patterns = engine.detect(txns)
-        netflix_patterns = [p for p in patterns if "Netflix" in p["merchant_name"]]
+        netflix_patterns = [
+            p for p in patterns if "Netflix" in p["merchant_name"]
+        ]
         if netflix_patterns:
             p = netflix_patterns[0]
-            # With consistent amounts and monthly intervals, the method should be
+            # With consistent amounts and monthly intervals, the method should be  # noqa: E501
             # AMOUNT_CLUSTER (if amount_consistency > 0.5 and frequency is set)
             assert p["detection_method"] in (
                 DetectionMethod.AMOUNT_CLUSTER,

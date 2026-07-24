@@ -48,7 +48,7 @@ def mock_detector() -> MagicMock:
 
 
 @pytest.fixture(autouse=True)
-def _patch_subscription_detector(
+def _patch_subscription_detector(  # pyright: ignore[reportUnusedFunction]
     mock_detector: MagicMock,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -137,6 +137,7 @@ def client(app: FastAPI) -> Generator[TestClient, None, None]:
         yield c
 
     import asyncio
+
     asyncio.run(engine.dispose())
 
 
@@ -263,8 +264,7 @@ class TestListSubscriptionsEndpoint:
     ) -> None:
         """Respects limit and offset parameters."""
         mock_detector.list_subscriptions.return_value = [
-            _mock_subscription(merchant_name=f"Merchant {i}")
-            for i in range(3)
+            _mock_subscription(merchant_name=f"Merchant {i}") for i in range(3)
         ]
 
         response: Response = client.get(
@@ -661,7 +661,7 @@ class TestGetDetectedSubscriptionsEndpoint:
     def test_detected_passes_query_parameters(
         self, client: TestClient, mock_detection_svc: AsyncMock
     ) -> None:
-        """date_from, date_to, and min_occurrences query params are forwarded."""
+        """date_from, date_to, and min_occurrences query params are forwarded."""  # noqa: E501
         mock_detection_svc.detect_subscriptions.return_value = [
             self._make_result(),
         ]

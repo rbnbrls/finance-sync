@@ -10,7 +10,7 @@ Covers:
 - _amount_ok method
 - group_by_merchant
 - _analyse_group detection method selection
-"""
+"""  # noqa: E501
 
 from __future__ import annotations
 
@@ -29,7 +29,6 @@ from finance_sync.services.subscription_detector.pattern_detector import (
     PatternDetector,
     PatternResult,
 )
-
 
 # ═══════════════════════════════════════════════════════════════════════
 # Helpers
@@ -216,7 +215,7 @@ class TestDetectEdgeCases:
         base = datetime(2025, 1, 15, tzinfo=UTC)
         txns = [
             _make_txn(
-                amount=Decimal("0"),
+                amount=Decimal(0),
                 description="Netflix",
                 occurred_at=base + timedelta(days=30 * i),
             )
@@ -230,7 +229,7 @@ class TestDetectEdgeCases:
         base = datetime(2025, 1, 15, tzinfo=UTC)
         txns = [
             _make_txn(
-                amount=Decimal("0"),
+                amount=Decimal(0),
                 description="Netflix",
                 occurred_at=base + timedelta(days=30 * i),
             )
@@ -466,7 +465,10 @@ class TestDetectWithClassifications:
         assert len(results) == 1
         # No sector → no MERCHANT_CLASSIFICATION method
         assert results[0].sector is None
-        assert results[0].detection_method != DetectionMethod.MERCHANT_CLASSIFICATION
+        assert (
+            results[0].detection_method
+            != DetectionMethod.MERCHANT_CLASSIFICATION
+        )
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -484,7 +486,7 @@ class TestIsOutgoing:
         assert not PatternDetector._is_outgoing({"amount": Decimal("100.00")})
 
     def test_zero_amount_not_outgoing(self) -> None:
-        assert not PatternDetector._is_outgoing({"amount": Decimal("0")})
+        assert not PatternDetector._is_outgoing({"amount": Decimal(0)})
 
     def test_none_amount_falls_back_to_type(self) -> None:
         assert PatternDetector._is_outgoing(
@@ -526,11 +528,11 @@ class TestAmountOk:
 
     def test_zero_amount_not_allowed(self) -> None:
         detector = PatternDetector()
-        assert not detector._amount_ok({"amount": Decimal("0")})
+        assert not detector._amount_ok({"amount": Decimal(0)})
 
     def test_zero_amount_allowed(self) -> None:
         detector = PatternDetector(allow_zero_amount=True)
-        assert detector._amount_ok({"amount": Decimal("0")})
+        assert detector._amount_ok({"amount": Decimal(0)})
 
     def test_unparseable_amount_not_allowed(self) -> None:
         """When amount is missing, _amount_ok returns False."""
@@ -628,11 +630,11 @@ class TestAnalyseGroup:
             for i in range(3)
         ]
         cls = {"Netflix": _make_classification(sector="Communication Services")}
-        result = detector._analyse_group(
-            "Netflix", txns, classifications=cls
-        )
+        result = detector._analyse_group("Netflix", txns, classifications=cls)
         assert result is not None
-        assert result.detection_method == DetectionMethod.MERCHANT_CLASSIFICATION
+        assert (
+            result.detection_method == DetectionMethod.MERCHANT_CLASSIFICATION
+        )
         assert result.sector == "Communication Services"
 
     def test_similar_amount_with_frequency(self) -> None:
@@ -690,7 +692,7 @@ class TestAnalyseGroup:
         # and only interval_regularity > 0.5 is high
         detector = PatternDetector()
         base = datetime(2025, 1, 15, tzinfo=UTC)
-        # Squeeze amounts to be between 0.15 and 0.30 variance for 0.3 consistency
+        # Squeeze amounts to be between 0.15 and 0.30 variance for 0.3 consistency  # noqa: E501
         txns = [
             _make_txn(amount=Decimal("-100.00"), occurred_at=base),
             _make_txn(
