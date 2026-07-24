@@ -8,6 +8,7 @@ Exposes:
 
 from __future__ import annotations
 
+from datetime import datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any
 
@@ -24,8 +25,6 @@ from finance_sync.services.tax_lot_service import (
 )
 
 if TYPE_CHECKING:
-    from datetime import datetime
-
     from sqlalchemy.ext.asyncio import AsyncSession
 
 router = APIRouter(prefix="/tax-lots", tags=["tax-lots"])
