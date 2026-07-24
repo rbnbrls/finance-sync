@@ -12,6 +12,15 @@ Authentication is `Authorization: Bearer <JWT>` or `X-API-Key`. Mutations requir
 | `GET /accounts/{id}` | `finance:read` | One account and current snapshot. |
 | `GET /transactions` | `finance:read` | Canonical cash transactions. Filters: accountId, status, type, from, to, currency. |
 | `GET /holdings` | `investments:read` | Latest or `asOf` holdings; filters portfolioId, securityId. |
+| `GET /subscriptions` | `subscriptions:read` | List persisted detected subscriptions. Filters: status, confidence. Pagination: limit, offset. |
+| `GET /subscriptions/{id}` | `subscriptions:read` | Single detected subscription by ID. |
+| `GET /subscriptions/detected` | `subscriptions:read` | Run subscription detection (read-only, ephemeral). Query params: dateFrom, dateTo, minOccurrences. |
+| `POST /subscriptions/detect` | `subscriptions:write` | Run integrated subscription detection with request body. Body: { dateFrom?, dateTo?, minOccurrences? }. |
+| `POST /subscriptions/analyze` | `subscriptions:write` | Dry-run detection (backward-compatible). Body: { dateFrom?, dateTo?, minOccurrences?, useMerchantClassifier? }. |
+| `PATCH /subscriptions/{id}` | `subscriptions:write` | Update subscription status/category/notes. Body: { status?, category?, userNotes? }. |
+| `POST /subscriptions/{id}/confirm` | `subscriptions:write` | Confirm a detected subscription as legitimate. Body: { userNotes? }. |
+| `POST /subscriptions/{id}/ignore` | `subscriptions:write` | Ignore/dismiss a detected subscription. Body: { reason? }. |
+| `DELETE /subscriptions/{id}` | `subscriptions:write` | Permanently remove a subscription record. |
 | `GET /portfolio` | `investments:read` | Valuation, cash, gains, positions, freshness. |
 | `GET /performance` | `analytics:read` | Time-series and return metrics. Parameters subject, period, from, to. |
 | `GET /allocation` | `analytics:read` | Allocation by asset class, sector, country, currency, or security. |
