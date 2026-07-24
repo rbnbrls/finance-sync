@@ -1,0 +1,21 @@
+# ── CI Failure Issue Creator (caller) ──────────────────────────────────────────
+#
+# Thin caller that delegates to the centrally-maintained reusable workflow in
+# coolify-monitor. Updates to the issue-creation logic only need to be pushed
+# to coolify-monitor — all repos that use this caller pick them up
+# automatically.
+#
+# Docs: https://github.com/rbnbrls/coolify-monitor/blob/main/deploy/README.md
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: Create issue on CI failure
+
+on:
+  workflow_run:
+    types:
+      - completed
+
+jobs:
+  create-issue:
+    uses: rbnbrls/coolify-monitor/.github/workflows/ci-failure-issue.yml@main
+    secrets: inherit
