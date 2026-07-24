@@ -202,9 +202,7 @@ class TestAuthGuards:
 
     def test_bad_token_returns_401(self, client: TestClient) -> None:
         headers = {"Authorization": "Bearer invalid-token-here"}
-        response: Response = client.get(
-            "/api/v1/allocation", headers=headers
-        )
+        response: Response = client.get("/api/v1/allocation", headers=headers)
         assert response.status_code == 401
 
 
@@ -233,6 +231,7 @@ class TestServiceEdgeCases:
         result = await svc._load_region_metadata([])
         assert result == {}
         mock_session.execute.assert_not_called()
+
     async def test_sector_uses_label_when_available(
         self, mock_session: AsyncMock
     ) -> None:
@@ -250,6 +249,7 @@ class TestServiceEdgeCases:
         result = await svc._load_sector_metadata(["sec-1"])
         assert result == {"sec-1": "Technology"}
         mock_session.execute.assert_called_once()
+
     async def test_region_with_industry_from_sector_exposure(
         self, mock_session: AsyncMock
     ) -> None:
@@ -265,6 +265,8 @@ class TestServiceEdgeCases:
         svc = AllocationService(mock_session)
         result = await svc._load_region_metadata(["sec-1"])
         assert result == {"sec-1": "Europe"}
+
+
 # ═══════════════════════════════════════════════════════════════════════
 
 
@@ -399,9 +401,7 @@ class TestAllocationServiceWithData:
         assert by_ac["bond"].value == Decimal(300)
         assert by_ac["bond"].percentage == Decimal("16.67")
 
-    async def test_account_breakdown(
-        self, mock_session: AsyncMock
-    ) -> None:
+    async def test_account_breakdown(self, mock_session: AsyncMock) -> None:
         await self._setup_holdings(mock_session)
         svc = AllocationService(mock_session)
 
@@ -444,9 +444,7 @@ class TestAllocationServiceWithData:
         assert result.by_region[0].name == "Unclassified"
         assert result.by_region[0].value == Decimal(1800)
 
-    async def test_passes_tenant_filter(
-        self, mock_session: AsyncMock
-    ) -> None:
+    async def test_passes_tenant_filter(self, mock_session: AsyncMock) -> None:
         svc = AllocationService(mock_session)
 
         # Set up execute to return empty holdings first (so it continues)
@@ -457,9 +455,7 @@ class TestAllocationServiceWithData:
         await svc.get_allocation(tenant_id="tenant-xyz")
         _assert_sql_contains(mock_session, "tenant-xyz")
 
-    async def test_account_scoping(
-        self, mock_session: AsyncMock
-    ) -> None:
+    async def test_account_scoping(self, mock_session: AsyncMock) -> None:
         """Test that account_id filter is passed through."""
         h1 = _make_holding(
             security_id="sec-1",
@@ -467,9 +463,7 @@ class TestAllocationServiceWithData:
             market_value="1000",
         )
         holdings = [h1]
-        sec1 = _make_security(
-            security_id="sec-1", security_type="stock"
-        )
+        sec1 = _make_security(security_id="sec-1", security_type="stock")
         acct1 = _make_account(account_id="acct-1")
 
         holdings_result = MagicMock()
@@ -492,9 +486,7 @@ class TestAllocationServiceWithData:
         ]
 
         svc = AllocationService(mock_session)
-        result = await svc.get_allocation(
-            tenant_id="t1", account_id="acct-1"
-        )
+        result = await svc.get_allocation(tenant_id="t1", account_id="acct-1")
         assert result.total_value == Decimal(1000)
         assert len(result.accounts) == 1
         assert result.accounts[0].account_id == "acct-1"
@@ -511,9 +503,7 @@ class TestAllocationServiceSingleHolding:
             account_id="acct-1",
             market_value="5000",
         )
-        sec = _make_security(
-            security_id="sec-1", security_type="crypto"
-        )
+        sec = _make_security(security_id="sec-1", security_type="crypto")
         acct = _make_account(account_id="acct-1")
 
         h_result = MagicMock()
@@ -544,9 +534,7 @@ class TestAllocationServiceSingleHolding:
         assert result.by_asset_class[0].value == Decimal(5000)
         assert result.by_asset_class[0].percentage == Decimal(100)
 
-    async def test_zero_market_value(
-        self, mock_session: AsyncMock
-    ) -> None:
+    async def test_zero_market_value(self, mock_session: AsyncMock) -> None:
         h = _make_holding(
             security_id="sec-1",
             account_id="acct-1",
@@ -592,14 +580,12 @@ class TestAllocationPercentages:
         """Evenly split across 4 asset classes."""
         holdings = []
         securities = []
-        for sid, stype, val in (
-            [
-                ("sec-1", "stock", "250"),
-                ("sec-2", "etf", "250"),
-                ("sec-3", "bond", "250"),
-                ("sec-4", "crypto", "250"),
-            ]
-        ):
+        for sid, stype, val in [
+            ("sec-1", "stock", "250"),
+            ("sec-2", "etf", "250"),
+            ("sec-3", "bond", "250"),
+            ("sec-4", "crypto", "250"),
+        ]:
             h = _make_holding(
                 security_id=sid,
                 account_id="acct-1",
@@ -648,9 +634,7 @@ class TestAllocationPercentages:
 class TestAllocationFxConversion:
     """Allocation with multi-currency conversion."""
 
-    async def test_fx_conversion_applied(
-        self, mock_session: AsyncMock
-    ) -> None:
+    async def test_fx_conversion_applied(self, mock_session: AsyncMock) -> None:
         """When target_currency differs from holding currency,
         FxService is called."""
         h = _make_holding(
@@ -691,9 +675,7 @@ class TestAllocationFxConversion:
         fx_service.convert.return_value = conv_result
 
         svc = AllocationService(mock_session, fx_service=fx_service)
-        result = await svc.get_allocation(
-            tenant_id="t1", target_currency="EUR"
-        )
+        result = await svc.get_allocation(tenant_id="t1", target_currency="EUR")
 
         # 1000 USD should be converted to 850 EUR at 0.85 rate
         assert result.total_value == Decimal(850)
@@ -734,9 +716,7 @@ class TestAllocationFxConversion:
 
         fx_service = AsyncMock()
         svc = AllocationService(mock_session, fx_service=fx_service)
-        result = await svc.get_allocation(
-            tenant_id="t1", target_currency="EUR"
-        )
+        result = await svc.get_allocation(tenant_id="t1", target_currency="EUR")
 
         assert result.total_value == Decimal(1000)
         assert result.currency_code == "EUR"
@@ -819,9 +799,7 @@ class TestPickDominantCurrency:
     def test_majority_wins(self) -> None:
         from finance_sync.services.allocation import _pick_dominant_currency
 
-        result = _pick_dominant_currency(
-            ["EUR", "EUR", "USD", "EUR", "GBP"]
-        )
+        result = _pick_dominant_currency(["EUR", "EUR", "USD", "EUR", "GBP"])
         assert result == "EUR"
 
     def test_tie_returns_first_majority(self) -> None:
@@ -861,9 +839,7 @@ class TestSectorClassification:
         sector_mock.metadata_type = "sector_exposure"
         sector_mock.metadata_json = {"sector": "Technology"}
         sector_result = MagicMock()
-        sector_result.scalars.return_value.all.return_value = [
-            sector_mock
-        ]
+        sector_result.scalars.return_value.all.return_value = [sector_mock]
 
         empty = MagicMock()
         empty.scalars.return_value.all.return_value = []
@@ -912,9 +888,7 @@ class TestRegionClassification:
         profile_mock.metadata_type = "company_profile"
         profile_mock.metadata_json = {"country": "US"}
         region_result = MagicMock()
-        region_result.scalars.return_value.all.return_value = [
-            profile_mock
-        ]
+        region_result.scalars.return_value.all.return_value = [profile_mock]
 
         empty = MagicMock()
         empty.scalars.return_value.all.return_value = []
@@ -923,7 +897,7 @@ class TestRegionClassification:
             h_result,
             a_result,
             s_result,
-            empty,    # sector metadata
+            empty,  # sector metadata
             region_result,  # region metadata
         ]
 
@@ -971,9 +945,7 @@ class TestFxConversionEdgeCases:
         fx_service = AsyncMock()
         fx_service.convert.return_value = None  # conversion fails
         svc = AllocationService(mock_session, fx_service=fx_service)
-        result = await svc.get_allocation(
-            tenant_id="t1", target_currency="EUR"
-        )
+        result = await svc.get_allocation(tenant_id="t1", target_currency="EUR")
 
         # Falls back to original value when FX fails
         assert result.total_value == Decimal(1000)

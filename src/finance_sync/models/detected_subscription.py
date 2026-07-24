@@ -3,6 +3,7 @@
 Each row represents a subscription identified by analyzing transaction
 history for recurring amounts, regular intervals, and merchant patterns.
 """
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -147,7 +148,7 @@ class DetectedSubscription(Base):
     # ── Metadata ────────────────────────────────────────────────────
     detection_score: Mapped[float | None] = mapped_column(
         nullable=True,
-        comment="Algorithmic confidence score (0.0–1.0)",
+        comment="Algorithmic confidence score (0.0-1.0)",
     )
     details: Mapped[dict[str, Any] | None] = mapped_column(
         JSONB,

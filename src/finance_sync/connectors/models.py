@@ -249,9 +249,7 @@ class RawCardTransaction(BaseModel):
     merchant_name: str | None = Field(default=None)
     merchant_city: str | None = Field(default=None)
     merchant_country: str | None = Field(default=None)
-    mcc: str | None = Field(
-        default=None, description="Merchant Category Code"
-    )
+    mcc: str | None = Field(default=None, description="Merchant Category Code")
     card_id: str | None = Field(
         default=None, description="Provider card identifier"
     )
@@ -346,9 +344,7 @@ class CanonicalCardTransactionData(BaseModel):
     card_id: str | None = Field(default=None)
     card_type: str | None = Field(default=None)
     card_last_four: str | None = Field(default=None)
-    occurred_at: datetime = Field(
-        description="When the transaction occurred"
-    )
+    occurred_at: datetime = Field(description="When the transaction occurred")
     booked_at: datetime | None = Field(default=None)
     authorization_type: str = Field(
         default="authorization",

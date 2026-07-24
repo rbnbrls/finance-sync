@@ -242,8 +242,7 @@ class EnrichmentGateway:
 
         try:
             response = await self.http_client.get(
-                f"/api/{self._settings.openbb_api_version}"
-                "/market/fundamentals",
+                f"/api/{self._settings.openbb_api_version}/market/fundamentals",
                 params={
                     "symbol": identifier,
                     "type": identifier_type,
@@ -286,8 +285,7 @@ class EnrichmentGateway:
                 data.get("bookValue") or data.get("book_value_per_share")
             ),
             dividend_yield=_safe_decimal(
-                data.get("dividendYield")
-                or data.get("dividend_yield")
+                data.get("dividendYield") or data.get("dividend_yield")
             ),
             dividend_rate=_safe_decimal(
                 data.get("dividendRate") or data.get("dividend_rate")
@@ -296,12 +294,10 @@ class EnrichmentGateway:
                 data.get("marketCap") or data.get("market_cap")
             ),
             enterprise_value=_safe_decimal(
-                data.get("enterpriseValue")
-                or data.get("enterprise_value")
+                data.get("enterpriseValue") or data.get("enterprise_value")
             ),
             shares_outstanding=_safe_decimal(
-                data.get("sharesOutstanding")
-                or data.get("shares_outstanding")
+                data.get("sharesOutstanding") or data.get("shares_outstanding")
             ),
             beta=_safe_decimal(data.get("beta")),
             high_52w=_safe_decimal(
@@ -381,18 +377,14 @@ class EnrichmentGateway:
             or []
         )
         region_raw = (
-            data.get("regionExposures")
-            or data.get("region_exposures")
-            or []
+            data.get("regionExposures") or data.get("region_exposures") or []
         )
 
         holdings = [
             ETFHolding(
                 ticker=h.get("ticker") or h.get("symbol"),
                 name=h.get("name") or h.get("description"),
-                weight=_safe_decimal(
-                    h.get("weight") or h.get("percentage")
-                ),
+                weight=_safe_decimal(h.get("weight") or h.get("percentage")),
                 sector=h.get("sector"),
                 market_value=_safe_decimal(
                     h.get("marketValue") or h.get("market_value")
@@ -427,7 +419,10 @@ class EnrichmentGateway:
         ]
 
         return ETFComposition(
-            etf_name=data.get("name") or data.get("etfName") or data.get("etf_name") or symbol,
+            etf_name=data.get("name")
+            or data.get("etfName")
+            or data.get("etf_name")
+            or symbol,
             total_holdings=data.get("totalHoldings")
             or data.get("total_holdings")
             or len(holdings),
@@ -440,8 +435,7 @@ class EnrichmentGateway:
                 or data.get("expenseRatio")
             ),
             dividend_yield=_safe_decimal(
-                data.get("dividendYield")
-                or data.get("dividend_yield")
+                data.get("dividendYield") or data.get("dividend_yield")
             ),
             source="openbb",
         )

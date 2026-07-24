@@ -6,12 +6,12 @@ because FastAPI needs runtime type introspection for OpenAPI generation.
 
 from typing import Any
 
-import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from finance_sync.api.deps.auth import get_current_user
 from finance_sync.dependencies import get_settings
 from finance_sync.models.user import User as UserModel
+from finance_sync.services.github_issue import GitHubIssueService
 
 router = APIRouter(prefix="/feedback", tags=["feedback"])
 
@@ -19,6 +19,7 @@ FEEDBACK_LABELS = {
     "bug": "bug",
     "feature": "enhancement",
 }
+_DEFAULT_LABEL = "feedback"
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
@@ -66,6 +67,18 @@ async def submit_feedback(
             ),
         )
 
+    # ── Parse repo into owner / name ─────────────────────────────────
+    repo_full = settings.github_repo
+    if "/" not in repo_full:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=(
+                f"Invalid GITHUB_REPO format: {repo_full!r}. "
+                "Expected owner/repo."
+            ),
+        )
+    owner, repo_name = repo_full.split("/", 1)
+
     # ── Build GitHub issue body ─────────────────────────────────────
     label = FEEDBACK_LABELS[feedback_type]
     issue_body = (
@@ -76,40 +89,32 @@ async def submit_feedback(
         f"{description}"
     )
 
-    # ── Call GitHub API ─────────────────────────────────────────────
-    github_api_url = (
-        f"https://api.github.com/repos/{settings.github_repo}/issues"
+    # ── Call the service ─────────────────────────────────────────────
+    service = GitHubIssueService(token=settings.github_token)
+    title_with_prefix = f"[{label.upper()}] {title}"
+
+    # Append feedback label so issues are also discoverable
+    result = await service.create_issue(
+        owner=owner,
+        repo=repo_name,
+        title=title_with_prefix,
+        body=issue_body,
+        labels=[label, _DEFAULT_LABEL],
     )
 
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        resp = await client.post(
-            github_api_url,
-            headers={
-                "Authorization": f"Bearer {settings.github_token}",
-                "Accept": "application/vnd.github.v3+json",
-                "User-Agent": "finance-sync/0.1.0",
-            },
-            json={
-                "title": f"[{label.upper()}] {title}",
-                "body": issue_body,
-                "labels": [label],
-            },
-        )
-
-    if resp.is_error:
-        detail = (
-            f"Failed to create GitHub issue: {resp.status_code} "
-            f"{resp.text[:500]}"
-        )
+    if not result.success:
         raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=detail,
+            status_code=(
+                status.HTTP_502_BAD_GATEWAY
+                if result.status_code is not None
+                else status.HTTP_503_SERVICE_UNAVAILABLE
+            ),
+            detail=result.error,
         )
 
-    issue_data = resp.json()
     return {
         "success": True,
-        "issue_url": issue_data.get("html_url"),
-        "issue_number": issue_data.get("number"),
+        "issue_url": result.issue_url,
+        "issue_number": result.issue_number,
         "message": "Feedback submitted successfully. Thank you!",
     }

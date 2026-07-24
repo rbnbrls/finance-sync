@@ -4,18 +4,18 @@ Uses pattern recognition to detect subscriptions from transaction history
 by analyzing amount consistency, interval regularity, and optionally
 classifying merchants via fundamentals/securities metadata.
 """
+
 from __future__ import annotations
 
 import re
 from collections import defaultdict
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from statistics import median, stdev
+from statistics import median
 from typing import TYPE_CHECKING, Any
 
 import structlog
 
-from finance_sync.models.detected_subscription import DetectedSubscription
 from finance_sync.models.enums import (
     DetectionMethod,
     SubscriptionConfidence,
@@ -28,6 +28,8 @@ if TYPE_CHECKING:
         async_sessionmaker,
     )
 
+    from finance_sync.models.detected_subscription import DetectedSubscription
+
 logger = structlog.get_logger("finance_sync.services.subscription_detector")
 
 # ── Constants ──────────────────────────────────────────────────────────
@@ -35,7 +37,9 @@ logger = structlog.get_logger("finance_sync.services.subscription_detector")
 _DEFAULT_DAYS_BACK = 365  # Scan up to 1 year by default
 _MIN_OCCURRENCES = 2  # Minimum transactions to consider a pattern
 _MAX_AMOUNT_VARIANCE_PCT = Decimal("0.05")  # 5% variance allowed
-_MAX_AMOUNT_ABSOLUTE = Decimal("2.00")  # Or €2 absolute variance for small amounts
+_MAX_AMOUNT_ABSOLUTE = Decimal(
+    "2.00"
+)  # Or €2 absolute variance for small amounts
 
 # Standard frequency bands (in days) with tolerance
 _FREQUENCY_BANDS: dict[str, tuple[int, int, int]] = {
@@ -209,14 +213,19 @@ def _normalise_merchant(description: str | None) -> str:
         text = re.sub(prefix, "", text, flags=re.IGNORECASE)
 
     # Remove reference/transaction numbers
-    text = re.sub(r"\b(?:REF|TRX|TXN|TRANS|ID|NR)[.:]?\s*\w{6,}", "", text, flags=re.IGNORECASE)
+    text = re.sub(
+        r"\b(?:REF|TRX|TXN|TRANS|ID|NR)[.:]?\s*\w{6,}",
+        "",
+        text,
+        flags=re.IGNORECASE,
+    )
     text = re.sub(r"\b\d{10,}\b", "", text)
 
     # Normalise whitespace
     text = re.sub(r"\s+", " ", text).strip()
 
     # Take first meaningful segment (up to first comma/semicolon/dash)
-    text = re.split(r"[,;–—|]", text)[0].strip()
+    text = re.split(r"[,;--|]", text)[0].strip()
 
     # Title-case for consistency
     text = text.title()
@@ -241,7 +250,9 @@ def _classify_category(description: str | None) -> str | None:
 
 
 def _is_subscription_keyword(description: str | None) -> bool:
-    """Check if a description contains explicit subscription-related keywords."""
+    """Check if a description contains explicit
+    subscription-related keywords.
+    """
     if not description:
         return False
     for pattern in _SUBSCRIPTION_KEYWORDS:
@@ -250,7 +261,9 @@ def _is_subscription_keyword(description: str | None) -> bool:
     return False
 
 
-def _detect_frequency(intervals_days: list[float]) -> tuple[int | None, str | None]:
+def _detect_frequency(
+    intervals_days: list[float],
+) -> tuple[int | None, str | None]:
     """Detect the most likely frequency from a list of day intervals.
 
     Returns (interval_days, frequency_label) or (None, None) if no pattern
@@ -359,11 +372,11 @@ def _amounts_are_consistent(
     abs_amounts = [abs(a) for a in amounts]
     mean_amt = sum(abs_amounts) / Decimal(str(len(abs_amounts)))
 
-    if mean_amt == Decimal("0"):
+    if mean_amt == Decimal(0):
         # All amounts are zero — perfectly consistent
         return 1.0
 
-    max_dev = Decimal("0")
+    max_dev = Decimal(0)
     for a in abs_amounts:
         dev = abs(a - mean_amt)
         if dev > max_dev:
@@ -446,7 +459,9 @@ class SubscriptionDetector:
         )
 
         # 1. Fetch outgoing transactions
-        transactions = await self._fetch_outgoing_transactions(date_from, date_to)
+        transactions = await self._fetch_outgoing_transactions(
+            date_from, date_to
+        )
         self._log.debug(
             "fetched_outgoing_transactions", count=len(transactions)
         )
@@ -494,8 +509,9 @@ class SubscriptionDetector:
 
         async with self._session_factory() as session:
             stmt = (
-                select(DetectedSubscription)
-                .where(DetectedSubscription.tenant_id == self._tenant_id)  # type: ignore[attr-defined]
+                select(DetectedSubscription).where(
+                    DetectedSubscription.tenant_id == self._tenant_id
+                )  # type: ignore[attr-defined]
             )
 
             if status:
@@ -507,9 +523,13 @@ class SubscriptionDetector:
                     DetectedSubscription.confidence == confidence  # type: ignore[attr-defined]
                 )
 
-            stmt = stmt.order_by(
-                DetectedSubscription.last_detected_at.desc()  # type: ignore[attr-defined]
-            ).offset(offset).limit(limit)
+            stmt = (
+                stmt.order_by(
+                    DetectedSubscription.last_detected_at.desc()  # type: ignore[attr-defined]
+                )
+                .offset(offset)
+                .limit(limit)
+            )
 
             result = await session.execute(stmt)
             return list(result.scalars().all())
@@ -650,7 +670,9 @@ class SubscriptionDetector:
         merchant: str,
         txns: list[dict[str, Any]],
     ) -> dict[str, Any] | None:
-        """Analyze a single merchant's transactions for subscription patterns."""
+        """Analyze a single merchant's transactions
+        for subscription patterns.
+        """
         # Sort transactions by date for interval computation
         txns_sorted = sorted(txns, key=lambda t: t["occurred_at"])
         amounts = [t["amount"] for t in txns_sorted]
@@ -768,23 +790,18 @@ class SubscriptionDetector:
             )
 
             # Fetch existing subscription merchant names for this tenant
-            existing_stmt = (
-                select(DetectedSubscription.merchant_name)
-                .where(
-                    DetectedSubscription.tenant_id == self._tenant_id,  # type: ignore[attr-defined]
-                    DetectedSubscription.status.in_(  # type: ignore[attr-defined]
-                        [
-                            SubscriptionStatus.ACTIVE.value,
-                            SubscriptionStatus.PAUSED.value,
-                            SubscriptionStatus.UNKNOWN.value,
-                        ]
-                    ),
-                )
+            existing_stmt = select(DetectedSubscription.merchant_name).where(
+                DetectedSubscription.tenant_id == self._tenant_id,  # type: ignore[attr-defined]
+                DetectedSubscription.status.in_(  # type: ignore[attr-defined]
+                    [
+                        SubscriptionStatus.ACTIVE.value,
+                        SubscriptionStatus.PAUSED.value,
+                        SubscriptionStatus.UNKNOWN.value,
+                    ]
+                ),
             )
             existing_result = await session.execute(existing_stmt)
-            existing_merchants = {
-                row[0] for row in existing_result.all()
-            }
+            existing_merchants = {row[0] for row in existing_result.all()}
 
             persisted: list[DetectedSubscription] = []
             for data in detected:

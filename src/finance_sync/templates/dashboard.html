@@ -1,65 +1,1090 @@
-{% extends "base.html" %}
-{% block title %}finance-sync — Control Panel{% endblock %}
-{% block head %}{% endblock %}
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>finance-sync — Control Panel</title>
+    <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+    <style>
+        /* ── Reset & Base ─────────────────────────────────────────────── */
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        :root {
+            --bg: #0f1117;
+            --surface: #1a1d28;
+            --surface-2: #242736;
+            --border: #2e3245;
+            --text: #e1e4ef;
+            --text-muted: #8b8fa3;
+            --accent: #6c63ff;
+            --accent-hover: #7b73ff;
+            --green: #34d399;
+            --red: #f87171;
+            --yellow: #fbbf24;
+            --radius: 10px;
+            --sidebar-w: 240px;
+            --font: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        }
+        html { font-size: 15px; }
+        body {
+            font-family: var(--font);
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            display: flex;
+        }
+        a { color: var(--accent); text-decoration: none; }
+        a:hover { color: var(--accent-hover); }
 
-{% block content %}
-<!-- Sidebar -->
-<aside class="sidebar" id="sidebar">
-    <div class="sidebar-header">
-        <h1>finance<span>-sync</span></h1>
-        <div class="version">v0.1.0 &middot; Control Panel</div>
-    </div>
-    <nav class="sidebar-nav">
-        <a href="#" class="active" data-section="connectors" onclick="switchSection('connectors')">
-            <span class="icon">&#9881;</span> Connectors
-        </a>
-        <a href="#" data-section="exporters" onclick="switchSection('exporters')">
-            <span class="icon">&#10145;</span> Exporters
-        </a>
-        <a href="#" data-section="sync" onclick="switchSection('sync')">
-            <span class="icon">&#8635;</span> Sync Runs
-        </a>
-        <a href="#" data-section="settings" onclick="switchSection('settings')">
-            <span class="icon">&#9879;</span> Settings
-        </a>
-    </nav>
-    <div class="sidebar-footer">
-        <span class="user-email" id="user-email">—</span>
-        <button onclick="logout()">Sign Out</button>
-    </div>
-</aside>
+        /* ── Sidebar ──────────────────────────────────────────────────── */
+        .sidebar {
+            width: var(--sidebar-w);
+            background: var(--surface);
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            flex-shrink: 0;
+            position: fixed;
+            top: 0; left: 0;
+            height: 100vh;
+            z-index: 10;
+        }
+        .sidebar-header {
+            padding: 20px 18px;
+            border-bottom: 1px solid var(--border);
+        }
+        .sidebar-header h1 {
+            font-size: 1.1rem;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+        }
+        .sidebar-header h1 span { color: var(--accent); }
+        .sidebar-header .version {
+            font-size: 0.7rem;
+            color: var(--text-muted);
+            margin-top: 2px;
+        }
+        .sidebar-nav { flex: 1; padding: 12px 0; }
+        .sidebar-nav a {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 18px;
+            color: var(--text-muted);
+            font-size: 0.9rem;
+            font-weight: 500;
+            transition: all 0.15s;
+            border-left: 3px solid transparent;
+        }
+        .sidebar-nav a:hover, .sidebar-nav a.active {
+            color: var(--text);
+            background: var(--surface-2);
+            border-left-color: var(--accent);
+        }
+        .sidebar-nav a .icon {
+            width: 20px;
+            text-align: center;
+            font-size: 1.1rem;
+        }
+        .sidebar-footer {
+            padding: 16px 18px;
+            border-top: 1px solid var(--border);
+            font-size: 0.8rem;
+            color: var(--text-muted);
+        }
+        .sidebar-footer .user-email {
+            display: block;
+            margin-bottom: 8px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .sidebar-footer button {
+            background: none;
+            border: 1px solid var(--border);
+            color: var(--text-muted);
+            padding: 6px 14px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.8rem;
+            width: 100%;
+            transition: all 0.15s;
+        }
+        .sidebar-footer button:hover {
+            border-color: var(--red);
+            color: var(--red);
+        }
 
-<!-- Main Content -->
-<main class="main" id="main-content">
-    <div id="section-connectors">
-        <h1 class="page-title">Connectors</h1>
-        <p class="page-subtitle">Configure data source connections for syncing financial data.</p>
-        <div id="connector-list"></div>
-    </div>
-    <div id="section-exporters" class="hidden">
-        <h1 class="page-title">Exporters</h1>
-        <p class="page-subtitle">Configure export destinations for your financial data.</p>
-        <div class="card">
-            <p style="color: var(--text-muted);">Exporter configuration will be available in a future update.</p>
-        </div>
-    </div>
-    <div id="section-sync" class="hidden">
-        <h1 class="page-title">Sync Runs</h1>
-        <p class="page-subtitle">View recent synchronization activity.</p>
-        <div class="card">
-            <p style="color: var(--text-muted);">Sync run history will be available here in a future update. Use the API at <code>/api/v1/sync-runs</code>.</p>
-        </div>
-    </div>
-    <div id="section-settings" class="hidden">
-        <h1 class="page-title">Settings</h1>
-        <p class="page-subtitle">Application-level configuration.</p>
-        <div class="card">
-            <p style="color: var(--text-muted);">Application settings will be available here in a future update.</p>
-        </div>
-    </div>
-</main>
-{% endblock %}
+        /* ── Main Content ─────────────────────────────────────────────── */
+        .main {
+            margin-left: var(--sidebar-w);
+            flex: 1;
+            padding: 32px 40px;
+            max-width: 1100px;
+        }
+        .page-title {
+            font-size: 1.5rem;
+            font-weight: 700;
+            margin-bottom: 6px;
+        }
+        .page-subtitle {
+            color: var(--text-muted);
+            font-size: 0.9rem;
+            margin-bottom: 28px;
+        }
 
-{% block scripts %}
-<script src="/static/js/app.js"></script>
-{% endblock %}
+        /* ── Cards ────────────────────────────────────────────────────── */
+        .card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 24px;
+            margin-bottom: 20px;
+        }
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        .card-header h2 {
+            font-size: 1.05rem;
+            font-weight: 600;
+        }
+
+        /* ── Connector Grid ───────────────────────────────────────────── */
+        .connector-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+            gap: 20px;
+        }
+        .connector-card {
+            background: var(--surface-2);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 20px;
+            transition: border-color 0.15s;
+        }
+        .connector-card:hover { border-color: var(--accent); }
+        .connector-card .top {
+            display: flex;
+            justify-content: space-between;
+            align-items: start;
+            margin-bottom: 14px;
+        }
+        .connector-card .name {
+            font-weight: 600;
+            font-size: 1rem;
+        }
+        .connector-card .badge {
+            font-size: 0.7rem;
+            padding: 2px 10px;
+            border-radius: 20px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+        .badge.connected { background: rgba(52, 211, 153, 0.15); color: var(--green); }
+        .badge.disconnected { background: rgba(248, 113, 113, 0.15); color: var(--red); }
+        .badge.pending { background: rgba(251, 191, 36, 0.15); color: var(--yellow); }
+        .badge.unconfigured { background: rgba(139, 143, 163, 0.15); color: var(--text-muted); }
+        .connector-card .desc {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            margin-bottom: 16px;
+            line-height: 1.4;
+        }
+        .connector-card .capabilities {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px;
+            margin-bottom: 16px;
+        }
+        .connector-card .cap {
+            font-size: 0.7rem;
+            background: var(--bg);
+            padding: 2px 8px;
+            border-radius: 4px;
+            color: var(--text-muted);
+        }
+        .connector-card .actions {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        /* ── Form Elements ────────────────────────────────────────────── */
+        .form-group { margin-bottom: 16px; }
+        .form-group label {
+            display: block;
+            font-size: 0.85rem;
+            font-weight: 500;
+            margin-bottom: 6px;
+            color: var(--text-muted);
+        }
+        .form-group input, .form-group select {
+            width: 100%;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 9px 12px;
+            color: var(--text);
+            font-size: 0.9rem;
+            font-family: var(--font);
+            outline: none;
+            transition: border-color 0.15s;
+        }
+        .form-group input:focus, .form-group select:focus {
+            border-color: var(--accent);
+        }
+        .form-group input::placeholder { color: var(--text-muted); opacity: 0.6; }
+        .form-group .checkbox-wrap {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .form-group .checkbox-wrap input[type="checkbox"] {
+            width: auto;
+            accent-color: var(--accent);
+        }
+
+        /* ── Buttons ──────────────────────────────────────────────────── */
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            padding: 8px 18px;
+            border-radius: 6px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            font-family: var(--font);
+            cursor: pointer;
+            transition: all 0.15s;
+            border: 1px solid transparent;
+            text-decoration: none;
+            white-space: nowrap;
+        }
+        .btn-primary {
+            background: var(--accent);
+            color: #fff;
+            border-color: var(--accent);
+        }
+        .btn-primary:hover { background: var(--accent-hover); }
+        .btn-secondary {
+            background: transparent;
+            color: var(--text);
+            border-color: var(--border);
+        }
+        .btn-secondary:hover { background: var(--surface-2); }
+        .btn-danger {
+            background: transparent;
+            color: var(--red);
+            border-color: var(--red);
+        }
+        .btn-danger:hover { background: rgba(248, 113, 113, 0.1); }
+        .btn-success {
+            background: transparent;
+            color: var(--green);
+            border-color: var(--green);
+        }
+        .btn-success:hover { background: rgba(52, 211, 153, 0.1); }
+        .btn-sm { padding: 6px 12px; font-size: 0.8rem; }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        /* ── Status / Alert ───────────────────────────────────────────── */
+        .alert {
+            padding: 12px 16px;
+            border-radius: 6px;
+            font-size: 0.85rem;
+            margin-bottom: 16px;
+        }
+        .alert-success { background: rgba(52, 211, 153, 0.1); color: var(--green); border: 1px solid rgba(52, 211, 153, 0.2); }
+        .alert-error { background: rgba(248, 113, 113, 0.1); color: var(--red); border: 1px solid rgba(248, 113, 113, 0.2); }
+        .alert-info { background: rgba(108, 99, 255, 0.1); color: var(--accent); border: 1px solid rgba(108, 99, 255, 0.2); }
+
+        .toast-container {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 999;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .toast {
+            padding: 12px 20px;
+            border-radius: 8px;
+            font-size: 0.85rem;
+            font-weight: 500;
+            animation: slideIn 0.3s ease;
+            max-width: 380px;
+        }
+        .toast-success { background: #065f46; color: #d1fae5; border: 1px solid #059669; }
+        .toast-error { background: #7f1d1d; color: #fee2e2; border: 1px solid #dc2626; }
+        .toast-info { background: #312e81; color: #e0e7ff; border: 1px solid #4f46e5; }
+
+        @keyframes slideIn {
+            from { transform: translateX(100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+
+        /* ── Modal ────────────────────────────────────────────────────── */
+        .modal-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.6);
+            backdrop-filter: blur(4px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 100;
+            animation: fadeIn 0.2s;
+        }
+        .modal {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 28px;
+            width: 480px;
+            max-width: 95vw;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+        .modal h2 {
+            font-size: 1.15rem;
+            font-weight: 600;
+            margin-bottom: 20px;
+        }
+        .modal-footer {
+            display: flex;
+            justify-content: flex-end;
+            gap: 8px;
+            margin-top: 20px;
+            padding-top: 16px;
+            border-top: 1px solid var(--border);
+        }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+        /* ── Spinner ──────────────────────────────────────────────────── */
+        .spinner {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid var(--text-muted);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin 0.6s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* ── Empty state ──────────────────────────────────────────────── */
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: var(--text-muted);
+        }
+        .empty-state .icon { font-size: 2.5rem; margin-bottom: 12px; }
+        .empty-state p { font-size: 0.9rem; }
+
+        /* ── Hide / Show helpers ──────────────────────────────────────── */
+        .hidden { display: none !important; }
+
+        /* Login page (no sidebar) */
+        .login-body {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: var(--bg);
+            min-height: 100vh;
+        }
+        .login-box {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 40px;
+            width: 380px;
+            max-width: 95vw;
+        }
+        .login-box h1 {
+            font-size: 1.3rem;
+            margin-bottom: 4px;
+        }
+        .login-box .sub {
+            color: var(--text-muted);
+            font-size: 0.85rem;
+            margin-bottom: 28px;
+        }
+        .login-box .error {
+            color: var(--red);
+            font-size: 0.85rem;
+            margin-bottom: 16px;
+        }
+        .login-box .btn { width: 100%; }
+
+        /* ── Feedback Button ──────────────────────────────────────────── */
+        .feedback-trigger {
+            position: fixed;
+            right: 0;
+            top: 50%;
+            transform: translateY(-50%);
+            background: transparent;
+            border: 1px solid transparent;
+            border-right: none;
+            border-radius: 8px 0 0 8px;
+            padding: 10px 6px;
+            cursor: pointer;
+            z-index: 50;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 3px;
+            transition: all 0.25s ease;
+            color: var(--text-muted);
+            font-size: 0.65rem;
+            font-weight: 500;
+            writing-mode: vertical-lr;
+            letter-spacing: 0.04em;
+            opacity: 0.5;
+            backdrop-filter: none;
+        }
+        .feedback-trigger:hover {
+            opacity: 1;
+            background: color-mix(in srgb, var(--surface) 70%, transparent);
+            color: var(--accent);
+            border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+            padding: 12px 8px;
+        }
+        .feedback-trigger .icon {
+            writing-mode: horizontal-tb;
+            font-size: 1rem;
+            margin-bottom: 1px;
+            opacity: 0.7;
+            transition: opacity 0.2s;
+        }
+        .feedback-trigger:hover .icon {
+            opacity: 1;
+        }
+
+        /* ── Feedback Modal ────────────────────────────────────────────── */
+        .feedback-modal {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 28px;
+            width: 520px;
+            max-width: 95vw;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+        .feedback-modal h2 {
+            font-size: 1.15rem;
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+        .feedback-modal .sub {
+            color: var(--text-muted);
+            font-size: 0.85rem;
+            margin-bottom: 20px;
+        }
+        .feedback-modal textarea {
+            width: 100%;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 10px 12px;
+            color: var(--text);
+            font-size: 0.9rem;
+            font-family: var(--font);
+            outline: none;
+            resize: vertical;
+            min-height: 140px;
+            transition: border-color 0.15s;
+        }
+        .feedback-modal textarea:focus {
+            border-color: var(--accent);
+        }
+        .feedback-modal textarea::placeholder {
+            color: var(--text-muted);
+            opacity: 0.6;
+        }
+        .feedback-modal select {
+            width: 100%;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 9px 12px;
+            color: var(--text);
+            font-size: 0.9rem;
+            font-family: var(--font);
+            outline: none;
+            cursor: pointer;
+            transition: border-color 0.15s;
+            appearance: auto;
+        }
+        .feedback-modal select:focus {
+            border-color: var(--accent);
+        }
+        .feedback-modal select option {
+            background: var(--surface);
+            color: var(--text);
+        }
+        .feedback-modal .char-count {
+            text-align: right;
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            margin-top: 4px;
+        }
+        .feedback-modal .char-count.over {
+            color: var(--red);
+        }
+        .feedback-modal .feedback-success {
+            text-align: center;
+            padding: 40px 20px;
+        }
+        .feedback-modal .feedback-success .check {
+            font-size: 2.5rem;
+            margin-bottom: 12px;
+        }
+        .feedback-modal .feedback-success h3 {
+            font-size: 1.1rem;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+        .feedback-modal .feedback-success p {
+            color: var(--text-muted);
+            font-size: 0.85rem;
+            margin-bottom: 20px;
+        }
+    </style>
+</head>
+<body>
+    <!-- Toast container -->
+    <div class="toast-container" id="toast-container"></div>
+
+    <!-- Sidebar -->
+    <aside class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <h1>finance<span>-sync</span></h1>
+            <div class="version">v0.1.0 &middot; Control Panel</div>
+        </div>
+        <nav class="sidebar-nav">
+            <a href="#" class="active" data-section="connectors" onclick="switchSection('connectors')">
+                <span class="icon">&#9881;</span> Connectors
+            </a>
+            <a href="#" data-section="exporters" onclick="switchSection('exporters')">
+                <span class="icon">&#10145;</span> Exporters
+            </a>
+            <a href="#" data-section="sync" onclick="switchSection('sync')">
+                <span class="icon">&#8635;</span> Sync Runs
+            </a>
+            <a href="#" data-section="settings" onclick="switchSection('settings')">
+                <span class="icon">&#9879;</span> Settings
+            </a>
+        </nav>
+        <div class="sidebar-footer">
+            <span class="user-email" id="user-email">—</span>
+            <button onclick="logout()">Sign Out</button>
+        </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="main" id="main-content">
+        <div id="section-connectors">
+            <h1 class="page-title">Connectors</h1>
+            <p class="page-subtitle">Configure data source connections for syncing financial data.</p>
+            <div id="connector-list"></div>
+        </div>
+        <div id="section-exporters" class="hidden">
+            <h1 class="page-title">Exporters</h1>
+            <p class="page-subtitle">Configure export destinations for your financial data.</p>
+            <div class="card">
+                <p style="color: var(--text-muted);">Exporter configuration will be available in a future update.</p>
+            </div>
+        </div>
+        <div id="section-sync" class="hidden">
+            <h1 class="page-title">Sync Runs</h1>
+            <p class="page-subtitle">View recent synchronization activity.</p>
+            <div class="card">
+                <p style="color: var(--text-muted);">Sync run history will be available here in a future update. Use the API at <code>/api/v1/sync-runs</code>.</p>
+            </div>
+        </div>
+        <div id="section-settings" class="hidden">
+            <h1 class="page-title">Settings</h1>
+            <p class="page-subtitle">Application-level configuration.</p>
+            <div class="card">
+                <p style="color: var(--text-muted);">Application settings will be available here in a future update.</p>
+            </div>
+        </div>
+    </main>
+
+    <!-- Feedback trigger button — emits custom event for integration layer -->
+    <button class="feedback-trigger" id="feedback-trigger" title="Send feedback">
+        <span class="icon">&#9993;</span>
+        Feedback
+    </button>
+
+    <!-- Modal Container -->
+    <div id="modal-container"></div>
+
+    <script>
+        // ── State ────────────────────────────────────────────────────────
+        let API_BASE = '/api/v1';
+        let token = localStorage.getItem('fs_token');
+        let connectors = [];     // available connector types
+        let configs = [];        // saved configs
+
+        // ── Feedback submission guard ────────────────────────────────────
+        let __feedbackSubmitting = false;  // state machine: prevents double-submit
+
+        // ── Auth helpers ────────────────────────────────────────────────
+        function authHeaders() {
+            const h = { 'Content-Type': 'application/json' };
+            if (token) h['Authorization'] = `Bearer ${token}`;
+            return h;
+        }
+
+        function isAuthenticated() {
+            if (!token) return false;
+            try {
+                const payload = JSON.parse(atob(token.split('.')[1]));
+                return payload.exp * 1000 > Date.now();
+            } catch { return false; }
+        }
+
+        function redirectToLogin() {
+            localStorage.removeItem('fs_token');
+            window.location.href = '/login';
+        }
+
+        function logout() {
+            localStorage.removeItem('fs_token');
+            redirectToLogin();
+        }
+
+        // ── Toast notifications ─────────────────────────────────────────
+        function toast(message, type = 'info') {
+            const container = document.getElementById('toast-container');
+            const el = document.createElement('div');
+            el.className = `toast toast-${type}`;
+            el.textContent = message;
+            container.appendChild(el);
+            setTimeout(() => { el.style.opacity = '0'; el.style.transition = 'opacity 0.3s'; setTimeout(() => el.remove(), 300); }, 4000);
+        }
+
+        // ── Section switching ───────────────────────────────────────────
+        function switchSection(name) {
+            document.querySelectorAll('.sidebar-nav a').forEach(a => a.classList.remove('active'));
+            document.querySelector(`.sidebar-nav a[data-section="${name}"]`).classList.add('active');
+            document.querySelectorAll('[id^="section-"]').forEach(s => s.classList.add('hidden'));
+            document.getElementById(`section-${name}`).classList.remove('hidden');
+            if (name === 'connectors') loadConnectors();
+        }
+
+        // ── API calls ────────────────────────────────────────────────────
+        async function api(method, path, body = null) {
+            const opts = { method, headers: authHeaders() };
+            if (body !== null) opts.body = JSON.stringify(body);
+            const response = await fetch(`${API_BASE}${path}`, opts);
+            if (response.status === 401) { redirectToLogin(); return null; }
+            if (response.status === 204) return {};
+            const data = await response.json();
+            if (!response.ok) { throw new Error(data.detail || `Request failed (${response.status})`); }
+            return data;
+        }
+
+        // ── Load & render connectors ────────────────────────────────────
+        async function loadConnectors() {
+            try {
+                const [avail, cfgs] = await Promise.all([
+                    api('GET', '/connectors'),
+                    api('GET', '/connectors/configs'),
+                ]);
+                connectors = avail || [];
+                configs = cfgs || [];
+                renderConnectors();
+            } catch (e) {
+                document.getElementById('connector-list').innerHTML =
+                    `<div class="alert alert-error">Failed to load connectors: ${e.message}</div>`;
+            }
+        }
+
+        function renderConnectors() {
+            const container = document.getElementById('connector-list');
+            if (!connectors.length) {
+                container.innerHTML = `<div class="empty-state"><div class="icon">&#9881;</div><p>No connectors available.</p></div>`;
+                return;
+            }
+
+            let html = '<div class="connector-grid">';
+            for (const c of connectors) {
+                const cfg = configs.find(x => x.provider_type === c.name);
+                const isConfigured = cfg && cfg.is_configured;
+                const badgeClass = isConfigured ? 'connected' : 'unconfigured';
+                const badgeText = isConfigured ? 'Connected' : 'Not Configured';
+                const caps = c.capabilities || [];
+
+                html += `
+                    <div class="connector-card" data-provider="${c.name}">
+                        <div class="top">
+                            <div class="name">${c.display_name}</div>
+                            <span class="badge ${badgeClass}" id="badge-${c.name}">${badgeText}</span>
+                        </div>
+                        <div class="desc">${c.display_name} API connector. SDK v${c.sdk_version}.</div>
+                        <div class="capabilities">
+                            ${caps.map(cap => `<span class="cap">${cap}</span>`).join('')}
+                        </div>
+                        <div class="actions">
+                            <button class="btn btn-primary btn-sm" onclick="openConfigModal('${c.name}')">
+                                ${isConfigured ? '&#9998; Edit' : '&#43; Configure'}
+                            </button>
+                            ${isConfigured ? `<button class="btn btn-success btn-sm" onclick="testConnection('${cfg.id}', '${c.name}')">&#10003; Test</button>` : ''}
+                            ${cfg ? `<button class="btn btn-danger btn-sm" onclick="deleteConfig('${cfg.id}', '${c.name}')">&#10005; Remove</button>` : ''}
+                        </div>
+                        <div id="test-result-${c.name}" style="margin-top: 12px;"></div>
+                    </div>
+                `;
+            }
+            html += '</div>';
+            container.innerHTML = html;
+        }
+
+        // ── Configuration Modal ─────────────────────────────────────────
+        function openConfigModal(providerType) {
+            const c = connectors.find(x => x.name === providerType);
+            if (!c) return;
+            const cfg = configs.find(x => x.provider_type === providerType);
+            const isEdit = !!cfg;
+
+            let fieldsHtml = '';
+            for (const f of c.credential_fields || []) {
+                const val = '';
+                const checkedAttr = '';
+                if (f.type === 'boolean') {
+                    fieldsHtml += `
+                        <div class="form-group">
+                            <div class="checkbox-wrap">
+                                <input type="checkbox" id="cred-${f.key}" ${f.default ? 'checked' : ''}>
+                                <label for="cred-${f.key}" style="margin:0;">${f.label}</label>
+                            </div>
+                        </div>`;
+                } else {
+                    fieldsHtml += `
+                        <div class="form-group">
+                            <label for="cred-${f.key}">${f.label}${f.required ? ' <span style="color:var(--red)">*</span>' : ''}</label>
+                            <input type="${f.type}" id="cred-${f.key}" placeholder="${f.placeholder || ''}" ${f.required ? 'required' : ''}>
+                        </div>`;
+                }
+            }
+
+            let optsHtml = '';
+            for (const f of c.option_fields || []) {
+                if (f.type === 'boolean') {
+                    optsHtml += `
+                        <div class="form-group">
+                            <div class="checkbox-wrap">
+                                <input type="checkbox" id="opt-${f.key}" ${f.default ? 'checked' : ''}>
+                                <label for="opt-${f.key}" style="margin:0;">${f.label}</label>
+                                ${f.description ? `<span style="font-size:0.75rem;color:var(--text-muted);margin-left:6px;">— ${f.description}</span>` : ''}
+                            </div>
+                        </div>`;
+                } else {
+                    optsHtml += `
+                        <div class="form-group">
+                            <label for="opt-${f.key}">${f.label}</label>
+                            <input type="${f.type}" id="opt-${f.key}" placeholder="${f.placeholder || ''}">
+                        </div>`;
+                }
+            }
+
+            const modal = document.createElement('div');
+            modal.className = 'modal-overlay';
+            modal.id = 'config-modal';
+            modal.innerHTML = `
+                <div class="modal">
+                    <h2>${isEdit ? 'Edit' : 'Configure'} ${c.display_name}</h2>
+                    <form id="config-form" onsubmit="saveConfig(event, '${providerType}', ${!!isEdit})">
+                        <div class="form-group">
+                            <label>Description <span style="color:var(--text-muted);font-size:0.8rem;">(optional label)</span></label>
+                            <input type="text" id="config-desc" placeholder="My ${c.display_name} connection" value="${cfg ? (cfg.description || '') : ''}">
+                        </div>
+                        ${fieldsHtml ? `<h3 style="font-size:0.9rem;font-weight:600;margin-bottom:12px;margin-top:4px;">Credentials</h3>${fieldsHtml}` : ''}
+                        ${optsHtml ? `<h3 style="font-size:0.9rem;font-weight:600;margin:16px 0 12px;">Options</h3>${optsHtml}` : ''}
+                        <div id="config-error" class="hidden alert alert-error"></div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+                            <button type="submit" class="btn btn-primary" id="config-submit">Save Configuration</button>
+                        </div>
+                    </form>
+                </div>
+            `;
+            document.getElementById('modal-container').appendChild(modal);
+            modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
+        }
+
+        async function saveConfig(event, providerType, isEdit) {
+            event.preventDefault();
+            const submitBtn = document.getElementById('config-submit');
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = '<span class="spinner"></span> Saving...';
+            document.getElementById('config-error').classList.add('hidden');
+
+            const c = connectors.find(x => x.name === providerType);
+            const credentials = {};
+            for (const f of c.credential_fields || []) {
+                if (f.type === 'boolean') {
+                    credentials[f.key] = document.getElementById(`cred-${f.key}`).checked;
+                } else {
+                    credentials[f.key] = document.getElementById(`cred-${f.key}`).value;
+                }
+            }
+            const options = {};
+            for (const f of c.option_fields || []) {
+                if (f.type === 'boolean') {
+                    options[f.key] = document.getElementById(`opt-${f.key}`).checked;
+                } else {
+                    const val = document.getElementById(`opt-${f.key}`).value;
+                    if (val) options[f.key] = val;
+                }
+            }
+            const description = document.getElementById('config-desc').value || null;
+
+            try {
+                let result;
+                if (isEdit) {
+                    const cfg = configs.find(x => x.provider_type === providerType);
+                    result = await api('PUT', `/connectors/configs/${cfg.id}`, { credentials, options, description });
+                } else {
+                    result = await api('POST', '/connectors/configs', { provider_type: providerType, credentials, options, description });
+                }
+                closeModal();
+                toast(`Configuration saved for ${c.display_name}`, 'success');
+                await loadConnectors();
+            } catch (e) {
+                const errEl = document.getElementById('config-error');
+                errEl.textContent = e.message;
+                errEl.classList.remove('hidden');
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Save Configuration';
+            }
+        }
+
+        function closeModal() {
+            __feedbackSubmitting = false;
+            const modals = document.querySelectorAll('.modal-overlay');
+            modals.forEach(m => m.remove());
+        }
+
+        // ── Feedback ─────────────────────────────────────────────────────
+        function openFeedbackModal(onSubmit) {
+            const modal = document.createElement('div');
+            modal.className = 'modal-overlay';
+            modal.id = 'feedback-modal-overlay';
+            // Store the optional callback for the integration layer.
+            // onSubmit receives { type, description, contact } when provided.
+            modal._onSubmit = typeof onSubmit === 'function' ? onSubmit : null;
+            modal.innerHTML = `
+                <div class="feedback-modal">
+                    <div id="feedback-form-view">
+                        <h2>Send Feedback</h2>
+                        <div class="sub">Report a bug or suggest a feature for finance-sync.</div>
+
+                        <div class="form-group">
+                            <label for="feedback-type">Type</label>
+                            <select id="feedback-type">
+                                <option value="bug">&#128169; Bug Report</option>
+                                <option value="feature">&#128161; Feature Request</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="feedback-title">Title <span style="color:var(--red)">*</span></label>
+                            <input type="text" id="feedback-title" placeholder="Brief summary of your feedback" maxlength="200" required>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="feedback-desc">Description <span style="color:var(--red)">*</span></label>
+                            <textarea id="feedback-desc" placeholder="Describe the bug or feature request in detail. What did you expect? What happened instead?" maxlength="2000" oninput="updateFeedbackCharCount()"></textarea>
+                            <div class="char-count" id="feedback-char-count">0 / 2000</div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="feedback-email">Email <span style="color:var(--text-muted);font-size:0.8rem;">(optional — for follow-up)</span></label>
+                            <input type="email" id="feedback-email" placeholder="your@email.com">
+                        </div>
+
+                        <div id="feedback-error" class="hidden alert alert-error"></div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+                            <button type="button" class="btn btn-primary" id="feedback-submit" onclick="submitFeedback()">Submit Feedback</button>
+                        </div>
+                    </div>
+                    <div id="feedback-success-view" class="hidden">
+                        <div class="feedback-success">
+                            <div class="check">&#10003;</div>
+                            <h3>Thank You!</h3>
+                            <p>Your feedback has been submitted as a GitHub issue. We'll review it as soon as possible.</p>
+                            <p><a href="#" class="issue-link hidden" target="_blank" rel="noopener" style="color:var(--accent);font-weight:600;">View issue</a></p>
+                            <button class="btn btn-primary" onclick="closeModal()">Close</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            document.getElementById('modal-container').appendChild(modal);
+            modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
+            document.getElementById('feedback-title').focus();
+        }
+
+        function updateFeedbackCharCount() {
+            const desc = document.getElementById('feedback-desc');
+            const count = document.getElementById('feedback-char-count');
+            const len = desc.value.length;
+            count.textContent = `${len} / 2000`;
+            count.classList.toggle('over', len > 2000);
+        }
+
+        async function submitFeedback() {
+            // ── State machine: reject if already submitting ─────────────
+            if (__feedbackSubmitting) return;
+            __feedbackSubmitting = true;
+
+            const title = document.getElementById('feedback-title').value.trim();
+            const desc = document.getElementById('feedback-desc').value.trim();
+            const type = document.getElementById('feedback-type').value;
+            const email = document.getElementById('feedback-email').value.trim();
+            const errorEl = document.getElementById('feedback-error');
+            const submitBtn = document.getElementById('feedback-submit');
+
+            // ── Validation ─────────────────────────────────────────────
+            if (!title) {
+                __feedbackSubmitting = false;
+                errorEl.textContent = 'Please enter a title.';
+                errorEl.classList.remove('hidden');
+                return;
+            }
+            if (!desc) {
+                __feedbackSubmitting = false;
+                errorEl.textContent = 'Please enter a description.';
+                errorEl.classList.remove('hidden');
+                return;
+            }
+            if (desc.length > 2000) {
+                __feedbackSubmitting = false;
+                errorEl.textContent = 'Description must be under 2000 characters.';
+                errorEl.classList.remove('hidden');
+                return;
+            }
+
+            errorEl.classList.add('hidden');
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = '<span class="spinner"></span> Submitting...';
+
+            // ── Structured payload for the integration layer ──────────
+            const modal = document.getElementById('feedback-modal-overlay');
+            const payload = { type, description: desc, contact: email };
+
+            // If an onSubmit callback was provided, delegate to it.
+            if (modal && modal._onSubmit) {
+                try {
+                    await modal._onSubmit(payload);
+                    // On success, show the default thank-you view
+                    document.getElementById('feedback-form-view').classList.add('hidden');
+                    document.getElementById('feedback-success-view').classList.remove('hidden');
+                    toast('Feedback submitted — thank you!', 'success');
+                } catch (e) {
+                    __feedbackSubmitting = false;
+                    errorEl.textContent = e.message || 'Failed to submit feedback. Please try again.';
+                    errorEl.classList.remove('hidden');
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = 'Submit Feedback';
+                }
+                __feedbackSubmitting = false;
+                return;
+            }
+
+            // ── Default: call the feedback API ────────────────────────
+            const apiPayload = { title, description: desc, type };
+            if (email) apiPayload.email = email;
+
+            try {
+                const result = await api('POST', '/feedback', apiPayload);
+
+                // Show success view with issue link
+                document.getElementById('feedback-form-view').classList.add('hidden');
+                document.getElementById('feedback-success-view').classList.remove('hidden');
+
+                const link = document.querySelector('.issue-link');
+                if (link && result.issue_url) {
+                    link.href = result.issue_url;
+                    link.textContent = `View Issue #${result.issue_number}`;
+                    link.classList.remove('hidden');
+                }
+
+                toast('Feedback submitted — thank you!', 'success');
+                __feedbackSubmitting = false;
+            } catch (e) {
+                __feedbackSubmitting = false;
+                errorEl.textContent = e.message || 'Failed to submit feedback. Please try again.';
+                errorEl.classList.remove('hidden');
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Submit Feedback';
+            }
+        }
+
+        // ── Test connection ─────────────────────────────────────────────
+        async function testConnection(configId, providerName) {
+            const resultEl = document.getElementById(`test-result-${providerName}`);
+            resultEl.innerHTML = '<div class="alert alert-info"><span class="spinner"></span> Testing connection...</div>';
+            try {
+                const result = await api('POST', `/connectors/configs/${configId}/test`);
+                if (result.success) {
+                    resultEl.innerHTML = `<div class="alert alert-success">&#10003; ${result.message}</div>`;
+                    document.getElementById(`badge-${providerName}`).className = 'badge connected';
+                    document.getElementById(`badge-${providerName}`).textContent = 'Connected';
+                } else {
+                    resultEl.innerHTML = `<div class="alert alert-error">&#10005; ${result.message}</div>`;
+                }
+            } catch (e) {
+                resultEl.innerHTML = `<div class="alert alert-error">&#10005; ${e.message}</div>`;
+            }
+        }
+
+        // ── Delete configuration ────────────────────────────────────────
+        async function deleteConfig(configId, providerName) {
+            if (!confirm(`Remove the ${providerName} configuration?`)) return;
+            try {
+                await api('DELETE', `/connectors/configs/${configId}`);
+                toast(`Configuration removed for ${providerName}`, 'info');
+                await loadConnectors();
+            } catch (e) {
+                toast(`Failed to remove: ${e.message}`, 'error');
+            }
+        }
+
+        // ── Feedback button event wiring ────────────────────────────────
+        document.addEventListener('DOMContentLoaded', function () {
+            const btn = document.getElementById('feedback-trigger');
+            if (btn) {
+                btn.addEventListener('click', function () {
+                    document.dispatchEvent(new CustomEvent('open-feedback-form'));
+                });
+            }
+        });
+
+        // Listen for the custom event and open the feedback modal
+        document.addEventListener('open-feedback-form', function () {
+            openFeedbackModal();
+        });
+
+        // ── Init ─────────────────────────────────────────────────────────
+        (async function init() {
+            if (!isAuthenticated()) { redirectToLogin(); return; }
+            // Fetch user info
+            try {
+                const me = await api('GET', '/auth/me');
+                if (me) document.getElementById('user-email').textContent = me.email;
+            } catch {}
+            await loadConnectors();
+        })();
+    </script>
+</body>
+</html>

@@ -149,7 +149,9 @@ class TestYnabConnectorContract:
         )
         assert isinstance(txns, list)
         # Transactions include the requested account_id
-        assert any(t.external_account_id == "ynab_acc_checking_01" for t in txns)
+        assert any(
+            t.external_account_id == "ynab_acc_checking_01" for t in txns
+        )
 
     async def test_fetch_transactions_with_limit(
         self, ynab_connector: YnabConnector
@@ -174,9 +176,7 @@ class TestYnabConnectorContract:
     async def test_transform_accounts_roundtrip(
         self,
         ynab_connector: YnabConnector,
-        sample_ynab_raw_data: tuple[
-            list[RawAccount], list[RawTransaction]
-        ],
+        sample_ynab_raw_data: tuple[list[RawAccount], list[RawTransaction]],
     ) -> None:
         """Transform should map RawAccount to CanonicalAccountData."""
         raw_accounts, _ = sample_ynab_raw_data
@@ -203,9 +203,7 @@ class TestYnabConnectorContract:
     async def test_transform_transactions_roundtrip(
         self,
         ynab_connector: YnabConnector,
-        sample_ynab_raw_data: tuple[
-            list[RawAccount], list[RawTransaction]
-        ],
+        sample_ynab_raw_data: tuple[list[RawAccount], list[RawTransaction]],
     ) -> None:
         """Transform should map RawTransaction to CanonicalTransactionData."""
         _, raw_txns = sample_ynab_raw_data
@@ -229,24 +227,18 @@ class TestYnabConnectorContract:
 
     # ── Name ───────────────────────────────────────────────────────────
 
-    async def test_name_is_string(
-        self, ynab_connector: YnabConnector
-    ) -> None:
+    async def test_name_is_string(self, ynab_connector: YnabConnector) -> None:
         """The name property should return a non-empty string."""
         assert isinstance(ynab_connector.name, str)
         assert len(ynab_connector.name) > 0
         assert ynab_connector.name == "ynab"
         assert ynab_connector.name == ynab_connector.config.provider_type
 
-    async def test_display_name(
-        self, ynab_connector: YnabConnector
-    ) -> None:
+    async def test_display_name(self, ynab_connector: YnabConnector) -> None:
         """display_name should be set."""
         assert ynab_connector.display_name == "YNAB"
 
-    async def test_sdk_version(
-        self, ynab_connector: YnabConnector
-    ) -> None:
+    async def test_sdk_version(self, ynab_connector: YnabConnector) -> None:
         """sdk_version should be a valid string."""
         assert ynab_connector.sdk_version == "0.1.0"
 
@@ -328,9 +320,7 @@ class TestYnabTransactionMapping:
         """Interest categories should map to 'interest'."""
         from finance_sync.connectors.ynab import _map_category_to_type
 
-        assert (
-            _map_category_to_type("Interest Income", False) == "interest"
-        )
+        assert _map_category_to_type("Interest Income", False) == "interest"
         assert _map_category_to_type("Dividend", False) == "interest"
 
     def test_map_category_to_type_transfer(self) -> None:

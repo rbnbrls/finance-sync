@@ -219,12 +219,8 @@ class FundamentalObservationData(BaseModel):
     beta: Decimal | None = Field(
         default=None, description="Beta (5-year monthly)"
     )
-    high_52w: Decimal | None = Field(
-        default=None, description="52-week high"
-    )
-    low_52w: Decimal | None = Field(
-        default=None, description="52-week low"
-    )
+    high_52w: Decimal | None = Field(default=None, description="52-week high")
+    low_52w: Decimal | None = Field(default=None, description="52-week low")
     source: str = Field(default="openbb", description="Data source")
 
     provider_metadata: dict[str, Any] | None = Field(default=None)
@@ -270,16 +266,13 @@ class SecurityMetadataObservationData(BaseModel):
             "fundamental_ratios, company_profile"
         )
     )
-    timestamp: datetime = Field(
-        description="When the metadata was observed"
-    )
+    timestamp: datetime = Field(description="When the metadata was observed")
     metadata_json: dict[str, Any] = Field(
         description="Arbitrary structured metadata payload"
     )
     label: str | None = Field(
         default=None,
-        description="Human-readable label "
-        "(e.g. ETF name, sector title)",
+        description="Human-readable label (e.g. ETF name, sector title)",
     )
     source: str = Field(default="openbb", description="Data source")
 
@@ -310,9 +303,7 @@ class SectorExposure(BaseModel):
     """Sector weight within a portfolio or ETF."""
 
     sector: str = Field(description="Sector name (e.g. 'Technology')")
-    weight: Decimal = Field(
-        description="Allocation weight (e.g. 0.25 = 25%)"
-    )
+    weight: Decimal = Field(description="Allocation weight (e.g. 0.25 = 25%)")
 
 
 class RegionExposure(BaseModel):

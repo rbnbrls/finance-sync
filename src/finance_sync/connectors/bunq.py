@@ -536,13 +536,15 @@ class BunqConnector(Connector):
                 card_data = entry.get("Card")
                 if card_data is None:
                     continue
-                items.append({
-                    "id": str(card_data["id"]),
-                    "type": card_data.get("type", ""),
-                    "status": card_data.get("status", ""),
-                    "name": card_data.get("name", ""),
-                    "last_four": card_data.get("last_four", ""),
-                })
+                items.append(
+                    {
+                        "id": str(card_data["id"]),
+                        "type": card_data.get("type", ""),
+                        "status": card_data.get("status", ""),
+                        "name": card_data.get("name", ""),
+                        "last_four": card_data.get("last_four", ""),
+                    }
+                )
             url = self._next_page_url(data)
 
         return items
@@ -595,9 +597,9 @@ class BunqConnector(Connector):
         merchant_city = data.get("merchant_city") or (
             data.get("merchant", {}).get("city")
         )
-        merchant_country = data.get(
-            "merchant_country"
-        ) or data.get("merchant", {}).get("country")
+        merchant_country = data.get("merchant_country") or data.get(
+            "merchant", {}
+        ).get("country")
         mcc = data.get("mcc")
 
         card_data = data.get("card", {}) or {}

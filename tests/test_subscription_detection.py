@@ -8,6 +8,7 @@ Covers:
 - Category classification
 - Full detection pipeline
 """
+
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
@@ -20,7 +21,6 @@ import pytest
 from finance_sync.models.enums import (
     DetectionMethod,
     SubscriptionConfidence,
-    SubscriptionStatus,
 )
 from finance_sync.services.subscription_detector import (
     _amounts_are_consistent,
@@ -49,10 +49,15 @@ class TestMerchantNormalisation:
         assert _normalise_merchant("DEB Spotify AB") == "Spotify Ab"
 
     def test_strips_direct_debit(self) -> None:
-        assert _normalise_merchant("DIRECT DEBIT Microsoft 365") == "Microsoft 365"
+        assert (
+            _normalise_merchant("DIRECT DEBIT Microsoft 365") == "Microsoft 365"
+        )
 
     def test_strips_sepa(self) -> None:
-        assert _normalise_merchant("SEPA Google Ireland Ltd") == "Google Ireland Ltd"
+        assert (
+            _normalise_merchant("SEPA Google Ireland Ltd")
+            == "Google Ireland Ltd"
+        )
 
     def test_strips_card_payment(self) -> None:
         assert _normalise_merchant("CARD PAYMENT Amazon EU") == "Amazon Eu"
@@ -127,7 +132,7 @@ class TestAmountConsistency:
         assert _amounts_are_consistent(amounts) == 1.0
 
     def test_zero_amounts(self) -> None:
-        assert _amounts_are_consistent([Decimal("0"), Decimal("0")]) == 1.0
+        assert _amounts_are_consistent([Decimal(0), Decimal(0)]) == 1.0
 
     def test_moderate_variance_partial_score(self) -> None:
         amounts = [Decimal("-100.00"), Decimal("-115.00"), Decimal("-108.00")]
@@ -185,7 +190,7 @@ class TestFrequencyDetection:
 
     def test_monthly_with_tolerance(self) -> None:
         # 26-34 day range should still be monthly
-        days, label = _detect_frequency([26.0, 28.0, 27.0])
+        _days, label = _detect_frequency([26.0, 28.0, 27.0])
         assert label == "monthly"
 
 
@@ -471,8 +476,12 @@ class TestSubscriptionDetectorUnit:
     """Test the subscription detector's internal grouping and analysis logic."""
 
     def test_group_by_merchant_netflix(self, monthly_netflix_txns) -> None:
-        """Netflix transactions with different descriptions normalise to same merchant."""
-        from finance_sync.services.subscription_detector import SubscriptionDetector
+        """Netflix transactions with different descriptions
+        normalise to same merchant.
+        """
+        from finance_sync.services.subscription_detector import (
+            SubscriptionDetector,
+        )
 
         # We need a minimal mock to test _group_by_merchant
         mock_session_factory = MagicMock()
@@ -483,7 +492,8 @@ class TestSubscriptionDetectorUnit:
 
         groups = detector._group_by_merchant(monthly_netflix_txns)
         # All should group under "Netflix B.V." (first one normalises that way,
-        # but later ones like "Netflix Subscription" normalise to "Netflix Subscription")
+        # but later ones like "Netflix Subscription"
+        # normalise to "Netflix Subscription")
         # Let's check that the same merchant has multiple entries
         for merchant, txns in groups.items():
             if "Netflix" in merchant:
@@ -498,7 +508,9 @@ class TestSubscriptionDetectorUnit:
 
         Tests the synchronous _analyze_merchant_group method directly.
         """
-        from finance_sync.services.subscription_detector import SubscriptionDetector
+        from finance_sync.services.subscription_detector import (
+            SubscriptionDetector,
+        )
 
         detector = SubscriptionDetector(
             session_factory=MagicMock(),
@@ -521,8 +533,12 @@ class TestSubscriptionDetectorUnit:
         pytest.fail("No Netflix group found")
 
     def test_weekly_coffee_not_detected(self, weekly_coffee_txns) -> None:
-        """Regular small purchases without subscription keywords are low confidence."""
-        from finance_sync.services.subscription_detector import SubscriptionDetector
+        """Regular small purchases without subscription
+        keywords are low confidence.
+        """
+        from finance_sync.services.subscription_detector import (
+            SubscriptionDetector,
+        )
 
         detector = SubscriptionDetector(
             session_factory=MagicMock(),
@@ -534,7 +550,8 @@ class TestSubscriptionDetectorUnit:
             if "Coffee" in merchant:
                 result = detector._analyze_merchant_group(merchant, txns)
                 # Coffee has exact same amount + regular weekly intervals, so it
-                # IS detected as a recurring pattern — but without keywords/category
+                # IS detected as a recurring pattern — but without
+                # keywords/category
                 # it should NOT be HIGH confidence
                 if result is not None:
                     assert result["confidence"] != SubscriptionConfidence.HIGH
@@ -543,7 +560,9 @@ class TestSubscriptionDetectorUnit:
 
     def test_varying_amounts_not_detected(self, varying_amount_txns) -> None:
         """Transactions with inconsistent amounts should have low confidence."""
-        from finance_sync.services.subscription_detector import SubscriptionDetector
+        from finance_sync.services.subscription_detector import (
+            SubscriptionDetector,
+        )
 
         detector = SubscriptionDetector(
             session_factory=MagicMock(),
@@ -560,7 +579,9 @@ class TestSubscriptionDetectorUnit:
 
     def test_min_occurrences_filter(self, monthly_netflix_txns) -> None:
         """Transactions below min_occurrences threshold should be skipped."""
-        from finance_sync.services.subscription_detector import SubscriptionDetector
+        from finance_sync.services.subscription_detector import (
+            SubscriptionDetector,
+        )
 
         detector = SubscriptionDetector(
             session_factory=MagicMock(),
@@ -570,7 +591,7 @@ class TestSubscriptionDetectorUnit:
         groups = detector._group_by_merchant(monthly_netflix_txns)
         # The _analyze_groups method filters by min_occurrences
         # but we can test _analyze_merchant_group directly
-        for merchant, txns in groups.items():
+        for txns in groups.values():
             if len(txns) < 10:
                 pass  # verified: group count doesn't meet threshold
         # Verify the grouping works correctly
@@ -582,7 +603,9 @@ class TestSubscriptionDetectorUnit:
         Tests the grouping step directly since the full async pipeline
         requires DB mocking that's tested elsewhere.
         """
-        from finance_sync.services.subscription_detector import SubscriptionDetector
+        from finance_sync.services.subscription_detector import (
+            SubscriptionDetector,
+        )
 
         detector = SubscriptionDetector(
             session_factory=MagicMock(),
@@ -597,7 +620,9 @@ class TestSubscriptionDetectorUnit:
         self, monthly_netflix_txns
     ) -> None:
         """Verify the analysis produces rich detail metadata."""
-        from finance_sync.services.subscription_detector import SubscriptionDetector
+        from finance_sync.services.subscription_detector import (
+            SubscriptionDetector,
+        )
 
         detector = SubscriptionDetector(
             session_factory=MagicMock(),
@@ -644,10 +669,10 @@ class TestSubscriptionDetectorListUpdate:
         factory.return_value = mock_session
         return factory
 
-    async def test_list_subscriptions_empty(
-        self, mock_session_factory
-    ) -> None:
-        from finance_sync.services.subscription_detector import SubscriptionDetector
+    async def test_list_subscriptions_empty(self, mock_session_factory) -> None:
+        from finance_sync.services.subscription_detector import (
+            SubscriptionDetector,
+        )
 
         mock_result = MagicMock()
         mock_result.scalars.return_value.all.return_value = []
@@ -668,7 +693,9 @@ class TestSubscriptionDetectorListUpdate:
     ) -> None:
         from unittest.mock import patch
 
-        from finance_sync.services.subscription_detector import SubscriptionDetector
+        from finance_sync.services.subscription_detector import (
+            SubscriptionDetector,
+        )
 
         # Simulate by making get return None
         with patch(

@@ -56,9 +56,7 @@ class AllocationBucket(BaseModel):
 
     name: str = Field(description="Category name (e.g. 'Technology', 'stock')")
     value: E = Field(description="Total market value in this category")
-    percentage: E = Field(
-        description="Percentage of total portfolio (0-100)"
-    )
+    percentage: E = Field(description="Percentage of total portfolio (0-100)")
 
 
 class AssetClassBreakdown(BaseModel):
@@ -181,12 +179,8 @@ class AllocationService:
         holdings_list, security_map, account_map, as_of = portfolio_data
 
         # 2. Resolve sector / region metadata per security
-        sector_map = await self._load_sector_metadata(
-            list(security_map.keys())
-        )
-        region_map = await self._load_region_metadata(
-            list(security_map.keys())
-        )
+        sector_map = await self._load_sector_metadata(list(security_map.keys()))
+        region_map = await self._load_region_metadata(list(security_map.keys()))
 
         # 3. Compute per-holding allocation values
         #    (with optional currency conversion)
@@ -226,9 +220,7 @@ class AllocationService:
                     account_type=(
                         str(acct.account_type) if acct else "unknown"
                     ),
-                    asset_class=(
-                        str(sec.security_type) if sec else "other"
-                    ),
+                    asset_class=(str(sec.security_type) if sec else "other"),
                     sector=sector_map.get(str(h.security_id), _UNCLASSIFIED),
                     region=region_map.get(str(h.security_id), _UNCLASSIFIED),
                     value=converted_value,
@@ -238,14 +230,9 @@ class AllocationService:
                 )
             )
 
-        total_value = sum(
-            (ha.value for ha in holding_allocs), _ZERO
-        )
-        effective_currency = (
-            target_currency
-            or _pick_dominant_currency(
-                [ha.native_currency for ha in holding_allocs]
-            )
+        total_value = sum((ha.value for ha in holding_allocs), _ZERO)
+        effective_currency = target_currency or _pick_dominant_currency(
+            [ha.native_currency for ha in holding_allocs]
         )
 
         # 4. Aggregate by asset class
@@ -365,9 +352,7 @@ class AllocationService:
 
         # Determine the "as of" timestamp (most recent observation)
         observed_times = [
-            h.observed_at
-            for h in holdings
-            if h.observed_at is not None
+            h.observed_at for h in holdings if h.observed_at is not None
         ]
         as_of = max(observed_times) if observed_times else datetime.now(UTC)
 
@@ -383,8 +368,7 @@ class AllocationService:
             )
         )
         account_map: dict[str, Account] = {
-            str(a.id): a
-            for a in acct_result.scalars().all()
+            str(a.id): a for a in acct_result.scalars().all()
         }
 
         # Fetch securities
@@ -392,8 +376,7 @@ class AllocationService:
             select(Security).where(Security.id.in_(security_ids))
         )
         security_map: dict[str, Security] = {
-            str(s.id): s
-            for s in sec_result.scalars().all()
+            str(s.id): s for s in sec_result.scalars().all()
         }
 
         return holdings, security_map, account_map, as_of
@@ -415,13 +398,12 @@ class AllocationService:
         latest_subq = (
             select(
                 SecurityMetadataObservation.security_id,
-                func.max(
-                    SecurityMetadataObservation.timestamp
-                ).label("latest_ts"),
+                func.max(SecurityMetadataObservation.timestamp).label(
+                    "latest_ts"
+                ),
             )
             .where(
-                SecurityMetadataObservation.metadata_type
-                == "sector_exposure",
+                SecurityMetadataObservation.metadata_type == "sector_exposure",
                 SecurityMetadataObservation.security_id.in_(security_ids),
             )
             .group_by(SecurityMetadataObservation.security_id)
@@ -439,14 +421,11 @@ class AllocationService:
                 ),
             )
             .where(
-                SecurityMetadataObservation.metadata_type
-                == "sector_exposure"
+                SecurityMetadataObservation.metadata_type == "sector_exposure"
             )
         )
         result = await self._session.execute(stmt)
-        rows: list[SecurityMetadataObservation] = list(
-            result.scalars().all()
-        )
+        rows: list[SecurityMetadataObservation] = list(result.scalars().all())
 
         sector_map: dict[str, str] = {}
         for row in rows:
@@ -457,9 +436,7 @@ class AllocationService:
                 # Try extracting from metadata_json
                 meta = row.metadata_json or {}
                 sector = (
-                    meta.get("sector")
-                    or meta.get("industry")
-                    or _UNCLASSIFIED
+                    meta.get("sector") or meta.get("industry") or _UNCLASSIFIED
                 )
                 sector_map[str(row.security_id)] = sector
 
@@ -482,9 +459,9 @@ class AllocationService:
         latest_subq = (
             select(
                 SecurityMetadataObservation.security_id,
-                func.max(
-                    SecurityMetadataObservation.timestamp
-                ).label("latest_ts"),
+                func.max(SecurityMetadataObservation.timestamp).label(
+                    "latest_ts"
+                ),
             )
             .where(
                 SecurityMetadataObservation.metadata_type.in_(
@@ -513,9 +490,7 @@ class AllocationService:
             )
         )
         result = await self._session.execute(stmt)
-        rows: list[SecurityMetadataObservation] = list(
-            result.scalars().all()
-        )
+        rows: list[SecurityMetadataObservation] = list(result.scalars().all())
 
         region_map: dict[str, str] = {}
         for row in rows:
@@ -527,9 +502,7 @@ class AllocationService:
                     or meta.get("headquarters_country")
                 )
                 if region:
-                    region_map[str(row.security_id)] = _region_normalise(
-                        region
-                    )
+                    region_map[str(row.security_id)] = _region_normalise(region)
             elif row.metadata_type == "sector_exposure":
                 region = meta.get("region")
                 if region:
