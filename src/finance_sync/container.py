@@ -27,6 +27,7 @@ if TYPE_CHECKING:
     from finance_sync.enrichment.price_store import PriceStore
     from finance_sync.enrichment.security_resolver import SecurityResolver
     from finance_sync.identity.resolver import IdentityResolutionService
+    from finance_sync.services.fx_service import FxService
 
 
 class Container:
@@ -52,6 +53,7 @@ class Container:
         self._identity_resolution_service: IdentityResolutionService | None = (
             None
         )
+        self._fx_service: FxService | None = None
 
     # ── Initialisation ───────────────────────────────────────────────
 
@@ -203,6 +205,18 @@ class Container:
             )
         return self._identity_resolution_service
 
+    @property
+    def fx_service(self) -> FxService:
+        """Lazy-init the FX service for exchange rate management."""
+        if self._fx_service is None:
+            from finance_sync.services.fx_service import FxService
+
+            self._fx_service = FxService(
+                settings=self.settings,
+                uow=self._make_uow(),
+            )
+        return self._fx_service
+
     def _make_uow(self) -> UnitOfWork:
         """Create a UoW for the enrichment services."""
         from finance_sync.db.uow import UnitOfWork
@@ -236,3 +250,5 @@ class Container:
                 await r.aclose()
             if self._enrichment_gateway is not None:
                 await self._enrichment_gateway.close()
+            if self._fx_service is not None:
+                await self._fx_service.close()
