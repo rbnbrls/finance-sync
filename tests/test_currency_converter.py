@@ -804,16 +804,19 @@ class TestConvertAmount:
     @pytest.fixture
     def _no_rates(self) -> RatesFetcher:
         """A fetcher that always returns None (no rates available)."""
+
         async def fetcher(from_: str, to_: str) -> Decimal | None:
             return None
+
         return fetcher
 
-    async def test_identity_conversion(
-        self, _no_rates: RatesFetcher
-    ) -> None:
+    async def test_identity_conversion(self, _no_rates: RatesFetcher) -> None:
         """Same-currency returns the amount unchanged (rounded)."""
         result = await convert_amount(
-            Decimal("150.00"), "EUR", "EUR", _no_rates,
+            Decimal("150.00"),
+            "EUR",
+            "EUR",
+            _no_rates,
         )
         assert result == Decimal("150.00")
 
@@ -822,12 +825,16 @@ class TestConvertAmount:
     ) -> None:
         """Identity works regardless of case."""
         result = await convert_amount(
-            Decimal(50), "eur", "EUR", _no_rates,
+            Decimal(50),
+            "eur",
+            "EUR",
+            _no_rates,
         )
         assert result == Decimal("50.00")
 
     async def test_direct_rate_success(self) -> None:
         """Uses the direct rate when rates_fetcher returns a value."""
+
         async def fetcher(from_: str, to_: str) -> Decimal | None:
             return Decimal("1.09") if (from_, to_) == ("EUR", "USD") else None
 
@@ -836,6 +843,7 @@ class TestConvertAmount:
 
     async def test_direct_rate_case_insensitive(self) -> None:
         """Normalises currency codes to uppercase before lookup."""
+
         async def fetcher(from_: str, to_: str) -> Decimal | None:
             return Decimal("1.09") if (from_, to_) == ("EUR", "USD") else None
 
@@ -844,6 +852,7 @@ class TestConvertAmount:
 
     async def test_inverse_pair_fallback(self) -> None:
         """Falls back to inverse pair when the direct rate is missing."""
+
         async def fetcher(from_: str, to_: str) -> Decimal | None:
             # Only USD->EUR is known, not EUR->USD
             if (from_, to_) == ("USD", "EUR"):
@@ -857,16 +866,21 @@ class TestConvertAmount:
 
     async def test_both_direct_and_inverse_fail(self) -> None:
         """Raises NoRateError when neither direct nor inverse is available."""
+
         async def fetcher(from_: str, to_: str) -> Decimal | None:
             return None
 
         with pytest.raises(NoRateError, match="No exchange rate"):
             await convert_amount(
-                Decimal(100), "ABC", "XYZ", fetcher,
+                Decimal(100),
+                "ABC",
+                "XYZ",
+                fetcher,
             )
 
     async def test_inverse_rate_of_zero_raises(self) -> None:
         """An inverse rate of zero does not crash -- falls through to error."""
+
         async def fetcher(from_: str, to_: str) -> Decimal | None:
             if (from_, to_) == ("USD", "XYZ"):
                 return Decimal(0)
@@ -877,6 +891,7 @@ class TestConvertAmount:
 
     async def test_zero_amount(self) -> None:
         """Zero amount converts without error."""
+
         async def fetcher(from_: str, to_: str) -> Decimal | None:
             return Decimal("1.09")
 
@@ -885,6 +900,7 @@ class TestConvertAmount:
 
     async def test_negative_amount(self) -> None:
         """Negative amounts convert without error."""
+
         async def fetcher(from_: str, to_: str) -> Decimal | None:
             return Decimal("1.09")
 
@@ -893,19 +909,25 @@ class TestConvertAmount:
 
     async def test_large_amount(self) -> None:
         """Large amounts round correctly."""
+
         async def fetcher(from_: str, to_: str) -> Decimal | None:
             return Decimal("1.23456789")
 
         result = await convert_amount(
-            Decimal("9999999999.99"), "EUR", "USD", fetcher,
+            Decimal("9999999999.99"),
+            "EUR",
+            "USD",
+            fetcher,
         )
         expected = Decimal("9999999999.99") * Decimal("1.23456789")
         assert result == expected.quantize(
-            Decimal("0.01"), rounding="ROUND_HALF_UP",
+            Decimal("0.01"),
+            rounding="ROUND_HALF_UP",
         )
 
     async def test_rounding_to_two_decimals(self) -> None:
         """Result is always rounded to 2 decimal places, ROUND_HALF_UP."""
+
         async def fetcher(from_: str, to_: str) -> Decimal | None:
             return Decimal("1.2345")
 
@@ -915,6 +937,7 @@ class TestConvertAmount:
 
     async def test_rounding_midpoint(self) -> None:
         """Midpoint rounding follows ROUND_HALF_UP."""
+
         async def fetcher(from_: str, to_: str) -> Decimal | None:
             return Decimal("1.005")
 
@@ -946,9 +969,11 @@ class TestConvertAmount:
 
     async def test_rates_fetcher_type_alias(self) -> None:
         """RatesFetcher type alias is importable."""
+
         # Verify it can be used as an annotation without error
         async def dummy(f: str, t: str) -> Decimal | None:
             return None
+
         annotated: RatesFetcher = dummy
         result = await annotated("EUR", "USD")
         assert result is None
@@ -963,6 +988,7 @@ class TestConversionProperties:
     async def test_round_trip_via_inverse(self) -> None:
         """convert_amount(A→B) then convert_amount(result→A) ≈ original
         when both directions are known."""
+
         async def bidirectional(from_: str, to_: str) -> Decimal | None:
             rates = {
                 ("EUR", "USD"): Decimal("1.09"),
@@ -970,7 +996,9 @@ class TestConversionProperties:
             }
             return rates.get((from_, to_))
 
-        fwd = await convert_amount(Decimal("100.00"), "EUR", "USD", bidirectional)
+        fwd = await convert_amount(
+            Decimal("100.00"), "EUR", "USD", bidirectional
+        )
         assert fwd == Decimal("109.00")
 
         rev = await convert_amount(fwd, "USD", "EUR", bidirectional)
@@ -979,6 +1007,7 @@ class TestConversionProperties:
 
     async def test_round_trip_via_single_rate(self) -> None:
         """Direct + inverse from a single rate: round-trip preserves value."""
+
         async def single_rate(from_: str, to_: str) -> Decimal | None:
             if (from_, to_) == ("EUR", "USD"):
                 return Decimal("1.09")
@@ -1003,20 +1032,23 @@ class TestCrossRateLaterIntermediary:
     ) -> None:
         """When the first intermediary (USD) also has no rate, falls through
         to the next intermediary (EUR) to find a path."""
+
         async def _side(base: str, quote: str, **kw: Any) -> Any:
             # Direct NOK→SEK is missing
             # USD→SEK is also missing (first intermediary fails)
             # EUR→SEK exists
             if base == "NOK" and quote == "EUR":
                 return FxRateObservation(
-                    base_currency="NOK", quote_currency="EUR",
+                    base_currency="NOK",
+                    quote_currency="EUR",
                     rate=Decimal("0.085"),
                     timestamp=datetime(2026, 7, 23, tzinfo=UTC),
                     source="test",
                 )
             if base == "EUR" and quote == "SEK":
                 return FxRateObservation(
-                    base_currency="EUR", quote_currency="SEK",
+                    base_currency="EUR",
+                    quote_currency="SEK",
                     rate=Decimal("11.50"),
                     timestamp=datetime(2026, 7, 23, tzinfo=UTC),
                     source="test",
@@ -1025,7 +1057,10 @@ class TestCrossRateLaterIntermediary:
 
         mock_fx_service.get_rate = AsyncMock(side_effect=_side)
         result = await convert_currency_rate(
-            Decimal(100), "NOK", "SEK", fx_service=mock_fx_service,
+            Decimal(100),
+            "NOK",
+            "SEK",
+            fx_service=mock_fx_service,
         )
         # Intermediaries: USD(missing), EUR(hit for both legs)
         # 100 * (0.085 * 11.50) = 100 * 0.9775 = 97.75
@@ -1039,7 +1074,10 @@ class TestCrossRateLaterIntermediary:
         mock_fx_service.get_rate = AsyncMock(return_value=None)
         with pytest.raises(NoRateError) as exc_info:
             await convert_currency_rate(
-                Decimal(100), "XXX", "YYY", fx_service=mock_fx_service,
+                Decimal(100),
+                "XXX",
+                "YYY",
+                fx_service=mock_fx_service,
             )
         msg = str(exc_info.value)
         assert "USD" in msg
@@ -1060,7 +1098,9 @@ class TestConvertPortfolioItemsEdgeCases:
         """Items already in the target currency use rate=1; others convert."""
         mock_fx_service.convert = AsyncMock(
             return_value=_make_result(
-                from_currency="USD", to_currency="EUR", rate=Decimal("0.9174"),
+                from_currency="USD",
+                to_currency="EUR",
+                rate=Decimal("0.9174"),
             )
         )
         items = [
@@ -1068,7 +1108,9 @@ class TestConvertPortfolioItemsEdgeCases:
             _TestPosition(Decimal(200), "USD"),  # convert
         ]
         results = await convert_portfolio_items(
-            items, "EUR", fx_service=mock_fx_service,
+            items,
+            "EUR",
+            fx_service=mock_fx_service,
         )
         assert len(results) == 2
         # Identity item
@@ -1092,7 +1134,9 @@ class TestConvertPortfolioItemsEdgeCases:
             _TestPosition(Decimal(30), "EUR"),
         ]
         results = await convert_portfolio_items(
-            items, "EUR", fx_service=mock_fx_service,
+            items,
+            "EUR",
+            fx_service=mock_fx_service,
         )
         assert len(results) == 3
         assert results[0].converted_amount == Decimal("10.00")
@@ -1105,12 +1149,16 @@ class TestConvertPortfolioItemsEdgeCases:
         """Single-item portfolio conversion works correctly."""
         mock_fx_service.convert = AsyncMock(
             return_value=_make_result(
-                from_currency="USD", to_currency="GBP", rate=Decimal("0.7874"),
+                from_currency="USD",
+                to_currency="GBP",
+                rate=Decimal("0.7874"),
             )
         )
         items = [_TestPosition(Decimal("500.00"), "USD")]
         results = await convert_portfolio_items(
-            items, "GBP", fx_service=mock_fx_service,
+            items,
+            "GBP",
+            fx_service=mock_fx_service,
         )
         assert len(results) == 1
         assert results[0].converted_amount == Decimal("393.70")
@@ -1131,12 +1179,17 @@ class TestCaseInsensitiveIdentity:
         to FxService which handles the identity internally."""
         mock_fx_service.convert = AsyncMock(
             return_value=_make_result(
-                from_currency="EUR", to_currency="EUR", rate=Decimal(1),
+                from_currency="EUR",
+                to_currency="EUR",
+                rate=Decimal(1),
                 converted=Decimal("100.00"),
             )
         )
         result = await convert_single(
-            Decimal("100.00"), "eur", "EUR", fx_service=mock_fx_service,
+            Decimal("100.00"),
+            "eur",
+            "EUR",
+            fx_service=mock_fx_service,
         )
         # Falls through to FxService which returns identity
         assert result == Decimal("100.00")
@@ -1149,13 +1202,18 @@ class TestCaseInsensitiveIdentity:
         convert_currency_rate which normalises case and hits identity."""
         mock_fx_service.get_rate = AsyncMock(
             return_value=FxRateObservation(
-                base_currency="EUR", quote_currency="EUR", rate=Decimal(1),
+                base_currency="EUR",
+                quote_currency="EUR",
+                rate=Decimal(1),
                 timestamp=datetime(2026, 7, 23, tzinfo=UTC),
                 source="identity",
             ),
         )
         result = await convert(
-            Decimal("100.00"), "eur", "EUR", fx_service=mock_fx_service,
+            Decimal("100.00"),
+            "eur",
+            "EUR",
+            fx_service=mock_fx_service,
         )
         assert result == Decimal("100.00")
 
@@ -1172,13 +1230,18 @@ class TestRoundingEdgeCases:
         """convert_currency_rate rounds midpoint values up (ROUND_HALF_UP)."""
         mock_fx_service.get_rate = AsyncMock(
             return_value=FxRateObservation(
-                base_currency="EUR", quote_currency="USD", rate=Decimal("1.005"),
+                base_currency="EUR",
+                quote_currency="USD",
+                rate=Decimal("1.005"),
                 timestamp=datetime(2026, 7, 23, tzinfo=UTC),
                 source="test",
             ),
         )
         result = await convert_currency_rate(
-            Decimal("1.00"), "EUR", "USD", fx_service=mock_fx_service,
+            Decimal("1.00"),
+            "EUR",
+            "USD",
+            fx_service=mock_fx_service,
         )
         # 1.00 * 1.005 = 1.005 → rounds to 1.01
         assert result == Decimal("1.01")
@@ -1189,14 +1252,18 @@ class TestRoundingEdgeCases:
         """Rate with many decimal places rounds correctly."""
         mock_fx_service.get_rate = AsyncMock(
             return_value=FxRateObservation(
-                base_currency="EUR", quote_currency="USD",
+                base_currency="EUR",
+                quote_currency="USD",
                 rate=Decimal("1.123456789"),
                 timestamp=datetime(2026, 7, 23, tzinfo=UTC),
                 source="test",
             ),
         )
         result = await convert_currency_rate(
-            Decimal("999.99"), "EUR", "USD", fx_service=mock_fx_service,
+            Decimal("999.99"),
+            "EUR",
+            "USD",
+            fx_service=mock_fx_service,
         )
         # 999.99 * 1.123456789 = 1123.44555... → rounds to 1123.45
         assert result == Decimal("1123.45")
@@ -1207,12 +1274,16 @@ class TestRoundingEdgeCases:
         """Portfolio items with midpoint values round correctly (ROUND_HALF_UP)."""
         mock_fx_service.convert = AsyncMock(
             return_value=_make_result(
-                from_currency="USD", to_currency="EUR", rate=Decimal("0.9174"),
+                from_currency="USD",
+                to_currency="EUR",
+                rate=Decimal("0.9174"),
             ),
         )
         items = [_TestPosition(Decimal("99.99"), "USD")]
         results = await convert_portfolio_items(
-            items, "EUR", fx_service=mock_fx_service,
+            items,
+            "EUR",
+            fx_service=mock_fx_service,
         )
         # 99.99 * 0.9174 = 91.730826 → rounds to 91.73
         assert results[0].converted_amount == Decimal("91.73")
@@ -1230,12 +1301,17 @@ class TestConvertCurrencyRateZeroRate:
         """A zero exchange rate returns zero converted amount (no crash)."""
         mock_fx_service.get_rate = AsyncMock(
             return_value=FxRateObservation(
-                base_currency="EUR", quote_currency="USD", rate=Decimal(0),
+                base_currency="EUR",
+                quote_currency="USD",
+                rate=Decimal(0),
                 timestamp=datetime(2026, 7, 23, tzinfo=UTC),
                 source="test",
             ),
         )
         result = await convert_currency_rate(
-            Decimal("100.00"), "EUR", "USD", fx_service=mock_fx_service,
+            Decimal("100.00"),
+            "EUR",
+            "USD",
+            fx_service=mock_fx_service,
         )
         assert result == Decimal("0.00")

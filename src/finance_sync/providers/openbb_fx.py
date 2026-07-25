@@ -152,8 +152,7 @@ class OpenBBFxProvider:
         """
         if self._degraded:
             msg = (
-                "OpenBB API key not configured --"
-                " provider is in degraded mode"
+                "OpenBB API key not configured -- provider is in degraded mode"
             )
             raise OpenBBFxProviderAuthError(msg)
 
