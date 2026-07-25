@@ -323,8 +323,7 @@ async def compare_connectors(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=(
-                f"Reconciliation failed: "
-                f"{run.error_message or 'Unknown error'}"
+                f"Reconciliation failed: {run.error_message or 'Unknown error'}"
             ),
         )
 

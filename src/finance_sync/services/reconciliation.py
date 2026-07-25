@@ -46,7 +46,7 @@ _DEFAULT_DAYS_BACK = 90  # Default date range for a full scan
 _DUPLICATE_THRESHOLD_HOURS = 48  # Max hours apart to consider a duplicate
 
 
-def _severity(count: int, total: int) -> ReconciliationSeverity:
+def _severity(count: int, total: int) -> ReconciliationSeverity:  # type: ignore[reportUnusedFunction]
     """Derive severity from the ratio of findings to total transactions.
 
     A high finding/total ratio is more severe.
@@ -355,7 +355,7 @@ class ReconciliationService:
             if provider_keys is not None:
                 providers = [p for p in providers if p in provider_keys]
                 if len(providers) < 2:
-                    continue  # Fewer than 2 requested providers for this account
+                    continue  # Fewer than 2 requested providers
 
             # For each provider, get its transaction date range
             provider_ranges: dict[
@@ -472,7 +472,10 @@ class ReconciliationService:
 
             for provider_key in providers:
                 # If specific provider_keys requested, skip non-matching
-                if provider_keys is not None and provider_key not in provider_keys:
+                if (
+                    provider_keys is not None
+                    and provider_key not in provider_keys
+                ):
                     continue
                 async with UnitOfWork(session) as uow:
                     (

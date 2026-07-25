@@ -19,9 +19,13 @@ notify users, or update reconciliation run findings.
 
 Usage::
 
-    from finance_sync.sync.reconciliation import detect_missing, detect_duplicates
+    from finance_sync.sync.reconciliation import (
+        detect_missing, detect_duplicates,
+    )
 
-    missing = detect_missing(txns_a, txns_b, connector_a="bunq", connector_b="trading212")
+    missing = detect_missing(
+        txns_a, txns_b, connector_a="bunq", connector_b="trading212",
+    )
     for item in missing.in_a_not_b:
         print(f"Missing in B: {item.external_transaction_id} ({item.amount})")
 
@@ -35,19 +39,26 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from decimal import Decimal
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any
 
 import structlog
 
-from finance_sync.connectors.models import CanonicalTransactionData
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from finance_sync.connectors.models import CanonicalTransactionData
 
 # ── Public result types ───────────────────────────────────────────────
 
 logger = structlog.get_logger("finance_sync.sync.reconciliation")
 
-_DEFAULT_KEY_FN: Callable[[CanonicalTransactionData], Any] = (
-    lambda t: t.external_transaction_id
-)
+
+def _default_key_fn(txn: CanonicalTransactionData) -> Any:
+    """Extract default dedup key — external transaction ID."""
+    return txn.external_transaction_id
+
+
+_DEFAULT_KEY_FN = _default_key_fn
 _DEFAULT_DUPLICATE_THRESHOLD_HOURS = 48
 
 
@@ -71,7 +82,7 @@ class MissingTransaction:
     account_id: str | None = None
     """External account ID the transaction belongs to (if available)."""
 
-    amount: Decimal = Decimal("0")
+    amount: Decimal = Decimal(0)
     """Signed transaction amount."""
 
     currency_code: str = "EUR"
@@ -164,7 +175,8 @@ class DuplicateTransaction:
     """Second transaction in the duplicate pair."""
 
     match_reason: str
-    """Why these were flagged: ``'exact_external_id'``, ``'amount_and_date'``."""
+    "Why these were flagged: "
+    "``'exact_external_id'``, ``'amount_and_date'``."
 
     confidence: float = 0.5
     """Confidence score between 0.0 and 1.0."""
@@ -172,7 +184,7 @@ class DuplicateTransaction:
     diff_hours: float = 0.0
     """Hours between the two transactions' occurrence timestamps."""
 
-    amount_diff: Decimal = Decimal("0")
+    amount_diff: Decimal = Decimal(0)
     """Absolute difference in amounts between the two transactions."""
 
     same_description: bool = False
@@ -191,9 +203,7 @@ def detect_missing(
     *,
     connector_a_name: str = "source_a",
     connector_b_name: str = "source_b",
-    key: Callable[
-        [CanonicalTransactionData], Any
-    ] = _DEFAULT_KEY_FN,
+    key: Callable[[CanonicalTransactionData], Any] = _DEFAULT_KEY_FN,
 ) -> MissingResult:
     """Find transactions present in one data set but missing from the other.
 
@@ -244,17 +254,17 @@ def detect_missing(
 
     in_a_not_b: list[MissingTransaction] = []
     for k in only_a_keys:
-        for txn in map_a[k]:
-            in_a_not_b.append(
-                MissingTransaction.from_canonical(txn, source="a")
-            )
+        in_a_not_b.extend(
+            MissingTransaction.from_canonical(txn, source="a")
+            for txn in map_a[k]
+        )
 
     in_b_not_a: list[MissingTransaction] = []
     for k in only_b_keys:
-        for txn in map_b[k]:
-            in_b_not_a.append(
-                MissingTransaction.from_canonical(txn, source="b")
-            )
+        in_b_not_a.extend(
+            MissingTransaction.from_canonical(txn, source="b")
+            for txn in map_b[k]
+        )
 
     # Count matched transactions by key: for each key that appears in both
     # sets, the number that can be paired is the smaller of the two counts.
@@ -392,7 +402,7 @@ def detect_duplicates(
                     match_reason="amount_and_date",
                     confidence=confidence,
                     diff_hours=time_diff.total_seconds() / 3600,
-                    amount_diff=Decimal("0"),
+                    amount_diff=Decimal(0),
                     same_description=same_desc,
                     same_provider=same_prov,
                 )
@@ -400,9 +410,7 @@ def detect_duplicates(
 
     log.info(
         "detect_duplicates_complete",
-        exact=sum(
-            1 for f in findings if f.match_reason == "exact_external_id"
-        ),
+        exact=sum(1 for f in findings if f.match_reason == "exact_external_id"),
         heuristic=sum(
             1 for f in findings if f.match_reason == "amount_and_date"
         ),
@@ -419,7 +427,8 @@ def _same_desc(
     a: CanonicalTransactionData,
     b: CanonicalTransactionData,
 ) -> bool:
-    """Check whether two transactions have the same description (case-insensitive)."""
+    "Check whether two transactions have the same description"
+    "(case-insensitive)."
     if not a.description and not b.description:
         return True
     if not a.description or not b.description:

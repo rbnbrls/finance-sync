@@ -91,7 +91,8 @@ class TestConvertSingle:
         """Delegates to FxService.convert with a proper FxConversionRequest."""
         mock_fx_service.convert = AsyncMock(
             return_value=_make_result(
-                amount=Decimal(50), rate=Decimal("1.1"),
+                amount=Decimal(50),
+                rate=Decimal("1.1"),
                 converted=Decimal("55.00"),
             )
         )
@@ -347,12 +348,20 @@ class TestConvertPortfolioItems:
 
     async def test_mixed_currencies(self, mock_fx_service: MagicMock) -> None:
         """Items in different currencies are each converted appropriately."""
-        mock_fx_service.convert = AsyncMock(side_effect=[
-            _make_result(from_currency="GBP", to_currency="EUR",
-                         rate=Decimal("1.1628")),
-            _make_result(from_currency="USD", to_currency="EUR",
-                         rate=Decimal("0.9174")),
-        ])
+        mock_fx_service.convert = AsyncMock(
+            side_effect=[
+                _make_result(
+                    from_currency="GBP",
+                    to_currency="EUR",
+                    rate=Decimal("1.1628"),
+                ),
+                _make_result(
+                    from_currency="USD",
+                    to_currency="EUR",
+                    rate=Decimal("0.9174"),
+                ),
+            ]
+        )
         items = [
             _TestPosition(Decimal(200), "USD"),
             _TestPosition(Decimal(100), "GBP"),
@@ -381,7 +390,8 @@ class TestConvertPortfolioItems:
         """Each result carries original and conversion metadata."""
         mock_fx_service.convert = AsyncMock(
             return_value=_make_result(
-                from_currency="USD", to_currency="EUR",
+                from_currency="USD",
+                to_currency="EUR",
                 rate=Decimal("0.9174"),
             )
         )
@@ -425,11 +435,14 @@ class TestConvertPortfolioItems:
 class TestEdgeCases:
     """Boundary conditions and edge cases."""
 
-    @pytest.mark.parametrize("amount", [
-        Decimal(0),
-        Decimal(-50),
-        Decimal("9999999999.99"),
-    ])
+    @pytest.mark.parametrize(
+        "amount",
+        [
+            Decimal(0),
+            Decimal(-50),
+            Decimal("9999999999.99"),
+        ],
+    )
     async def test_various_amounts(
         self, mock_fx_service: MagicMock, amount: Decimal
     ) -> None:
@@ -448,9 +461,7 @@ class TestEdgeCases:
         # Mock returns the raw converted_value as-is (real FxService rounds)
         assert result == converted_val
 
-    async def test_empty_portfolio(
-        self, mock_fx_service: MagicMock
-    ) -> None:
+    async def test_empty_portfolio(self, mock_fx_service: MagicMock) -> None:
         """An empty portfolio returns an empty list."""
         results = await convert_portfolio_items(
             [], "EUR", fx_service=mock_fx_service
@@ -488,21 +499,24 @@ class TestEdgeCases:
         assert result == Decimal("109.00")
 
     async def test_skips_intermediary_matching_from_currency(
-        self, mock_fx_service: MagicMock,
+        self,
+        mock_fx_service: MagicMock,
     ) -> None:
         """Skips intermediaries that match from_currency or to_currency."""
 
         async def _side(base: str, quote: str, **kw: Any) -> Any:
             if base == "USD" and quote == "EUR":
                 return FxRateObservation(
-                    base_currency="USD", quote_currency="EUR",
+                    base_currency="USD",
+                    quote_currency="EUR",
                     rate=Decimal("0.9174"),
                     timestamp=datetime(2026, 7, 23, tzinfo=UTC),
                     source="test",
                 )
             if base == "EUR" and quote == "GBP":
                 return FxRateObservation(
-                    base_currency="EUR", quote_currency="GBP",
+                    base_currency="EUR",
+                    quote_currency="GBP",
                     rate=Decimal("0.86"),
                     timestamp=datetime(2026, 7, 23, tzinfo=UTC),
                     source="test",
@@ -514,19 +528,25 @@ class TestEdgeCases:
         # USD->GBP via EUR — the first intermediary is "USD" which should be
         # skipped (matches from_currency), then "EUR" tried next
         result = await convert_currency_rate(
-            Decimal(100), "USD", "GBP", fx_service=mock_fx_service,
+            Decimal(100),
+            "USD",
+            "GBP",
+            fx_service=mock_fx_service,
         )
         # 100 * (0.9174 * 0.86) = 100 * 0.788964 = 78.90
         assert result == Decimal("78.90")
 
     async def test_leg1_succeeds_leg2_fails_no_path(
-        self, mock_fx_service: MagicMock,
+        self,
+        mock_fx_service: MagicMock,
     ) -> None:
         """Raises NoRateError when leg1 succeeds but leg2 fails."""
+
         async def _side(base: str, quote: str, **kw: Any) -> Any:
             if base == "GBP" and quote == "USD":
                 return FxRateObservation(
-                    base_currency="GBP", quote_currency="USD",
+                    base_currency="GBP",
+                    quote_currency="USD",
                     rate=Decimal("1.27"),
                     timestamp=datetime(2026, 7, 23, tzinfo=UTC),
                     source="test",
@@ -539,7 +559,10 @@ class TestEdgeCases:
         mock_fx_service.get_rate = AsyncMock(side_effect=_side)
         with pytest.raises(NoRateError, match="No exchange rate"):
             await convert_currency_rate(
-                Decimal(100), "GBP", "XYZ", fx_service=mock_fx_service,
+                Decimal(100),
+                "GBP",
+                "XYZ",
+                fx_service=mock_fx_service,
             )
 
 
@@ -558,22 +581,29 @@ class TestConvertCurrencyRateHistorical:
         async def _side(base: str, quote: str, **kw: Any) -> Any:
             if base == "GBP" and quote == "USD":
                 return FxRateObservation(
-                    base_currency="GBP", quote_currency="USD",
+                    base_currency="GBP",
+                    quote_currency="USD",
                     rate=Decimal("1.25"),
-                    timestamp=ts, source="test",
+                    timestamp=ts,
+                    source="test",
                 )
             if base == "USD" and quote == "JPY":
                 return FxRateObservation(
-                    base_currency="USD", quote_currency="JPY",
+                    base_currency="USD",
+                    quote_currency="JPY",
                     rate=Decimal("140.00"),
-                    timestamp=ts, source="test",
+                    timestamp=ts,
+                    source="test",
                 )
             return None
 
         mock_fx_service.get_rate = AsyncMock(side_effect=_side)
         result = await convert_currency_rate(
-            Decimal(100), "GBP", "JPY",
-            at_timestamp=ts, fx_service=mock_fx_service,
+            Decimal(100),
+            "GBP",
+            "JPY",
+            at_timestamp=ts,
+            fx_service=mock_fx_service,
         )
         # 100 * (1.25 * 140.00) = 100 * 175.0 = 17500.00
         assert result == Decimal("17500.00")
@@ -589,8 +619,11 @@ class TestConvertCurrencyRateHistorical:
         ts = datetime(2020, 1, 1, tzinfo=UTC)
         with pytest.raises(NoRateError, match="No exchange rate"):
             await convert_currency_rate(
-                Decimal(100), "ABC", "XYZ",
-                at_timestamp=ts, fx_service=mock_fx_service,
+                Decimal(100),
+                "ABC",
+                "XYZ",
+                at_timestamp=ts,
+                fx_service=mock_fx_service,
             )
 
 
@@ -607,8 +640,10 @@ class TestConvertPortfolioItemsHistorical:
         ts = datetime(2025, 6, 1, tzinfo=UTC)
         mock_fx_service.convert = AsyncMock(
             return_value=_make_result(
-                from_currency="USD", to_currency="EUR",
-                rate=Decimal("0.90"), ts=ts,
+                from_currency="USD",
+                to_currency="EUR",
+                rate=Decimal("0.90"),
+                ts=ts,
             )
         )
         items = [
@@ -616,7 +651,10 @@ class TestConvertPortfolioItemsHistorical:
             _TestPosition(Decimal(100), "USD"),
         ]
         results = await convert_portfolio_items(
-            items, "EUR", at_timestamp=ts, fx_service=mock_fx_service,
+            items,
+            "EUR",
+            at_timestamp=ts,
+            fx_service=mock_fx_service,
         )
         assert len(results) == 2
         assert results[0].converted_amount == Decimal("180.00")
@@ -631,7 +669,10 @@ class TestConvertPortfolioItemsHistorical:
         ts = datetime(2025, 6, 1, tzinfo=UTC)
         items = [_TestPosition(Decimal(100), "EUR")]
         results = await convert_portfolio_items(
-            items, "EUR", at_timestamp=ts, fx_service=mock_fx_service,
+            items,
+            "EUR",
+            at_timestamp=ts,
+            fx_service=mock_fx_service,
         )
         assert results[0].converted_amount == Decimal("100.00")
         mock_fx_service.convert.assert_not_called()
@@ -653,9 +694,7 @@ class TestConvert:
         assert result == Decimal("150.00")
         mock_fx_service.get_rate.assert_not_called()
 
-    async def test_direct_conversion(
-        self, mock_fx_service: MagicMock
-    ) -> None:
+    async def test_direct_conversion(self, mock_fx_service: MagicMock) -> None:
         """Delegates to FxService.get_rate with the direct pair."""
         mock_fx_service.get_rate = AsyncMock(
             return_value=FxRateObservation(
@@ -682,9 +721,7 @@ class TestConvert:
                 Decimal(100), "EUR", "JPY", fx_service=mock_fx_service
             )
 
-    async def test_with_at_date(
-        self, mock_fx_service: MagicMock
-    ) -> None:
+    async def test_with_at_date(self, mock_fx_service: MagicMock) -> None:
         """Passes at_date as a UTC-midnight at_timestamp to get_rate."""
         from datetime import date
 
@@ -708,9 +745,7 @@ class TestConvert:
             2025, 6, 1, 0, 0, 0, tzinfo=UTC
         )
 
-    async def test_at_date_none(
-        self, mock_fx_service: MagicMock
-    ) -> None:
+    async def test_at_date_none(self, mock_fx_service: MagicMock) -> None:
         """at_date=None passes at_timestamp=None (latest rate)."""
         mock_fx_service.get_rate = AsyncMock(
             return_value=FxRateObservation(
@@ -721,9 +756,7 @@ class TestConvert:
                 source="test",
             )
         )
-        await convert(
-            Decimal(50), "EUR", "USD", fx_service=mock_fx_service
-        )
+        await convert(Decimal(50), "EUR", "USD", fx_service=mock_fx_service)
         call_kwargs = mock_fx_service.get_rate.await_args[1]
         assert call_kwargs.get("at_timestamp") is None
 
@@ -732,17 +765,20 @@ class TestConvert:
     ) -> None:
         """Falls back to indirect path (cross-rate) when direct rate is
         unavailable."""
+
         async def _side(base: str, quote: str, **kw: Any) -> Any:
             if base == "GBP" and quote == "USD":
                 return FxRateObservation(
-                    base_currency="GBP", quote_currency="USD",
+                    base_currency="GBP",
+                    quote_currency="USD",
                     rate=Decimal("1.27"),
                     timestamp=datetime(2026, 7, 23, tzinfo=UTC),
                     source="test",
                 )
             if base == "USD" and quote == "JPY":
                 return FxRateObservation(
-                    base_currency="USD", quote_currency="JPY",
+                    base_currency="USD",
+                    quote_currency="JPY",
                     rate=Decimal("149.50"),
                     timestamp=datetime(2026, 7, 23, tzinfo=UTC),
                     source="test",

@@ -101,7 +101,7 @@ class TestDensityClusterBranchCoverage:
     """Branch coverage for _density_cluster_1d."""
 
     def test_cluster_with_relative_tolerance_only(self) -> None:
-        """Large amounts far apart in absolute terms but within 5% relative should cluster."""  # noqa: E501
+        """Large amounts far apart in absolute terms but within 5% relative should cluster."""
         values = [
             Decimal("100.00"),
             Decimal("104.00"),
@@ -300,7 +300,7 @@ class TestPatternEngineExtras:
         ]
         if netflix_patterns:
             p = netflix_patterns[0]
-            # With consistent amounts and monthly intervals, the method should be  # noqa: E501
+            # With consistent amounts and monthly intervals, the method should be
             # AMOUNT_CLUSTER (if amount_consistency > 0.5 and frequency is set)
             assert p["detection_method"] in (
                 DetectionMethod.AMOUNT_CLUSTER,

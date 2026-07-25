@@ -10,30 +10,31 @@ PostgreSQL-flavoured ORM models work with SQLite.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from decimal import Decimal
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 import pytest
+
+# ── Make JSONB work with SQLite ──────────────────────────────────
+# SQLite's type compiler doesn't know visit_JSONB (only visit_JSON).
+# We register it so DDL and query compilation work transparently.
+from sqlalchemy.dialects.sqlite.base import SQLiteTypeCompiler
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     async_sessionmaker,
     create_async_engine,
 )
 
-# ── Make JSONB work with SQLite ──────────────────────────────────
-# SQLite's type compiler doesn't know visit_JSONB (only visit_JSON).
-# We register it so DDL and query compilation work transparently.
-from sqlalchemy.dialects.sqlite.base import SQLiteTypeCompiler
-
 if not hasattr(SQLiteTypeCompiler, "visit_JSONB"):
     SQLiteTypeCompiler.visit_JSONB = SQLiteTypeCompiler.visit_JSON  # type: ignore[assignment]
 
 # Also make the Uuid bind processor accept strings (not just UUID objects)
-from sqlalchemy import types as _sa_types
 import uuid as _uuid_mod
+
+from sqlalchemy import types as _sa_types
 
 _uuid_bind_orig = _sa_types.Uuid.bind_processor
 
@@ -62,23 +63,19 @@ from finance_sync.models.enums import (  # noqa: E402
     AccountType,
     ReconciliationResultKind,
     ReconciliationRunStatus,
-    ReconciliationSeverity,
     SyncRunStatus,
     TransactionStatus,
     TransactionType,
 )
 from finance_sync.models.outbox import OutboxMessage  # noqa: E402
-from finance_sync.models.reconciliation import (  # noqa: E402
-    ReconciliationResult,
-    ReconciliationRun,
-)
 from finance_sync.models.tenant import Tenant  # noqa: E402
 from finance_sync.models.transaction import Transaction  # noqa: E402
-from finance_sync.services.reconciliation import ReconciliationService  # noqa: E402
+from finance_sync.services.reconciliation import (  # noqa: E402
+    ReconciliationService,
+)
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
-    import uuid as _uuid
 
 # ── Test constants ────────────────────────────────────────────────
 
@@ -87,7 +84,7 @@ _TEST_DB_PATH: str | None = None
 
 
 def _next_ext_id() -> str:
-    global TXN_COUNT  # noqa: PLW0603
+    global TXN_COUNT
     TXN_COUNT += 1
     return f"ext_txn_{TXN_COUNT}"
 
@@ -101,10 +98,10 @@ def _next_ext_id() -> str:
 def engine():
     """Create a SQLite file-based engine for the test module."""
     import tempfile
-    _tf = tempfile.NamedTemporaryFile(suffix="_rec.db", delete=False)
-    _path = _tf.name
-    _tf.close()
-    global _TEST_DB_PATH  # noqa: PLW0603
+
+    with tempfile.NamedTemporaryFile(suffix="_rec.db", delete=False) as _tf:
+        _path = _tf.name
+    global _TEST_DB_PATH
     _TEST_DB_PATH = _path
     return create_async_engine(f"sqlite+aiosqlite:///{_path}", echo=False)
 
@@ -119,6 +116,7 @@ async def tables(engine):
         await conn.run_sync(Base.metadata.drop_all)
     # Clean up temp DB file
     import os
+
     if _TEST_DB_PATH and os.path.exists(_TEST_DB_PATH):
         os.unlink(_TEST_DB_PATH)
 
@@ -250,7 +248,9 @@ class TestReconciliationServiceIntegration:
     ) -> None:
         """Two transactions with same amount and close time -> duplicate finding."""
         now = datetime.now()
-        acct = await _create_account(session, tenant_id=tenant_id, provider_key="bunq")
+        acct = await _create_account(
+            session, tenant_id=tenant_id, provider_key="bunq"
+        )
         await session.commit()
 
         await _create_transaction(
@@ -274,7 +274,8 @@ class TestReconciliationServiceIntegration:
         await session.commit()
 
         run = await service.reconcile(
-            account_ids=[str(acct.id)], date_from=now - timedelta(days=7),
+            account_ids=[str(acct.id)],
+            date_from=now - timedelta(days=7),
             date_to=now + timedelta(hours=1),
         )
 
@@ -291,7 +292,9 @@ class TestReconciliationServiceIntegration:
     ) -> None:
         """Duplicate detection also catches same-provider duplicates."""
         now = datetime.now()
-        acct = await _create_account(session, tenant_id=tenant_id, provider_key="bunq")
+        acct = await _create_account(
+            session, tenant_id=tenant_id, provider_key="bunq"
+        )
         await session.commit()
 
         await _create_transaction(
@@ -317,12 +320,13 @@ class TestReconciliationServiceIntegration:
         await session.commit()
 
         run = await service.reconcile(
-            account_ids=[str(acct.id)], date_from=now - timedelta(days=7),
+            account_ids=[str(acct.id)],
+            date_from=now - timedelta(days=7),
             date_to=now + timedelta(hours=1),
         )
 
         assert run.status == ReconciliationRunStatus.COMPLETED
-        assert run.finding_count >= 1
+        assert run.finding_count is not None and run.finding_count >= 1
 
     async def test_reconcile_no_duplicates_for_distinct_transactions(
         self,
@@ -332,7 +336,9 @@ class TestReconciliationServiceIntegration:
     ) -> None:
         """Transactions with different amounts produce no duplicates."""
         now = datetime.now()
-        acct = await _create_account(session, tenant_id=tenant_id, provider_key="bunq")
+        acct = await _create_account(
+            session, tenant_id=tenant_id, provider_key="bunq"
+        )
         await session.commit()
 
         await _create_transaction(
@@ -354,7 +360,8 @@ class TestReconciliationServiceIntegration:
         await session.commit()
 
         run = await service.reconcile(
-            account_ids=[str(acct.id)], date_from=now - timedelta(days=7),
+            account_ids=[str(acct.id)],
+            date_from=now - timedelta(days=7),
             date_to=now + timedelta(hours=1),
         )
 
@@ -374,12 +381,22 @@ class TestReconciliationServiceIntegration:
 
         from unittest.mock import patch as u_patch
 
-        from finance_sync.services.reconciliation import ReconciliationService as RS
+        from finance_sync.services.reconciliation import (
+            ReconciliationService as RS,
+        )
 
-        with u_patch.object(RS, "_detect_duplicates", new=AsyncMock(side_effect=ValueError("Phase 1 failed!"))):
+        with u_patch.object(
+            RS,
+            "_detect_duplicates",
+            new=AsyncMock(side_effect=ValueError("Phase 1 failed!")),
+        ):
             bad_session_factory = MagicMock()
-            bad_session_factory.return_value.__aenter__ = AsyncMock(return_value=mock_session)
-            bad_session_factory.return_value.__aexit__ = AsyncMock(return_value=None)
+            bad_session_factory.return_value.__aenter__ = AsyncMock(
+                return_value=mock_session
+            )
+            bad_session_factory.return_value.__aexit__ = AsyncMock(
+                return_value=None
+            )
 
             error_service = ReconciliationService(
                 session_factory=bad_session_factory,
@@ -442,7 +459,7 @@ class TestReconciliationServiceIntegration:
         )
 
         assert run.status == ReconciliationRunStatus.COMPLETED
-        assert run.finding_count >= 1
+        assert run.finding_count is not None and run.finding_count >= 1
         assert run.summary is not None
         assert run.summary["by_kind"].get("missing_transaction", 0) >= 1
 
@@ -454,7 +471,12 @@ class TestReconciliationServiceIntegration:
     ) -> None:
         """Single-provider accounts produce no cross-connector findings."""
         now = datetime.now()
-        acct = await _create_account(session, tenant_id=tenant_id, provider_key="bunq", name="Single-Provider")
+        acct = await _create_account(
+            session,
+            tenant_id=tenant_id,
+            provider_key="bunq",
+            name="Single-Provider",
+        )
         await session.commit()
 
         await _create_transaction(
@@ -468,7 +490,8 @@ class TestReconciliationServiceIntegration:
         await session.commit()
 
         run = await service.reconcile(
-            account_ids=[str(acct.id)], date_from=now - timedelta(days=90),
+            account_ids=[str(acct.id)],
+            date_from=now - timedelta(days=90),
             date_to=now + timedelta(hours=1),
         )
 
@@ -486,7 +509,9 @@ class TestReconciliationServiceIntegration:
     ) -> None:
         """Provider with only recent data vs wide analysis window -> gap finding."""
         now = datetime.now()
-        acct = await _create_account(session, tenant_id=tenant_id, provider_key="bunq")
+        acct = await _create_account(
+            session, tenant_id=tenant_id, provider_key="bunq"
+        )
         await session.commit()
 
         # Transaction only 5 days ago, but analysis window starts 90 days ago
@@ -501,12 +526,13 @@ class TestReconciliationServiceIntegration:
         await session.commit()
 
         run = await service.reconcile(
-            account_ids=[str(acct.id)], date_from=now - timedelta(days=90),
+            account_ids=[str(acct.id)],
+            date_from=now - timedelta(days=90),
             date_to=now + timedelta(hours=1),
         )
 
         assert run.status == ReconciliationRunStatus.COMPLETED
-        assert run.finding_count >= 1
+        assert run.finding_count is not None and run.finding_count >= 1
         assert run.summary is not None
         assert run.summary["by_kind"].get("missing_transaction", 0) >= 1
 
@@ -522,7 +548,9 @@ class TestReconciliationServiceIntegration:
     ) -> None:
         """provider_keys filter limits reconciliation to specified providers."""
         now = datetime.now()
-        acct = await _create_account(session, tenant_id=tenant_id, provider_key="bunq")
+        acct = await _create_account(
+            session, tenant_id=tenant_id, provider_key="bunq"
+        )
         await session.commit()
 
         await _create_transaction(
@@ -557,7 +585,8 @@ class TestReconciliationServiceIntegration:
 
         # Only compare bunq vs trading212
         run = await service.reconcile(
-            account_ids=[str(acct.id)], date_from=now - timedelta(days=7),
+            account_ids=[str(acct.id)],
+            date_from=now - timedelta(days=7),
             date_to=now + timedelta(hours=1),
             provider_keys=["bunq", "trading212"],
         )
@@ -592,7 +621,9 @@ class TestReconciliationServiceQueries:
     ) -> None:
         """list_runs returns runs created by reconcile()."""
         now = datetime.now()
-        acct = await _create_account(session, tenant_id=tenant_id, provider_key="bunq")
+        acct = await _create_account(
+            session, tenant_id=tenant_id, provider_key="bunq"
+        )
         await session.commit()
 
         for i in range(3):
@@ -607,7 +638,8 @@ class TestReconciliationServiceQueries:
         await session.commit()
 
         run = await service.reconcile(
-            account_ids=[str(acct.id)], date_from=now - timedelta(days=7),
+            account_ids=[str(acct.id)],
+            date_from=now - timedelta(days=7),
             date_to=now + timedelta(hours=1),
         )
 
@@ -625,7 +657,9 @@ class TestReconciliationServiceQueries:
     ) -> None:
         """get_run_with_results returns run with its findings."""
         now = datetime.now()
-        acct = await _create_account(session, tenant_id=tenant_id, provider_key="bunq")
+        acct = await _create_account(
+            session, tenant_id=tenant_id, provider_key="bunq"
+        )
         await session.commit()
 
         await _create_transaction(
@@ -649,11 +683,14 @@ class TestReconciliationServiceQueries:
         await session.commit()
 
         run = await service.reconcile(
-            account_ids=[str(acct.id)], date_from=now - timedelta(days=7),
+            account_ids=[str(acct.id)],
+            date_from=now - timedelta(days=7),
             date_to=now + timedelta(hours=1),
         )
 
-        fetched_run, results, total = await service.get_run_with_results(str(run.id))
+        fetched_run, results, total = await service.get_run_with_results(
+            str(run.id)
+        )
         assert fetched_run is not None
         assert str(fetched_run.id) == str(run.id)
         assert total >= 1
@@ -669,7 +706,9 @@ class TestReconciliationServiceQueries:
         service: ReconciliationService,
     ) -> None:
         """get_run_with_results returns None for non-existent run."""
-        run, results, total = await service.get_run_with_results("00000000-0000-0000-0000-000000000000")
+        run, results, total = await service.get_run_with_results(
+            "00000000-0000-0000-0000-000000000000"
+        )
         assert run is None
         assert results == []
         assert total == 0
@@ -682,7 +721,9 @@ class TestReconciliationServiceQueries:
     ) -> None:
         """get_run_with_results with kind_filter returns filtered results."""
         now = datetime.now()
-        acct = await _create_account(session, tenant_id=tenant_id, provider_key="bunq")
+        acct = await _create_account(
+            session, tenant_id=tenant_id, provider_key="bunq"
+        )
         await session.commit()
 
         await _create_transaction(
@@ -706,7 +747,8 @@ class TestReconciliationServiceQueries:
         await session.commit()
 
         run = await service.reconcile(
-            account_ids=[str(acct.id)], date_from=now - timedelta(days=7),
+            account_ids=[str(acct.id)],
+            date_from=now - timedelta(days=7),
             date_to=now + timedelta(hours=1),
         )
 
@@ -732,7 +774,9 @@ class TestReconciliationServiceQueries:
     ) -> None:
         """get_run_with_results with severity_filter returns filtered results."""
         now = datetime.now()
-        acct = await _create_account(session, tenant_id=tenant_id, provider_key="bunq")
+        acct = await _create_account(
+            session, tenant_id=tenant_id, provider_key="bunq"
+        )
         await session.commit()
 
         await _create_transaction(
@@ -756,22 +800,27 @@ class TestReconciliationServiceQueries:
         await session.commit()
 
         run = await service.reconcile(
-            account_ids=[str(acct.id)], date_from=now - timedelta(days=7),
+            account_ids=[str(acct.id)],
+            date_from=now - timedelta(days=7),
             date_to=now + timedelta(hours=1),
         )
 
         # Verify we can find results without filter
-        _run_all, results_all, total_all = await service.get_run_with_results(
+        _run_all, _results_all, total_all = await service.get_run_with_results(
             str(run.id),
         )
-        assert total_all >= 1, f"No results found for reconciliation run {run.id}"
+        assert total_all >= 1, (
+            f"No results found for reconciliation run {run.id}"
+        )
 
         # Now try with severity filter
         _, results, total = await service.get_run_with_results(
             str(run.id),
             severity_filter="error",
         )
-        assert total >= 1, f"Expected at least 1 error result, got {total} (total_all={total_all})"
+        assert total >= 1, (
+            f"Expected at least 1 error result, got {total} (total_all={total_all})"
+        )
         assert all(r.severity == "error" for r in results)
 
         _, _results_info, total_info = await service.get_run_with_results(
@@ -798,7 +847,9 @@ class TestReconciliationOutbox:
     ) -> None:
         """Successful reconciliation emits a reconciliation.completed outbox message."""
         now = datetime.now()
-        acct = await _create_account(session, tenant_id=tenant_id, provider_key="bunq")
+        acct = await _create_account(
+            session, tenant_id=tenant_id, provider_key="bunq"
+        )
         await session.commit()
 
         await _create_transaction(
@@ -822,7 +873,8 @@ class TestReconciliationOutbox:
         )
 
         summary = await sync_orch.run_reconciliation(
-            account_ids=[str(acct.id)], date_from=now - timedelta(days=7),
+            account_ids=[str(acct.id)],
+            date_from=now - timedelta(days=7),
             date_to=now + timedelta(hours=1),
         )
 
@@ -856,11 +908,14 @@ class TestReconciliationOutbox:
     ) -> None:
         """The reconciliation run is accessible via list_runs after completion."""
         now = datetime.now()
-        acct = await _create_account(session, tenant_id=tenant_id, provider_key="bunq")
+        acct = await _create_account(
+            session, tenant_id=tenant_id, provider_key="bunq"
+        )
         await session.commit()
 
         run = await service.reconcile(
-            account_ids=[str(acct.id)], date_from=now - timedelta(days=7),
+            account_ids=[str(acct.id)],
+            date_from=now - timedelta(days=7),
             date_to=now + timedelta(hours=1),
         )
 
@@ -868,7 +923,9 @@ class TestReconciliationOutbox:
         run_ids = {str(r.id) for r in runs}
         assert str(run.id) in run_ids
 
-        fetched_run, results, total = await service.get_run_with_results(str(run.id))
+        fetched_run, _results, _total = await service.get_run_with_results(
+            str(run.id)
+        )
         assert fetched_run is not None
         assert str(fetched_run.id) == str(run.id)
         assert str(fetched_run.tenant_id) == tenant_id
@@ -941,31 +998,33 @@ class TestPostSyncReconciliation:
             tenant_id=tenant_id,
         )
 
-        with patch.object(
-            orch._registry,
-            "get_connector",
-            return_value=connector,
-        ):
-            with patch(
+        with (
+            patch.object(
+                orch._registry,
+                "get_connector",
+                return_value=connector,
+            ),
+            patch(
                 "finance_sync.sync.orchestrator.outbox_reconciliation_completed",
                 new=AsyncMock(return_value=None),
-            ):
-                with patch(
-                    "finance_sync.sync.orchestrator.outbox_entity_created",
-                    new=AsyncMock(return_value=None),
-                ):
-                    with patch(
-                        "finance_sync.sync.orchestrator.outbox_entity_updated",
-                        new=AsyncMock(return_value=None),
-                    ):
-                        result = await orch.run_sync(
-                            provider_type="mock_provider",
-                            config=ConnectorConfig(
-                                provider_type="mock_provider",
-                                credentials={"api_key": "test"},
-                            ),
-                            since=now - timedelta(days=30),
-                        )
+            ),
+            patch(
+                "finance_sync.sync.orchestrator.outbox_entity_created",
+                new=AsyncMock(return_value=None),
+            ),
+            patch(
+                "finance_sync.sync.orchestrator.outbox_entity_updated",
+                new=AsyncMock(return_value=None),
+            ),
+        ):
+            result = await orch.run_sync(
+                provider_type="mock_provider",
+                config=ConnectorConfig(
+                    provider_type="mock_provider",
+                    credentials={"api_key": "test"},
+                ),
+                since=now - timedelta(days=30),
+            )
 
         assert result.status == SyncRunStatus.COMPLETED
         assert result.accounts_synced >= 1
@@ -1015,36 +1074,38 @@ class TestPostSyncReconciliation:
             tenant_id=tenant_id,
         )
 
-        with patch.object(
-            orch._registry,
-            "get_connector",
-            return_value=connector,
-        ):
-            with patch(
+        with (
+            patch.object(
+                orch._registry,
+                "get_connector",
+                return_value=connector,
+            ),
+            patch(
                 "finance_sync.sync.orchestrator.outbox_reconciliation_completed",
                 new=AsyncMock(return_value=None),
-            ):
-                with patch(
-                    "finance_sync.sync.orchestrator.outbox_entity_created",
-                    new=AsyncMock(return_value=None),
-                ):
-                    with patch(
-                        "finance_sync.sync.orchestrator.outbox_entity_updated",
-                        new=AsyncMock(return_value=None),
-                    ):
-                        with patch.object(
-                            orch,
-                            "run_reconciliation",
-                            side_effect=ValueError("Reconciliation crashed!"),
-                        ):
-                            result = await orch.run_sync(
-                                provider_type="mock_provider",
-                                config=ConnectorConfig(
-                                    provider_type="mock_provider",
-                                    credentials={"api_key": "test"},
-                                ),
-                                since=now - timedelta(days=30),
-                            )
+            ),
+            patch(
+                "finance_sync.sync.orchestrator.outbox_entity_created",
+                new=AsyncMock(return_value=None),
+            ),
+            patch(
+                "finance_sync.sync.orchestrator.outbox_entity_updated",
+                new=AsyncMock(return_value=None),
+            ),
+            patch.object(
+                orch,
+                "run_reconciliation",
+                side_effect=ValueError("Reconciliation crashed!"),
+            ),
+        ):
+            result = await orch.run_sync(
+                provider_type="mock_provider",
+                config=ConnectorConfig(
+                    provider_type="mock_provider",
+                    credentials={"api_key": "test"},
+                ),
+                since=now - timedelta(days=30),
+            )
 
         assert result.status == SyncRunStatus.COMPLETED
         assert result.accounts_synced >= 1
@@ -1066,7 +1127,9 @@ class TestBulkReconciliation:
     ) -> None:
         """Many transactions with matching amounts create multiple findings."""
         now = datetime.now()
-        acct = await _create_account(session, tenant_id=tenant_id, provider_key="bunq", name="Bulk Acct")
+        acct = await _create_account(
+            session, tenant_id=tenant_id, provider_key="bunq", name="Bulk Acct"
+        )
         await session.commit()
 
         for i in range(10):
@@ -1092,12 +1155,13 @@ class TestBulkReconciliation:
         await session.commit()
 
         run = await service.reconcile(
-            account_ids=[str(acct.id)], date_from=now - timedelta(days=7),
+            account_ids=[str(acct.id)],
+            date_from=now - timedelta(days=7),
             date_to=now + timedelta(hours=1),
         )
 
         assert run.status == ReconciliationRunStatus.COMPLETED
-        assert run.finding_count >= 1
+        assert run.finding_count is not None and run.finding_count >= 1
         assert run.summary is not None
         assert run.summary["by_kind"].get("duplicate_transaction", 0) >= 1
 
@@ -1133,7 +1197,9 @@ class TestTransactionRepositoryEdgeCases:
         """find_duplicate_candidates with no date_from/date_to filters works."""
         from finance_sync.db.repositories import TransactionRepository
 
-        acct = await _create_account(session, tenant_id=tenant_id, provider_key="bunq")
+        acct = await _create_account(
+            session, tenant_id=tenant_id, provider_key="bunq"
+        )
         await _create_transaction(
             session,
             acct.id,
@@ -1171,7 +1237,9 @@ class TestTransactionRepositoryEdgeCases:
         """Same provider with different external IDs can be detected as duplicates."""
         from finance_sync.db.repositories import TransactionRepository
 
-        acct = await _create_account(session, tenant_id=tenant_id, provider_key="bunq")
+        acct = await _create_account(
+            session, tenant_id=tenant_id, provider_key="bunq"
+        )
         now = datetime.now()
         await _create_transaction(
             session,
@@ -1213,7 +1281,9 @@ class TestTransactionRepositoryEdgeCases:
         """provider_keys filter limits which providers are compared."""
         from finance_sync.db.repositories import TransactionRepository
 
-        acct = await _create_account(session, tenant_id=tenant_id, provider_key="bunq")
+        acct = await _create_account(
+            session, tenant_id=tenant_id, provider_key="bunq"
+        )
         now = datetime.now()
         # Two transactions from excluded providers
         for pk in ["revolut", "ynab"]:
@@ -1249,7 +1319,9 @@ class TestTransactionRepositoryEdgeCases:
         from finance_sync.db.repositories import TransactionRepository
 
         now = datetime.now()
-        acct = await _create_account(session, tenant_id=tenant_id, provider_key="bunq")
+        acct = await _create_account(
+            session, tenant_id=tenant_id, provider_key="bunq"
+        )
         await _create_transaction(
             session,
             acct.id,

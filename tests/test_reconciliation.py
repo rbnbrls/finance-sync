@@ -1077,7 +1077,6 @@ class TestReconciliationServiceMocked:
         from unittest.mock import patch
 
         from finance_sync.db.uow import UnitOfWork
-        from finance_sync.models.reconciliation import ReconciliationRun
 
         provider_keys = ["bunq", "trading212"]
 

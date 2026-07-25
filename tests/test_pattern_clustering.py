@@ -431,7 +431,7 @@ class TestDetectPeriodsFromIntervals:
         intervals = [30.0] * 10 + [7.0] * 3
         periods = _detect_periods_from_intervals(intervals, min_occurrences=2)
         assert len(periods) >= 2
-        # Monthly (peak at 30, count=10) should rank higher than weekly (peak at 7, count=3)  # noqa: E501
+        # Monthly (peak at 30, count=10) should rank higher than weekly (peak at 7, count=3)
         assert periods[0].period_days == 30
 
 
@@ -766,7 +766,7 @@ class TestSubscriptionPatternEngine:
 
         # Monthly subscription at €15.99
         for i in range(6):
-            txns.append(  # noqa: PERF401
+            txns.append(
                 _make_txn_dict(
                     _MockTxn(
                         amount=Decimal("-15.99"),
@@ -779,7 +779,7 @@ class TestSubscriptionPatternEngine:
 
         # Weekly subscription at €4.99
         for i in range(8):
-            txns.append(  # noqa: PERF401
+            txns.append(
                 _make_txn_dict(
                     _MockTxn(
                         amount=Decimal("-4.99"),
@@ -792,7 +792,7 @@ class TestSubscriptionPatternEngine:
 
         # Random one-offs
         for i in range(5):
-            txns.append(  # noqa: PERF401
+            txns.append(
                 _make_txn_dict(
                     _MockTxn(
                         amount=Decimal(f"-{10 + i * 5}.00"),
@@ -815,7 +815,7 @@ class TestSubscriptionPatternEngine:
 
         # Netflix on account 1 at €15.99 (monthly)
         for i in range(6):
-            txns.append(  # noqa: PERF401
+            txns.append(
                 _make_txn_dict(
                     _MockTxn(
                         amount=Decimal("-15.99"),
@@ -830,7 +830,7 @@ class TestSubscriptionPatternEngine:
         # Netflix on account 2 at €9.99 (different price tier) —
         # still within 50% overlap for cross-account matching
         for i in range(6):
-            txns.append(  # noqa: PERF401
+            txns.append(
                 _make_txn_dict(
                     _MockTxn(
                         amount=Decimal("-9.99"),
@@ -903,12 +903,12 @@ class TestSubscriptionPatternEngine:
             assert "details" in p
 
     def test_different_amounts_produce_diff_clusters(self) -> None:
-        """Two different subscriptions at different amounts should both be detected."""  # noqa: E501
+        """Two different subscriptions at different amounts should both be detected."""
         base = datetime(2025, 1, 1, tzinfo=UTC)
         txns = []
         # Netflix €15.99 monthly
         for i in range(6):
-            txns.append(  # noqa: PERF401
+            txns.append(
                 _make_txn_dict(
                     _MockTxn(
                         amount=Decimal("-15.99"),
@@ -919,7 +919,7 @@ class TestSubscriptionPatternEngine:
             )
         # Spotify €9.99 monthly
         for i in range(6):
-            txns.append(  # noqa: PERF401
+            txns.append(
                 _make_txn_dict(
                     _MockTxn(
                         amount=Decimal("-9.99"),

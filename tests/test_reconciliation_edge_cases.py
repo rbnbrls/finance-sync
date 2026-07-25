@@ -6,7 +6,7 @@ Extends the core tests in test_reconciliation.py with:
 - Stress tests (100+ duplicate candidate pairs)
 - Combined filter scenarios (kind + severity together)
 - Default parameter path coverage
-"""  # noqa: D205, D212
+"""
 
 from __future__ import annotations
 
@@ -22,7 +22,6 @@ from finance_sync.models.enums import (
     ReconciliationRunStatus,
     ReconciliationSeverity,
 )
-
 
 # Re-use the same mock transaction/account types from the parent test file.
 # (We duplicate them here so this module is self-contained.)
@@ -115,9 +114,7 @@ class TestDuplicateDetectionEdgeCases:
             started_at=now,
         )
 
-    async def test_none_amount_on_one_side(
-        self, tenant_id, now, run
-    ) -> None:
+    async def test_none_amount_on_one_side(self, tenant_id, now, run) -> None:
         """One side has None amount — Decimal(0) fallback is used."""
         from unittest.mock import patch
 
@@ -160,9 +157,7 @@ class TestDuplicateDetectionEdgeCases:
         # amount_diff should be |0 - (-5.00)| = 5.00 (Decimal(0) fallback)
         assert f.details["amount_diff"] is not None
 
-    async def test_none_amount_on_both_sides(
-        self, tenant_id, now, run
-    ) -> None:
+    async def test_none_amount_on_both_sides(self, tenant_id, now, run) -> None:
         """Both sides have None amount — both use Decimal(0) fallback."""
         from unittest.mock import patch
 
@@ -205,9 +200,7 @@ class TestDuplicateDetectionEdgeCases:
         # both fall back to 0 → amount_diff = 0
         assert f.details["amount_diff"] == "0"
 
-    async def test_both_descriptions_none(
-        self, tenant_id, now, run
-    ) -> None:
+    async def test_both_descriptions_none(self, tenant_id, now, run) -> None:
         """Both descriptions are None — same_desc is False."""
         from unittest.mock import patch
 
@@ -253,9 +246,7 @@ class TestDuplicateDetectionEdgeCases:
         assert f.description is not None
         assert "no desc" in f.description
 
-    async def test_one_description_none(
-        self, tenant_id, now, run
-    ) -> None:
+    async def test_one_description_none(self, tenant_id, now, run) -> None:
         """One description None, the other valid — same_desc is False."""
         from unittest.mock import patch
 
@@ -298,9 +289,7 @@ class TestDuplicateDetectionEdgeCases:
         # cross-provider + not same_desc (tx_b.description is None → short-circuit) = 0.7
         assert f.details["confidence"] == 0.7
 
-    async def test_empty_string_descriptions(
-        self, tenant_id, now, run
-    ) -> None:
+    async def test_empty_string_descriptions(self, tenant_id, now, run) -> None:
         """Empty string descriptions are truthy and match each other."""
         from unittest.mock import patch
 
@@ -344,9 +333,7 @@ class TestDuplicateDetectionEdgeCases:
         # cross-provider (0.7), no same_desc bonus → 0.7
         assert f.details["confidence"] == 0.7
 
-    async def test_diff_hours_calculation(
-        self, tenant_id, now, run
-    ) -> None:
+    async def test_diff_hours_calculation(self, tenant_id, now, run) -> None:
         """Verify diff_hours in details is computed correctly."""
         from unittest.mock import patch
 
@@ -390,9 +377,7 @@ class TestDuplicateDetectionEdgeCases:
         # 5.5 hours diff
         assert f.details["diff_hours"] == 5.5
 
-    async def test_large_set_of_candidates(
-        self, tenant_id, now, run
-    ) -> None:
+    async def test_large_set_of_candidates(self, tenant_id, now, run) -> None:
         """Stress test: process 100+ duplicate candidate pairs."""
         from unittest.mock import patch
 
@@ -501,9 +486,7 @@ class TestCrossConnectorGapEdgeCases:
     def now(self):
         return datetime.now(UTC)
 
-    async def test_three_providers_mixed_coverage(
-        self, tenant_id, now
-    ) -> None:
+    async def test_three_providers_mixed_coverage(self, tenant_id, now) -> None:
         """Three providers: one full, one late, one no-data."""
         from unittest.mock import patch
 
@@ -546,9 +529,7 @@ class TestCrossConnectorGapEdgeCases:
         assert len(t212_f) == 1
         assert t212_f[0].severity == ReconciliationSeverity.WARNING
 
-    async def test_provider_keys_explicit_none(
-        self, tenant_id, now
-    ) -> None:
+    async def test_provider_keys_explicit_none(self, tenant_id, now) -> None:
         """Explicit provider_keys=None behaves identically to omitting it."""
         from unittest.mock import patch
 
@@ -638,7 +619,9 @@ class TestCrossConnectorGapEdgeCases:
             ReconciliationService as RS,
         )
 
-        mock_session = _make_mock_session([])  # No accounts -> continue -> no findings
+        mock_session = _make_mock_session(
+            []
+        )  # No accounts -> continue -> no findings
         mock_uow = _make_mock_uow()
         run = MagicMock(tenant_id=tenant_id, id="run_1")
 
@@ -737,9 +720,7 @@ class TestMissingTransactionEdgeCases:
         f = findings[0]
         assert f.kind == ReconciliationResultKind.MISSING_TRANSACTION
 
-    async def test_account_ids_filter(
-        self, tenant_id, now
-    ) -> None:
+    async def test_account_ids_filter(self, tenant_id, now) -> None:
         """account_ids is passed through to the query."""
         from unittest.mock import patch
 
@@ -767,9 +748,7 @@ class TestMissingTransactionEdgeCases:
 
         assert len(findings) >= 1
 
-    async def test_multiple_providers_mixed_gaps(
-        self, tenant_id, now
-    ) -> None:
+    async def test_multiple_providers_mixed_gaps(self, tenant_id, now) -> None:
         """Multiple providers: one full coverage, one missing, one small gap."""
         from unittest.mock import patch
 
@@ -803,9 +782,7 @@ class TestMissingTransactionEdgeCases:
         assert len(findings) == 1
         assert findings[0].provider_key == "revolut"
 
-    async def test_provider_keys_reduces_scope(
-        self, tenant_id, now
-    ) -> None:
+    async def test_provider_keys_reduces_scope(self, tenant_id, now) -> None:
         """provider_keys limits which providers are checked."""
         from unittest.mock import patch
 
@@ -833,7 +810,9 @@ class TestMissingTransactionEdgeCases:
                 None,
                 now - timedelta(days=90),
                 now,
-                provider_keys=["bunq"],  # only check bunq, which has full coverage
+                provider_keys=[
+                    "bunq"
+                ],  # only check bunq, which has full coverage
             )
 
         # bunq has full coverage → no finding
@@ -856,9 +835,7 @@ class TestFinalizeRunEdgeCases:
     def now(self):
         return datetime.now(UTC)
 
-    async def test_single_severity_all_info(
-        self, tenant_id, now
-    ) -> None:
+    async def test_single_severity_all_info(self, tenant_id, now) -> None:
         """All findings have the same severity (INFO)."""
         from finance_sync.models.reconciliation import (
             ReconciliationResult,
@@ -896,9 +873,7 @@ class TestFinalizeRunEdgeCases:
         assert run.summary["by_kind"] == {"missing_transaction": 2}
         assert run.status == ReconciliationRunStatus.COMPLETED
 
-    async def test_only_one_kind(
-        self, tenant_id, now
-    ) -> None:
+    async def test_only_one_kind(self, tenant_id, now) -> None:
         """Only duplicate findings (no cross-kind mixing)."""
         from finance_sync.models.reconciliation import (
             ReconciliationResult,
@@ -1071,7 +1046,9 @@ class TestReconcileDefaultParameters:
 
         assert run.status == ReconciliationRunStatus.COMPLETED
         # Verify the default was passed to find_duplicate_candidates
-        call_kwargs = mock_uow.transactions.find_duplicate_candidates.call_args.kwargs
+        call_kwargs = (
+            mock_uow.transactions.find_duplicate_candidates.call_args.kwargs
+        )
         assert call_kwargs.get("threshold_hours") == 48
 
 
@@ -1100,9 +1077,7 @@ class TestGetRunWithResultsEdgeCases:
             tenant_id=tenant_id,
         )
 
-    async def test_both_filters_combined(
-        self, svc, session_factory
-    ) -> None:
+    async def test_both_filters_combined(self, svc, session_factory) -> None:
         """kind_filter and severity_filter are combined with AND."""
         mock_run = MagicMock(id="run_1", tenant_id="tenant_test_edge")
 
@@ -1113,7 +1088,9 @@ class TestGetRunWithResultsEdgeCases:
         mock_total_result.scalar = MagicMock(return_value=1)
         mock_list_result = MagicMock()
         mock_list_result.scalars.return_value.all = MagicMock(
-            return_value=[MagicMock(kind="duplicate_transaction", severity="error")]
+            return_value=[
+                MagicMock(kind="duplicate_transaction", severity="error")
+            ]
         )
         mock_session.execute = AsyncMock(
             side_effect=[mock_total_result, mock_list_result]
@@ -1134,9 +1111,7 @@ class TestGetRunWithResultsEdgeCases:
         assert total == 1
         assert len(results) == 1
 
-    async def test_pagination_parameters(
-        self, svc, session_factory
-    ) -> None:
+    async def test_pagination_parameters(self, svc, session_factory) -> None:
         """result_offset and result_limit are passed through."""
         mock_run = MagicMock(id="run_1", tenant_id="tenant_test_edge")
 
@@ -1248,7 +1223,6 @@ class TestReconciliationModelExtended:
 
     def test_reconciliation_result_all_fields(self) -> None:
         """Construct a ReconciliationResult with all optional fields."""
-        from datetime import timezone
 
         from finance_sync.models.reconciliation import ReconciliationResult
 
@@ -1266,7 +1240,7 @@ class TestReconciliationModelExtended:
             external_transaction_id_b="ext_b_1",
             amount=Decimal("-100.00"),
             other_amount=Decimal("-100.00"),
-            occurred_at=datetime.now(timezone.utc),
+            occurred_at=datetime.now(UTC),
             description="Test finding",
             details={"confidence": 0.9},
         )

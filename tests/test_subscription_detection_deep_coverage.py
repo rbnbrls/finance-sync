@@ -1506,9 +1506,10 @@ class TestAnalyzeGroupNoneDates:
         result = svc._analyze_group("Netflix", txns)
         assert result is not None
         # One None date means only 0 or 1 valid intervals → no label
-        assert result["frequency_label"] is None or result[
-            "frequency_label"
-        ] == "monthly"
+        assert (
+            result["frequency_label"] is None
+            or result["frequency_label"] == "monthly"
+        )
 
 
 # ═══════════════════════════════════════════════════════════════════════

@@ -115,10 +115,7 @@ async def convert_single(
             from_currency=from_currency,
             to_currency=to_currency,
         )
-        msg = (
-            f"No exchange rate available for {from_currency}"
-            f" -> {to_currency}"
-        )
+        msg = f"No exchange rate available for {from_currency} -> {to_currency}"
         raise NoRateError(msg)
 
     return result.converted_amount
@@ -332,9 +329,7 @@ async def convert_portfolio_items(
         NoRateError: If any required exchange rate is unavailable.
     """
     # -- Step 1: gather unique source currencies ---------------------------
-    unique_currencies: set[str] = {
-        item.currency_code for item in items
-    }
+    unique_currencies: set[str] = {item.currency_code for item in items}
 
     # Identity-map: currency -> rate (Decimal).  Iterate in sorted order
     # for deterministic behaviour (callers and tests expect it).

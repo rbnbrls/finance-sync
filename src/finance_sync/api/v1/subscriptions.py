@@ -170,7 +170,9 @@ class DetectionResultItem(BaseModel):
         default="", description="Primary account identifier"
     )
     provider_key: str = Field(default="", description="Connector provider key")
-    security_id: str | None = Field(default=None, description="DB security identifier")  # noqa: E501
+    security_id: str | None = Field(
+        default=None, description="DB security identifier"
+    )
     fundamentals_available: bool = Field(
         default=False,
         description="Whether fundamentals data (PE ratio, dividend yield) was used in classification",  # noqa: E501

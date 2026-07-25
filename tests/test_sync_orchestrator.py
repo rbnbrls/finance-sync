@@ -285,9 +285,7 @@ class TestSyncOrchestratorRunReconciliation:
         assert outbox_kwargs["run_id"] == "rec_run_101"
         assert outbox_kwargs["finding_count"] == 3
 
-    async def test_run_reconciliation_emits_outbox(
-        self, orchestrator
-    ) -> None:
+    async def test_run_reconciliation_emits_outbox(self, orchestrator) -> None:
         """Outbox message is emitted on successful reconciliation."""
         from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -295,7 +293,10 @@ class TestSyncOrchestratorRunReconciliation:
         mock_run.id = "rec_run_outbox"
         mock_run.status = ReconciliationRunStatus.COMPLETED
         mock_run.finding_count = 5
-        mock_run.summary = {"by_kind": {"duplicate_transaction": 5}, "by_severity": {"warning": 5}}
+        mock_run.summary = {
+            "by_kind": {"duplicate_transaction": 5},
+            "by_severity": {"warning": 5},
+        }
 
         with (
             patch(
@@ -794,7 +795,9 @@ class TestAutoReconciliationAfterSync:
             patch.object(
                 orchestrator,
                 "run_reconciliation",
-                new=AsyncMock(side_effect=RuntimeError("Reconciliation blew up")),
+                new=AsyncMock(
+                    side_effect=RuntimeError("Reconciliation blew up")
+                ),
             ) as mock_rec,
         ):
             config = MagicMock()
@@ -1023,7 +1026,7 @@ class TestSyncOrchestratorRunSync:
         self, orchestrator, mock_connector, mock_uow
     ) -> None:
         """run_sync runs reconciliation automatically after a successful sync."""
-        from unittest.mock import AsyncMock, MagicMock, patch
+        from unittest.mock import MagicMock, patch
 
         orchestrator._registry.get_connector = MagicMock(
             return_value=mock_connector
@@ -1056,7 +1059,7 @@ class TestSyncOrchestratorRunSync:
         self, orchestrator
     ) -> None:
         """When the sync pipeline fails, reconciliation is NOT called."""
-        from unittest.mock import AsyncMock, MagicMock, patch
+        from unittest.mock import AsyncMock, MagicMock
 
         failing_connector = MagicMock()
         failing_connector.authenticate = AsyncMock(

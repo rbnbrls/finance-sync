@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, MagicMock, PropertyMock
 
 if TYPE_CHECKING:
-    from collections.abc import Generator
+    from collections.abc import AsyncGenerator, Generator
 
     from fastapi import FastAPI
 
@@ -328,11 +328,18 @@ class TestCompareConnectorsExecution:
         mock_run.completed_at = datetime.now(UTC)
         mock_run.scope = {"provider_keys": ["bunq", "trading212"]}
         mock_run.finding_count = 2
-        mock_run.summary = {"by_kind": {"duplicate_transaction": 2}, "by_severity": {"error": 2}}
+        mock_run.summary = {
+            "by_kind": {"duplicate_transaction": 2},
+            "by_severity": {"error": 2},
+        }
         mock_run.error_message = None
         mock_run.created_at = datetime.now(UTC)
 
-        with patch.object(ReconciliationService, "reconcile", new=AsyncMock(return_value=mock_run)):
+        with patch.object(
+            ReconciliationService,
+            "reconcile",
+            new=AsyncMock(return_value=mock_run),
+        ):
             resp = client.post(
                 "/api/v1/reconciliation/compare",
                 json={
@@ -376,7 +383,11 @@ class TestCompareConnectorsExecution:
         mock_run.error_message = "Provider data incomplete"
         mock_run.created_at = datetime.now(UTC)
 
-        with patch.object(ReconciliationService, "reconcile", new=AsyncMock(return_value=mock_run)):
+        with patch.object(
+            ReconciliationService,
+            "reconcile",
+            new=AsyncMock(return_value=mock_run),
+        ):
             resp = client.post(
                 "/api/v1/reconciliation/compare",
                 json={
@@ -428,7 +439,11 @@ class TestTriggerReconciliation:
         mock_run.error_message = None
         mock_run.created_at = datetime.now(UTC)
 
-        with patch.object(ReconciliationService, "reconcile", new=AsyncMock(return_value=mock_run)):
+        with patch.object(
+            ReconciliationService,
+            "reconcile",
+            new=AsyncMock(return_value=mock_run),
+        ):
             resp = client.post(
                 "/api/v1/reconciliation",
                 json={
@@ -438,7 +453,9 @@ class TestTriggerReconciliation:
                 headers=auth_headers,
             )
 
-        assert resp.status_code == 201, f"Expected 201, got {resp.status_code}: {resp.text}"
+        assert resp.status_code == 201, (
+            f"Expected 201, got {resp.status_code}: {resp.text}"
+        )
         data = resp.json()
         assert data["id"] == "run_abc123"
         assert data["status"] == "completed"
@@ -470,7 +487,11 @@ class TestTriggerReconciliation:
         mock_run.error_message = None
         mock_run.created_at = datetime.now(UTC)
 
-        with patch.object(ReconciliationService, "reconcile", new=AsyncMock(return_value=mock_run)):
+        with patch.object(
+            ReconciliationService,
+            "reconcile",
+            new=AsyncMock(return_value=mock_run),
+        ):
             resp = client.post(
                 "/api/v1/reconciliation",
                 json={
@@ -507,7 +528,11 @@ class TestTriggerReconciliation:
         mock_run.error_message = "DB connection lost"
         mock_run.created_at = datetime.now(UTC)
 
-        with patch.object(ReconciliationService, "reconcile", new=AsyncMock(return_value=mock_run)):
+        with patch.object(
+            ReconciliationService,
+            "reconcile",
+            new=AsyncMock(return_value=mock_run),
+        ):
             resp = client.post(
                 "/api/v1/reconciliation",
                 json={},
@@ -543,7 +568,9 @@ class TestListReconciliationRuns:
 
         from finance_sync.services.reconciliation import ReconciliationService
 
-        with patch.object(ReconciliationService, "list_runs", new=AsyncMock(return_value=[])):
+        with patch.object(
+            ReconciliationService, "list_runs", new=AsyncMock(return_value=[])
+        ):
             resp = client.get(
                 "/api/v1/reconciliation",
                 headers=auth_headers,
@@ -572,7 +599,10 @@ class TestListReconciliationRuns:
         mock_run_1.completed_at = datetime.now(UTC)
         mock_run_1.scope = {"date_from": "2026-01-01T00:00:00Z"}
         mock_run_1.finding_count = 1
-        mock_run_1.summary = {"by_kind": {"duplicate_transaction": 1}, "by_severity": {"warning": 1}}
+        mock_run_1.summary = {
+            "by_kind": {"duplicate_transaction": 1},
+            "by_severity": {"warning": 1},
+        }
         mock_run_1.error_message = None
         mock_run_1.created_at = datetime.now(UTC)
 
@@ -588,7 +618,11 @@ class TestListReconciliationRuns:
         mock_run_2.error_message = None
         mock_run_2.created_at = datetime.now(UTC)
 
-        with patch.object(ReconciliationService, "list_runs", new=AsyncMock(return_value=[mock_run_1, mock_run_2])):
+        with patch.object(
+            ReconciliationService,
+            "list_runs",
+            new=AsyncMock(return_value=[mock_run_1, mock_run_2]),
+        ):
             resp = client.get(
                 "/api/v1/reconciliation?limit=10&offset=0",
                 headers=auth_headers,
@@ -625,7 +659,11 @@ class TestListReconciliationRuns:
         mock_run.error_message = None
         mock_run.created_at = datetime.now(UTC)
 
-        with patch.object(ReconciliationService, "list_runs", new=AsyncMock(return_value=[mock_run])):
+        with patch.object(
+            ReconciliationService,
+            "list_runs",
+            new=AsyncMock(return_value=[mock_run]),
+        ):
             resp = client.get(
                 "/api/v1/reconciliation",
                 headers=auth_headers,
@@ -691,7 +729,10 @@ class TestGetReconciliationRun:
         mock_run.completed_at = datetime.now(UTC)
         mock_run.scope = {}
         mock_run.finding_count = 1
-        mock_run.summary = {"by_kind": {"duplicate_transaction": 1}, "by_severity": {"error": 1}}
+        mock_run.summary = {
+            "by_kind": {"duplicate_transaction": 1},
+            "by_severity": {"error": 1},
+        }
         mock_run.error_message = None
         mock_run.created_at = datetime.now(UTC)
 
@@ -752,7 +793,10 @@ class TestGetReconciliationRun:
         mock_run.completed_at = datetime.now(UTC)
         mock_run.scope = {}
         mock_run.finding_count = 2
-        mock_run.summary = {"by_kind": {"duplicate_transaction": 2}, "by_severity": {"error": 2}}
+        mock_run.summary = {
+            "by_kind": {"duplicate_transaction": 2},
+            "by_severity": {"error": 2},
+        }
         mock_run.error_message = None
         mock_run.created_at = datetime.now(UTC)
 
@@ -803,7 +847,9 @@ class TestGetReconciliationRun:
 
         mock_run = MagicMock()
         mock_run.id = "run_other"
-        mock_run.tenant_id = "other-tenant"  # Different from auth's "test-tenant"
+        mock_run.tenant_id = (
+            "other-tenant"  # Different from auth's "test-tenant"
+        )
         mock_run.status = "completed"
         mock_run.started_at = datetime.now(UTC)
         mock_run.completed_at = datetime.now(UTC)
@@ -862,7 +908,10 @@ class TestGetReconciliationRun:
         mock_run.completed_at = datetime.now(UTC)
         mock_run.scope = None
         mock_run.finding_count = 50
-        mock_run.summary = {"by_kind": {"missing_transaction": 50}, "by_severity": {"info": 50}}
+        mock_run.summary = {
+            "by_kind": {"missing_transaction": 50},
+            "by_severity": {"info": 50},
+        }
         mock_run.error_message = None
         mock_run.created_at = datetime.now(UTC)
 
@@ -947,7 +996,9 @@ class TestTriggerReconciliationV2:
         mock_run.created_at = datetime.now(UTC)
 
         with patch.object(
-            ReconciliationService, "reconcile", new=AsyncMock(return_value=mock_run)
+            ReconciliationService,
+            "reconcile",
+            new=AsyncMock(return_value=mock_run),
         ):
             resp = client.post(
                 "/api/v1/reconciliation/trigger",
@@ -986,7 +1037,9 @@ class TestTriggerReconciliationV2:
         mock_run.created_at = datetime.now(UTC)
 
         with patch.object(
-            ReconciliationService, "reconcile", new=AsyncMock(return_value=mock_run)
+            ReconciliationService,
+            "reconcile",
+            new=AsyncMock(return_value=mock_run),
         ):
             resp = client.post(
                 "/api/v1/reconciliation/trigger",
@@ -1025,7 +1078,9 @@ class TestTriggerReconciliationV2:
         mock_run.created_at = datetime.now(UTC)
 
         with patch.object(
-            ReconciliationService, "reconcile", new=AsyncMock(return_value=mock_run)
+            ReconciliationService,
+            "reconcile",
+            new=AsyncMock(return_value=mock_run),
         ):
             resp = client.post(
                 "/api/v1/reconciliation/trigger",
@@ -1097,7 +1152,9 @@ class TestTriggerReconciliationV2:
         mock_run.created_at = datetime.now(UTC)
 
         with patch.object(
-            ReconciliationService, "reconcile", new=AsyncMock(return_value=mock_run)
+            ReconciliationService,
+            "reconcile",
+            new=AsyncMock(return_value=mock_run),
         ):
             resp = client.post(
                 "/api/v1/reconciliation/trigger",

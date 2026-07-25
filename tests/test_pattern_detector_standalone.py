@@ -10,7 +10,7 @@ Covers:
 - _amount_ok method
 - group_by_merchant
 - _analyse_group detection method selection
-"""  # noqa: E501
+"""
 
 from __future__ import annotations
 
@@ -692,7 +692,7 @@ class TestAnalyseGroup:
         # and only interval_regularity > 0.5 is high
         detector = PatternDetector()
         base = datetime(2025, 1, 15, tzinfo=UTC)
-        # Squeeze amounts to be between 0.15 and 0.30 variance for 0.3 consistency  # noqa: E501
+        # Squeeze amounts to be between 0.15 and 0.30 variance for 0.3 consistency
         txns = [
             _make_txn(amount=Decimal("-100.00"), occurred_at=base),
             _make_txn(

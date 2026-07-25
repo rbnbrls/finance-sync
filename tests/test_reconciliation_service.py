@@ -8,7 +8,6 @@ sessions and UnitOfWork.
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -23,7 +22,6 @@ from finance_sync.services.reconciliation import (
     _default_since,
     _severity,
 )
-
 
 # ═══════════════════════════════════════════════════════════════════════
 # Unit: _severity helper
@@ -123,13 +121,19 @@ class TestReconcileMethod:
 
         with (
             patch.object(
-                svc, "_detect_duplicates", new=AsyncMock(return_value=[mock_dup])
+                svc,
+                "_detect_duplicates",
+                new=AsyncMock(return_value=[mock_dup]),
             ),
             patch.object(
-                svc, "_detect_cross_connector_gaps", new=AsyncMock(return_value=[mock_gap])
+                svc,
+                "_detect_cross_connector_gaps",
+                new=AsyncMock(return_value=[mock_gap]),
             ),
             patch.object(
-                svc, "_detect_missing_transactions", new=AsyncMock(return_value=[])
+                svc,
+                "_detect_missing_transactions",
+                new=AsyncMock(return_value=[]),
             ),
         ):
             run = await svc.reconcile()
@@ -151,10 +155,14 @@ class TestReconcileMethod:
                 svc, "_detect_duplicates", new=AsyncMock(return_value=[])
             ) as mock_dup,
             patch.object(
-                svc, "_detect_cross_connector_gaps", new=AsyncMock(return_value=[])
+                svc,
+                "_detect_cross_connector_gaps",
+                new=AsyncMock(return_value=[]),
             ),
             patch.object(
-                svc, "_detect_missing_transactions", new=AsyncMock(return_value=[])
+                svc,
+                "_detect_missing_transactions",
+                new=AsyncMock(return_value=[]),
             ),
         ):
             await svc.reconcile(detect_duplicates=False)
@@ -170,10 +178,14 @@ class TestReconcileMethod:
                 svc, "_detect_duplicates", new=AsyncMock(return_value=[])
             ) as mock_dup,
             patch.object(
-                svc, "_detect_cross_connector_gaps", new=AsyncMock(return_value=[])
+                svc,
+                "_detect_cross_connector_gaps",
+                new=AsyncMock(return_value=[]),
             ),
             patch.object(
-                svc, "_detect_missing_transactions", new=AsyncMock(return_value=[])
+                svc,
+                "_detect_missing_transactions",
+                new=AsyncMock(return_value=[]),
             ),
         ):
             await svc.reconcile(account_ids=["acct_1", "acct_2"])
@@ -192,22 +204,31 @@ class TestReconcileMethod:
                 svc, "_detect_duplicates", new=AsyncMock(return_value=[])
             ) as mock_dup,
             patch.object(
-                svc, "_detect_cross_connector_gaps", new=AsyncMock(return_value=[])
+                svc,
+                "_detect_cross_connector_gaps",
+                new=AsyncMock(return_value=[]),
             ),
             patch.object(
-                svc, "_detect_missing_transactions", new=AsyncMock(return_value=[])
+                svc,
+                "_detect_missing_transactions",
+                new=AsyncMock(return_value=[]),
             ),
         ):
             await svc.reconcile(provider_keys=["bunq", "trading212"])
 
-        assert mock_dup.call_args.kwargs.get("provider_keys") == ["bunq", "trading212"]
+        assert mock_dup.call_args.kwargs.get("provider_keys") == [
+            "bunq",
+            "trading212",
+        ]
 
     async def test_reconcile_handles_exception(
         self, svc: ReconciliationService, session_factory: MagicMock
     ) -> None:
         """When an internal phase raises, the run is marked as FAILED."""
         with patch.object(
-            svc, "_detect_duplicates", new=AsyncMock(side_effect=ValueError("DB error"))
+            svc,
+            "_detect_duplicates",
+            new=AsyncMock(side_effect=ValueError("DB error")),
         ):
             run = await svc.reconcile()
 
@@ -225,10 +246,14 @@ class TestReconcileMethod:
                 svc, "_detect_duplicates", new=AsyncMock(return_value=[])
             ),
             patch.object(
-                svc, "_detect_cross_connector_gaps", new=AsyncMock(return_value=[])
+                svc,
+                "_detect_cross_connector_gaps",
+                new=AsyncMock(return_value=[]),
             ),
             patch.object(
-                svc, "_detect_missing_transactions", new=AsyncMock(return_value=[])
+                svc,
+                "_detect_missing_transactions",
+                new=AsyncMock(return_value=[]),
             ),
         ):
             run = await svc.reconcile(
@@ -256,15 +281,26 @@ class TestReconcileMethod:
 class TestFinalizeRun:
     """Test the _finalize_run static method."""
 
-    async def test_finalize_with_findings(self, svc: ReconciliationService) -> None:
+    async def test_finalize_with_findings(
+        self, svc: ReconciliationService
+    ) -> None:
         """Findings are persisted and summary is computed."""
         session = AsyncMock()
 
         findings = []
         for kind, sev in [
-            (ReconciliationResultKind.DUPLICATE_TRANSACTION, ReconciliationSeverity.WARNING),
-            (ReconciliationResultKind.DUPLICATE_TRANSACTION, ReconciliationSeverity.WARNING),
-            (ReconciliationResultKind.MISSING_TRANSACTION, ReconciliationSeverity.INFO),
+            (
+                ReconciliationResultKind.DUPLICATE_TRANSACTION,
+                ReconciliationSeverity.WARNING,
+            ),
+            (
+                ReconciliationResultKind.DUPLICATE_TRANSACTION,
+                ReconciliationSeverity.WARNING,
+            ),
+            (
+                ReconciliationResultKind.MISSING_TRANSACTION,
+                ReconciliationSeverity.INFO,
+            ),
         ]:
             f = MagicMock()
             f.kind = kind
@@ -288,7 +324,9 @@ class TestFinalizeRun:
         assert run.summary["by_severity"]["info"] == 1
         assert session.add.call_count == 3
 
-    async def test_finalize_empty_findings(self, svc: ReconciliationService) -> None:
+    async def test_finalize_empty_findings(
+        self, svc: ReconciliationService
+    ) -> None:
         """Zero findings produces empty summary."""
         session = AsyncMock()
         run = MagicMock()
@@ -313,7 +351,9 @@ class TestFinalizeRun:
 class TestListRuns:
     """Test the list_runs method."""
 
-    async def test_list_runs_returns_empty(self, svc: ReconciliationService) -> None:
+    async def test_list_runs_returns_empty(
+        self, svc: ReconciliationService
+    ) -> None:
         """Returns empty list when no runs exist."""
         session = svc._session_factory.return_value.__aenter__.return_value
         mock_result = MagicMock()
@@ -323,14 +363,19 @@ class TestListRuns:
         runs = await svc.list_runs()
         assert runs == []
 
-    async def test_list_runs_with_data(self, svc: ReconciliationService) -> None:
+    async def test_list_runs_with_data(
+        self, svc: ReconciliationService
+    ) -> None:
         """Returns runs ordered by created_at DESC."""
         session = svc._session_factory.return_value.__aenter__.return_value
 
         mock_run_1 = MagicMock()
         mock_run_2 = MagicMock()
         mock_result = MagicMock()
-        mock_result.scalars.return_value.all.return_value = [mock_run_1, mock_run_2]
+        mock_result.scalars.return_value.all.return_value = [
+            mock_run_1,
+            mock_run_2,
+        ]
         session.execute = AsyncMock(return_value=mock_result)
 
         runs = await svc.list_runs(limit=10, offset=5)
@@ -349,7 +394,7 @@ class TestListRuns:
         # the statement contains offset/limit clauses
         call_stmt = session.execute.call_args[0][0]
         call_str = str(call_stmt)
-        assert "LIMIT" in call_str.upper() or "limit" in call_str.lower()  # noqa: SIM202
+        assert "LIMIT" in call_str.upper() or "limit" in call_str.lower()
         assert "reconciliation_runs" in call_str.lower()
 
 
@@ -386,7 +431,8 @@ class TestGetRunWithResults:
         count_result.scalar.return_value = 2
         results_result = MagicMock()
         results_result.scalars.return_value.all.return_value = [
-            mock_result_1, mock_result_2
+            mock_result_1,
+            mock_result_2,
         ]
 
         session.execute = AsyncMock(side_effect=[count_result, results_result])
@@ -397,7 +443,9 @@ class TestGetRunWithResults:
         assert len(results) == 2
         assert total == 2
 
-    async def test_get_run_with_filters(self, svc: ReconciliationService) -> None:
+    async def test_get_run_with_filters(
+        self, svc: ReconciliationService
+    ) -> None:
         """kind_filter and severity_filter are applied."""
         session = svc._session_factory.return_value.__aenter__.return_value
 
@@ -413,7 +461,7 @@ class TestGetRunWithResults:
 
         session.execute = AsyncMock(side_effect=[count_result, results_result])
 
-        run, results, total = await svc.get_run_with_results(
+        run, _results, total = await svc.get_run_with_results(
             "run_1",
             kind_filter="duplicate_transaction",
             severity_filter="error",
@@ -437,7 +485,9 @@ class TestGetRunWithResults:
 
         session.execute = AsyncMock(side_effect=[count_result, results_result])
 
-        run, results, total = await svc.get_run_with_results("run_wrong_tenant")
+        run, _results, _total = await svc.get_run_with_results(
+            "run_wrong_tenant"
+        )
         # The method returns the run because it doesn't filter by tenant
         assert run is not None
         assert run.tenant_id == "other-tenant"

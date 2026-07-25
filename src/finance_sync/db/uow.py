@@ -128,7 +128,7 @@ class UnitOfWork:
     def reconciliation_results(self) -> ReconciliationResultRepository:
         return self._repo(
             "reconciliation_results", ReconciliationResultRepository
-        )
+        )  # type: ignore[return-value]
 
     @property
     def webhooks(self) -> WebhookRepository:
@@ -146,7 +146,7 @@ class UnitOfWork:
     def fundamental_observations(self) -> FundamentalObservationRepository:
         return self._repo(
             "fundamental_observations", FundamentalObservationRepository
-        )
+        )  # type: ignore[return-value]
 
     @property
     def security_metadata_observations(
@@ -155,7 +155,7 @@ class UnitOfWork:
         return self._repo(
             "security_metadata_observations",
             SecurityMetadataObservationRepository,
-        )
+        )  # type: ignore[return-value]
 
     @property
     def detected_subscriptions(self) -> DetectedSubscriptionRepository:

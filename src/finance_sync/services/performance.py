@@ -582,9 +582,9 @@ class PerformanceService:
             )
             br = avg_bench_return
 
-            allocation_effect = (pw - bw) * (br - avg_bench_return)
-            selection_effect = bw * (pr - br)
-            interaction_effect = (pw - bw) * (pr - br)
+            allocation_effect = (pw - bw) * (br - avg_bench_return)  # type: ignore[operator]
+            selection_effect = bw * (pr - br)  # type: ignore[operator]
+            interaction_effect = (pw - bw) * (pr - br)  # type: ignore[operator]
 
             total_allocation += allocation_effect
             total_selection += selection_effect
@@ -596,7 +596,7 @@ class PerformanceService:
                     portfolio_weight_pct=pw * _HUNDRED,
                     benchmark_weight_pct=bw * _HUNDRED,
                     portfolio_return_pct=pr * _HUNDRED,
-                    benchmark_return_pct=br * _HUNDRED,
+                    benchmark_return_pct=br * _HUNDRED,  # type: ignore[operator]
                     allocation_effect=(allocation_effect * _HUNDRED).quantize(
                         E("0.0001")
                     ),

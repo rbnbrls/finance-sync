@@ -17,7 +17,10 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from finance_sync.api.deps.auth import AuthContext, get_auth_context, require_role
+from finance_sync.api.deps.auth import (
+    AuthContext,
+    get_auth_context,
+)
 from finance_sync.connectors.models import (
     ConnectorConfig as ConnectorConfigModel,
 )

@@ -9,7 +9,7 @@ Covers:
 - normalise_merchant_name convenience alias
 - resolve_ticker known / unknown / private merchants
 - sector_subscription_likelihood delegation
-"""  # noqa: E501
+"""
 
 from __future__ import annotations
 

@@ -143,7 +143,10 @@ class TestOutboxReconciliationCompleted:
             tenant_id="tenant-1",
             finding_count=5,
             summary={
-                "by_kind": {"duplicate_transaction": 3, "missing_transaction": 2},
+                "by_kind": {
+                    "duplicate_transaction": 3,
+                    "missing_transaction": 2,
+                },
                 "by_severity": {"warning": 3, "info": 2},
             },
         )

@@ -22,7 +22,6 @@ from finance_sync.sync.reconciliation import (
     detect_missing,
 )
 
-
 # ═══════════════════════════════════════════════════════════════════════
 # Fixtures
 # ═══════════════════════════════════════════════════════════════════════
@@ -236,7 +235,9 @@ class TestDetectMissing:
             _txn(external_transaction_id="b1", now=now),
         ]
         result = detect_missing(txns_a, txns_b)
-        assert result.total_findings == 3  # a2, a3 missing from B (2) + b1 missing from A (1)
+        assert (
+            result.total_findings == 3
+        )  # a2, a3 missing from B (2) + b1 missing from A (1)
         # connector_a_only_pct = 2/3 ≈ 66.67%
         assert result.connector_a_only_pct == pytest.approx(66.67, rel=0.01)
         # connector_b_only_pct = 1/2 = 50%
@@ -433,7 +434,9 @@ class TestDetectDuplicates:
         findings = detect_duplicates(txns, threshold_hours=48)
         assert len(findings) == 2  # 1 exact + 1 heuristic
         exacts = [f for f in findings if f.match_reason == "exact_external_id"]
-        heuristics = [f for f in findings if f.match_reason == "amount_and_date"]
+        heuristics = [
+            f for f in findings if f.match_reason == "amount_and_date"
+        ]
         assert len(exacts) == 1
         assert exacts[0].confidence == 1.0
         assert len(heuristics) == 1
@@ -448,7 +451,7 @@ class TestDetectDuplicates:
             match_reason="exact_external_id",
             confidence=0.9,
             diff_hours=1.5,
-            amount_diff=Decimal("0"),
+            amount_diff=Decimal(0),
             same_description=True,
             same_provider=True,
         )

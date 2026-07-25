@@ -661,7 +661,7 @@ class TestGetDetectedSubscriptionsEndpoint:
     def test_detected_passes_query_parameters(
         self, client: TestClient, mock_detection_svc: AsyncMock
     ) -> None:
-        """date_from, date_to, and min_occurrences query params are forwarded."""  # noqa: E501
+        """date_from, date_to, and min_occurrences query params are forwarded."""
         mock_detection_svc.detect_subscriptions.return_value = [
             self._make_result(),
         ]

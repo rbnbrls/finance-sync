@@ -4,9 +4,8 @@ NOTE: ``from __future__ import annotations`` is intentionally omitted
 because FastAPI needs runtime type introspection for OpenAPI generation.
 """
 
-from typing import Any
-
 from datetime import UTC, datetime
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
@@ -134,7 +133,9 @@ class ClientErrorReport(BaseModel):
     line: int | None = Field(default=None, description="Line number")
     col: int | None = Field(default=None, description="Column number")
     stack: str | None = Field(default=None, description="Stack trace")
-    user_agent: str | None = Field(default=None, description="Browser user-agent string")
+    user_agent: str | None = Field(
+        default=None, description="Browser user-agent string"
+    )
     context: dict[str, Any] | None = Field(
         default=None,
         description="Additional context (page, action, component, …)",
@@ -157,7 +158,10 @@ async def report_client_error(
 
     if not settings.github_token:
         # Silent discard when GitHub integration is not configured
-        return {"success": True, "note": "GitHub integration not configured — error discarded"}
+        return {
+            "success": True,
+            "note": "GitHub integration not configured — error discarded",
+        }
 
     repo_full = settings.github_repo
     if "/" not in repo_full:
@@ -177,17 +181,17 @@ async def report_client_error(
         f"```\n{body.message}\n```\n\n"
     )
     if body.stack:
-        issue_body += (
-            f"### Stack Trace\n\n"
-            f"```\n{body.stack}\n```\n\n"
-        )
+        issue_body += f"### Stack Trace\n\n```\n{body.stack}\n```\n\n"
     if body.line is not None or body.col is not None:
         issue_body += f"**Location:** line {body.line}, column {body.col}\n\n"
     if body.context:
         import json as _json
+
         issue_body += (
             f"### Context\n\n"
-            f"```json\n{_json.dumps(body.context, indent=2, default=str)}\n```\n"
+            "```json\n"
+            f"{_json.dumps(body.context, indent=2, default=str)}\n"
+            "```\n"
         )
 
     title = f"[FRONTEND] {body.message[:120]}"
