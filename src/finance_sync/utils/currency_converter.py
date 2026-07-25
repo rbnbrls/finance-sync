@@ -8,6 +8,7 @@ direct exchange rate is unavailable.
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from decimal import Decimal
@@ -300,6 +301,95 @@ async def convert_currency_rate(
         f"{', '.join(_INDIRECT_PATH_INTERMEDIARIES)} were exhausted."
     )
     raise NoRateError(msg)
+
+
+# -- Type alias for the rates-fetcher callable --------------------------------
+
+RatesFetcher = Callable[[str, str], Awaitable[Decimal | None]]
+"""An async callable that, given ``(from_currency, to_currency)``, returns
+the exchange rate as a :class:`Decimal`, or ``None`` if the rate is
+unavailable.
+
+Example
+-------
+A ``rates_fetcher`` backed by ``FxService.get_rate()``::
+
+    async def my_fetcher(from_: str, to_: str) -> Decimal | None:
+        obs = await fx_service.get_rate(from_, to_)
+        return obs.rate if obs is not None else None
+"""
+
+
+async def convert_amount(
+    amount: Decimal,
+    from_currency: str,
+    to_currency: str,
+    rates_fetcher: RatesFetcher,
+) -> Decimal:
+    """Convert an amount using a lightweight rates-fetcher callable.
+
+    Unlike the higher-level ``convert()`` / ``convert_currency_rate()``
+    functions that take an :class:`FxService` instance and support
+    indirect-path resolution, this function works with any async callable
+    that returns a ``Decimal | None`` given a currency pair.  It
+    supports:
+
+    * **Direct conversion** — calls ``rates_fetcher(from, to)``.
+    * **Inverse-pair fallback** — if the direct rate is unavailable,
+      swaps the currencies and inverts the rate (``1 / inverse_rate``).
+    * **Identity shortcut** — same-currency requests return the amount
+      unchanged without calling the fetcher.
+
+    Args:
+        amount:         The monetary amount to convert.
+        from_currency:  Source ISO-4217 currency code (e.g. ``\"EUR\"``).
+        to_currency:    Target ISO-4217 currency code (e.g. ``\"USD\"``).
+        rates_fetcher:  Async callable ``(from, to) -> Decimal | None``.
+
+    Returns:
+        The converted amount, rounded to 2 decimal places.
+
+    Raises:
+        NoRateError: If neither the direct nor the inverse pair yields
+            a valid exchange rate.
+
+    Example:
+        >>> from decimal import Decimal
+        >>> from finance_sync.utils.currency_converter import convert_amount
+        >>> fetcher = lambda f, t: Decimal("1.09")
+        >>> r = await convert_amount(Decimal(100), "EUR", "USD", fetcher)
+        >>> r
+        Decimal('109.00')
+    """
+    from_code = from_currency.upper()
+    to_code = to_currency.upper()
+
+    if from_code == to_code:
+        return amount.quantize(Decimal("0.01"), rounding="ROUND_HALF_UP")
+
+    # -- 1. Direct rate ----------------------------------------------------
+    rate = await rates_fetcher(from_code, to_code)
+
+    # -- 2. Inverse-pair fallback ------------------------------------------
+    if rate is None:
+        inverse_rate = await rates_fetcher(to_code, from_code)
+        if inverse_rate is not None and inverse_rate != Decimal(0):
+            rate = (Decimal(1) / inverse_rate).quantize(
+                Decimal("0.000000000001"),
+                rounding="ROUND_HALF_UP",
+            )
+
+    if rate is None:
+        msg = (
+            f"No exchange rate available for {from_code} -> {to_code}. "
+            f"Both direct and inverse-pair lookups were exhausted."
+        )
+        raise NoRateError(msg)
+
+    return (amount * rate).quantize(
+        Decimal("0.01"),
+        rounding="ROUND_HALF_UP",
+    )
 
 
 async def convert_portfolio_items(

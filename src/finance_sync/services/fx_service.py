@@ -16,7 +16,6 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any
 
-import httpx
 import structlog
 
 from finance_sync.enrichment.models import (
@@ -29,6 +28,53 @@ from finance_sync.models.fx_rate import FxRate
 if TYPE_CHECKING:
     from finance_sync.config.settings import Settings
     from finance_sync.db.uow import UnitOfWork
+
+# Import the OpenBB provider at runtime to avoid circular imports
+try:
+    from finance_sync.providers.openbb_fx import (
+        OpenBBFxProvider,
+        OpenBBFxProviderNotFoundError,
+        OpenBBFxProviderRateLimitError,
+        OpenBBFxProviderTimeoutError,
+    )
+
+    _HAS_OPENBB_PROVIDER = True
+except ImportError:
+    _HAS_OPENBB_PROVIDER = False
+    OpenBBFxProvider = None  # type: ignore[assignment,misc]
+
+
+logger = structlog.get_logger(__name__)
+
+
+class FxServiceError(Exception):
+    """Base exception for FX service errors."""
+
+
+class FxRateNotFoundError(FxServiceError):
+    """Raised when no exchange rate is available for a currency pair."""
+
+
+class FxRateFetchError(FxServiceError):
+    """Raised when fetching an exchange rate from the upstream API fails."""
+
+
+class InvalidCurrencyError(FxServiceError, ValueError):
+    """Raised when an invalid or unsupported currency code is provided."""
+
+
+@dataclass
+class _CacheEntry:
+    """An entry in the in-memory FX rate cache.
+
+    Attributes:
+        observation: The cached rate observation.
+        expires_at:  Unix timestamp (``time.monotonic()``) when this entry
+                     is considered stale.
+    """
+
+    observation: FxRateObservation
+    expires_at: float
 
 
 logger = structlog.get_logger(__name__)
@@ -119,16 +165,36 @@ class FxService:
         self,
         settings: Settings,
         uow: UnitOfWork,
+        *,
+        provider: Any | None = None,
     ) -> None:
         self._settings = settings
         self._uow = uow
 
-        self._http_client: httpx.AsyncClient | None = None
         self._degraded = settings.openbb_api_key is None
 
         # In-memory cache: { (base_currency, quote_currency): _CacheEntry }
         self._memory_cache: dict[tuple[str, str], _CacheEntry] = {}
         self._cache_lock: asyncio.Lock = asyncio.Lock()
+
+        # Use provided provider or create one from settings
+        self._provider = provider
+        if (
+            not self._degraded
+            and self._provider is None
+            and _HAS_OPENBB_PROVIDER
+        ):
+            api_key = (
+                settings.openbb_api_key.get_secret_value()
+                if settings.openbb_api_key
+                else None
+            )
+            self._provider = OpenBBFxProvider(
+                api_key=api_key,
+                base_url=settings.openbb_base_url,
+                max_requests_per_second=settings.openbb_rate_limit_rps,
+                request_timeout=settings.openbb_request_timeout,
+            )
 
         if self._degraded:
             logger.warning(
@@ -143,29 +209,10 @@ class FxService:
             logger.info(
                 "fx_service_initialised",
                 ttl_seconds=settings.fx_rate_cache_ttl_seconds,
+                provider_type=type(self._provider).__name__
+                if self._provider
+                else "built-in",
             )
-
-    @property
-    def http_client(self) -> httpx.AsyncClient:
-        """Lazy-init HTTP client for FX rate API calls."""
-        if self._http_client is None or self._http_client.is_closed:
-            self._http_client = httpx.AsyncClient(
-                base_url=self._settings.openbb_base_url,
-                timeout=httpx.Timeout(self._settings.openbb_request_timeout),
-                headers=self._build_headers(),
-            )
-        return self._http_client
-
-    def _build_headers(self) -> dict[str, str]:
-        """Build HTTP headers for FX API requests."""
-        headers: dict[str, str] = {
-            "Accept": "application/json",
-            "User-Agent": "finance-sync/0.1.0",
-        }
-        if self._settings.openbb_api_key:
-            api_key = self._settings.openbb_api_key.get_secret_value()
-            headers["Authorization"] = f"Bearer {api_key}"
-        return headers
 
     # -- Public API ---------------------------------------------------------
 
@@ -641,7 +688,10 @@ class FxService:
         base_currency: str,
         quote_currency: str,
     ) -> FxRateObservation | None:
-        """Fetch an exchange rate from the OpenBB API.
+        """Fetch an exchange rate via the OpenBB provider.
+
+        Delegates to the configured provider (OpenBBFxProvider) and wraps
+        the result in an FxRateObservation.
 
         Args:
             base_currency: Normalised base currency code.
@@ -650,49 +700,50 @@ class FxService:
         Returns:
             An FxRateObservation, or None on failure.
         """
-        try:
-            response = await self.http_client.get(
-                f"/api/{self._settings.openbb_api_version}/market/forex",
-                params={
-                    "base": base_currency,
-                    "quote": quote_currency,
-                },
-            )
-            response.raise_for_status()
-            data: dict[str, Any] = response.json()
-
-            return FxRateObservation(
-                base_currency=data.get("base", base_currency),
-                quote_currency=data.get("quote", quote_currency),
-                rate=_safe_decimal(data.get("rate")),
-                timestamp=_parse_timestamp(data.get("timestamp")),
-                source=data.get("source", "openbb"),
-            )
-        except httpx.HTTPStatusError as exc:
-            if exc.response.status_code == 404:
-                logger.debug(
-                    "fx_api_404",
-                    pair=f"{base_currency}/{quote_currency}",
-                )
-                return None
-            logger.warning(
-                "fx_api_http_error",
+        if self._provider is None:
+            logger.error(
+                "fx_api_no_provider",
                 pair=f"{base_currency}/{quote_currency}",
-                status_code=exc.response.status_code,
             )
             return None
-        except httpx.TimeoutException:
+
+        try:
+            rate = await self._provider.get_latest_rate(
+                base_currency, quote_currency,
+            )
+
+            return FxRateObservation(
+                base_currency=base_currency,
+                quote_currency=quote_currency,
+                rate=rate,
+                timestamp=datetime.now(UTC),
+                source="openbb",
+            )
+        except OpenBBFxProviderNotFoundError:
+            logger.debug(
+                "fx_api_404",
+                pair=f"{base_currency}/{quote_currency}",
+            )
+            return None
+        except OpenBBFxProviderTimeoutError:
             logger.warning(
                 "fx_api_timeout",
                 pair=f"{base_currency}/{quote_currency}",
                 timeout=self._settings.openbb_request_timeout,
             )
             return None
-        except httpx.HTTPError as exc:
+        except OpenBBFxProviderRateLimitError:
             logger.warning(
-                "fx_api_http_error",
+                "fx_api_rate_limited",
+                pair=f"{base_currency}/{quote_currency}",
+            )
+            return None
+        except Exception as exc:
+            logger.warning(
+                "fx_api_error",
                 pair=f"{base_currency}/{quote_currency}",
                 error=str(exc),
+                error_type=type(exc).__name__,
             )
             return None
 
@@ -731,12 +782,12 @@ class FxService:
     # -- Cleanup -----------------------------------------------------------
 
     async def close(self) -> None:
-        """Close the HTTP client."""
-        if self._http_client is not None and not self._http_client.is_closed:
-            await self._http_client.aclose()
+        """Close the underlying provider (idempotent)."""
+        if self._provider is not None:
+            await self._provider.close()
 
 
-# -- Helpers ------------------------------------------------------------------
+# -- Helper ------------------------------------------------------------------
 
 
 def _safe_decimal(value: Any) -> Decimal | None:
