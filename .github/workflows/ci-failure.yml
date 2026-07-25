@@ -144,12 +144,22 @@ jobs:
               dedupMarker,
             ].filter(l => l !== '').join('\n');
 
-            // ── 5. Create the issue ──────────────────────────────────────
+            // ── 5. Compute labels based on branch and failure type ──────
+            const defaultBranch = context.payload.repository?.default_branch || 'main';
+            const labels = ['ci-failure'];
+            if (branch === defaultBranch) labels.push('priority:high');
+            if (failedJobs.some(j => /test/i.test(j.name))) labels.push('type:test-failure');
+            if (failedJobs.some(j => /lint|ruff/i.test(j.name))) labels.push('type:lint');
+            if (failedJobs.some(j => /build|docker/i.test(j.name))) labels.push('type:build-failure');
+            if (event === 'pull_request') labels.push('scope:pr');
+            if (event === 'push') labels.push('scope:push');
+
+            // ── 6. Create the issue ──────────────────────────────────────
             const created = await github.rest.issues.create({
               owner: repo.owner,
               repo: repo.repo,
               title: title,
               body: body,
-              labels: [label],
+              labels: labels,
             });
             console.log(`Created issue #${created.data.number}: ${created.data.html_url}`);
