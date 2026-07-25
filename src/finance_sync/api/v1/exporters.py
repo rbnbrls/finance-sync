@@ -15,6 +15,7 @@ from sqlalchemy import select
 
 if TYPE_CHECKING:
     from datetime import datetime
+
     from sqlalchemy.ext.asyncio import AsyncSession
 
 from finance_sync.api.deps.auth import AuthContext, get_auth_context
@@ -114,15 +115,11 @@ def _build_wealthfolio_config(container: Any) -> WealthfolioConfig:
         default_currency=getattr(
             settings, "wealthfolio_default_currency", "EUR"
         ),
-        export_holdings=getattr(
-            settings, "wealthfolio_export_holdings", True
-        ),
+        export_holdings=getattr(settings, "wealthfolio_export_holdings", True),
         max_transactions_per_file=getattr(
             settings, "wealthfolio_max_transactions_per_file", 10_000
         ),
-        include_pending=getattr(
-            settings, "wealthfolio_include_pending", False
-        ),
+        include_pending=getattr(settings, "wealthfolio_include_pending", False),
         account_name_overrides=getattr(
             settings, "wealthfolio_account_name_overrides", {}
         ),
@@ -179,9 +176,7 @@ async def list_exporter_types() -> list[ExporterTypeInfo]:
                     "label": "Include Pending",
                     "type": "boolean",
                     "default": False,
-                    "description": (
-                        "Include pending (unsettled) transactions"
-                    ),
+                    "description": ("Include pending (unsettled) transactions"),
                 },
             ],
         ),
@@ -257,9 +252,7 @@ async def list_export_runs(
 ) -> ExportRunsListResponse:
     """List recent export runs."""
     # Total count
-    count_result = await db.execute(
-        select(ExportRun.id)
-    )
+    count_result = await db.execute(select(ExportRun.id))
     total = len(count_result.all())
 
     # Fetch page
@@ -297,9 +290,7 @@ async def get_export_run(
     db: AsyncSession = Depends(get_db),
 ) -> ExportRunResponse:
     """Get details of a specific export run."""
-    result = await db.execute(
-        select(ExportRun).where(ExportRun.id == run_id)
-    )
+    result = await db.execute(select(ExportRun).where(ExportRun.id == run_id))
     run = result.scalar_one_or_none()
     if run is None:
         raise HTTPException(
