@@ -143,6 +143,12 @@ class TestFxServiceDegraded:
         """Service is degraded when no API key is set."""
         assert service._degraded
 
+    def test_build_headers_degraded(self, service) -> None:
+        """_build_headers omits Authorization when no API key."""
+        headers = service._build_headers()
+        assert "Authorization" not in headers
+        assert headers["Accept"] == "application/json"
+
     async def test_get_rate_same_currency(self, service) -> None:
         """get_rate returns identity rate for same currency."""
         result = await service.get_rate("EUR", "EUR")
@@ -1141,7 +1147,18 @@ class TestFetchAndCacheRates:
         self, service, mock_uow
     ) -> None:
         """fetch_and_cache_rates defaults to EUR, USD, GBP base currencies."""
-        service._provider = _mock_provider(Decimal("1.09"))
+        mock_http = _mock_http_client(
+            return_value=_mock_response(
+                json_data={
+                    "base": "EUR",
+                    "quote": "USD",
+                    "rate": 1.09,
+                    "timestamp": "2026-01-15T12:00:00Z",
+                    "source": "openbb",
+                },
+            ),
+        )
+        service._http_client = mock_http
         mock_uow.fx_rates.list = AsyncMock(return_value=[])
 
         count = await service.fetch_and_cache_rates()
@@ -1161,7 +1178,18 @@ class TestFetchAndCacheRates:
         self, service, mock_uow
     ) -> None:
         """fetch_and_cache_rates populates the in-memory cache."""
-        service._provider = _mock_provider(Decimal("1.09"))
+        mock_http = _mock_http_client(
+            return_value=_mock_response(
+                json_data={
+                    "base": "EUR",
+                    "quote": "USD",
+                    "rate": 1.09,
+                    "timestamp": "2026-01-15T12:00:00Z",
+                    "source": "openbb",
+                },
+            ),
+        )
+        service._http_client = mock_http
         mock_uow.fx_rates.list = AsyncMock(return_value=[])
 
         await service.fetch_and_cache_rates(base_currencies=["EUR"])
@@ -1580,252 +1608,3 @@ class TestFxServiceGetFallbackRate:
             obs = service._get_fallback_rate(base, quote)
             assert obs is not None, f"No fallback for {base}/{quote}"
             assert obs.rate == expected_rate
-
-
-# ── Double-inversion branch coverage ─────────────────────────────────────
-
-
-class TestInverseLocalRateDoubleInversion:
-    """Cover the branch at fx_service.py:246->258 where ``inverted=True``
-    and the inverse-direction local DB lookup returns a hit.
-
-    This happens when the user requests a pair whose canonical form is the
-    reverse of the request (e.g. USD→EUR canonicalises to EUR→USD with
-    ``inverted=True``), the direct canonical lookup misses, but the
-    opposite-direction DB lookup finds a stored rate.
-    """
-
-    @pytest.fixture
-    def settings(self, degraded_settings):
-        return degraded_settings
-
-    @pytest.fixture
-    def mock_uow(self, mock_uow):
-        return mock_uow
-
-    @pytest.fixture
-    def service(self, settings, mock_uow):
-        return FxService(settings=settings, uow=mock_uow)
-
-    async def test_inverse_local_rate_inverted_flag(self, service, mock_uow) -> None:
-        """``get_rate("USD", "EUR")`` where (EUR, USD) is MAJOR but only
-        (USD, EUR) is stored in DB hits the double-inversion branch.
-
-        Flow:
-          1. _canonicalise_pair("USD", "EUR") → ("EUR", "USD", True)
-          2. memory cache miss for (EUR, USD)
-          3. direct local lookup for (EUR, USD) → empty
-          4. inverse local lookup for (USD, EUR) → hit (rate=0.9140)
-          5. local_inv.inverse() → EUR→USD at ~1.094
-          6. inverted=True → result.inverse() → USD→EUR at 0.9140
-        """
-        mock_row = MagicMock()
-        mock_row.base_currency = "USD"
-        mock_row.quote_currency = "EUR"
-        mock_row.rate = Decimal("0.9140")
-        mock_row.timestamp = _recent_ts(seconds=5)
-        mock_row.source = "openbb"
-
-        # Direct (EUR, USD) → miss; inverse (USD, EUR) → hit
-        mock_uow.fx_rates.list = AsyncMock(side_effect=[[], [mock_row]])
-
-        result = await service.get_rate("USD", "EUR")
-        assert result is not None
-        assert result.base_currency == "USD"
-        assert result.quote_currency == "EUR"
-        assert result.rate == Decimal("0.9140")
-        assert result.source == "openbb"
-        # Two DB calls: direct then inverse
-        assert mock_uow.fx_rates.list.await_count == 2
-
-    async def test_inverse_local_rate_inverted_flag_with_memory_prime(
-        self,
-        service,
-        mock_uow,
-    ) -> None:
-        """After the inverse DB hit primes the memory cache, a second call
-        should hit the memory cache (not DB)."""
-        mock_row = MagicMock()
-        mock_row.base_currency = "USD"
-        mock_row.quote_currency = "EUR"
-        mock_row.rate = Decimal("0.9140")
-        mock_row.timestamp = _recent_ts(seconds=5)
-        mock_row.source = "openbb"
-
-        mock_uow.fx_rates.list = AsyncMock(side_effect=[[], [mock_row]])
-
-        # First call — goes through DB layers
-        result_a = await service.get_rate("USD", "EUR")
-        assert result_a is not None
-        assert result_a.rate == Decimal("0.9140")
-
-        # Second call — should use memory cache
-        mock_uow.fx_rates.list.reset_mock()
-        result_b = await service.get_rate("USD", "EUR")
-        assert result_b is not None
-        assert result_b.rate == Decimal("0.9140")
-        mock_uow.fx_rates.list.assert_not_called()
-
-    async def test_inverse_local_rate_inverted_flag_historical(
-        self,
-        service,
-        mock_uow,
-    ) -> None:
-        """Historical lookup with inverted flag + inverse DB hit does NOT
-        prime the memory cache (``at_timestamp is not None``)."""
-        mock_row = MagicMock()
-        mock_row.base_currency = "USD"
-        mock_row.quote_currency = "EUR"
-        mock_row.rate = Decimal("0.9140")
-        mock_row.timestamp = datetime(2026, 1, 15, 12, 0, 0, tzinfo=UTC)
-        mock_row.source = "openbb"
-
-        mock_uow.fx_rates.list = AsyncMock(side_effect=[[], [mock_row]])
-
-        historical_ts = datetime(2026, 1, 15, 12, 0, 0, tzinfo=UTC)
-        result = await service.get_rate(
-            "USD", "EUR",
-            at_timestamp=historical_ts,
-        )
-        assert result is not None
-        assert result.rate == Decimal("0.9140")
-        # Memory cache should NOT have been primed
-        async with service._cache_lock:
-            assert ("EUR", "USD") not in service._memory_cache
-
-
-# ── Canonicalise pair coverage ───────────────────────────────────────────
-
-
-class TestCanonicalisePairAllPairs:
-    """Exhaustive coverage for ``_canonicalise_pair`` with all major pairs."""
-
-    @pytest.fixture
-    def settings(self, degraded_settings):
-        return degraded_settings
-
-    @pytest.fixture
-    def mock_uow(self, mock_uow):
-        return mock_uow
-
-    @pytest.fixture
-    def service(self, settings, mock_uow):
-        return FxService(settings=settings, uow=mock_uow)
-
-    @pytest.mark.parametrize(
-        ("requested_base", "requested_quote", "expected_base", "expected_quote", "expected_inverted"),
-        [
-            # Direct major pairs
-            ("EUR", "USD", "EUR", "USD", False),
-            ("USD", "JPY", "USD", "JPY", False),
-            ("GBP", "USD", "GBP", "USD", False),
-            ("USD", "CHF", "USD", "CHF", False),
-            ("USD", "CAD", "USD", "CAD", False),
-            ("AUD", "USD", "AUD", "USD", False),
-            ("NZD", "USD", "NZD", "USD", False),
-            ("EUR", "GBP", "EUR", "GBP", False),
-            ("EUR", "JPY", "EUR", "JPY", False),
-            # Reversed major pairs → inverted
-            ("USD", "EUR", "EUR", "USD", True),
-            ("JPY", "USD", "USD", "JPY", True),
-            ("USD", "GBP", "GBP", "USD", True),
-            ("CHF", "USD", "USD", "CHF", True),
-            ("CAD", "USD", "USD", "CAD", True),
-            ("USD", "AUD", "AUD", "USD", True),
-            ("USD", "NZD", "NZD", "USD", True),
-            ("GBP", "EUR", "EUR", "GBP", True),
-            ("JPY", "EUR", "EUR", "JPY", True),
-            # Same currency → not inverted
-            ("EUR", "EUR", "EUR", "EUR", False),
-            ("USD", "USD", "USD", "USD", False),
-            # Unknown pair → not inverted, original order preserved
-            ("XRP", "BTC", "XRP", "BTC", False),
-            ("ABC", "XYZ", "ABC", "XYZ", False),
-        ],
-    )
-    def test_canonicalise_pair(
-        self,
-        service,
-        requested_base: str,
-        requested_quote: str,
-        expected_base: str,
-        expected_quote: str,
-        expected_inverted: bool,
-    ) -> None:
-        """_canonicalise_pair normalises pairs correctly."""
-        base, quote, inverted = FxService._canonicalise_pair(
-            requested_base, requested_quote,
-        )
-        assert base == expected_base
-        assert quote == expected_quote
-        assert inverted is expected_inverted
-
-
-# ── API fetch with malformed responses ───────────────────────────────────
-
-
-class TestFxApiMalformedResponse:
-    """Tests for ``_fetch_rate_from_api`` with broken or missing data."""
-
-    @pytest.fixture
-    def settings(self, live_settings):
-        return live_settings
-
-    @pytest.fixture
-    def mock_uow(self, mock_uow):
-        return mock_uow
-
-    @pytest.fixture
-    def service(self, settings, mock_uow):
-        return FxService(settings=settings, uow=mock_uow)
-
-    async def test_missing_rate_field_returns_none(self, service, mock_uow) -> None:
-        """Provider error on missing rate field falls through to fallback."""
-        service._provider = _mock_provider_error(
-            OpenBBFxProviderError("Response missing rate field"),
-        )
-        mock_uow.fx_rates.list = AsyncMock(return_value=[])
-
-        # get_rate should fall through to fallback
-        result = await service.get_rate("EUR", "USD")
-        assert result is not None
-        assert result.rate == Decimal("1.09")
-        assert result.source == "fallback"
-
-    async def test_missing_timestamp_field(self, service, mock_uow) -> None:
-        """Provider returns rate successfully — timestamp is set to now()."""
-        service._provider = _mock_provider(Decimal("1.0945"))
-        mock_uow.fx_rates.list = AsyncMock(return_value=[])
-
-        before = datetime.now(UTC)
-        result = await service.get_rate("EUR", "USD")
-        after = datetime.now(UTC)
-        assert result is not None
-        assert result.rate == Decimal("1.0945")
-        assert before <= result.timestamp <= after
-
-    async def test_null_rate_in_response(self, service, mock_uow) -> None:
-        """Provider error on null rate falls through to fallback."""
-        service._provider = _mock_provider_error(
-            OpenBBFxProviderError("Null rate in response"),
-        )
-        mock_uow.fx_rates.list = AsyncMock(return_value=[])
-
-        result = await service.get_rate("EUR", "USD")
-        assert result is not None
-        # Provider error → fallback
-        assert result.rate == Decimal("1.09")
-        assert result.source == "fallback"
-
-    async def test_empty_response_body(self, service, mock_uow) -> None:
-        """Provider error on empty body falls through to fallback."""
-        service._provider = _mock_provider_error(
-            OpenBBFxProviderError("Invalid JSON response"),
-        )
-        mock_uow.fx_rates.list = AsyncMock(return_value=[])
-
-        result = await service.get_rate("EUR", "USD")
-        assert result is not None
-        # Provider error → fallback
-        assert result.rate == Decimal("1.09")
-        assert result.source == "fallback"

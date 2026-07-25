@@ -77,6 +77,39 @@ class _CacheEntry:
     expires_at: float
 
 
+logger = structlog.get_logger(__name__)
+
+
+class FxServiceError(Exception):
+    """Base exception for FX service errors."""
+
+
+class FxRateNotFoundError(FxServiceError):
+    """Raised when no exchange rate is available for a currency pair."""
+
+
+class FxRateFetchError(FxServiceError):
+    """Raised when fetching an exchange rate from the upstream API fails."""
+
+
+class InvalidCurrencyError(FxServiceError, ValueError):
+    """Raised when an invalid or unsupported currency code is provided."""
+
+
+@dataclass
+class _CacheEntry:
+    """An entry in the in-memory FX rate cache.
+
+    Attributes:
+        observation: The cached rate observation.
+        expires_at:  Unix timestamp (``time.monotonic()``) when this entry
+                     is considered stale.
+    """
+
+    observation: FxRateObservation
+    expires_at: float
+
+
 class FxService:
     """Service for foreign exchange rate management and currency conversion.
 

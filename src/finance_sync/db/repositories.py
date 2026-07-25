@@ -105,6 +105,7 @@ class TransactionRepository(Repository[Transaction]):
         tenant_id: str,
         *,
         account_ids: list[str] | None = None,
+        provider_keys: list[str] | None = None,
         date_from: datetime | None = None,
         date_to: datetime | None = None,
         threshold_hours: int = 48,
@@ -114,6 +115,9 @@ class TransactionRepository(Repository[Transaction]):
         A candidate pair is two transactions in the same account with
         identical amounts and close occurrence dates (within
         *threshold_hours*) but different external IDs or provider keys.
+
+        When *provider_keys* is set, only transactions from those
+        providers are considered.
 
         Returns a list of (tx_a, tx_b) tuples, ordered by descending
         amount magnitude so the most suspicious pairs come first.
@@ -128,6 +132,10 @@ class TransactionRepository(Repository[Transaction]):
         if account_ids:
             conditions.append(
                 Transaction.account_id.in_(account_ids)  # type: ignore[attr-defined]
+            )
+        if provider_keys:
+            conditions.append(
+                Transaction.provider_key.in_(provider_keys)  # type: ignore[attr-defined]
             )
         if date_from is not None:
             conditions.append(

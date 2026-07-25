@@ -94,7 +94,7 @@ class DetectedSubscription(Base):
         String(16),
         default=SubscriptionStatus.ACTIVE,
         nullable=False,
-        comment="'active', 'paused', 'cancelled', 'unknown'",
+        comment="'active', 'paused', 'cancelled', 'ignored', 'unknown'",
     )
 
     # ── Transaction references ──────────────────────────────────────

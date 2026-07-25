@@ -6,7 +6,10 @@ because FastAPI needs runtime type introspection for OpenAPI generation.
 
 from typing import Any
 
+from datetime import UTC, datetime
+
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from pydantic import BaseModel, Field
 
 from finance_sync.api.deps.auth import get_current_user
 from finance_sync.dependencies import get_settings
@@ -117,4 +120,95 @@ async def submit_feedback(
         "issue_url": result.issue_url,
         "issue_number": result.issue_number,
         "message": "Feedback submitted successfully. Thank you!",
+    }
+
+
+# ── Client error reporting ─────────────────────────────────────────────
+
+
+class ClientErrorReport(BaseModel):
+    """Payload for frontend-side error reports."""
+
+    message: str = Field(description="Error message string")
+    url: str = Field(default="", description="The URL where the error occurred")
+    line: int | None = Field(default=None, description="Line number")
+    col: int | None = Field(default=None, description="Column number")
+    stack: str | None = Field(default=None, description="Stack trace")
+    user_agent: str | None = Field(default=None, description="Browser user-agent string")
+    context: dict[str, Any] | None = Field(
+        default=None,
+        description="Additional context (page, action, component, …)",
+    )
+
+
+@router.post("/client-error", status_code=status.HTTP_202_ACCEPTED)
+async def report_client_error(
+    request: Request,
+    body: ClientErrorReport,
+    user: UserModel = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Receive a frontend-side error and create a GitHub issue.
+
+    The endpoint accepts structured error reports from the browser
+    (via ``window.onerror`` / ``unhandledrejection`` handlers) and
+    creates a GitHub issue in the configured repository for triage.
+    """
+    settings = get_settings(request)
+
+    if not settings.github_token:
+        # Silent discard when GitHub integration is not configured
+        return {"success": True, "note": "GitHub integration not configured — error discarded"}
+
+    repo_full = settings.github_repo
+    if "/" not in repo_full:
+        return {"success": False, "note": "Invalid GITHUB_REPO format"}
+
+    owner, repo_name = repo_full.split("/", 1)
+
+    # Build a rich issue body
+    now_str = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
+    issue_body = (
+        f"## 🐛 Frontend Error Report\n\n"
+        f"**Reported:** {now_str}\n"
+        f"**User:** {user.email} (`{user.id}`)\n"
+        f"**URL:** {body.url or 'N/A'}\n"
+        f"**User-Agent:** {body.user_agent or 'N/A'}\n\n"
+        f"### Error\n\n"
+        f"```\n{body.message}\n```\n\n"
+    )
+    if body.stack:
+        issue_body += (
+            f"### Stack Trace\n\n"
+            f"```\n{body.stack}\n```\n\n"
+        )
+    if body.line is not None or body.col is not None:
+        issue_body += f"**Location:** line {body.line}, column {body.col}\n\n"
+    if body.context:
+        import json as _json
+        issue_body += (
+            f"### Context\n\n"
+            f"```json\n{_json.dumps(body.context, indent=2, default=str)}\n```\n"
+        )
+
+    title = f"[FRONTEND] {body.message[:120]}"
+
+    service = GitHubIssueService(token=settings.github_token)
+    result = await service.create_issue(
+        owner=owner,
+        repo=repo_name,
+        title=title,
+        body=issue_body,
+        labels=["bug", "frontend"],
+    )
+
+    if not result.success:
+        return {
+            "success": False,
+            "note": result.error,
+        }
+
+    return {
+        "success": True,
+        "issue_url": result.issue_url,
+        "issue_number": result.issue_number,
     }

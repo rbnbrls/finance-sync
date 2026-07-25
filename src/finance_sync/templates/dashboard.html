@@ -671,6 +671,60 @@
             setTimeout(() => { el.style.opacity = '0'; el.style.transition = 'opacity 0.3s'; setTimeout(() => el.remove(), 300); }, 4000);
         }
 
+        // ── Frontend error monitoring ──────────────────────────────────
+        // Sends unhandled errors to the backend which creates GitHub issues.
+        let __errorReportToken = localStorage.getItem('fs_token');
+        let __lastErrorReport = 0;
+        let __errorReportCount = 0;
+        const ERROR_RATE_LIMIT_MS = 30000;  // at most one report per 30s
+        const ERROR_RATE_LIMIT_MAX = 5;      // max 5 reports per session
+
+        function reportError({ message, url, line, col, stack, context }) {
+            const now = Date.now();
+            if (now - __lastErrorReport < ERROR_RATE_LIMIT_MS) return;
+            if (__errorReportCount >= ERROR_RATE_LIMIT_MAX) return;
+            __lastErrorReport = now;
+            __errorReportCount++;
+            const token = localStorage.getItem('fs_token');
+            if (!token) return;
+            const payload = JSON.stringify({
+                message: String(message || 'Unknown error').slice(0, 500),
+                url: url || location.href,
+                line: line || null,
+                col: col || null,
+                stack: stack ? stack.slice(0, 2000) : null,
+                user_agent: navigator.userAgent,
+                context: context || null,
+            });
+            navigator.sendBeacon('/feedback/client-error', new Blob([payload], { type: 'application/json' }));
+        }
+
+        window.onerror = function (msg, url, line, col, err) {
+            reportError({
+                message: msg,
+                url: url,
+                line: line,
+                col: col,
+                stack: err && err.stack,
+                context: { type: 'window.onerror' },
+            });
+        };
+
+        window.addEventListener('unhandledrejection', function (event) {
+            const reason = event.reason;
+            let message = 'Unhandled Promise rejection';
+            let stack = null;
+            if (reason) {
+                message = reason.message || String(reason);
+                stack = reason.stack;
+            }
+            reportError({
+                message: message,
+                stack: stack,
+                context: { type: 'unhandledrejection', href: location.href },
+            });
+        });
+
         // ── Section switching ───────────────────────────────────────────
         function switchSection(name) {
             document.querySelectorAll('.sidebar-nav a').forEach(a => a.classList.remove('active'));

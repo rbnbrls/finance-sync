@@ -1,0 +1,23 @@
+name: Deploy to Coolify
+
+on:
+  push:
+    branches: [ main ]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Coolify deployment
+        env:
+          COOLIFY_API_TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}
+        run: |
+          echo "Triggering Coolify deployment..."
+          RESPONSE=$(curl -s -X POST "https://dev.7rb.nl/api/v1/deploy"             -H "Authorization: Bearer ${{ COOLIFY_API_TOKEN }}"             -H "Content-Type: application/json"             -d '{"uuid": "obcopz3142hxzs1zlie78amh", "force": false}')
+          echo "Response: ${RESPONSE}"
+          DEPLOY_UUID=$(echo "${RESPONSE}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('deployments',[{}])[0].get('deployment_uuid','unknown'))" 2>/dev/null || echo "unknown")
+          echo "deployment_uuid=${DEPLOY_UUID}" >> $GITHUB_OUTPUT

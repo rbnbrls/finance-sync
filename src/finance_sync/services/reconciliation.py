@@ -92,17 +92,24 @@ class ReconciliationService:
         self,
         *,
         account_ids: list[str] | None = None,
+        provider_keys: list[str] | None = None,
         date_from: datetime | None = None,
         date_to: datetime | None = None,
         threshold_hours: int = _DUPLICATE_THRESHOLD_HOURS,
+        detect_duplicates: bool = True,
     ) -> ReconciliationRun:
         """Run a full reconciliation analysis.
 
         Args:
-            account_ids:  Optional subset of accounts to analyze.
-            date_from:    Earliest transaction date (default 90 days ago).
-            date_to:      Latest transaction date (default now).
-            threshold_hours:  Max hour gap for duplicate candidates.
+            account_ids:    Optional subset of accounts to analyze.
+            provider_keys:  Optional provider/connector keys to compare.
+                            When set, only transactions from these providers
+                            are included in the analysis.
+            date_from:      Earliest transaction date (default 90 days ago).
+            date_to:        Latest transaction date (default now).
+            threshold_hours: Max hour gap for duplicate candidates.
+            detect_duplicates:
+                Whether to run duplicate detection phase (default ``True``).
 
         Returns:
             The completed ``ReconciliationRun`` with its finding count
@@ -124,6 +131,10 @@ class ReconciliationService:
         }
         if account_ids:
             scope["account_ids"] = account_ids
+        if provider_keys:
+            scope["provider_keys"] = provider_keys
+        if not detect_duplicates:
+            scope["detect_duplicates"] = False
 
         async with self._session_factory() as session:
             run = ReconciliationRun(
@@ -139,27 +150,43 @@ class ReconciliationService:
 
             try:
                 # Phase 1: Duplicate detection
-                dups = await self._detect_duplicates(
+                provider_kw = {}
+                if provider_keys:
+                    provider_kw["provider_keys"] = provider_keys
+
+                if detect_duplicates:
+                    dups = await self._detect_duplicates(
+                        session,
+                        run,
+                        account_ids,
+                        _date_from,
+                        _date_to,
+                        threshold_hours,
+                        **provider_kw,
+                    )
+                    findings.extend(dups)
+                    log.debug("duplicates_detected", count=len(dups))
+
+                # Phase 2: Cross-connector gap detection
+                gaps = await self._detect_cross_connector_gaps(
                     session,
                     run,
                     account_ids,
                     _date_from,
                     _date_to,
-                    threshold_hours,
-                )
-                findings.extend(dups)
-                log.debug("duplicates_detected", count=len(dups))
-
-                # Phase 2: Cross-connector gap detection
-                gaps = await self._detect_cross_connector_gaps(
-                    session, run, account_ids, _date_from, _date_to
+                    **provider_kw,
                 )
                 findings.extend(gaps)
                 log.debug("cross_connector_gaps_detected", count=len(gaps))
 
                 # Phase 3: Missing transaction detection across providers
                 missing = await self._detect_missing_transactions(
-                    session, run, account_ids, _date_from, _date_to
+                    session,
+                    run,
+                    account_ids,
+                    _date_from,
+                    _date_to,
+                    **provider_kw,
                 )
                 findings.extend(missing)
                 log.debug("missing_transactions_detected", count=len(missing))
@@ -194,6 +221,7 @@ class ReconciliationService:
         date_from: datetime,
         date_to: datetime,
         threshold_hours: int,
+        provider_keys: list[str] | None = None,
     ) -> list[ReconciliationResult]:
         """Find potential duplicate transactions."""
         from finance_sync.db.uow import UnitOfWork
@@ -204,6 +232,7 @@ class ReconciliationService:
             pairs = await uow.transactions.find_duplicate_candidates(
                 tenant_id=run.tenant_id,
                 account_ids=account_ids,
+                provider_keys=provider_keys,
                 date_from=date_from,
                 date_to=date_to,
                 threshold_hours=threshold_hours,
@@ -231,9 +260,9 @@ class ReconciliationService:
                     else ReconciliationSeverity.WARNING
                 )
 
-                amt_a = tx_a.amount or Decimal(0)
-                amt_b = tx_b.amount or Decimal(0)
-                amount_diff = abs(amt_a - amt_b)
+                amount_diff = abs(
+                    (tx_a.amount or Decimal(0)) - (tx_b.amount or Decimal(0))
+                )
 
                 findings.append(
                     ReconciliationResult(
@@ -287,12 +316,14 @@ class ReconciliationService:
         account_ids: list[str] | None,
         _date_from: datetime,
         _date_to: datetime,
+        provider_keys: list[str] | None = None,
     ) -> list[ReconciliationResult]:
         """Detect gaps between connector coverages for overlapping accounts.
 
         For accounts fed by multiple providers, compare the date ranges
         of each provider's transactions and flag any provider that has a
-        significantly narrower range (possible missing data).
+        significantly narrower range (possible missing data).  When
+        ``provider_keys`` is given, only those providers are compared.
         """
         from sqlalchemy import select
 
@@ -318,7 +349,13 @@ class ReconciliationService:
                 )
 
             if len(providers) < 2:
-                continue  # Single-provider — no cross-connector check
+                continue  # Single-provider account — cross-connector N/A
+
+            # If specific provider_keys requested, intersect with available
+            if provider_keys is not None:
+                providers = [p for p in providers if p in provider_keys]
+                if len(providers) < 2:
+                    continue  # Fewer than 2 requested providers for this account
 
             # For each provider, get its transaction date range
             provider_ranges: dict[
@@ -329,9 +366,7 @@ class ReconciliationService:
                     provider_ranges[
                         p
                     ] = await uow.transactions.get_transaction_date_range(
-                        run.tenant_id,
-                        account_id=str(acct.id),
-                        provider_key=p,
+                        run.tenant_id, account_id=str(acct.id), provider_key=p
                     )
 
             # Find the overall range
@@ -345,7 +380,10 @@ class ReconciliationService:
 
             for provider_key, (p_start, p_end) in provider_ranges.items():
                 if p_start is None or p_end is None:
-                    # Provider has no transactions — flag as gap
+                    no_txn_msg = (
+                        f"Connector '{provider_key}' has no transactions "
+                        f"for account '{acct.name}' while others do"
+                    )
                     findings.append(
                         ReconciliationResult(
                             run_id=str(run.id),
@@ -354,10 +392,7 @@ class ReconciliationService:
                             severity=ReconciliationSeverity.ERROR,
                             account_id=str(acct.id),
                             provider_key=provider_key,
-                            description=(
-                                f"Connector '{provider_key}' has no transactions for "  # noqa: E501
-                                f"'{acct.name}' (other providers do)"
-                            ),
+                            description=no_txn_msg,
                             details={
                                 "account_name": acct.name,
                                 "overall_start": overall_start.isoformat(),
@@ -368,7 +403,7 @@ class ReconciliationService:
                     )
                     continue
 
-                # Check if this provider's coverage starts significantly later
+                # Check if provider's coverage starts significantly later
                 start_diff = (p_start - overall_start).total_seconds()
                 if start_diff > 86400 * 7:  # More than 7 days late
                     findings.append(
@@ -381,8 +416,9 @@ class ReconciliationService:
                             provider_key=provider_key,
                             description=(
                                 f"Connector '{provider_key}' started recording "
-                                f"for '{acct.name}' "
-                                f"{start_diff / 86400:.0f}d after earliest provider"  # noqa: E501
+                                f"transactions for '{acct.name}' "
+                                f"{start_diff / 86400:.0f} days after the "
+                                f"earliest provider"
                             ),
                             details={
                                 "account_name": acct.name,
@@ -403,12 +439,14 @@ class ReconciliationService:
         account_ids: list[str] | None,
         _date_from: datetime,
         _date_to: datetime,
+        provider_keys: list[str] | None = None,
     ) -> list[ReconciliationResult]:
         """Detect potential missing transaction windows.
 
         Looks for accounts where a connector has a gap in its transaction
         date range relative to the requested analysis period — no data
         at all from a connector for a period where data was expected.
+        When ``provider_keys`` is given, only those providers are checked.
         """
         from sqlalchemy import select
 
@@ -433,6 +471,9 @@ class ReconciliationService:
                 )
 
             for provider_key in providers:
+                # If specific provider_keys requested, skip non-matching
+                if provider_keys is not None and provider_key not in provider_keys:
+                    continue
                 async with UnitOfWork(session) as uow:
                     (
                         p_start,
@@ -446,7 +487,7 @@ class ReconciliationService:
                 if p_start is None:
                     continue  # Already flagged in gap detection
 
-                # Check if provider coverage extends to analysis boundary
+                # Check if the provider's coverage extends to analysis boundary
                 if p_start > _date_from:
                     gap_days = (p_start - _date_from).total_seconds() / 86400
                     if gap_days > 7:
@@ -459,8 +500,9 @@ class ReconciliationService:
                                 account_id=str(acct.id),
                                 provider_key=provider_key,
                                 description=(
-                                    f"Connector '{provider_key}' {gap_days:.0f}d gap at "  # noqa: E501
-                                    "start of analysis window "
+                                    f"Connector '{provider_key}' has a "
+                                    f"{gap_days:.0f}-day gap at the "
+                                    f"start of the analysis window "
                                     f"for '{acct.name}'"
                                 ),
                                 details={

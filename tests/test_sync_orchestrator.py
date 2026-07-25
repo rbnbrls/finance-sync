@@ -19,12 +19,20 @@ from sqlalchemy.ext.asyncio import (
 )
 from sqlalchemy.orm import Mapped, declarative_base, mapped_column
 
+from finance_sync.connectors.exceptions import PermanentError
 from finance_sync.connectors.models import (
     CanonicalAccountData,
     CanonicalTransactionData,
 )
-from finance_sync.models.enums import SyncRunStatus
-from finance_sync.sync.orchestrator import SyncOrchestrator, SyncResult
+from finance_sync.models.enums import (
+    ReconciliationRunStatus,
+    SyncRunStatus,
+)
+from finance_sync.sync.orchestrator import (
+    ReconciliationRunSummary,
+    SyncOrchestrator,
+    SyncResult,
+)
 
 # ── Test model for SyncRun (SQLite-compatible) ────────────────────
 
@@ -120,6 +128,38 @@ class TestSyncResult:
         assert result.error_message == "Auth failed"
 
 
+class TestReconciliationRunSummary:
+    """ReconciliationRunSummary is a simple data holder."""
+
+    def test_construct_and_repr(self) -> None:
+        summary = ReconciliationRunSummary(
+            run_id="rec_run_1",
+            status=ReconciliationRunStatus.COMPLETED,
+            finding_count=5,
+        )
+        assert summary.run_id == "rec_run_1"
+        assert summary.status == ReconciliationRunStatus.COMPLETED
+        assert summary.finding_count == 5
+        assert "ReconciliationRunSummary" in repr(summary)
+        assert "completed" in repr(summary)
+
+    def test_no_findings(self) -> None:
+        summary = ReconciliationRunSummary(
+            run_id="rec_run_2",
+            status=ReconciliationRunStatus.COMPLETED,
+            finding_count=0,
+        )
+        assert summary.finding_count == 0
+
+    def test_failed_run(self) -> None:
+        summary = ReconciliationRunSummary(
+            run_id="rec_run_3",
+            status=ReconciliationRunStatus.FAILED,
+            finding_count=0,
+        )
+        assert summary.status == ReconciliationRunStatus.FAILED
+
+
 # ── Orchestrator tests (mocked UoW) ───────────────────────────────
 
 
@@ -135,6 +175,231 @@ class TestSyncOrchestratorInit:
             tenant_id="tenant_1",
         )
         assert orchestrator._tenant_id == "tenant_1"
+        assert orchestrator._settings is None
+
+    def test_constructor_with_settings(self) -> None:
+        """Settings object is stored when provided."""
+        session_factory = MagicMock()
+        registry = MagicMock()
+        settings = MagicMock()
+        settings.worker_job_reconciliation_after_sync_enabled = False
+        orchestrator = SyncOrchestrator(
+            session_factory=session_factory,
+            registry=registry,
+            tenant_id="tenant_1",
+            settings=settings,
+        )
+        assert orchestrator._settings is settings
+
+    def test_reconciliation_after_sync_enabled_default(self) -> None:
+        """Default (no settings) returns True."""
+        orchestrator = SyncOrchestrator(
+            session_factory=MagicMock(),
+            registry=MagicMock(),
+            tenant_id="tenant_1",
+        )
+        assert orchestrator._reconciliation_after_sync_enabled is True
+
+    def test_reconciliation_after_sync_enabled_when_setting_true(self) -> None:
+        """Returns True when setting is True."""
+        settings = MagicMock()
+        settings.worker_job_reconciliation_after_sync_enabled = True
+        orchestrator = SyncOrchestrator(
+            session_factory=MagicMock(),
+            registry=MagicMock(),
+            tenant_id="tenant_1",
+            settings=settings,
+        )
+        assert orchestrator._reconciliation_after_sync_enabled is True
+
+    def test_reconciliation_after_sync_enabled_when_setting_false(self) -> None:
+        """Returns False when setting is False."""
+        settings = MagicMock()
+        settings.worker_job_reconciliation_after_sync_enabled = False
+        orchestrator = SyncOrchestrator(
+            session_factory=MagicMock(),
+            registry=MagicMock(),
+            tenant_id="tenant_1",
+            settings=settings,
+        )
+        assert orchestrator._reconciliation_after_sync_enabled is False
+
+
+class TestSyncOrchestratorRunReconciliation:
+    """Test the run_reconciliation method with mocked dependencies."""
+
+    @pytest.fixture
+    def orchestrator(self) -> SyncOrchestrator:
+        session_factory = MagicMock()  # Must be MagicMock, not AsyncMock,
+        # so that session_factory() returns an object with __aenter__/__aexit__
+        # set up properly for the outbox async context manager.
+        mock_session = AsyncMock()
+        session_factory.return_value.__aenter__ = AsyncMock(
+            return_value=mock_session
+        )
+        session_factory.return_value.__aexit__ = AsyncMock(return_value=None)
+        registry = MagicMock()
+        return SyncOrchestrator(
+            session_factory=session_factory,
+            registry=registry,
+            tenant_id="tenant_test_1",
+        )
+
+    async def test_run_reconciliation_completed(self, orchestrator) -> None:
+        """Successful reconciliation returns summary with finding count."""
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        mock_run = MagicMock()
+        mock_run.id = "rec_run_101"
+        mock_run.status = ReconciliationRunStatus.COMPLETED
+        mock_run.finding_count = 3
+        mock_run.summary = {"by_kind": {"duplicate": 2, "missing": 1}}
+
+        with (
+            patch(
+                "finance_sync.services.reconciliation.ReconciliationService.reconcile",
+                new=AsyncMock(return_value=mock_run),
+            ),
+            patch(
+                "finance_sync.db.uow.UnitOfWork",
+            ) as mock_uow_cls,
+            patch(
+                "finance_sync.sync.orchestrator.outbox_reconciliation_completed",
+                new=AsyncMock(),
+            ) as mock_outbox,
+        ):
+            mock_uow = MagicMock()
+            mock_uow.__aenter__ = AsyncMock(return_value=mock_uow)
+            mock_uow.__aexit__ = AsyncMock(return_value=None)
+            mock_uow_cls.return_value = mock_uow
+
+            summary = await orchestrator.run_reconciliation()
+
+        assert summary.run_id == "rec_run_101"
+        assert summary.status == ReconciliationRunStatus.COMPLETED
+        assert summary.finding_count == 3
+
+        # Verify outbox message was emitted with correct details
+        mock_outbox.assert_awaited_once()
+        outbox_kwargs = mock_outbox.call_args.kwargs
+        assert outbox_kwargs["run_id"] == "rec_run_101"
+        assert outbox_kwargs["finding_count"] == 3
+
+    async def test_run_reconciliation_emits_outbox(
+        self, orchestrator
+    ) -> None:
+        """Outbox message is emitted on successful reconciliation."""
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        mock_run = MagicMock()
+        mock_run.id = "rec_run_outbox"
+        mock_run.status = ReconciliationRunStatus.COMPLETED
+        mock_run.finding_count = 5
+        mock_run.summary = {"by_kind": {"duplicate_transaction": 5}, "by_severity": {"warning": 5}}
+
+        with (
+            patch(
+                "finance_sync.services.reconciliation.ReconciliationService.reconcile",
+                new=AsyncMock(return_value=mock_run),
+            ),
+            patch(
+                "finance_sync.db.uow.UnitOfWork",
+            ) as mock_uow_cls,
+            patch(
+                "finance_sync.sync.orchestrator.outbox_reconciliation_completed",
+                new=AsyncMock(),
+            ) as mock_outbox,
+        ):
+            mock_uow = MagicMock()
+            mock_uow.__aenter__ = AsyncMock(return_value=mock_uow)
+            mock_uow.__aexit__ = AsyncMock(return_value=None)
+            mock_uow_cls.return_value = mock_uow
+
+            await orchestrator.run_reconciliation()
+            mock_outbox.assert_awaited_once()
+
+    async def test_run_reconciliation_skips_outbox_on_failure(
+        self, orchestrator
+    ) -> None:
+        """No outbox message when reconciliation fails."""
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        mock_run = MagicMock()
+        mock_run.id = "rec_run_fail"
+        mock_run.status = ReconciliationRunStatus.FAILED
+        mock_run.finding_count = 0
+        mock_run.summary = None
+
+        with (
+            patch(
+                "finance_sync.services.reconciliation.ReconciliationService.reconcile",
+                new=AsyncMock(return_value=mock_run),
+            ),
+            patch(
+                "finance_sync.sync.orchestrator.outbox_reconciliation_completed",
+                new=AsyncMock(),
+            ) as mock_outbox,
+        ):
+            summary = await orchestrator.run_reconciliation()
+
+        assert summary.status == ReconciliationRunStatus.FAILED
+        mock_outbox.assert_not_awaited()
+
+    async def test_run_reconciliation_outbox_failure_does_not_crash(
+        self, orchestrator
+    ) -> None:
+        """Outbox failure is caught and logged; the run summary is still returned."""
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        mock_run = MagicMock()
+        mock_run.id = "rec_run_outbox_fail"
+        mock_run.status = ReconciliationRunStatus.COMPLETED
+        mock_run.finding_count = 2
+        mock_run.summary = {"by_kind": {}}
+
+        with (
+            patch(
+                "finance_sync.services.reconciliation.ReconciliationService.reconcile",
+                new=AsyncMock(return_value=mock_run),
+            ),
+            patch(
+                "finance_sync.db.uow.UnitOfWork",
+            ) as mock_uow_cls,
+            patch(
+                "finance_sync.sync.orchestrator.outbox_reconciliation_completed",
+                new=AsyncMock(side_effect=RuntimeError("Outbox DB error")),
+            ),
+        ):
+            mock_uow = MagicMock()
+            mock_uow.__aenter__ = AsyncMock(return_value=mock_uow)
+            mock_uow.__aexit__ = AsyncMock(return_value=None)
+            mock_uow_cls.return_value = mock_uow
+
+            # Should not raise — outbox failure is caught and logged
+            summary = await orchestrator.run_reconciliation()
+
+        assert summary.run_id == "rec_run_outbox_fail"
+        assert summary.status == ReconciliationRunStatus.COMPLETED
+
+    async def test_run_reconciliation_failed(self, orchestrator) -> None:
+        """Failed reconciliation returns FAILED status."""
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        mock_run = MagicMock()
+        mock_run.id = "rec_run_102"
+        mock_run.status = ReconciliationRunStatus.FAILED
+        mock_run.finding_count = 0
+        mock_run.summary = None
+
+        with patch(
+            "finance_sync.services.reconciliation.ReconciliationService.reconcile",
+            new=AsyncMock(return_value=mock_run),
+        ):
+            summary = await orchestrator.run_reconciliation()
+
+        assert summary.run_id == "rec_run_102"
+        assert summary.status == ReconciliationRunStatus.FAILED
+        assert summary.finding_count == 0
 
 
 class TestSyncOrchestratorRunPipeline:
@@ -390,6 +655,224 @@ class TestUpsertTransaction:
         assert result.description == "Coffee"
 
 
+# ── Auto-reconciliation after sync ────────────────────────────────
+
+
+class TestAutoReconciliationAfterSync:
+    """Test that reconciliation runs automatically after a successful sync."""
+
+    @pytest.fixture
+    def orchestrator(self) -> SyncOrchestrator:
+        session_factory = MagicMock()
+        mock_session = AsyncMock()
+        session_factory.return_value.__aenter__ = AsyncMock(
+            return_value=mock_session
+        )
+        session_factory.return_value.__aexit__ = AsyncMock(return_value=None)
+        registry = MagicMock()
+        return SyncOrchestrator(
+            session_factory=session_factory,
+            registry=registry,
+            tenant_id="tenant_test_1",
+        )
+
+    async def test_reconciliation_runs_after_successful_sync(
+        self, orchestrator
+    ) -> None:
+        """Successful sync triggers automatic reconciliation."""
+        mock_connector = MagicMock()
+        orchestrator._registry.get_connector = MagicMock(
+            return_value=mock_connector
+        )
+
+        mock_result = SyncResult(
+            status=SyncRunStatus.COMPLETED,
+            accounts_synced=2,
+            transactions_synced=10,
+            error_message=None,
+            duration_s=1.5,
+        )
+
+        def patch_run_pipeline(session, connector, provider_type, since, log):
+            return mock_result
+
+        with (
+            patch.object(
+                orchestrator,
+                "_run_pipeline",
+                side_effect=patch_run_pipeline,
+            ),
+            patch.object(
+                orchestrator,
+                "run_reconciliation",
+                new=AsyncMock(
+                    return_value=ReconciliationRunSummary(
+                        run_id="rec_auto_1",
+                        status=ReconciliationRunStatus.COMPLETED,
+                        finding_count=3,
+                    )
+                ),
+            ) as mock_rec,
+        ):
+            config = MagicMock()
+            result = await orchestrator.run_sync(
+                provider_type="mock_provider",
+                config=config,
+            )
+
+        assert result.status == SyncRunStatus.COMPLETED
+        mock_rec.assert_awaited_once()
+        assert mock_rec.call_args.kwargs["date_from"] is not None
+
+    async def test_reconciliation_skipped_on_failed_sync(
+        self, orchestrator
+    ) -> None:
+        """Failed sync does NOT trigger automatic reconciliation."""
+        mock_connector = MagicMock()
+        orchestrator._registry.get_connector = MagicMock(
+            return_value=mock_connector
+        )
+
+        mock_result = SyncResult(
+            status=SyncRunStatus.FAILED,
+            accounts_synced=0,
+            transactions_synced=0,
+            error_message="Sync failed",
+            duration_s=0.5,
+        )
+
+        def patch_run_pipeline(session, connector, provider_type, since, log):
+            return mock_result
+
+        with (
+            patch.object(
+                orchestrator,
+                "_run_pipeline",
+                side_effect=patch_run_pipeline,
+            ),
+            patch.object(
+                orchestrator,
+                "run_reconciliation",
+                new=AsyncMock(),
+            ) as mock_rec,
+        ):
+            config = MagicMock()
+            result = await orchestrator.run_sync(
+                provider_type="mock_provider",
+                config=config,
+            )
+
+        assert result.status == SyncRunStatus.FAILED
+        mock_rec.assert_not_awaited()
+
+    async def test_reconciliation_error_does_not_crash_sync(
+        self, orchestrator
+    ) -> None:
+        """Sync result is returned even when reconciliation raises."""
+        mock_connector = MagicMock()
+        orchestrator._registry.get_connector = MagicMock(
+            return_value=mock_connector
+        )
+
+        mock_result = SyncResult(
+            status=SyncRunStatus.COMPLETED,
+            accounts_synced=2,
+            transactions_synced=10,
+            error_message=None,
+            duration_s=1.5,
+        )
+
+        def patch_run_pipeline(session, connector, provider_type, since, log):
+            return mock_result
+
+        with (
+            patch.object(
+                orchestrator,
+                "_run_pipeline",
+                side_effect=patch_run_pipeline,
+            ),
+            patch.object(
+                orchestrator,
+                "run_reconciliation",
+                new=AsyncMock(side_effect=RuntimeError("Reconciliation blew up")),
+            ) as mock_rec,
+        ):
+            config = MagicMock()
+            result = await orchestrator.run_sync(
+                provider_type="mock_provider",
+                config=config,
+            )
+
+        # Sync result should still be returned as COMPLETED even though
+        # reconciliation failed — the sync itself was successful.
+        assert result.status == SyncRunStatus.COMPLETED
+        mock_rec.assert_awaited_once()
+
+
+class TestAutoReconciliationDisabled:
+    """Test that auto-reconciliation can be disabled via settings."""
+
+    @pytest.fixture
+    def orchestrator(self) -> SyncOrchestrator:
+        session_factory = MagicMock()
+        mock_session = AsyncMock()
+        session_factory.return_value.__aenter__ = AsyncMock(
+            return_value=mock_session
+        )
+        session_factory.return_value.__aexit__ = AsyncMock(return_value=None)
+        registry = MagicMock()
+        settings = MagicMock()
+        settings.worker_job_reconciliation_after_sync_enabled = False
+        return SyncOrchestrator(
+            session_factory=session_factory,
+            registry=registry,
+            tenant_id="tenant_test_1",
+            settings=settings,
+        )
+
+    async def test_reconciliation_skipped_when_disabled(
+        self, orchestrator
+    ) -> None:
+        """When config flag is False, reconciliation is skipped after sync."""
+        mock_connector = MagicMock()
+        orchestrator._registry.get_connector = MagicMock(
+            return_value=mock_connector
+        )
+
+        mock_result = SyncResult(
+            status=SyncRunStatus.COMPLETED,
+            accounts_synced=2,
+            transactions_synced=10,
+            error_message=None,
+            duration_s=1.5,
+        )
+
+        def patch_run_pipeline(session, connector, provider_type, since, log):
+            return mock_result
+
+        with (
+            patch.object(
+                orchestrator,
+                "_run_pipeline",
+                side_effect=patch_run_pipeline,
+            ),
+            patch.object(
+                orchestrator,
+                "run_reconciliation",
+                new=AsyncMock(),
+            ) as mock_rec,
+        ):
+            config = MagicMock()
+            result = await orchestrator.run_sync(
+                provider_type="mock_provider",
+                config=config,
+            )
+
+        assert result.status == SyncRunStatus.COMPLETED
+        # Reconciliation should NOT have been called
+        mock_rec.assert_not_awaited()
+
+
 # ── SyncRun lifecycle (real SQLite) ───────────────────────────────
 
 
@@ -474,3 +957,267 @@ async def test_sync_run_failed(sync_run_factory) -> None:
         assert final.status == SyncRunStatus.FAILED.value
         assert final.items_processed == 0
         assert final.error_message == "Something broke"
+
+
+# ── Full run_sync integration tests ─────────────────────────────────
+
+
+class TestSyncOrchestratorRunSync:
+    """Test the full run_sync flow with auto-reconciliation."""
+
+    @pytest.fixture
+    def orchestrator(self) -> SyncOrchestrator:
+        session_factory = MagicMock()  # MagicMock, not AsyncMock — calling it
+        # returns an object with __aenter__/__aexit__, not a coroutine
+        registry = MagicMock()
+        return SyncOrchestrator(
+            session_factory=session_factory,
+            registry=registry,
+            tenant_id="tenant_1",
+        )
+
+    @pytest.fixture
+    def mock_connector(self, sample_account_data, sample_transaction_data):
+        """Mock connector that returns one account and one transaction."""
+        connector = MagicMock()
+        connector.name = "mock_provider"
+        connector.authenticate = AsyncMock()
+        connector._rate_limited_fetch_accounts = AsyncMock(
+            return_value=[sample_account_data]
+        )
+        connector.transform_accounts = MagicMock(
+            return_value=[sample_account_data]
+        )
+        connector.transform_transactions = MagicMock(
+            return_value=[sample_transaction_data]
+        )
+        connector._rate_limited_fetch_transactions = AsyncMock(
+            return_value=[sample_transaction_data]
+        )
+        return connector
+
+    @pytest.fixture
+    def mock_uow(self):
+        """UnitOfWork with mocked repositories — returns None then account."""
+        uow = MagicMock()
+        uow.session = AsyncMock()
+        existing_account = MagicMock()
+        existing_account.id = "acct_uuid_1"
+        accounts_repo = AsyncMock()
+        accounts_repo.get_by_external_id = AsyncMock(
+            side_effect=[None, existing_account]
+        )
+        uow.accounts = accounts_repo
+        txn_repo = AsyncMock()
+        txn_repo.get_by_external_id = AsyncMock(return_value=None)
+        uow.transactions = txn_repo
+        sync_runs_repo = AsyncMock()
+        uow.sync_runs = sync_runs_repo
+        uow.__aenter__ = AsyncMock(return_value=uow)
+        uow.__aexit__ = AsyncMock(return_value=None)
+        uow.commit = AsyncMock()
+        uow.rollback = AsyncMock()
+        return uow
+
+    async def test_auto_reconciles_after_successful_sync(
+        self, orchestrator, mock_connector, mock_uow
+    ) -> None:
+        """run_sync runs reconciliation automatically after a successful sync."""
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        orchestrator._registry.get_connector = MagicMock(
+            return_value=mock_connector
+        )
+
+        with (
+            patch(
+                "finance_sync.db.uow.UnitOfWork",
+                return_value=mock_uow,
+            ),
+            patch(
+                "finance_sync.sync.orchestrator.start_sync_run",
+                return_value=MagicMock(id="sync_run_1"),
+            ),
+            patch(
+                "finance_sync.sync.orchestrator.complete_sync_run",
+            ),
+        ):
+            result = await orchestrator.run_sync(
+                provider_type="mock_provider",
+                config=MagicMock(),
+            )
+
+        assert result.status == SyncRunStatus.COMPLETED
+        assert result.accounts_synced == 1
+        assert result.transactions_synced >= 1
+        assert result.error_message is None
+
+    async def test_skips_reconciliation_on_failed_sync(
+        self, orchestrator
+    ) -> None:
+        """When the sync pipeline fails, reconciliation is NOT called."""
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        failing_connector = MagicMock()
+        failing_connector.authenticate = AsyncMock(
+            side_effect=PermanentError("Auth failed")
+        )
+        failing_connector.name = "mock_provider"
+        orchestrator._registry.get_connector = MagicMock(
+            return_value=failing_connector
+        )
+
+        mock_session = AsyncMock()
+        orchestrator._session_factory.return_value.__aenter__ = AsyncMock(
+            return_value=mock_session
+        )
+        orchestrator._session_factory.return_value.__aexit__ = AsyncMock(
+            return_value=None
+        )
+
+        # If reconciliation is called, the test should fail
+        orchestrator.run_reconciliation = AsyncMock(  # type: ignore[assignment]
+            side_effect=AssertionError("Should not be called")
+        )
+
+        result = await orchestrator.run_sync(
+            provider_type="mock_provider",
+            config=MagicMock(),
+        )
+
+        assert result.status == SyncRunStatus.FAILED
+
+    async def test_reconciliation_failure_does_not_affect_sync_result(
+        self, orchestrator, mock_connector, mock_uow
+    ) -> None:
+        """A reconciliation failure is logged but does not propagate."""
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        orchestrator._registry.get_connector = MagicMock(
+            return_value=mock_connector
+        )
+
+        with (
+            patch(
+                "finance_sync.db.uow.UnitOfWork",
+                return_value=mock_uow,
+            ),
+            patch(
+                "finance_sync.sync.orchestrator.start_sync_run",
+                return_value=MagicMock(id="sync_run_2"),
+            ),
+            patch(
+                "finance_sync.sync.orchestrator.complete_sync_run",
+            ),
+            patch.object(
+                orchestrator,
+                "run_reconciliation",
+                new=AsyncMock(
+                    side_effect=RuntimeError("Reconciliation DB error")
+                ),
+            ),
+        ):
+            result = await orchestrator.run_sync(
+                provider_type="mock_provider",
+                config=MagicMock(),
+            )
+
+        # Sync result must remain COMPLETED even when reconciliation fails
+        assert result.status == SyncRunStatus.COMPLETED
+        assert result.accounts_synced == 1
+
+
+class TestSyncOrchestratorRunSyncDisabled:
+    """Test run_sync with auto-reconciliation disabled."""
+
+    @pytest.fixture
+    def orchestrator(self) -> SyncOrchestrator:
+        session_factory = MagicMock()
+        registry = MagicMock()
+        settings = MagicMock()
+        settings.worker_job_reconciliation_after_sync_enabled = False
+        return SyncOrchestrator(
+            session_factory=session_factory,
+            registry=registry,
+            tenant_id="tenant_1",
+            settings=settings,
+        )
+
+    @pytest.fixture
+    def mock_connector(self, sample_account_data, sample_transaction_data):
+        """Mock connector that returns one account and one transaction."""
+        connector = MagicMock()
+        connector.name = "mock_provider"
+        connector.authenticate = AsyncMock()
+        connector._rate_limited_fetch_accounts = AsyncMock(
+            return_value=[sample_account_data]
+        )
+        connector.transform_accounts = MagicMock(
+            return_value=[sample_account_data]
+        )
+        connector.transform_transactions = MagicMock(
+            return_value=[sample_transaction_data]
+        )
+        connector._rate_limited_fetch_transactions = AsyncMock(
+            return_value=[sample_transaction_data]
+        )
+        return connector
+
+    @pytest.fixture
+    def mock_uow(self):
+        """UnitOfWork with mocked repositories."""
+        uow = MagicMock()
+        uow.session = AsyncMock()
+        existing_account = MagicMock()
+        existing_account.id = "acct_uuid_1"
+        accounts_repo = AsyncMock()
+        accounts_repo.get_by_external_id = AsyncMock(
+            side_effect=[None, existing_account]
+        )
+        uow.accounts = accounts_repo
+        txn_repo = AsyncMock()
+        txn_repo.get_by_external_id = AsyncMock(return_value=None)
+        uow.transactions = txn_repo
+        sync_runs_repo = AsyncMock()
+        uow.sync_runs = sync_runs_repo
+        uow.__aenter__ = AsyncMock(return_value=uow)
+        uow.__aexit__ = AsyncMock(return_value=None)
+        uow.commit = AsyncMock()
+        uow.rollback = AsyncMock()
+        return uow
+
+    @patch("finance_sync.sync.orchestrator.start_sync_run")
+    @patch("finance_sync.sync.orchestrator.complete_sync_run")
+    async def test_skips_reconciliation_when_disabled(
+        self,
+        mock_complete_run,
+        mock_start_run,
+        orchestrator,
+        mock_connector,
+        mock_uow,
+    ) -> None:
+        """When auto-reconciliation is disabled, run_sync does NOT call it."""
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        orchestrator._registry.get_connector = MagicMock(
+            return_value=mock_connector
+        )
+
+        # If reconciliation is called, the test should fail
+        orchestrator.run_reconciliation = AsyncMock(  # type: ignore[assignment]
+            side_effect=AssertionError("Should not be called")
+        )
+
+        with (
+            patch(
+                "finance_sync.db.uow.UnitOfWork",
+                return_value=mock_uow,
+            ),
+        ):
+            result = await orchestrator.run_sync(
+                provider_type="mock_provider",
+                config=MagicMock(),
+            )
+
+        assert result.status == SyncRunStatus.COMPLETED
+        assert result.accounts_synced == 1
