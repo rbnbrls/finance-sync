@@ -6,17 +6,16 @@ environment variables / Settings) and trigger export runs to Wealthfolio.
 
 from __future__ import annotations
 
+from datetime import datetime  # noqa: TC003 — needed at runtime by Pydantic
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
-
-if TYPE_CHECKING:
-    from datetime import datetime
-
-    from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import (
+    AsyncSession,  # noqa: TC002 — needed at runtime by FastAPI DI
+)
 
 from finance_sync.api.deps.auth import AuthContext, get_auth_context
 from finance_sync.dependencies import get_container, get_db
