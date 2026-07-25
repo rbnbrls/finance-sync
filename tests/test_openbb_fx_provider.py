@@ -21,7 +21,6 @@ from finance_sync.providers.openbb_fx import (
     OpenBBFxProviderTimeoutError,
 )
 
-
 # ── Mock helpers ─────────────────────────────────────────────────────────────
 
 
@@ -616,7 +615,7 @@ class TestEdgeCases:
         live_provider._http_client = mock_http
 
         rate = await live_provider.get_latest_rate("USD", "IRR")
-        assert rate == Decimal("42000")
+        assert rate == Decimal(42000)
 
 
 # ── Exception hierarchy ──────────────────────────────────────────────────────

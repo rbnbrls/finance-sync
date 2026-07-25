@@ -77,39 +77,6 @@ class _CacheEntry:
     expires_at: float
 
 
-logger = structlog.get_logger(__name__)
-
-
-class FxServiceError(Exception):
-    """Base exception for FX service errors."""
-
-
-class FxRateNotFoundError(FxServiceError):
-    """Raised when no exchange rate is available for a currency pair."""
-
-
-class FxRateFetchError(FxServiceError):
-    """Raised when fetching an exchange rate from the upstream API fails."""
-
-
-class InvalidCurrencyError(FxServiceError, ValueError):
-    """Raised when an invalid or unsupported currency code is provided."""
-
-
-@dataclass
-class _CacheEntry:
-    """An entry in the in-memory FX rate cache.
-
-    Attributes:
-        observation: The cached rate observation.
-        expires_at:  Unix timestamp (``time.monotonic()``) when this entry
-                     is considered stale.
-    """
-
-    observation: FxRateObservation
-    expires_at: float
-
-
 class FxService:
     """Service for foreign exchange rate management and currency conversion.
 
@@ -189,12 +156,16 @@ class FxService:
                 if settings.openbb_api_key
                 else None
             )
-            self._provider = OpenBBFxProvider(
-                api_key=api_key,
-                base_url=settings.openbb_base_url,
-                max_requests_per_second=settings.openbb_rate_limit_rps,
-                request_timeout=settings.openbb_request_timeout,
-            )
+            # Narrow for Pyright: OpenBBFxProvider is not None when
+            # _HAS_OPENBB_PROVIDER is True
+            provider_cls = OpenBBFxProvider
+            if provider_cls is not None:
+                self._provider = provider_cls(
+                    api_key=api_key,
+                    base_url=settings.openbb_base_url,
+                    max_requests_per_second=settings.openbb_rate_limit_rps,
+                    request_timeout=settings.openbb_request_timeout,
+                )
 
         if self._degraded:
             logger.warning(
@@ -785,32 +756,6 @@ class FxService:
         """Close the underlying provider (idempotent)."""
         if self._provider is not None:
             await self._provider.close()
-
-
-# -- Helper ------------------------------------------------------------------
-
-
-def _safe_decimal(value: Any) -> Decimal | None:
-    """Safely convert a value to Decimal, returning None on failure."""
-    if value is None:
-        return None
-    try:
-        return Decimal(str(value))
-    except (ValueError, TypeError, ArithmeticError):
-        return None
-
-
-def _parse_timestamp(raw: str | None) -> datetime:
-    """Parse an ISO-8601 timestamp string to a UTC-aware datetime."""
-    if not raw:
-        return datetime.now(UTC)
-    try:
-        cleaned = raw.rstrip("Z")
-        if not cleaned:
-            return datetime.now(UTC)
-        return datetime.fromisoformat(cleaned).replace(tzinfo=UTC)
-    except (ValueError, TypeError):
-        return datetime.now(UTC)
 
 
 async def convert_currency(

@@ -11,6 +11,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from finance_sync.enrichment.gateway import _parse_timestamp, _safe_decimal
 from finance_sync.enrichment.models import (
     FxConversionRequest,
     FxRateObservation,
@@ -28,8 +29,6 @@ from finance_sync.services.fx_service import (
     FxServiceError,
     InvalidCurrencyError,
     _CacheEntry,
-    _parse_timestamp,
-    _safe_decimal,
     convert_currency,
 )
 
@@ -142,12 +141,6 @@ class TestFxServiceDegraded:
     async def test_is_degraded(self, service) -> None:
         """Service is degraded when no API key is set."""
         assert service._degraded
-
-    def test_build_headers_degraded(self, service) -> None:
-        """_build_headers omits Authorization when no API key."""
-        headers = service._build_headers()
-        assert "Authorization" not in headers
-        assert headers["Accept"] == "application/json"
 
     async def test_get_rate_same_currency(self, service) -> None:
         """get_rate returns identity rate for same currency."""
@@ -1152,23 +1145,12 @@ class TestFetchAndCacheRates:
         self, service, mock_uow
     ) -> None:
         """fetch_and_cache_rates defaults to EUR, USD, GBP base currencies."""
-        mock_http = _mock_http_client(
-            return_value=_mock_response(
-                json_data={
-                    "base": "EUR",
-                    "quote": "USD",
-                    "rate": 1.09,
-                    "timestamp": "2026-01-15T12:00:00Z",
-                    "source": "openbb",
-                },
-            ),
-        )
-        service._http_client = mock_http
+        service._provider = _mock_provider(Decimal("1.09"))
         mock_uow.fx_rates.list = AsyncMock(return_value=[])
 
         count = await service.fetch_and_cache_rates()
-        # 3 base currs x 7 targets each = up to 21, but API returns same
-        # response for every pair due to mock
+        # 3 base currs x 7 targets each = up to 21, but mock returns same
+        # rate for every pair
         assert isinstance(count, int)
         assert count > 0
 
@@ -1183,18 +1165,7 @@ class TestFetchAndCacheRates:
         self, service, mock_uow
     ) -> None:
         """fetch_and_cache_rates populates the in-memory cache."""
-        mock_http = _mock_http_client(
-            return_value=_mock_response(
-                json_data={
-                    "base": "EUR",
-                    "quote": "USD",
-                    "rate": 1.09,
-                    "timestamp": "2026-01-15T12:00:00Z",
-                    "source": "openbb",
-                },
-            ),
-        )
-        service._http_client = mock_http
+        service._provider = _mock_provider(Decimal("1.09"))
         mock_uow.fx_rates.list = AsyncMock(return_value=[])
 
         await service.fetch_and_cache_rates(base_currencies=["EUR"])

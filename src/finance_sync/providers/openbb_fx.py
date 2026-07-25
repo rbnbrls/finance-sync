@@ -1,4 +1,4 @@
-"""OpenBB FX provider — fetches live exchange rates from the OpenBB Platform API.
+"""OpenBB FX provider — fetches exchange rates from the OpenBB Platform API.
 
 Provides:
 - :class:`OpenBBFxProvider` — a standalone data provider for FX rates
@@ -140,7 +140,7 @@ class OpenBBFxProvider:
 
         Returns:
             The exchange rate as a :class:`Decimal`
-            (1 *base* = *rate* × *quote*).
+            (1 *base* = *rate* x *quote*).
 
         Raises:
             OpenBBFxProviderAuthError:          No API key or auth failure.
@@ -151,9 +151,11 @@ class OpenBBFxProvider:
             OpenBBFxProviderError:              Other provider errors.
         """
         if self._degraded:
-            raise OpenBBFxProviderAuthError(
-                "OpenBB API key not configured -- provider is in degraded mode"
+            msg = (
+                "OpenBB API key not configured --"
+                " provider is in degraded mode"
             )
+            raise OpenBBFxProviderAuthError(msg)
 
         base = base.strip().upper()
         quote = quote.strip().upper()
@@ -166,63 +168,59 @@ class OpenBBFxProvider:
                 params={"base": base, "quote": quote},
             )
         except httpx.TimeoutException as exc:
-            raise OpenBBFxProviderTimeoutError(
-                f"Request timed out after {self._timeout}s for {base}/{quote}"
-            ) from exc
+            msg = f"Request timed out after {self._timeout}s for {base}/{quote}"
+            raise OpenBBFxProviderTimeoutError(msg) from exc
         except httpx.HTTPError as exc:
-            raise OpenBBFxProviderError(
-                f"HTTP request failed for {base}/{quote}: {exc}"
-            ) from exc
+            msg = f"HTTP request failed for {base}/{quote}: {exc}"
+            raise OpenBBFxProviderError(msg) from exc
 
         # -- Handle HTTP status codes ------------------------------------------
         if response.status_code == 401:
-            raise OpenBBFxProviderAuthError(
-                f"Invalid or expired OpenBB API key (401) for {base}/{quote}"
-            )
+            msg = f"Invalid or expired OpenBB API key (401) for {base}/{quote}"
+            raise OpenBBFxProviderAuthError(msg)
         if response.status_code == 403:
-            raise OpenBBFxProviderAuthError(
+            msg = (
                 f"Access denied -- API key lacks permission for FX rates (403)"
                 f" on {base}/{quote}"
             )
+            raise OpenBBFxProviderAuthError(msg)
         if response.status_code == 404:
-            raise OpenBBFxProviderNotFoundError(
-                f"Currency pair {base}/{quote} not found (404)"
-            )
+            msg = f"Currency pair {base}/{quote} not found (404)"
+            raise OpenBBFxProviderNotFoundError(msg)
         if response.status_code == 429:
-            raise OpenBBFxProviderRateLimitError(
-                f"OpenBB API rate limit exceeded for {base}/{quote}"
-            )
+            msg = f"OpenBB API rate limit exceeded for {base}/{quote}"
+            raise OpenBBFxProviderRateLimitError(msg)
 
         # Any other non-2xx
         try:
             response.raise_for_status()
         except httpx.HTTPStatusError as exc:
-            raise OpenBBFxProviderError(
+            msg = (
                 f"OpenBB API returned HTTP {response.status_code}"
                 f" for {base}/{quote}"
-            ) from exc
+            )
+            raise OpenBBFxProviderError(msg) from exc
 
         # -- Parse response body -----------------------------------------------
         try:
             data: dict[str, Any] = response.json()
         except (ValueError, TypeError, Exception) as exc:
-            raise OpenBBFxProviderInvalidResponseError(
-                f"Invalid JSON response for {base}/{quote}: {exc}"
-            ) from exc
+            msg = f"Invalid JSON response for {base}/{quote}: {exc}"
+            raise OpenBBFxProviderInvalidResponseError(msg) from exc
 
         rate_raw = data.get("rate")
         if rate_raw is None:
-            raise OpenBBFxProviderInvalidResponseError(
+            msg = (
                 f"Response missing 'rate' field for {base}/{quote}: "
                 f"keys={list(data.keys())}"
             )
+            raise OpenBBFxProviderInvalidResponseError(msg)
 
         try:
             rate = Decimal(str(rate_raw))
         except (ValueError, TypeError, ArithmeticError) as exc:
-            raise OpenBBFxProviderInvalidResponseError(
-                f"Invalid rate value {rate_raw!r} for {base}/{quote}: {exc}"
-            ) from exc
+            msg = f"Invalid rate value {rate_raw!r} for {base}/{quote}: {exc}"
+            raise OpenBBFxProviderInvalidResponseError(msg) from exc
 
         logger.debug(
             "openbb_fx_rate_fetched",

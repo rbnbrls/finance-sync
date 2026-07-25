@@ -983,7 +983,7 @@ class TestConversionProperties:
             if (from_, to_) == ("EUR", "USD"):
                 return Decimal("1.09")
             if (from_, to_) == ("USD", "EUR"):
-                return Decimal("1") / Decimal("1.09")
+                return Decimal(1) / Decimal("1.09")
             return None
 
         fwd = await convert_amount(Decimal("200.00"), "EUR", "USD", single_rate)
