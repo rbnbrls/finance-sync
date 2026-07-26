@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime  # noqa: TC003 — needed by model_rebuild()
 from decimal import Decimal
 from typing import Any
 

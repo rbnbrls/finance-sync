@@ -438,13 +438,15 @@ async def get_tax_lot_summary(
 
     lots = await repo.list(*conditions)
 
-    open_lots = [l for l in lots if l.is_open()]
-    closed_lots = [l for l in lots if not l.is_open()] if include_closed else []
+    open_lots = [lot for lot in lots if lot.is_open()]
+    closed_lots = (
+        [lot for lot in lots if not lot.is_open()] if include_closed else []
+    )
 
     total_cost = sum(
-        (l.remaining_quantity * l.cost_basis_per_unit) for l in open_lots
+        (lot.remaining_quantity * lot.cost_basis_per_unit) for lot in open_lots
     )
-    total_realized_pl = sum((l.realized_pl or E("0")) for l in closed_lots)
+    total_realized_pl = sum((lot.realized_pl or E("0")) for lot in closed_lots)
 
     return {
         "total_lots": len(lots),
@@ -453,7 +455,7 @@ async def get_tax_lot_summary(
         "open_cost_basis": total_cost,
         "total_realized_pl": total_realized_pl,
         "wash_sale_adjusted_lots": sum(
-            1 for l in lots if l.has_wash_sale_adjustment
+            1 for lot in lots if lot.has_wash_sale_adjustment
         ),
     }
 

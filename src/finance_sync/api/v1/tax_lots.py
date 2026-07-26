@@ -8,7 +8,7 @@ Exposes:
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime  # noqa: TC003 — needed by Pydantic models
 from decimal import Decimal
 from typing import Any
 
@@ -116,7 +116,7 @@ async def list_tax_lots(
     )
 
     return {
-        "items": [_lot_to_response(l) for l in lots],
+        "items": [_lot_to_response(lot) for lot in lots],
         "total": total,
         "limit": limit,
         "offset": offset,
@@ -131,13 +131,12 @@ async def tax_lot_summary(
     security_id: str | None = Query(default=None),
 ) -> dict[str, Any]:
     """Return aggregate summary of tax lots."""
-    summary = await get_tax_lot_summary(
+    return await get_tax_lot_summary(
         db,
         tenant_id=auth.tenant_id,
         account_id=account_id,
         security_id=security_id,
     )
-    return summary
 
 
 @router.post("/compute", response_model=ComputeResult)

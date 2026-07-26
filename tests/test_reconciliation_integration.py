@@ -57,9 +57,9 @@ def _uuid_bind_patched(self, dialect):
 _sa_types.Uuid.bind_processor = _uuid_bind_patched
 
 # Now import real models after the patch is in place
-from finance_sync.db import Base
-from finance_sync.models.account import Account
-from finance_sync.models.enums import (
+from finance_sync.db import Base  # noqa: E402
+from finance_sync.models.account import Account  # noqa: E402
+from finance_sync.models.enums import (  # noqa: E402
     AccountType,
     ReconciliationResultKind,
     ReconciliationRunStatus,
@@ -67,10 +67,10 @@ from finance_sync.models.enums import (
     TransactionStatus,
     TransactionType,
 )
-from finance_sync.models.outbox import OutboxMessage
-from finance_sync.models.tenant import Tenant
-from finance_sync.models.transaction import Transaction
-from finance_sync.services.reconciliation import (
+from finance_sync.models.outbox import OutboxMessage  # noqa: E402
+from finance_sync.models.tenant import Tenant  # noqa: E402
+from finance_sync.models.transaction import Transaction  # noqa: E402
+from finance_sync.services.reconciliation import (  # noqa: E402
     ReconciliationService,
 )
 

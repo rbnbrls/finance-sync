@@ -1035,7 +1035,7 @@ class MerchantClassifier:
 
         from finance_sync.models.security import Security
 
-        async with self._uow._session_factory() as session:
+        async with self._uow._session_factory() as session:  # noqa: SLF001
             stmt = select(Security).where(Security.ticker == ticker)  # type: ignore[attr-defined]
             result = await session.execute(stmt)
             return result.scalar_one_or_none()
@@ -1054,7 +1054,7 @@ class MerchantClassifier:
             FundamentalObservation,
         )
 
-        async with self._uow._session_factory() as session:
+        async with self._uow._session_factory() as session:  # noqa: SLF001
             stmt = (
                 select(FundamentalObservation)
                 .where(
