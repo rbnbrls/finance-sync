@@ -51,7 +51,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     # Store settings on app.state so the lifespan handler can use them
     # (avoids re-reading from .env when custom settings were provided).
-    app.state._settings = settings  # noqa: SLF001
+    app.state._settings = settings
 
     # ── Observability middleware stack ───────────────────────────────
     # Order: outermost first → Prometheus records first, then logging
