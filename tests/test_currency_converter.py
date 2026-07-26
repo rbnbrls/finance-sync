@@ -184,9 +184,7 @@ class TestConvertSingle:
         )
         assert result == Decimal("218.90")  # 200 * 1.0945 = 218.90
 
-    async def test_no_rate_raises(
-        self, mock_fx_service: MagicMock
-    ) -> None:
+    async def test_no_rate_raises(self, mock_fx_service: MagicMock) -> None:
         """Missing rate raises NoRateError."""
         mock_fx_service.convert.return_value = None
 
@@ -264,9 +262,7 @@ class TestConvertSingle:
 class TestConvertPortfolioItems:
     """Tests for convert_portfolio_items()."""
 
-    async def test_all_same_currency(
-        self, mock_fx_service: MagicMock
-    ) -> None:
+    async def test_all_same_currency(self, mock_fx_service: MagicMock) -> None:
         """All items already in target currency — no conversion needed."""
         items = [
             _TestItem(amount=Decimal("100.00"), currency_code="EUR"),
@@ -279,9 +275,7 @@ class TestConvertPortfolioItems:
         )
 
         assert len(results) == 3
-        assert all(
-            r.converted_amount == r.original_amount for r in results
-        )
+        assert all(r.converted_amount == r.original_amount for r in results)
         assert all(r.rate_used == Decimal(1) for r in results)
         # No actual conversion calls
         mock_fx_service.convert.assert_not_called()
@@ -291,7 +285,8 @@ class TestConvertPortfolioItems:
     ) -> None:
         """All items in same source currency — one rate fetch."""
         mock_fx_service.convert.side_effect = _rate_dispatch(
-            {"EUR": Decimal("1.0945")}, ts=recent_ts,
+            {"EUR": Decimal("1.0945")},
+            ts=recent_ts,
         )
 
         items = [
@@ -380,7 +375,8 @@ class TestConvertPortfolioItems:
     ) -> None:
         """at_timestamp is forwarded for every rate fetch."""
         mock_fx_service.convert.side_effect = _rate_dispatch(
-            {"GBP": Decimal("1.1700")}, ts=recent_ts,
+            {"GBP": Decimal("1.1700")},
+            ts=recent_ts,
         )
 
         historical_ts = datetime(2026, 1, 15, 12, 0, 0, tzinfo=UTC)
@@ -402,7 +398,8 @@ class TestConvertPortfolioItems:
     ) -> None:
         """Result list maintains input order."""
         mock_fx_service.convert.side_effect = _rate_dispatch(
-            {"EUR": Decimal("1.09")}, ts=recent_ts,
+            {"EUR": Decimal("1.09")},
+            ts=recent_ts,
         )
 
         items = [
@@ -446,9 +443,7 @@ class TestCurrencyConversionError:
 class TestConvertPortfolioItemsEdgeCases:
     """Edge case tests for convert_portfolio_items()."""
 
-    async def test_empty_items_list(
-        self, mock_fx_service: MagicMock
-    ) -> None:
+    async def test_empty_items_list(self, mock_fx_service: MagicMock) -> None:
         """Empty list of items returns empty list."""
         results = await convert_portfolio_items(
             [], target_currency="EUR", fx_service=mock_fx_service
@@ -461,7 +456,8 @@ class TestConvertPortfolioItemsEdgeCases:
     ) -> None:
         """Zero amount converts correctly."""
         mock_fx_service.convert.side_effect = _rate_dispatch(
-            {"EUR": Decimal("1.0945")}, ts=recent_ts,
+            {"EUR": Decimal("1.0945")},
+            ts=recent_ts,
         )
 
         items = [
@@ -479,7 +475,8 @@ class TestConvertPortfolioItemsEdgeCases:
     ) -> None:
         """Very small amounts convert correctly with rounding."""
         mock_fx_service.convert.side_effect = _rate_dispatch(
-            {"EUR": Decimal("1.0945")}, ts=recent_ts,
+            {"EUR": Decimal("1.0945")},
+            ts=recent_ts,
         )
 
         items = [
@@ -497,7 +494,8 @@ class TestConvertPortfolioItemsEdgeCases:
     ) -> None:
         """Large amounts convert correctly without overflow."""
         mock_fx_service.convert.side_effect = _rate_dispatch(
-            {"EUR": Decimal("1.0945")}, ts=recent_ts,
+            {"EUR": Decimal("1.0945")},
+            ts=recent_ts,
         )
 
         items = [
@@ -521,13 +519,17 @@ class TestConvertSingleEdgeCases:
     ) -> None:
         """Zero amount converts to zero."""
         mock_fx_service.convert.return_value = _make_result(
-            from_currency="EUR", to_currency="USD",
-            amount=Decimal("0.00"), rate=Decimal("1.0945"),
+            from_currency="EUR",
+            to_currency="USD",
+            amount=Decimal("0.00"),
+            rate=Decimal("1.0945"),
             ts=recent_ts,
         )
         result = await convert_single(
-            amount=Decimal("0.00"), from_currency="EUR",
-            to_currency="USD", fx_service=mock_fx_service,
+            amount=Decimal("0.00"),
+            from_currency="EUR",
+            to_currency="USD",
+            fx_service=mock_fx_service,
         )
         assert result == Decimal("0.00")
 
@@ -536,13 +538,17 @@ class TestConvertSingleEdgeCases:
     ) -> None:
         """Negative amount converts correctly."""
         mock_fx_service.convert.return_value = _make_result(
-            from_currency="EUR", to_currency="USD",
-            amount=Decimal("-100.00"), rate=Decimal("1.0945"),
+            from_currency="EUR",
+            to_currency="USD",
+            amount=Decimal("-100.00"),
+            rate=Decimal("1.0945"),
             ts=recent_ts,
         )
         result = await convert_single(
-            amount=Decimal("-100.00"), from_currency="EUR",
-            to_currency="USD", fx_service=mock_fx_service,
+            amount=Decimal("-100.00"),
+            from_currency="EUR",
+            to_currency="USD",
+            fx_service=mock_fx_service,
         )
         assert result == Decimal("-109.45")
 
@@ -654,7 +660,8 @@ class TestConvertCurrencyRate:
             ("USD", "GBP"): Decimal("0.79"),
         }
         mock_fx_service_rates.get_rate.side_effect = _rate_dispatch_get_rate(
-            rates, ts=recent_ts,
+            rates,
+            ts=recent_ts,
         )
 
         # Direct EUR→GBP returns None; indirect via USD is used.
@@ -678,7 +685,8 @@ class TestConvertCurrencyRate:
             ("GBP", "JPY"): Decimal("191.50"),
         }
         mock_fx_service_rates.get_rate.side_effect = _rate_dispatch_get_rate(
-            rates, ts=recent_ts,
+            rates,
+            ts=recent_ts,
         )
 
         result = await convert_currency_rate(
@@ -699,7 +707,8 @@ class TestConvertCurrencyRate:
             ("CHF", "GBP"): Decimal("0.89"),
         }
         mock_fx_service_rates.get_rate.side_effect = _rate_dispatch_get_rate(
-            rates, ts=recent_ts,
+            rates,
+            ts=recent_ts,
         )
 
         result = await convert_currency_rate(
@@ -774,7 +783,8 @@ class TestConvertCurrencyRate:
             ("USD", "GBP"): Decimal("0.7933"),
         }
         mock_fx_service_rates.get_rate.side_effect = _rate_dispatch_get_rate(
-            rates, ts=recent_ts,
+            rates,
+            ts=recent_ts,
         )
 
         result = await convert_currency_rate(
@@ -835,7 +845,8 @@ class TestConvertCurrencyRate:
             ("GBP", "CAD"): Decimal("1.70"),
         }
         mock_fx_service_rates.get_rate.side_effect = _rate_dispatch_get_rate(
-            rates, ts=recent_ts,
+            rates,
+            ts=recent_ts,
         )
 
         result = await convert_currency_rate(

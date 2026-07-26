@@ -17,6 +17,7 @@ from finance_sync.models import (
     DetectedSubscription,
     EnrichmentFreshness,
     ExportRun,
+    FundamentalObservation,
     FxRate,
     Holding,
     OutboxMessage,
@@ -329,3 +330,17 @@ class WebhookDeliveryLogRepository(Repository[WebhookDeliveryLog]):
 
 class FxRateRepository(Repository[FxRate]):
     model_class = FxRate
+
+
+class DetectedSubscriptionRepository(Repository[DetectedSubscription]):
+    model_class = DetectedSubscription
+
+
+class SecurityMetadataObservationRepository(
+    Repository[SecurityMetadataObservation]
+):
+    model_class = SecurityMetadataObservation
+
+
+class FundamentalObservationRepository(Repository[FundamentalObservation]):
+    model_class = FundamentalObservation

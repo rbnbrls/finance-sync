@@ -271,9 +271,7 @@ async def convert_portfolio_items(
         NoRateError: If any required exchange rate is unavailable.
     """
     # ── Step 1: gather unique source currencies ──────────────────────
-    unique_currencies: set[str] = {
-        item.currency_code for item in items
-    }
+    unique_currencies: set[str] = {item.currency_code for item in items}
 
     # Identity-map: currency → rate (Decimal).  Iterate in sorted order
     # for deterministic behaviour (callers and tests expect it).

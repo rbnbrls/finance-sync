@@ -469,7 +469,9 @@ class TestFxServiceNonDegraded:
 
         historical_ts = datetime(2026, 1, 15, 11, 0, 0, tzinfo=UTC)
         result = await service.get_rate(
-            "EUR", "USD", at_timestamp=historical_ts,
+            "EUR",
+            "USD",
+            at_timestamp=historical_ts,
         )
         assert result is not None
         assert result.rate == Decimal("1.0945")
@@ -740,25 +742,27 @@ class TestFxServiceNonDegraded:
             # Simulate a real lookup: return the rate for EUR/USD
             # on first attempt
             return [mock_usd]
+
         mock_uow.fx_rates.list = AsyncMock(side_effect=_side)
 
         # Use targets whose rates the mock DB returns
         result = await service.get_rates_for_base(
-            "EUR", targets=["USD"],
+            "EUR",
+            targets=["USD"],
         )
         assert "USD" in result
         assert result["USD"] == Decimal("1.09")
 
-    async def test_get_rates_for_base_all_fail(
-        self, service, mock_uow
-    ) -> None:
+    async def test_get_rates_for_base_all_fail(self, service, mock_uow) -> None:
         """get_rates_for_base returns empty dict when all targets fail."""
         mock_uow.fx_rates.list = AsyncMock(return_value=[])
 
         result = await service.get_rates_for_base(
-            "EUR", targets=["XRP", "BTC"],
+            "EUR",
+            targets=["XRP", "BTC"],
         )
         assert result == {}
+
 
 # ── FxRateObservation DTO ────────────────────────────────────────────────
 
@@ -890,9 +894,7 @@ class TestFxServiceTTL:
         assert result.rate == Decimal("1.0945")
         assert result.source == "openbb"
 
-    async def test_inverse_pair_historical(
-        self, service, mock_uow
-    ) -> None:
+    async def test_inverse_pair_historical(self, service, mock_uow) -> None:
         """Inverse pair lookup works with historical timestamp."""
         # Store rate as USD→EUR, query EUR→USD with at_timestamp
         mock_row = MagicMock()
@@ -907,7 +909,9 @@ class TestFxServiceTTL:
 
         historical_ts = datetime(2026, 1, 15, 12, 0, 0, tzinfo=UTC)
         result = await service.get_rate(
-            "EUR", "USD", at_timestamp=historical_ts,
+            "EUR",
+            "USD",
+            at_timestamp=historical_ts,
         )
         assert result is not None
         expected = round(Decimal(1) / Decimal("0.9140"), 12)
@@ -923,7 +927,8 @@ class TestFxServiceTTL:
         mock_uow.fx_rates.list = AsyncMock(return_value=[])
 
         result = await service.get_rate(
-            "EUR", "USD",
+            "EUR",
+            "USD",
             at_timestamp=datetime(2026, 1, 15, 12, 0, 0, tzinfo=UTC),
         )
         assert result is None
@@ -1374,7 +1379,8 @@ class TestFetchLatestRates:
         assert ("XYZ", "ABC") not in result
 
     async def test_returns_empty_dict_for_empty_list(
-        self, service,
+        self,
+        service,
     ) -> None:
         """fetch_latest_rates returns empty dict when no pairs given."""
         result = await service.fetch_latest_rates([])
@@ -1480,7 +1486,10 @@ class TestConvertCurrency:
     async def test_identity(self, service) -> None:
         """convert_currency returns amount unchanged when currencies match."""
         result = await convert_currency(
-            Decimal("100.00"), "EUR", "EUR", service,
+            Decimal("100.00"),
+            "EUR",
+            "EUR",
+            service,
         )
         assert result == Decimal("100.00")
 
@@ -1499,14 +1508,20 @@ class TestConvertCurrency:
         mock_uow.fx_rates.list = AsyncMock(return_value=[mock_row])
 
         result = await convert_currency(
-            Decimal("200.00"), "EUR", "USD", service,
+            Decimal("200.00"),
+            "EUR",
+            "USD",
+            service,
         )
         assert result == Decimal("218.90")  # 200 * 1.0945
 
     async def test_fallback_rate_used(self, service) -> None:
         """convert_currency uses fallback rate when no data is available."""
         result = await convert_currency(
-            Decimal("100.00"), "EUR", "USD", service,
+            Decimal("100.00"),
+            "EUR",
+            "USD",
+            service,
         )
         assert result == Decimal("109.00")  # 100 * 1.09
 
@@ -1514,7 +1529,10 @@ class TestConvertCurrency:
         """convert_currency raises FxRateNotFoundError for unknown pairs."""
         with pytest.raises(FxRateNotFoundError) as exc_info:
             await convert_currency(
-                Decimal("100.00"), "XYZ", "ABC", service,
+                Decimal("100.00"),
+                "XYZ",
+                "ABC",
+                service,
             )
         assert "XYZ" in str(exc_info.value)
         assert "ABC" in str(exc_info.value)
@@ -1537,11 +1555,15 @@ class TestConvertCurrency:
         mock_uow.fx_rates.list = AsyncMock(side_effect=[[], [mock_row]])
 
         result = await convert_currency(
-            Decimal("100.00"), "EUR", "USD", service,
+            Decimal("100.00"),
+            "EUR",
+            "USD",
+            service,
         )
         # 100 / 0.9140 ≈ 109.41
         expected = (Decimal("100.00") / Decimal("0.9140")).quantize(
-            Decimal("0.01"), rounding="ROUND_HALF_UP",
+            Decimal("0.01"),
+            rounding="ROUND_HALF_UP",
         )
         assert result == expected
 
@@ -1556,7 +1578,10 @@ class TestConvertCurrency:
         mock_uow.fx_rates.list = AsyncMock(return_value=[mock_row])
 
         result = await convert_currency(
-            Decimal("100.00"), "EUR", "USD", service,
+            Decimal("100.00"),
+            "EUR",
+            "USD",
+            service,
         )
         # 100 * 1.09451234 = 109.451234 → rounded to 109.45
         assert result == Decimal("109.45")
@@ -1573,7 +1598,10 @@ class TestConvertCurrency:
         mock_uow.fx_rates.list = AsyncMock(return_value=[mock_row])
 
         result = await convert_currency(
-            Decimal("-50.00"), "EUR", "USD", service,
+            Decimal("-50.00"),
+            "EUR",
+            "USD",
+            service,
         )
         assert result == Decimal("-54.50")  # -50 * 1.09
 

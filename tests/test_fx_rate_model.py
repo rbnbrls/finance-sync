@@ -280,8 +280,11 @@ class TestFxRateModelConstraints:
         ]
         assert "uq_fx_rates_currencies_ts_source" in constraint_names
 
-        uq = [c for c in constraints
-              if getattr(c, "name", None) == "uq_fx_rates_currencies_ts_source"]
+        uq = [
+            c
+            for c in constraints
+            if getattr(c, "name", None) == "uq_fx_rates_currencies_ts_source"
+        ]
         assert len(uq) == 1
         assert isinstance(uq[0], UniqueConstraint)
         cols = [str(col) for col in uq[0].columns]
@@ -305,12 +308,14 @@ class TestFxRateModelConstraints:
     def test_all_ids_none_before_persist(self) -> None:
         """All instance IDs are None until persisted (DB-generated)."""
         rate1 = FxRate(
-            base_currency="EUR", quote_currency="USD",
+            base_currency="EUR",
+            quote_currency="USD",
             rate=Decimal("1.09"),
             timestamp=datetime(2026, 1, 15, 12, 0, 0, tzinfo=UTC),
         )
         rate2 = FxRate(
-            base_currency="EUR", quote_currency="GBP",
+            base_currency="EUR",
+            quote_currency="GBP",
             rate=Decimal("0.86"),
             timestamp=datetime(2026, 1, 15, 12, 0, 0, tzinfo=UTC),
         )
