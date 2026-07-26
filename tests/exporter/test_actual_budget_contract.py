@@ -9,7 +9,6 @@ expectations (Actual Budget API behaviour).
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
@@ -20,7 +19,9 @@ from finance_sync.exporter.actual_budget.exporter import (
     ActualBudgetExporter,
     ExportResult,
 )
-from finance_sync.exporter.actual_budget.transaction_mapper import map_transaction
+from finance_sync.exporter.actual_budget.transaction_mapper import (
+    map_transaction,
+)
 from tests.exporter.contract_test_template import (
     ExporterConfigContractTest,
     ExportLifecycleContractTest,
@@ -94,9 +95,7 @@ class TestABTransactionMapping(TransactionMappingContractTest):
 
     @pytest.fixture
     def map_function(self):
-        return lambda txn: map_transaction(
-            txn, ab_account_name="AB Checking"
-        )
+        return lambda txn: map_transaction(txn, ab_account_name="AB Checking")
 
     @pytest.fixture
     def map_test_cases(self) -> list[dict]:
@@ -124,7 +123,10 @@ class TestABTransactionMapping(TransactionMappingContractTest):
             AB_TRANSACTION_PAYMENT, ab_account_name="AB Checking"
         )
         assert result["imported_id"].startswith("fs_")
-        assert AB_TRANSACTION_PAYMENT.external_transaction_id in result["imported_id"]
+        assert (
+            AB_TRANSACTION_PAYMENT.external_transaction_id
+            in result["imported_id"]
+        )
 
     def test_map_fx_in_notes(self) -> None:
         """Multi-currency transactions should include FX info in notes."""
@@ -488,9 +490,7 @@ class TestActualBudgetLifecycle(ExportLifecycleContractTest):
             patch.object(
                 ab_exporter, "_last_export_time", return_value=since_time
             ),
-            patch.object(
-                ab_exporter, "_load_accounts", return_value=[acct_a]
-            ),
+            patch.object(ab_exporter, "_load_accounts", return_value=[acct_a]),
             patch.object(
                 ab_exporter,
                 "_fetch_pending_transactions",
@@ -580,7 +580,9 @@ class TestActualBudgetLifecycle(ExportLifecycleContractTest):
         assert result.transactions_exported == 2  # limited by max
 
     @pytest.mark.asyncio
-    async def test_run_export_no_transactions(self, ab_exporter, since_time) -> None:
+    async def test_run_export_no_transactions(
+        self, ab_exporter, since_time
+    ) -> None:
         """No transactions should return completed result with zero counts."""
         from unittest.mock import MagicMock, patch
 

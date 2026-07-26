@@ -244,3 +244,177 @@ PAGE_2_RESPONSE: dict[str, Any] = {
     ],
     "Pagination": {"future_url": None},
 }
+
+
+# ── Schedule Payment fixtures ────────────────────────────────────────────
+
+SCHEDULE_PAYMENT_MONTHLY: dict[str, Any] = {
+    "SchedulePayment": {
+        "id": 3000001,
+        "created": "2025-01-01 10:00:00.000000",
+        "updated": "2025-06-20 12:00:00.000000",
+        "payment": {
+            "id": 4000001,
+            "amount": {"value": "-150.00", "currency": "EUR"},
+            "description": "Monthly rent",
+            "counterparty_alias": {
+                "type": "IBAN",
+                "value": "NL00LANDLORD1234567",
+                "name": "Landlord B.V.",
+            },
+        },
+        "schedule": {
+            "time_unit": "MONTHLY",
+            "interval": 1,
+            "start": {"value": "2025-01-01 00:00:00.000000"},
+            "end": {"value": "2026-01-01 00:00:00.000000"},
+            "status": "ACTIVE",
+            "next_execution": {"value": "2025-07-01 00:00:00.000000"},
+        },
+        "schedule_instance": [
+            {"id": 5000001, "created": "2025-01-01 10:00:00.000000"},
+            {"id": 5000002, "created": "2025-02-01 10:00:00.000000"},
+            {"id": 5000003, "created": "2025-03-01 10:00:00.000000"},
+            {"id": 5000004, "created": "2025-04-01 10:00:00.000000"},
+            {"id": 5000005, "created": "2025-05-01 10:00:00.000000"},
+            {"id": 5000006, "created": "2025-06-01 10:00:00.000000"},
+        ],
+    }
+}
+
+SCHEDULE_PAYMENT_WEEKLY: dict[str, Any] = {
+    "SchedulePayment": {
+        "id": 3000002,
+        "created": "2025-03-15 08:00:00.000000",
+        "updated": "2025-06-18 16:00:00.000000",
+        "payment": {
+            "id": 4000002,
+            "amount": {"value": "-25.00", "currency": "EUR"},
+            "description": "Weekly subscription",
+            "counterparty_alias": {
+                "type": "IBAN",
+                "value": "NL00SUBS9876543210",
+                "name": "Streaming Co.",
+            },
+        },
+        "schedule": {
+            "time_unit": "WEEKLY",
+            "interval": 1,
+            "start": {"value": "2025-03-15 08:00:00.000000"},
+            "status": "ACTIVE",
+            "next_execution": {"value": "2025-06-22 08:00:00.000000"},
+        },
+        "schedule_instance": [],
+    }
+}
+
+SCHEDULES_ACCOUNT_1000001: dict[str, Any] = {
+    "Response": [
+        SCHEDULE_PAYMENT_MONTHLY,
+        SCHEDULE_PAYMENT_WEEKLY,
+    ],
+    "Pagination": {"future_url": None},
+}
+
+SCHEDULES_ACCOUNT_1000002: dict[str, Any] = {
+    "Response": [],
+    "Pagination": {"future_url": None},
+}
+
+SCHEDULES_ACCOUNT_1000003: dict[str, Any] = {
+    "Response": [],
+    "Pagination": {"future_url": None},
+}
+
+
+# ── Card fixtures ────────────────────────────────────────────────────────
+
+CARDS_RESPONSE: dict[str, Any] = {
+    "Response": [
+        {
+            "Card": {
+                "id": 7000001,
+                "created": "2025-01-15 09:00:00.000000",
+                "updated": "2025-06-20 12:00:00.000000",
+                "type": "DEBIT_CARD",
+                "status": "ACTIVE",
+                "name": "My Debit Card",
+                "last_four": "1234",
+            }
+        },
+        {
+            "Card": {
+                "id": 7000002,
+                "created": "2025-04-01 10:00:00.000000",
+                "updated": "2025-06-19 18:00:00.000000",
+                "type": "CREDIT_CARD",
+                "status": "ACTIVE",
+                "name": "My Credit Card",
+                "last_four": "5678",
+            }
+        },
+    ],
+    "Pagination": {"future_url": None},
+}
+
+CARD_PAYMENT_AUTHORIZATION: dict[str, Any] = {
+    "CardPayment": {
+        "id": 8000001,
+        "created": "2025-06-20 14:30:00.123456",
+        "updated": "2025-06-20 14:30:00.123456",
+        "amount": {"value": "-42.50", "currency": "EUR"},
+        "merchant_name": "Supermarket B.V.",
+        "merchant_city": "Amsterdam",
+        "merchant_country": "NL",
+        "mcc": "5411",
+        "card": {"id": 7000001, "type": "DEBIT_CARD"},
+        "authorisation_status": "AUTHORISATION",
+        "description": "Grocery shopping",
+    }
+}
+
+CARD_PAYMENT_SETTLEMENT: dict[str, Any] = {
+    "CardPayment": {
+        "id": 8000002,
+        "created": "2025-06-18 10:00:00.000000",
+        "updated": "2025-06-19 08:00:00.000000",
+        "amount": {"value": "-89.99", "currency": "EUR"},
+        "merchant_name": "Online Store",
+        "merchant_city": "Utrecht",
+        "merchant_country": "NL",
+        "mcc": "5732",
+        "card": {"id": 7000001, "type": "DEBIT_CARD"},
+        "authorisation_status": "SETTLEMENT",
+        "description": "Electronics purchase",
+    }
+}
+
+CARD_PAYMENT_REFUND: dict[str, Any] = {
+    "CardPayment": {
+        "id": 8000003,
+        "created": "2025-06-17 15:00:00.000000",
+        "updated": "2025-06-18 09:00:00.000000",
+        "amount": {"value": "15.99", "currency": "EUR"},
+        "merchant_name": "Online Store",
+        "merchant_city": "Utrecht",
+        "merchant_country": "NL",
+        "mcc": "5732",
+        "card": {"id": 7000001, "type": "DEBIT_CARD"},
+        "authorisation_status": "REFUND",
+        "description": "Refund for returned item",
+    }
+}
+
+CARD_PAYMENTS_CARD_7000001: dict[str, Any] = {
+    "Response": [
+        CARD_PAYMENT_AUTHORIZATION,
+        CARD_PAYMENT_SETTLEMENT,
+        CARD_PAYMENT_REFUND,
+    ],
+    "Pagination": {"future_url": None},
+}
+
+CARD_PAYMENTS_CARD_7000002: dict[str, Any] = {
+    "Response": [],
+    "Pagination": {"future_url": None},
+}

@@ -39,6 +39,9 @@ WORKDIR /app
 COPY --from=build /app /app
 COPY --from=build /app/.venv /app/.venv
 
+# Ensure the static files directory exists and is writable by the non-root user
+RUN mkdir -p /app/src/finance_sync/static && chown -R finance:finance /app/src/finance_sync/static
+
 # Ensure /app/.venv/bin is on PATH
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \

@@ -89,8 +89,8 @@ def mock_session() -> AsyncMock:
 
     # Default row for result.one() — all fields as Decimal("0") / 0 / None
     default_row = MagicMock()
-    default_row.total_inflows = Decimal("0")
-    default_row.total_outflows = Decimal("0")
+    default_row.total_inflows = Decimal(0)
+    default_row.total_outflows = Decimal(0)
     default_row.transaction_count = 0
     default_row.period_start = None
     default_row.period_end = None
@@ -147,7 +147,6 @@ class TestOpenAPIRegistration:
 
         assert "/api/v1/cashflow" in paths
         assert paths["/api/v1/cashflow"]["get"]["tags"] == ["cashflow"]
-        assert "/api/v1/cashflow/history" in paths
 
     def test_securities_list_and_prices_registered(
         self, client: TestClient
@@ -192,7 +191,6 @@ class TestAuthGuards:
         ("GET", "/api/v1/net-worth"),
         ("GET", "/api/v1/net-worth/history"),
         ("GET", "/api/v1/cashflow"),
-        ("GET", "/api/v1/cashflow/history"),
         ("GET", "/api/v1/sync-runs"),
         ("GET", "/api/v1/securities"),
         ("GET", "/api/v1/securities/fake-id/prices"),
@@ -385,8 +383,8 @@ class TestReadServiceCashflow:
     ) -> None:
         # Mock result.one() to return a proper row-like object
         mock_row = MagicMock()
-        mock_row.total_inflows = Decimal("0")
-        mock_row.total_outflows = Decimal("0")
+        mock_row.total_inflows = Decimal(0)
+        mock_row.total_outflows = Decimal(0)
         mock_row.transaction_count = 0
         mock_row.period_start = None
         mock_row.period_end = None
@@ -400,8 +398,8 @@ class TestReadServiceCashflow:
         self, mock_session: AsyncMock
     ) -> None:
         mock_row = MagicMock()
-        mock_row.total_inflows = Decimal("0")
-        mock_row.total_outflows = Decimal("0")
+        mock_row.total_inflows = Decimal(0)
+        mock_row.total_outflows = Decimal(0)
         mock_row.transaction_count = 0
         mock_row.period_start = None
         mock_row.period_end = None
@@ -422,8 +420,8 @@ class TestReadServiceCashflow:
         self, mock_session: AsyncMock
     ) -> None:
         mock_row = MagicMock()
-        mock_row.total_inflows = Decimal("0")
-        mock_row.total_outflows = Decimal("0")
+        mock_row.total_inflows = Decimal(0)
+        mock_row.total_outflows = Decimal(0)
         mock_row.transaction_count = 0
         mock_row.period_start = None
         mock_row.period_end = None
@@ -437,8 +435,8 @@ class TestReadServiceCashflow:
         self, mock_session: AsyncMock
     ) -> None:
         mock_row = MagicMock()
-        mock_row.total_inflows = Decimal("0")
-        mock_row.total_outflows = Decimal("0")
+        mock_row.total_inflows = Decimal(0)
+        mock_row.total_outflows = Decimal(0)
         mock_row.transaction_count = 0
         mock_row.period_start = None
         mock_row.period_end = None

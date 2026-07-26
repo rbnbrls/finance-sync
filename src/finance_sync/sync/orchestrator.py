@@ -35,6 +35,7 @@ from finance_sync.connectors.exceptions import (
 )
 from finance_sync.models import Account, Transaction
 from finance_sync.models.enums import (
+    ReconciliationRunStatus,
     SyncRunStatus,
     TransactionStatus,
     TransactionType,
@@ -42,6 +43,7 @@ from finance_sync.models.enums import (
 from finance_sync.sync.outbox import (
     outbox_entity_created,
     outbox_entity_updated,
+    outbox_reconciliation_completed,
 )
 from finance_sync.sync.sync_run import complete_sync_run, start_sync_run
 
@@ -88,10 +90,32 @@ class SyncOrchestrator:
         session_factory: async_sessionmaker[AsyncSession],
         registry: ConnectorRegistry,
         tenant_id: str,
+        *,
+        settings: object | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._registry = registry
         self._tenant_id = tenant_id
+        self._settings = settings
+
+    # ── Config helpers ──────────────────────────────────────────
+
+    @property
+    def _reconciliation_after_sync_enabled(self) -> bool:
+        """Whether auto-reconciliation after sync is enabled.
+
+        Reads from the injected settings object when available; defaults
+        to ``True`` for backward compatibility.
+        """
+        if self._settings is not None:
+            return bool(
+                getattr(
+                    self._settings,
+                    "worker_job_reconciliation_after_sync_enabled",
+                    True,
+                )
+            )
+        return True
 
     # ── Public API ───────────────────────────────────────────────────
 
@@ -136,6 +160,30 @@ class SyncOrchestrator:
                 transactions=result.transactions_synced,
                 duration_s=result.duration_s,
             )
+
+            # ── Post-sync reconciliation (opt-in) ──────────────────────
+            # Only run automatic reconciliation when the config flag is
+            # enabled (default: on).  Checking the flag here lets operators
+            # suppress auto-reconciliation without changing the piped
+            # workflow — they just set the env var to false.
+            if self._reconciliation_after_sync_enabled:
+                try:
+                    rec_summary = await self.run_reconciliation(
+                        date_from=_since,
+                    )
+                    log.info(
+                        "auto_reconciliation_completed",
+                        run_id=rec_summary.run_id,
+                        status=rec_summary.status.value,
+                        findings=rec_summary.finding_count,
+                    )
+                except Exception:
+                    log.error(
+                        "auto_reconciliation_failed",
+                        error=traceback.format_exc()[:500],
+                    )
+            else:
+                log.debug("auto_reconciliation_skipped_by_config")
         else:
             log.error(
                 "sync_failed",
@@ -144,6 +192,90 @@ class SyncOrchestrator:
             )
 
         return result
+
+    # ── Post-sync reconciliation ─────────────────────────────────────
+
+    async def run_reconciliation(
+        self,
+        *,
+        account_ids: list[str] | None = None,
+        date_from: dt_type | None = None,
+        date_to: dt_type | None = None,
+    ) -> ReconciliationRunSummary:
+        """Run a reconciliation analysis for this orchestrator's tenant.
+
+        Args:
+            account_ids:  Optional subset of accounts to analyze.
+            date_from:    Earliest transaction date (default 90 days ago).
+            date_to:      Latest transaction date (default now).
+
+        Returns:
+            A ``ReconciliationRunSummary`` with the run ID, status, and
+            finding count.  If the run completed, a ``reconciliation.completed``
+            outbox message is emitted.
+        """
+        from finance_sync.db.uow import UnitOfWork
+        from finance_sync.models.enums import ReconciliationRunStatus
+        from finance_sync.services.reconciliation import ReconciliationService
+
+        log = logger.bind(
+            tenant_id=self._tenant_id,
+            reconciliation_type=(
+                "post_sync" if account_ids is None else "targeted"
+            ),
+        )
+        log.info("reconciliation_starting")
+
+        svc = ReconciliationService(
+            session_factory=self._session_factory,
+            tenant_id=self._tenant_id,
+        )
+
+        run = await svc.reconcile(
+            account_ids=account_ids,
+            date_from=date_from,
+            date_to=date_to,
+        )
+
+        # Emit outbox message for completed reconciliation
+        if run.status == ReconciliationRunStatus.COMPLETED:
+            try:
+                async with self._session_factory() as session:
+                    async with UnitOfWork(session) as uow:
+                        await outbox_reconciliation_completed(
+                            uow,
+                            run_id=str(run.id),
+                            tenant_id=self._tenant_id,
+                            finding_count=run.finding_count or 0,
+                            summary=run.summary,
+                        )
+                    await session.commit()
+                log.info(
+                    "reconciliation_outbox_emitted",
+                    run_id=str(run.id),
+                    finding_count=run.finding_count or 0,
+                )
+            except Exception:
+                import traceback
+
+                log.error(
+                    "reconciliation_outbox_failed",
+                    run_id=str(run.id),
+                    error=traceback.format_exc()[:500],
+                )
+
+        log.info(
+            "reconciliation_completed",
+            run_id=str(run.id),
+            status=run.status.value,
+            finding_count=run.finding_count or 0,
+        )
+
+        return ReconciliationRunSummary(
+            run_id=str(run.id),
+            status=run.status,
+            finding_count=run.finding_count or 0,
+        )
 
     # ── Internal pipeline ──────────────────────────────────────────
 
@@ -497,6 +629,33 @@ class SyncResult:
             f"<SyncResult status={self.status!r} "
             f"accts={self.accounts_synced} txns={self.transactions_synced} "
             f"err={self.error_message!r} dur={self.duration_s:.2f}s>"
+        )
+
+
+class ReconciliationRunSummary:
+    """Outcome of a reconciliation analysis run."""
+
+    __slots__ = (
+        "finding_count",
+        "run_id",
+        "status",
+    )
+
+    def __init__(
+        self,
+        *,
+        run_id: str,
+        status: ReconciliationRunStatus,
+        finding_count: int,
+    ) -> None:
+        self.run_id = run_id
+        self.status = status
+        self.finding_count = finding_count
+
+    def __repr__(self) -> str:
+        return (
+            f"<ReconciliationRunSummary run_id={self.run_id!r} "
+            f"status={self.status!r} findings={self.finding_count}>"
         )
 
 

@@ -6,7 +6,6 @@ and returns canned responses from :mod:`ynab_api_fixtures`.
 
 from __future__ import annotations
 
-from decimal import Decimal
 from typing import Any
 
 import httpx
@@ -15,10 +14,9 @@ import pytest
 from finance_sync.connectors.models import ConnectorConfig
 from finance_sync.connectors.ynab import YnabConnector
 from tests.connectors.fixtures.ynab_api_fixtures import (
-    BUDGETS_RESPONSE,
     BUDGET_ACCOUNTS_RESPONSE,
     BUDGET_TRANSACTIONS_RESPONSE,
-    FIXTURE_TXN_AMOUNTS,
+    BUDGETS_RESPONSE,
 )
 
 
@@ -59,10 +57,7 @@ class YnabApiMockTransport(httpx.MockTransport):
 
         # GET /budgets/{id}/transactions
         # or /budgets/{id}/accounts/{account_id}/transactions
-        if (
-            request.method == "GET"
-            and "/transactions" in path
-        ):
+        if request.method == "GET" and "/transactions" in path:
             return httpx.Response(200, json=BUDGET_TRANSACTIONS_RESPONSE)
 
         msg = f"No mock handler for {request.method} {path}"
@@ -120,16 +115,13 @@ def sample_ynab_raw_data() -> tuple[list[Any], list[Any]]:
         ),
     )
 
-    accounts_data = (
-        BUDGET_ACCOUNTS_RESPONSE.get("data", {}).get("accounts", [])
-    )
+    accounts_data = BUDGET_ACCOUNTS_RESPONSE.get("data", {}).get("accounts", [])
     raw_accounts = [
-        connector._parse_account(a, "ynab_budget_001")
-        for a in accounts_data
+        connector._parse_account(a, "ynab_budget_001") for a in accounts_data
     ]
 
-    txns_data = (
-        BUDGET_TRANSACTIONS_RESPONSE.get("data", {}).get("transactions", [])
+    txns_data = BUDGET_TRANSACTIONS_RESPONSE.get("data", {}).get(
+        "transactions", []
     )
     raw_txns = [
         connector._parse_transaction(t, "ynab_budget_001")

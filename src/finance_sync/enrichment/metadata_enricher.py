@@ -15,10 +15,8 @@ from typing import TYPE_CHECKING, Any
 
 from finance_sync.enrichment.models import (
     ETFComposition,
-    ETFHolding,
     FundamentalObservationData,
     FundamentalRatioSummary,
-    RegionExposure,
     SectorExposure,
     SecurityMetadataObservationData,
 )
@@ -176,7 +174,7 @@ class MetadataEnricher:
                 identifier=identifier,
                 identifier_type=identifier_type,
             )
-        except Exception:  # noqa: BLE001
+        except Exception:
             return None
 
     async def compute_ratio_summary(
@@ -229,7 +227,7 @@ class MetadataEnricher:
                 identifier=identifier,
                 identifier_type=identifier_type,
             )
-        except Exception:  # noqa: BLE001
+        except Exception:
             return None
 
     # ── Sector Exposure ──────────────────────────────────────────────────
@@ -270,16 +268,16 @@ class MetadataEnricher:
         """
         result: list[SectorExposure] = []
         for item in raw_exposures:
-            sector_raw = item.get("sector") or item.get("name") or item.get("industry")
+            sector_raw = (
+                item.get("sector") or item.get("name") or item.get("industry")
+            )
             if not sector_raw:
                 continue
 
             normalised = self.classify_sector(sector_raw) or sector_raw.title()
             weight = _extract_weight(item)
             if weight is not None:
-                result.append(
-                    SectorExposure(sector=normalised, weight=weight)
-                )
+                result.append(SectorExposure(sector=normalised, weight=weight))
 
         return result
 
@@ -336,12 +334,10 @@ class MetadataEnricher:
             "total_holdings": etf_data.total_holdings,
             "holdings": [h.model_dump(mode="json") for h in etf_data.holdings],
             "sector_exposures": [
-                s.model_dump(mode="json")
-                for s in etf_data.sector_exposures
+                s.model_dump(mode="json") for s in etf_data.sector_exposures
             ],
             "region_exposures": [
-                r.model_dump(mode="json")
-                for r in etf_data.region_exposures
+                r.model_dump(mode="json") for r in etf_data.region_exposures
             ],
             "expense_ratio": (
                 str(etf_data.expense_ratio)
@@ -430,7 +426,7 @@ class MetadataEnricher:
                         )
                         await self._store_metadata_observation(obs)
                         return obs
-            except Exception:  # noqa: BLE001
+            except Exception:
                 pass
 
         return None
@@ -482,7 +478,9 @@ class MetadataEnricher:
         *,
         observed_at: datetime,
     ) -> None:
-        """Persist fundamental data as a fundamental_ratios metadata observation."""
+        """Persist fundamental data as a fundamental_ratios
+        metadata observation.
+        """
         metadata_json: dict[str, Any] = {
             "pe_ratio": (
                 str(fund_data.pe_ratio)
@@ -494,9 +492,7 @@ class MetadataEnricher:
                 if fund_data.forward_pe is not None
                 else None
             ),
-            "eps": (
-                str(fund_data.eps) if fund_data.eps is not None else None
-            ),
+            "eps": (str(fund_data.eps) if fund_data.eps is not None else None),
             "dividend_yield": (
                 str(fund_data.dividend_yield)
                 if fund_data.dividend_yield is not None

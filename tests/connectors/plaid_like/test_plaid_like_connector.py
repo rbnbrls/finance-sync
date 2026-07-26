@@ -198,9 +198,7 @@ class TestPlaidLikeConnectorContract:
         """fetch_transactions should accept a limit parameter."""
         await plaid_connector.authenticate()
         since = datetime(2025, 1, 1, tzinfo=UTC)
-        txns = await plaid_connector.fetch_transactions(
-            since=since, limit=1
-        )
+        txns = await plaid_connector.fetch_transactions(since=since, limit=1)
         assert isinstance(txns, list)
         assert len(txns) <= 1
 
@@ -209,9 +207,7 @@ class TestPlaidLikeConnectorContract:
     async def test_transform_accounts_with_normalisation(
         self,
         plaid_connector: PlaidLikeConnector,
-        sample_plaid_raw_data: tuple[
-            list[RawAccount], list[RawTransaction]
-        ],
+        sample_plaid_raw_data: tuple[list[RawAccount], list[RawTransaction]],
     ) -> None:
         """Transform should normalise Plaid account types."""
         raw_accounts, _ = sample_plaid_raw_data
@@ -230,9 +226,7 @@ class TestPlaidLikeConnectorContract:
     async def test_transform_transactions_roundtrip(
         self,
         plaid_connector: PlaidLikeConnector,
-        sample_plaid_raw_data: tuple[
-            list[RawAccount], list[RawTransaction]
-        ],
+        sample_plaid_raw_data: tuple[list[RawAccount], list[RawTransaction]],
     ) -> None:
         """Transform should map RawTransaction to CanonicalTransactionData."""
         _, raw_txns = sample_plaid_raw_data
@@ -250,14 +244,10 @@ class TestPlaidLikeConnectorContract:
         """The name property should return a non-empty string."""
         assert isinstance(plaid_connector.name, str)
         assert plaid_connector.name == "plaid_like"
-        assert (
-            plaid_connector.name == plaid_connector.config.provider_type
-        )
+        assert plaid_connector.name == plaid_connector.config.provider_type
 
     async def test_display_name(
         self, plaid_connector: PlaidLikeConnector
     ) -> None:
         """display_name should be set."""
-        assert (
-            plaid_connector.display_name == "Plaid-like Open Banking"
-        )
+        assert plaid_connector.display_name == "Plaid-like Open Banking"

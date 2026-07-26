@@ -344,6 +344,7 @@ class TestWorkerSettings:
 
         assert settings.worker_job_reconciliation_enabled is True
         assert settings.worker_job_reconciliation_cron == "0 2 * * *"
+        assert settings.worker_job_reconciliation_after_sync_enabled is True
 
         assert settings.worker_job_outbox_enabled is True
         assert settings.worker_job_outbox_interval_seconds == 30

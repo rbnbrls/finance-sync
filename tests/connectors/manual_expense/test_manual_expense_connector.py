@@ -78,12 +78,11 @@ class TestManualExpenseConnectorContract:
             ],
         }
 
-        f = tempfile.NamedTemporaryFile(
+        with tempfile.NamedTemporaryFile(
             mode="w", suffix=".json", delete=False
-        )
-        json.dump(expenses, f)
-        f.close()
-        self._data_path = f.name
+        ) as f:
+            json.dump(expenses, f)
+            self._data_path = f.name
 
         return ConnectorConfig(
             provider_type="manual_expense",
@@ -215,9 +214,7 @@ class TestManualExpenseConnectorContract:
         """fetch_transactions should accept a limit parameter."""
         await expense_connector.authenticate()
         since = datetime(2025, 1, 1, tzinfo=UTC)
-        txns = await expense_connector.fetch_transactions(
-            since=since, limit=2
-        )
+        txns = await expense_connector.fetch_transactions(since=since, limit=2)
         assert isinstance(txns, list)
         assert len(txns) <= 2
 
@@ -226,9 +223,7 @@ class TestManualExpenseConnectorContract:
     async def test_transform_accounts_roundtrip(
         self,
         expense_connector: ManualExpenseConnector,
-        sample_expense_raw_data: tuple[
-            list[RawAccount], list[RawTransaction]
-        ],
+        sample_expense_raw_data: tuple[list[RawAccount], list[RawTransaction]],
     ) -> None:
         """Transform should map RawAccount to CanonicalAccountData."""
         raw_accounts, _ = sample_expense_raw_data
@@ -241,9 +236,7 @@ class TestManualExpenseConnectorContract:
     async def test_transform_transactions_roundtrip(
         self,
         expense_connector: ManualExpenseConnector,
-        sample_expense_raw_data: tuple[
-            list[RawAccount], list[RawTransaction]
-        ],
+        sample_expense_raw_data: tuple[list[RawAccount], list[RawTransaction]],
     ) -> None:
         """Transform should map RawTransaction to CanonicalTransactionData."""
         _, raw_txns = sample_expense_raw_data
@@ -274,7 +267,5 @@ class TestManualExpenseConnectorContract:
         """Clean up the temp file."""
         import os
 
-        if hasattr(self, "_data_path") and os.path.exists(
-            self._data_path
-        ):
+        if hasattr(self, "_data_path") and os.path.exists(self._data_path):
             os.unlink(self._data_path)
