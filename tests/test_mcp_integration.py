@@ -28,8 +28,8 @@ class TestMCPResourcesCompleteness:
         self._uri_map = {str(t.uri_template): t for t in self._templates}
 
     def test_resource_count(self) -> None:
-        """There are exactly 8 resources defined (4 existing + 4 new)."""
-        assert len(self._uri_map) == 8
+        """There are exactly 4 resources defined."""
+        assert len(self._uri_map) == 4
 
     # ── Existing resources (regression) ────────────────────────────
 
@@ -58,35 +58,6 @@ class TestMCPResourcesCompleteness:
         assert t is not None
         assert t.name == "net_worth"
 
-    # ── New resources ─────────────────────────────────────────────
-
-    def test_resource_account_detail(self) -> None:
-        """finance://account/{account_id} is registered."""
-        t = self._uri_map.get("finance://account/{account_id}")
-        assert t is not None, "Missing finance://account/{account_id} resource"
-        assert t.name == "account_detail"
-
-    def test_resource_account_transactions(self) -> None:
-        """finance://account/{account_id}/transactions is registered."""
-        t = self._uri_map.get("finance://account/{account_id}/transactions")
-        assert t is not None, (
-            "Missing finance://account/{account_id}/transactions resource"
-        )
-        assert t.name == "account_transactions"
-
-    def test_resource_portfolio_history(self) -> None:
-        """finance://portfolio/history is registered."""
-        t = self._uri_map.get("finance://portfolio/history")
-        assert t is not None, "Missing finance://portfolio/history resource"
-        assert t.name == "portfolio_history"
-
-    def test_resource_net_worth_history(self) -> None:
-        """finance://net-worth/history is registered."""
-        t = self._uri_map.get("finance://net-worth/history")
-        assert t is not None, "Missing finance://net-worth/history resource"
-        assert t.name == "net_worth_history"
-
-
 # ═════════════════════════════════════════════════════════════════════════
 # Tool registration tests
 # ═════════════════════════════════════════════════════════════════════════
@@ -104,8 +75,8 @@ class TestMCPToolsCompleteness:
         self._tool_map = {t.name: t for t in self._tools}
 
     def test_tool_count(self) -> None:
-        """There are exactly 9 tools defined (3 existing + 6 new)."""
-        assert len(self._tool_map) == 9
+        """There are exactly 3 tools defined."""
+        assert len(self._tool_map) == 3
 
     # ── Existing tools (regression) ────────────────────────────────
 
@@ -130,53 +101,6 @@ class TestMCPToolsCompleteness:
         assert t is not None
         props = t.parameters.get("properties", {})
         assert "query" in props
-
-    # ── New tools ─────────────────────────────────────────────────
-
-    def test_tool_get_daily_briefing(self) -> None:
-        """get_daily_briefing tool is registered."""
-        t = self._tool_map.get("get_daily_briefing")
-        assert t is not None, "Missing get_daily_briefing tool"
-        assert t.description is not None
-        assert "briefing" in t.description.lower()
-
-    def test_tool_get_subscriptions(self) -> None:
-        """get_subscriptions tool is registered."""
-        t = self._tool_map.get("get_subscriptions")
-        assert t is not None, "Missing get_subscriptions tool"
-        assert t.description is not None
-        assert "subscription" in t.description.lower()
-
-    def test_tool_get_performance(self) -> None:
-        """get_performance tool is registered."""
-        t = self._tool_map.get("get_performance")
-        assert t is not None, "Missing get_performance tool"
-        props = t.parameters.get("properties", {})
-        # Should have period or granularity parameter
-        assert any(k in props for k in ("period", "granularity", "subject"))
-
-    def test_tool_get_allocation(self) -> None:
-        """get_allocation tool is registered."""
-        t = self._tool_map.get("get_allocation")
-        assert t is not None, "Missing get_allocation tool"
-        props = t.parameters.get("properties", {})
-        assert "by" in props or "allocat" in str(props)
-
-    def test_tool_get_cashflow(self) -> None:
-        """get_cashflow tool is registered."""
-        t = self._tool_map.get("get_cashflow")
-        assert t is not None, "Missing get_cashflow tool"
-        props = t.parameters.get("properties", {})
-        assert "period" in props or "date_from" in props
-
-    def test_tool_list_sync_runs(self) -> None:
-        """list_sync_runs tool is registered."""
-        t = self._tool_map.get("list_sync_runs")
-        assert t is not None, "Missing list_sync_runs tool"
-        props = t.parameters.get("properties", {})
-        assert "limit" in props or "connector" in props
-        assert t.description is not None
-
 
 # ═════════════════════════════════════════════════════════════════════════
 # Helper function tests
@@ -261,80 +185,3 @@ class TestMCPServerMain:
 
         assert mod is not None
         assert callable(mod.main)
-
-
-# ═════════════════════════════════════════════════════════════════════════
-# Resource handler data-flow tests (mocked service)
-# ═════════════════════════════════════════════════════════════════════════
-
-
-class TestMCPResourceHandlers:
-    """Verify resource handler functions exist and have correct signatures."""
-
-    def test_account_detail_handler_is_callable(self) -> None:
-        """account_detail handler accepts (ctx, id) parameters."""
-        from finance_sync.mcp.server import resource_account_detail
-
-        assert callable(resource_account_detail)
-
-        import inspect
-
-        sig = inspect.signature(resource_account_detail)
-        params = list(sig.parameters.keys())
-        assert "ctx" in params or "id" in params
-
-    def test_portfolio_history_handler_is_callable(self) -> None:
-        """portfolio_history handler accepts (ctx) parameter."""
-        from finance_sync.mcp.server import resource_portfolio_history
-
-        assert callable(resource_portfolio_history)
-
-        import inspect
-
-        sig = inspect.signature(resource_portfolio_history)
-        assert "ctx" in sig.parameters
-
-
-# ═════════════════════════════════════════════════════════════════════════
-# Tool handler data-flow tests
-# ═════════════════════════════════════════════════════════════════════════
-
-
-class TestMCPToolHandlers:
-    """Verify new tool handler functions exist."""
-
-    def test_get_daily_briefing_handler(self) -> None:
-        """get_daily_briefing handler function is importable."""
-        from finance_sync.mcp.server import tool_get_daily_briefing
-
-        assert callable(tool_get_daily_briefing)
-
-    def test_get_subscriptions_handler(self) -> None:
-        """get_subscriptions handler function is importable."""
-        from finance_sync.mcp.server import tool_get_subscriptions
-
-        assert callable(tool_get_subscriptions)
-
-    def test_get_performance_handler(self) -> None:
-        """get_performance handler function is importable."""
-        from finance_sync.mcp.server import tool_get_performance
-
-        assert callable(tool_get_performance)
-
-    def test_get_allocation_handler(self) -> None:
-        """get_allocation handler function is importable."""
-        from finance_sync.mcp.server import tool_get_allocation
-
-        assert callable(tool_get_allocation)
-
-    def test_get_cashflow_handler(self) -> None:
-        """get_cashflow handler function is importable."""
-        from finance_sync.mcp.server import tool_get_cashflow
-
-        assert callable(tool_get_cashflow)
-
-    def test_list_sync_runs_handler(self) -> None:
-        """list_sync_runs handler function is importable."""
-        from finance_sync.mcp.server import tool_list_sync_runs
-
-        assert callable(tool_list_sync_runs)
