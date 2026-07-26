@@ -13,8 +13,8 @@ Two tiers of data model:
 
 from __future__ import annotations
 
-from datetime import datetime  # noqa: TC003 — needed by model_rebuild()
-from decimal import Decimal  # noqa: TC003 — needed by model_rebuild()
+from datetime import datetime
+from decimal import Decimal
 from typing import Any
 
 from pydantic import BaseModel, Field

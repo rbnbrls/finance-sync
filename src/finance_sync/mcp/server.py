@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 import structlog
@@ -57,7 +58,8 @@ mcp = FastMCP(
         "MCP server for the finance-sync financial data platform. "
         "Provides read-only access to accounts, portfolio, transactions, "
         "and net worth data.  Tools allow triggering syncs, querying "
-        "financial summaries, and resolving security identifiers."
+        "financial summaries, AI-powered briefings, and resolving "
+        "security identifiers."
     ),
     lifespan=mcp_lifespan,
     host="0.0.0.0",
@@ -130,7 +132,7 @@ async def resource_accounts(ctx: Context) -> str:
         result = await read_service.list_accounts(tenant_id, limit=200)
         return _serialise(result.model_dump())
     finally:
-        await read_service._session.aclose()  # noqa: SLF001
+        await read_service._session.aclose()
 
 
 @mcp.resource(
@@ -154,7 +156,7 @@ async def resource_portfolio(ctx: Context) -> str:
         result = await read_service.get_portfolio(tenant_id)
         return _serialise(result.model_dump())
     finally:
-        await read_service._session.aclose()  # noqa: SLF001
+        await read_service._session.aclose()
 
 
 @mcp.resource(
@@ -189,7 +191,7 @@ async def resource_transactions(ctx: Context) -> str:
         all_txns.sort(key=lambda t: t.get("occurred_at") or "", reverse=True)
         return _serialise(all_txns[:50])
     finally:
-        await read_service._session.aclose()  # noqa: SLF001
+        await read_service._session.aclose()
 
 
 @mcp.resource(
@@ -213,11 +215,117 @@ async def resource_net_worth(ctx: Context) -> str:
         result = await read_service.get_net_worth(tenant_id)
         return _serialise(result.model_dump())
     finally:
+        await read_service._session.aclose()
+
+
+# ── Parameterised resources ─────────────────────────────────────────────
+
+
+@mcp.resource(
+    "finance://account/{account_id}",
+    name="account_detail",
+    title="Account Detail",
+    description="Detailed information about a single financial account.",
+    mime_type="application/json",
+)
+async def resource_account_detail(ctx: Context, account_id: str) -> str:
+    """Return detailed info about a single account.
+
+    URI: ``finance://account/{id}``
+
+    Returns a JSON object with account details including balance,
+    type, and metadata.
+    """
+    tenant_id = _get_tenant_id(ctx)
+    read_service = _get_read_service(ctx)
+    try:
+        result = await read_service.get_account(
+            tenant_id, account_id=account_id
+        )
+        if result is None:
+            return _serialise({"error": f"Account {account_id!r} not found"})
+        return _serialise(result.model_dump())
+    finally:
+        await read_service._session.aclose()  # noqa: SLF001
+
+
+@mcp.resource(
+    "finance://account/{account_id}/transactions",
+    name="account_transactions",
+    title="Account Transactions",
+    description="Recent transactions for a single account.",
+    mime_type="application/json",
+)
+async def resource_account_transactions(ctx: Context, account_id: str) -> str:
+    """Return recent transactions for a single account.
+
+    URI: ``finance://account/{account_id}/transactions``
+
+    Returns a JSON array of the 50 most recent transactions
+    for the specified account.
+    """
+    tenant_id = _get_tenant_id(ctx)
+    read_service = _get_read_service(ctx)
+    try:
+        result = await read_service.list_account_transactions(
+            tenant_id, account_id=account_id, limit=50
+        )
+        return _serialise(result.model_dump())
+    finally:
+        await read_service._session.aclose()  # noqa: SLF001
+
+
+@mcp.resource(
+    "finance://portfolio/history",
+    name="portfolio_history",
+    title="Portfolio History",
+    description="Portfolio value over time (daily aggregation).",
+    mime_type="application/json",
+)
+async def resource_portfolio_history(ctx: Context) -> str:
+    """Return portfolio value over time.
+
+    URI: ``finance://portfolio/history``
+
+    Returns a JSON array of daily portfolio values showing how
+    the total investment value has changed over time.
+    """
+    tenant_id = _get_tenant_id(ctx)
+    read_service = _get_read_service(ctx)
+    try:
+        result = await read_service.get_portfolio_history(tenant_id, limit=90)
+        return _serialise(result.model_dump())
+    finally:
+        await read_service._session.aclose()  # noqa: SLF001
+
+
+@mcp.resource(
+    "finance://net-worth/history",
+    name="net_worth_history",
+    title="Net Worth History",
+    description="Net worth over time "
+    "(daily aggregation using balance snapshots).",
+    mime_type="application/json",
+)
+async def resource_net_worth_history(ctx: Context) -> str:
+    """Return net worth over time.
+
+    URI: ``finance://net-worth/history``
+
+    Returns a JSON array of daily net worth entries (total assets,
+    total liabilities, net worth).
+    """
+    tenant_id = _get_tenant_id(ctx)
+    read_service = _get_read_service(ctx)
+    try:
+        result = await read_service.get_net_worth_history(tenant_id, limit=90)
+        return _serialise(result.model_dump())
+    finally:
         await read_service._session.aclose()  # noqa: SLF001
 
 
 # ═════════════════════════════════════════════════════════════════════════
-# Tools
+# Tools — existing
 # ═════════════════════════════════════════════════════════════════════════
 
 
