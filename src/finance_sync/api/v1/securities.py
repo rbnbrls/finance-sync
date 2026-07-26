@@ -293,7 +293,7 @@ async def list_securities(
 async def get_security_prices(
     security_id: str,
     db: AsyncSession = Depends(get_db),
-    auth: AuthContext = Depends(_require_securities_read),
+    _auth: AuthContext = Depends(_require_securities_read),
     limit: int = Query(default=100, ge=1, le=1000),
     offset: int = Query(default=0, ge=0),
     interval: str = Query(default="1d"),
