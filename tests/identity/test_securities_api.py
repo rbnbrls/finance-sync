@@ -111,7 +111,7 @@ class TestListUnresolved:
 
     def test_filters_by_provider(self, client, mock_container):
         """GET /securities/unresolved filters by provider_key."""
-        mock_container.identity_resolution_service.get_unresolved.return_value = []  # noqa: E501
+        mock_container.identity_resolution_service.get_unresolved.return_value = []
 
         response = client.get(
             "/api/v1/securities/unresolved",
@@ -133,7 +133,7 @@ class TestListAllUnresolved:
 
     def test_includes_resolved(self, client, mock_container):
         """GET /securities/unresolved/all includes resolved entries."""
-        mock_container.identity_resolution_service.get_unresolved.return_value = []  # noqa: E501
+        mock_container.identity_resolution_service.get_unresolved.return_value = []
 
         response = client.get("/api/v1/securities/unresolved/all")
         assert response.status_code == 200
@@ -162,7 +162,7 @@ class TestResolve:
         audit_mock.resolver_principal = "api:user"
         audit_mock.resolved_at = datetime.now(UTC)
 
-        mock_container.identity_resolution_service.manually_resolve.return_value = audit_mock  # noqa: E501
+        mock_container.identity_resolution_service.manually_resolve.return_value = audit_mock
 
         response = client.post(
             "/api/v1/securities/resolve",
@@ -179,7 +179,7 @@ class TestResolve:
 
     def test_returns_404_for_nonexistent(self, client, mock_container):
         """POST /securities/resolve returns 404 when not found."""
-        mock_container.identity_resolution_service.manually_resolve.return_value = None  # noqa: E501
+        mock_container.identity_resolution_service.manually_resolve.return_value = None
 
         response = client.post(
             "/api/v1/securities/resolve",
@@ -207,7 +207,7 @@ class TestResolve:
         audit_mock.target_security_id = "sec_target_1"
         audit_mock.resolution_method = "manual"
 
-        mock_container.identity_resolution_service.manually_resolve.return_value = audit_mock  # noqa: E501
+        mock_container.identity_resolution_service.manually_resolve.return_value = audit_mock
 
         response = client.post(
             "/api/v1/securities/resolve",
@@ -248,7 +248,7 @@ class TestMap:
 
     def test_returns_404_for_missing_target(self, client, mock_container):
         """PUT /securities/map returns 404 when target not found."""
-        mock_container.identity_resolution_service.map_and_resolve.return_value = None  # noqa: E501
+        mock_container.identity_resolution_service.map_and_resolve.return_value = None
 
         response = client.put(
             "/api/v1/securities/map",
@@ -293,7 +293,7 @@ class TestAuditLog:
 
     def test_returns_empty_when_no_logs(self, client, mock_container):
         """GET /securities/audit-log returns empty list."""
-        mock_container.identity_resolution_service.get_audit_log.return_value = []  # noqa: E501
+        mock_container.identity_resolution_service.get_audit_log.return_value = []
 
         response = client.get("/api/v1/securities/audit-log")
         assert response.status_code == 200
@@ -302,7 +302,7 @@ class TestAuditLog:
 
     def test_filters_by_target_security(self, client, mock_container):
         """GET /securities/audit-log filters by target_security_id."""
-        mock_container.identity_resolution_service.get_audit_log.return_value = []  # noqa: E501
+        mock_container.identity_resolution_service.get_audit_log.return_value = []
 
         response = client.get(
             "/api/v1/securities/audit-log",

@@ -17,23 +17,33 @@ from __future__ import annotations
 from finance_sync.models.account import Account
 from finance_sync.models.api_key import ApiKey
 from finance_sync.models.balance import Balance
+from finance_sync.models.card_transaction import CardTransaction
 from finance_sync.models.credential import Credential
+from finance_sync.models.detected_subscription import DetectedSubscription
 from finance_sync.models.enrichment_freshness import EnrichmentFreshness
 from finance_sync.models.enums import (
     AccountType,
     BalanceKind,
     BalanceSource,
+    CardAuthorizationType,
     ConnectorProvider,
+    CostBasisMethod,
+    DetectionMethod,
     HoldingSource,
     OutboxMessageStatus,
     ReconciliationResultKind,
     ReconciliationRunStatus,
     ReconciliationSeverity,
+    ScheduleFrequency,
+    ScheduleStatus,
     SecurityType,
+    SubscriptionConfidence,
+    SubscriptionStatus,
     SyncRunStatus,
     TransactionStatus,
     TransactionType,
     UserRole,
+    WashSaleAdjustmentType,
     WebhookDeliveryStatus,
     WebhookEventType,
 )
@@ -46,10 +56,15 @@ from finance_sync.models.reconciliation import (
     ReconciliationRun,
 )
 from finance_sync.models.resolution_audit_log import ResolutionAuditLog
+from finance_sync.models.scheduled_payment import ScheduledPayment
 from finance_sync.models.security import Security
 from finance_sync.models.security_listing import SecurityListing
+from finance_sync.models.security_metadata_observation import (
+    SecurityMetadataObservation,
+)
 from finance_sync.models.security_price import SecurityPrice
 from finance_sync.models.sync_run import SyncRun
+from finance_sync.models.tax_lot import TaxLot
 from finance_sync.models.tenant import Tenant
 from finance_sync.models.transaction import Transaction
 from finance_sync.models.unresolved_security import UnresolvedSecurity
@@ -119,8 +134,13 @@ __all__ = [
     "Balance",
     "BalanceKind",
     "BalanceSource",
+    "CardAuthorizationType",
+    "CardTransaction",
     "ConnectorProvider",
+    "CostBasisMethod",
     "Credential",
+    "DetectedSubscription",
+    "DetectionMethod",
     "EnrichmentFreshness",
     "ExportDelivery",
     "ExportRun",
@@ -135,12 +155,19 @@ __all__ = [
     "ReconciliationRunStatus",
     "ReconciliationSeverity",
     "ResolutionAuditLog",
+    "ScheduleFrequency",
+    "ScheduleStatus",
+    "ScheduledPayment",
     "Security",
     "SecurityListing",
+    "SecurityMetadataObservation",
     "SecurityPrice",
     "SecurityType",
+    "SubscriptionConfidence",
+    "SubscriptionStatus",
     "SyncRun",
     "SyncRunStatus",
+    "TaxLot",
     "Tenant",
     # Mixins
     "TenantAwareMixin",
@@ -151,6 +178,7 @@ __all__ = [
     "UnresolvedSecurity",
     "User",
     "UserRole",
+    "WashSaleAdjustmentType",
     "Webhook",
     "WebhookDeliveryLog",
     "WebhookDeliveryStatus",

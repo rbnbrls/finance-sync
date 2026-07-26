@@ -14,6 +14,7 @@ from finance_sync.models import (
     Account,
     ActualBudgetAccountMapping,
     Balance,
+    DetectedSubscription,
     EnrichmentFreshness,
     ExportRun,
     FxRate,
@@ -24,8 +25,10 @@ from finance_sync.models import (
     ResolutionAuditLog,
     Security,
     SecurityListing,
+    SecurityMetadataObservation,
     SecurityPrice,
     SyncRun,
+    TaxLot,
     Tenant,
     Transaction,
     UnresolvedSecurity,
@@ -101,6 +104,7 @@ class TransactionRepository(Repository[Transaction]):
         tenant_id: str,
         *,
         account_ids: list[str] | None = None,
+        provider_keys: list[str] | None = None,
         date_from: datetime | None = None,
         date_to: datetime | None = None,
         threshold_hours: int = 48,
@@ -110,6 +114,9 @@ class TransactionRepository(Repository[Transaction]):
         A candidate pair is two transactions in the same account with
         identical amounts and close occurrence dates (within
         *threshold_hours*) but different external IDs or provider keys.
+
+        When *provider_keys* is set, only transactions from those
+        providers are considered.
 
         Returns a list of (tx_a, tx_b) tuples, ordered by descending
         amount magnitude so the most suspicious pairs come first.
@@ -124,6 +131,10 @@ class TransactionRepository(Repository[Transaction]):
         if account_ids:
             conditions.append(
                 Transaction.account_id.in_(account_ids)  # type: ignore[attr-defined]
+            )
+        if provider_keys:
+            conditions.append(
+                Transaction.provider_key.in_(provider_keys)  # type: ignore[attr-defined]
             )
         if date_from is not None:
             conditions.append(
@@ -228,6 +239,42 @@ class TransactionRepository(Repository[Transaction]):
 
 class HoldingRepository(Repository[Holding]):
     model_class = Holding
+
+
+class TaxLotRepository(Repository[TaxLot]):
+    model_class = TaxLot
+
+    async def find_open_lots(
+        self,
+        tenant_id: str,
+        account_id: str,
+        security_id: str,
+    ) -> list[TaxLot]:
+        """Return open tax lots for an account+security, ordered by acquisition.
+
+        Used by the cost-basis matching engine.
+        """
+        return await self.list(
+            TaxLot.tenant_id == tenant_id,  # type: ignore[attr-defined]
+            TaxLot.account_id == account_id,  # type: ignore[attr-defined]
+            TaxLot.security_id == security_id,  # type: ignore[attr-defined]
+            TaxLot.closed_at.is_(None),  # type: ignore[attr-defined]
+            order_by=TaxLot.acquired_at.asc(),  # type: ignore[attr-defined]
+        )
+
+    async def find_lots_for_transaction(
+        self,
+        tenant_id: str,
+        transaction_id: str,
+    ) -> list[TaxLot]:
+        """Find all tax lots linked to a specific transaction."""
+        return await self.list(
+            TaxLot.tenant_id == tenant_id,  # type: ignore[attr-defined]
+            (
+                (TaxLot.purchase_transaction_id == transaction_id)  # type: ignore[attr-defined]
+                | (TaxLot.sale_transaction_id == transaction_id)  # type: ignore[attr-defined]
+            ),
+        )
 
 
 class BalanceRepository(Repository[Balance]):

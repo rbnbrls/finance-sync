@@ -246,7 +246,7 @@ class TestBunqConnectorContract:
 
     async def test_display_name(self, bunq_connector: BunqConnector) -> None:
         """display_name should be set."""
-        assert bunq_connector.display_name == "bunq"
+        assert bunq_connector.display_name == "Bunq"
 
     async def test_sdk_version(self, bunq_connector: BunqConnector) -> None:
         """sdk_version should be a valid string."""

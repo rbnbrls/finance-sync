@@ -4,14 +4,13 @@ version = "0.1.0"
 description = "Plugin SDK for finance-sync — build third-party connectors and exporters"
 readme = "README.md"
 requires-python = ">=3.12"
-license = { text = "MIT" }
+license = "MIT"
 authors = [
     { name = "rbnbrls", email = "3826339+rbnbrls@users.noreply.github.com" },
 ]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Financial and Insurance Industry",
-    "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",

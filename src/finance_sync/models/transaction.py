@@ -69,6 +69,12 @@ class Transaction(TimestampMixin, Base):
         Numeric(18, 8), nullable=True, comment="FX rate used for conversion"
     )
 
+    quantity: Mapped[Decimal | None] = mapped_column(
+        Numeric(24, 8),
+        nullable=True,
+        comment="Number of units / shares transacted (for purchase/sale)",
+    )
+
     occurred_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,

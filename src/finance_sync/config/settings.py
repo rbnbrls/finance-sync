@@ -132,7 +132,7 @@ class Settings(BaseSettings):
         description="TTL in seconds for cached FX rates before re-fetch.",
     )
 
-    # ── Price-store pruning ──────────────────────────────────────────
+    # -- Price-store pruning --
     price_store_keep_minute_days: int = Field(
         default=30,
         ge=1,
@@ -311,6 +311,14 @@ class Settings(BaseSettings):
         default="0 2 * * *",
         validation_alias="WORKER_JOB_RECONCILIATION_CRON",
         description="Cron expression for nightly full reconciliation (UTC).",
+    )
+    worker_job_reconciliation_after_sync_enabled: bool = Field(
+        default=True,
+        validation_alias="WORKER_JOB_RECONCILIATION_AFTER_SYNC_ENABLED",
+        description=(
+            "Run reconciliation automatically after each successful "
+            "connector sync cycle."
+        ),
     )
 
     # ── Worker: Outbox consumer job ────────────────────────────────
