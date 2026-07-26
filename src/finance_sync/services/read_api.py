@@ -924,7 +924,7 @@ class ReadService:
         result = await self._session.execute(
             select(Account).where(
                 Account.tenant_id == tenant_id,  # type: ignore[attr-defined]
-                Account.is_active == True,
+                Account.is_active,
             )
         )
         accounts: list[Account] = list(result.scalars().all())  # type: ignore[assignment]

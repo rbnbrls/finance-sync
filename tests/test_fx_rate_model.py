@@ -353,7 +353,7 @@ class TestFxRateModelConstraints:
 
     def test_composite_index_exists(self) -> None:
         """Individual column indexes exist on FX rate columns."""
-        indexes = FxRate.__table__.indexes
+        indexes = FxRate.__table__.indexes  # type: ignore[attr-defined]
         index_names = [idx.name for idx in indexes]
         assert "ix_fx_rates_base_currency" in index_names
         assert "ix_fx_rates_quote_currency" in index_names

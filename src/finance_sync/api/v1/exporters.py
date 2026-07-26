@@ -6,16 +6,12 @@ environment variables / Settings) and trigger export runs to Wealthfolio.
 
 from __future__ import annotations
 
-from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import (
-    AsyncSession,
-)
 
 from finance_sync.api.deps.auth import AuthContext, get_auth_context
 from finance_sync.dependencies import get_container, get_db
@@ -25,6 +21,13 @@ from finance_sync.exporter.wealthfolio.exporter import (
     WealthfolioExporter,
     WealthfolioExportResult,
 )
+
+if TYPE_CHECKING:
+    from datetime import datetime
+
+    from sqlalchemy.ext.asyncio import (
+        AsyncSession,
+    )
 
 router = APIRouter(prefix="/exporters", tags=["exporters"])
 
@@ -185,7 +188,7 @@ async def list_exporter_types() -> list[ExporterTypeInfo]:
 @router.get("/config", response_model=ExporterConfigResponse)
 async def get_exporter_config(
     request: Request,
-    auth: AuthContext = Depends(get_auth_context),
+    _auth: AuthContext = Depends(get_auth_context),
 ) -> ExporterConfigResponse:
     """Get the current exporter configuration."""
     container = get_container(request)
@@ -210,7 +213,7 @@ async def get_exporter_config(
 async def trigger_export(
     request: Request,
     auth: AuthContext = Depends(get_auth_context),
-    db: AsyncSession = Depends(get_db),
+    _db: AsyncSession = Depends(get_db),
 ) -> TriggerExportResponse:
     """Trigger a Wealthfolio export run.
 
@@ -244,7 +247,7 @@ async def trigger_export(
 
 @router.get("/runs", response_model=ExportRunsListResponse)
 async def list_export_runs(
-    auth: AuthContext = Depends(get_auth_context),
+    _auth: AuthContext = Depends(get_auth_context),
     db: AsyncSession = Depends(get_db),
     limit: int = Query(default=25, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
@@ -285,7 +288,7 @@ async def list_export_runs(
 @router.get("/runs/{run_id}", response_model=ExportRunResponse)
 async def get_export_run(
     run_id: str,
-    auth: AuthContext = Depends(get_auth_context),
+    _auth: AuthContext = Depends(get_auth_context),
     db: AsyncSession = Depends(get_db),
 ) -> ExportRunResponse:
     """Get details of a specific export run."""

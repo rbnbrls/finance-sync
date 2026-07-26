@@ -149,7 +149,7 @@ async def get_current_api_key(
     result = await db.execute(
         select(ApiKey).where(
             ApiKey.key_prefix == prefix,
-            ApiKey.is_active == True,
+            ApiKey.is_active == True,  # noqa: E712
         )
     )
     key_row = result.scalar_one_or_none()
