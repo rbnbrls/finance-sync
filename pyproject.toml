@@ -1,12 +1,22 @@
 [project]
 name = "finance-sync"
 version = "0.1.0"
-description = "Multi-provider financial data sync engine"
+description = "Self-hosted, API-first financial data platform"
+readme = "README.md"
 requires-python = ">=3.12"
-license = { text = "MIT" }
-authors = [{ name = "Ruben Barels", email = "3826339+rbnbrls@users.noreply.github.com" }]
+license = "MIT"
+authors = [
+    { name = "rbnbrls", email = "3826339+rbnbrls@users.noreply.github.com" },
+]
+
 dependencies = [
-    "financestream>=0.1.0",
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "jinja2>=3.1",
+    "sqlalchemy[asyncio]>=2.0",
+    "asyncpg>=0.30",
+    "alembic>=1.14",
+    "redis[hiredis]>=5.2",
     "structlog>=25.1",
     "pydantic>=2.10",
     "pydantic-settings>=2.7",
