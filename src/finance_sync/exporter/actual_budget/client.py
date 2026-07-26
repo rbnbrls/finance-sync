@@ -373,10 +373,7 @@ def _init_sync(
         # List available files to find the matching sync id
         files = actual.list_user_files()
         for f in files.data:
-            if (
-                f.group_id == config.sync_id
-                or f.file_id == config.sync_id
-            ):
+            if f.group_id == config.sync_id or f.file_id == config.sync_id:
                 actual.set_file(f)
                 break
     elif config.budget_name:
