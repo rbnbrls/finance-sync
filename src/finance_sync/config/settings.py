@@ -243,6 +243,19 @@ class Settings(BaseSettings):
         description="Override instrument type mapping.",
     )
 
+    # ── Wealthfolio push API ─────────────────────────────────────────
+    wealthfolio_server_url: str = Field(
+        default="",
+        validation_alias="WEALTHFOLIO_SERVER_URL",
+        description="Wealthfolio self-hosted server URL for direct API "
+        "push (e.g. http://192.168.3.50:8080).",
+    )
+    wealthfolio_password: str = Field(
+        default="",
+        validation_alias="WEALTHFOLIO_PASSWORD",
+        description="Password for Wealthfolio self-hosted authentication.",
+    )
+
     # ── Worker / APScheduler ───────────────────────────────────────
     worker_enabled: bool = Field(
         default=True,
