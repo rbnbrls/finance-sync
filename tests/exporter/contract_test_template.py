@@ -26,8 +26,10 @@ provides fixtures that the mixin uses to verify the exporter contract.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from datetime import datetime
 
 import pytest
 
@@ -152,7 +154,6 @@ class ExportResultContractTest:
     async def test_zero_counts_acceptable(self) -> None:
         """Zero transaction counts should be valid (no-ops)."""
         # This test is intentionally vague: concrete classes override.
-        pass
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -358,7 +359,7 @@ class CsvExportContractTest:
         if not sample_transactions:
             pytest.skip("No sample transactions provided")
         csv = csv_transactions_function(sample_transactions)
-        lines = [l for l in csv.strip().split("\n") if l.strip()]
+        lines = [line for line in csv.strip().split("\n") if line.strip()]
         assert len(lines) == len(sample_transactions) + 1
 
     async def test_csv_empty_input(
@@ -390,7 +391,7 @@ class CsvExportContractTest:
         if not sample_holdings:
             pytest.skip("No sample holdings provided")
         csv = csv_holdings_function(sample_holdings)
-        lines = [l for l in csv.strip().split("\n") if l.strip()]
+        lines = [line for line in csv.strip().split("\n") if line.strip()]
         assert len(lines) == len(sample_holdings) + 1
 
     async def test_holdings_csv_empty_input(

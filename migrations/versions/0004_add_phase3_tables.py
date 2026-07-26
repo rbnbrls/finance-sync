@@ -1039,11 +1039,17 @@ def upgrade() -> None:
         ["tenant_id", "security_id", "acquired_at"],
     )
 
-    # Unique constraint: one lot per (tenant, account, security, purchase_txn, acquired_at)
+    # Unique constraint: one lot per (tenant, account, security, purchase_txn, acquired_at)  # noqa: E501
     op.create_unique_constraint(
         "uq_tax_lots_purchase",
         "tax_lots",
-        ["tenant_id", "account_id", "security_id", "purchase_transaction_id", "acquired_at"],
+        [
+            "tenant_id",
+            "account_id",
+            "security_id",
+            "purchase_transaction_id",
+            "acquired_at",
+        ],
     )
 
 
