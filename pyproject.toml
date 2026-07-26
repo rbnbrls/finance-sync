@@ -98,6 +98,7 @@ lint.ignore = [
     "RUF012",  # mutable class defaults — accepted pattern for Pydantic
     "COM812",  # trailing comma magic — handled by formatter
     "ISC001",  # implicit concat — handled by formatter
+    "TC003",   # move-stdlib-into-type-checking-block — breaks Pydantic model_rebuild() with `from __future__ import annotations`
     "D",       # docstring rules — will enable later
 ]
 
