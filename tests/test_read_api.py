@@ -89,8 +89,8 @@ def mock_session() -> AsyncMock:
 
     # Default row for result.one() — all fields as Decimal("0") / 0 / None
     default_row = MagicMock()
-    default_row.total_inflows = Decimal("0")
-    default_row.total_outflows = Decimal("0")
+    default_row.total_inflows = Decimal(0)
+    default_row.total_outflows = Decimal(0)
     default_row.transaction_count = 0
     default_row.period_start = None
     default_row.period_end = None
@@ -385,8 +385,8 @@ class TestReadServiceCashflow:
     ) -> None:
         # Mock result.one() to return a proper row-like object
         mock_row = MagicMock()
-        mock_row.total_inflows = Decimal("0")
-        mock_row.total_outflows = Decimal("0")
+        mock_row.total_inflows = Decimal(0)
+        mock_row.total_outflows = Decimal(0)
         mock_row.transaction_count = 0
         mock_row.period_start = None
         mock_row.period_end = None
@@ -400,8 +400,8 @@ class TestReadServiceCashflow:
         self, mock_session: AsyncMock
     ) -> None:
         mock_row = MagicMock()
-        mock_row.total_inflows = Decimal("0")
-        mock_row.total_outflows = Decimal("0")
+        mock_row.total_inflows = Decimal(0)
+        mock_row.total_outflows = Decimal(0)
         mock_row.transaction_count = 0
         mock_row.period_start = None
         mock_row.period_end = None
@@ -422,8 +422,8 @@ class TestReadServiceCashflow:
         self, mock_session: AsyncMock
     ) -> None:
         mock_row = MagicMock()
-        mock_row.total_inflows = Decimal("0")
-        mock_row.total_outflows = Decimal("0")
+        mock_row.total_inflows = Decimal(0)
+        mock_row.total_outflows = Decimal(0)
         mock_row.transaction_count = 0
         mock_row.period_start = None
         mock_row.period_end = None
@@ -437,8 +437,8 @@ class TestReadServiceCashflow:
         self, mock_session: AsyncMock
     ) -> None:
         mock_row = MagicMock()
-        mock_row.total_inflows = Decimal("0")
-        mock_row.total_outflows = Decimal("0")
+        mock_row.total_inflows = Decimal(0)
+        mock_row.total_outflows = Decimal(0)
         mock_row.transaction_count = 0
         mock_row.period_start = None
         mock_row.period_end = None
