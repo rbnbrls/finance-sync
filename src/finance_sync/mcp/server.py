@@ -519,8 +519,7 @@ class GetDailyBriefingInput(BaseModel):
     ),
 )
 async def tool_get_daily_briefing(
-    ctx: Context,
-    _timeframe: str = "today",
+    ctx: Context, timeframe: str = "today",  # noqa: ARG001
 ) -> str:
     """Generate an AI-powered daily briefing."""
     tenant_id = _get_tenant_id(ctx)
@@ -556,8 +555,8 @@ class GetSubscriptionsInput(BaseModel):
     name="get_subscriptions",
     title="Get Subscriptions",
     description=(
-        "List detected subscription services with cost, billing cycle,"
-        " and status."
+        "List detected subscription services with cost,"
+        " billing cycle, and status."
     ),
 )
 async def tool_get_subscriptions(ctx: Context, active_only: bool = True) -> str:
@@ -589,7 +588,8 @@ class GetPerformanceInput(BaseModel):
     subject: str | None = Field(
         default=None,
         description=(
-            "Optional filter: account_id or security_id to scope the query."
+            "Optional filter: account_id or security_id"
+            " to scope the query."
         ),
     )
 
@@ -598,13 +598,12 @@ class GetPerformanceInput(BaseModel):
     name="get_performance",
     title="Get Performance",
     description=(
-        "Compute portfolio or investment performance for a given period."
+        "Compute portfolio or investment performance for a"
+        " given period."
     ),
 )
 async def tool_get_performance(
-    ctx: Context,
-    period: str = "1M",
-    _subject: str | None = None,
+    ctx: Context, period: str = "1M", subject: str | None = None  # noqa: ARG001
 ) -> str:
     """Compute portfolio/investment performance."""
     from datetime import UTC, datetime, timedelta
@@ -643,8 +642,8 @@ class GetAllocationInput(BaseModel):
     by: str = Field(
         default="asset_class",
         description=(
-            "Allocation breakdown dimension: 'asset_class', 'sector',"
-            " 'region', or 'account'."
+            "Allocation breakdown dimension: 'asset_class',"
+            " 'sector', 'region', or 'account'."
         ),
     )
     target_currency: str | None = Field(
@@ -657,13 +656,13 @@ class GetAllocationInput(BaseModel):
     name="get_allocation",
     title="Get Allocation",
     description=(
-        "Break down portfolio allocation by asset class, sector, region,"
-        " or account."
+        "Break down portfolio allocation by asset class,"
+        " sector, region, or account."
     ),
 )
 async def tool_get_allocation(
     ctx: Context,
-    _by: str = "asset_class",
+    by: str = "asset_class",  # noqa: ARG001
     target_currency: str | None = None,
 ) -> str:
     """Compute portfolio allocation breakdown."""
