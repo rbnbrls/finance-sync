@@ -6,12 +6,16 @@ environment variables / Settings) and trigger export runs to Wealthfolio.
 
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import (
+    AsyncSession,
+)
 
 from finance_sync.api.deps.auth import AuthContext, get_auth_context
 from finance_sync.dependencies import get_container, get_db
@@ -21,13 +25,6 @@ from finance_sync.exporter.wealthfolio.exporter import (
     WealthfolioExporter,
     WealthfolioExportResult,
 )
-
-if TYPE_CHECKING:
-    from datetime import datetime
-
-    from sqlalchemy.ext.asyncio import (
-        AsyncSession,
-    )
 
 router = APIRouter(prefix="/exporters", tags=["exporters"])
 
