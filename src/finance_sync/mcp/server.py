@@ -246,7 +246,7 @@ async def resource_account_detail(ctx: Context, account_id: str) -> str:
             return _serialise({"error": f"Account {account_id!r} not found"})
         return _serialise(result.model_dump())
     finally:
-        await read_service._session.aclose()  # noqa: SLF001
+        await read_service._session.aclose()
 
 
 @mcp.resource(
@@ -272,7 +272,7 @@ async def resource_account_transactions(ctx: Context, account_id: str) -> str:
         )
         return _serialise(result.model_dump())
     finally:
-        await read_service._session.aclose()  # noqa: SLF001
+        await read_service._session.aclose()
 
 
 @mcp.resource(
@@ -296,7 +296,7 @@ async def resource_portfolio_history(ctx: Context) -> str:
         result = await read_service.get_portfolio_history(tenant_id, limit=90)
         return _serialise(result.model_dump())
     finally:
-        await read_service._session.aclose()  # noqa: SLF001
+        await read_service._session.aclose()
 
 
 @mcp.resource(
@@ -321,7 +321,7 @@ async def resource_net_worth_history(ctx: Context) -> str:
         result = await read_service.get_net_worth_history(tenant_id, limit=90)
         return _serialise(result.model_dump())
     finally:
-        await read_service._session.aclose()  # noqa: SLF001
+        await read_service._session.aclose()
 
 
 # ═════════════════════════════════════════════════════════════════════════
@@ -606,7 +606,7 @@ async def tool_get_performance(
         )
         return _serialise(result.model_dump())
     finally:
-        await read_service._session.aclose()  # noqa: SLF001
+        await read_service._session.aclose()
 
 
 @mcp.tool(
@@ -629,7 +629,7 @@ async def tool_get_allocation(
         result = await read_service.get_allocation(tenant_id, by=by)
         return _serialise(result.model_dump())
     finally:
-        await read_service._session.aclose()  # noqa: SLF001
+        await read_service._session.aclose()
 
 
 @mcp.tool(
@@ -670,7 +670,7 @@ async def tool_get_cashflow(
         )
         return _serialise(result.model_dump())
     finally:
-        await read_service._session.aclose()  # noqa: SLF001
+        await read_service._session.aclose()
 
 
 @mcp.tool(
@@ -698,7 +698,7 @@ async def tool_list_sync_runs(
         )
         return _serialise(result.model_dump())
     finally:
-        await read_service._session.aclose()  # noqa: SLF001
+        await read_service._session.aclose()
 
 
 # ═════════════════════════════════════════════════════════════════════════
