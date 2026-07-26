@@ -257,7 +257,7 @@ class Container:
             if self._engine is not None:
                 await self._engine.dispose()
             if self._redis is not None:
-                import redis.asyncio as aioredis  # noqa: TC002  # type: ignore[import]
+                import redis.asyncio as aioredis  # type: ignore[import]
 
                 r: aioredis.Redis[bytes] = self._redis  # type: ignore[valid-type]
                 await r.aclose()
