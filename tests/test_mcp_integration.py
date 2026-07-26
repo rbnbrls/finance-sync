@@ -58,6 +58,7 @@ class TestMCPResourcesCompleteness:
         assert t is not None
         assert t.name == "net_worth"
 
+
 # ═════════════════════════════════════════════════════════════════════════
 # Tool registration tests
 # ═════════════════════════════════════════════════════════════════════════
@@ -101,6 +102,7 @@ class TestMCPToolsCompleteness:
         assert t is not None
         props = t.parameters.get("properties", {})
         assert "query" in props
+
 
 # ═════════════════════════════════════════════════════════════════════════
 # Helper function tests
