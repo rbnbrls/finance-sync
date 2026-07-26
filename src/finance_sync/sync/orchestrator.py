@@ -308,7 +308,7 @@ class SyncOrchestrator:
                 log.debug("authenticated")
 
                 # 3. Fetch + upsert accounts
-                raw_accounts = await connector._rate_limited_fetch_accounts()
+                raw_accounts = await connector._rate_limited_fetch_accounts()  # noqa: SLF001
                 canonical_accounts = connector.transform_accounts(raw_accounts)
 
                 for ca in canonical_accounts:
@@ -318,7 +318,7 @@ class SyncOrchestrator:
 
                 # 4. Fetch + upsert transactions per account
                 for ca in canonical_accounts:
-                    raw_txns = await connector._rate_limited_fetch_transactions(
+                    raw_txns = await connector._rate_limited_fetch_transactions(  # noqa: SLF001
                         since, account_id=ca.external_account_id
                     )
                     canonical_txns = connector.transform_transactions(raw_txns)
