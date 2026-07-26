@@ -1104,7 +1104,7 @@ class SubscriptionPatternEngine:
         raw_descriptions = " ".join(descriptions)
 
         # Category hints
-        from finance_sync.services.subscription_detector import (
+        from finance_sync.services.subscription_detector import (  # type: ignore[reportPrivateUsage]
             _classify_category,
             _is_subscription_keyword,
         )
@@ -1131,7 +1131,7 @@ class SubscriptionPatternEngine:
 
         # Build merchant name from the most common normalised merchant in
         # the cluster
-        from finance_sync.services.subscription_detector import (
+        from finance_sync.services.subscription_detector import (  # type: ignore[reportPrivateUsage]
             _normalise_merchant,
         )
 
@@ -1242,7 +1242,7 @@ class SubscriptionPatternEngine:
         if len(amounts) < 2:
             return 1.0
 
-        from finance_sync.services.subscription_detector import (
+        from finance_sync.services.subscription_detector import (  # type: ignore[reportPrivateUsage]
             _amounts_are_consistent,
         )
 

@@ -26,7 +26,7 @@ from finance_sync.config.settings import Settings
 from finance_sync.container import Container
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    from collections.abc import AsyncGenerator
 
 logger = structlog.get_logger(__name__)
 
@@ -37,7 +37,7 @@ logger = structlog.get_logger(__name__)
 @asynccontextmanager
 async def mcp_lifespan(
     _server: FastMCP[Any],
-) -> AsyncIterator[dict[str, Any]]:
+) -> AsyncGenerator[dict[str, Any]]:
     """FastMCP lifespan: initialise the DI container.
 
     Stores the container in lifespan context so resources/tools can
@@ -390,7 +390,7 @@ async def tool_resolve_security(ctx: Context, query: str) -> str:
             result = await read_service.list_securities(search=query, limit=20)
             return _serialise(result.model_dump())
         finally:
-            await read_service._session.aclose()  # noqa: SLF001
+            await read_service._session.aclose()  # type: ignore[reportPrivateUsage]  # noqa: SLF001
 
 
 # ═════════════════════════════════════════════════════════════════════════

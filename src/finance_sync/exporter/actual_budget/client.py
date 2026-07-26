@@ -333,7 +333,7 @@ class ActualBudgetClient:
     # ── Property accessors ───────────────────────────────────────────
 
     @property
-    def session(self) -> object:
+    def session(self) -> Any:
         """Return the actualpy session (raises if not connected)."""
         return self._actual and self._actual.session
 
@@ -372,10 +372,10 @@ def _init_sync(
     if config.sync_id:
         # List available files to find the matching sync id
         files = actual.list_user_files()
-        for f in files.get("files", []):
+        for f in files.data:
             if (
-                f.get("syncId") == config.sync_id
-                or f.get("id") == config.sync_id
+                f.group_id == config.sync_id
+                or f.file_id == config.sync_id
             ):
                 actual.set_file(f)
                 break

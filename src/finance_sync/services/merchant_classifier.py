@@ -1035,10 +1035,10 @@ class MerchantClassifier:
 
         from finance_sync.models.security import Security
 
-        async with self._uow._session_factory() as session:  # noqa: SLF001
-            stmt = select(Security).where(Security.ticker == ticker)  # type: ignore[attr-defined]
-            result = await session.execute(stmt)
-            return result.scalar_one_or_none()
+        session = self._uow.session
+        stmt = select(Security).where(Security.ticker == ticker)  # type: ignore[attr-defined]
+        result = await session.execute(stmt)
+        return result.scalar_one_or_none()
 
     async def _find_latest_fundamentals(
         self,
@@ -1054,25 +1054,25 @@ class MerchantClassifier:
             FundamentalObservation,
         )
 
-        async with self._uow._session_factory() as session:  # noqa: SLF001
-            stmt = (
-                select(FundamentalObservation)
-                .where(
-                    FundamentalObservation.security_id == security_id  # type: ignore[attr-defined]
-                )
-                .order_by(FundamentalObservation.timestamp.desc())  # type: ignore[attr-defined]
-                .limit(1)
+        session = self._uow.session
+        stmt = (
+            select(FundamentalObservation)
+            .where(
+                FundamentalObservation.security_id == security_id  # type: ignore[attr-defined]
             )
-            result = await session.execute(stmt)
-            obs = result.scalar_one_or_none()
-            if obs is None:
-                return None
+            .order_by(FundamentalObservation.timestamp.desc())  # type: ignore[attr-defined]
+            .limit(1)
+        )
+        result = await session.execute(stmt)
+        obs = result.scalar_one_or_none()
+        if obs is None:
+            return None
 
-            return {
-                "market_cap": obs.market_cap,
-                "pe_ratio": obs.pe_ratio,
-                "dividend_yield": obs.dividend_yield,
-                "eps": obs.eps,
-                "beta": obs.beta,
-                "forward_pe": obs.forward_pe,
-            }
+        return {
+            "market_cap": obs.market_cap,
+            "pe_ratio": obs.pe_ratio,
+            "dividend_yield": obs.dividend_yield,
+            "eps": obs.eps,
+            "beta": obs.beta,
+            "forward_pe": obs.forward_pe,
+        }
