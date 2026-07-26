@@ -13,7 +13,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import (  # noqa: TC002 — needed at runtime by FastAPI DI
+from sqlalchemy.ext.asyncio import (
     AsyncSession,
 )
 
