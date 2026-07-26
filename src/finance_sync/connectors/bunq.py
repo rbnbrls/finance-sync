@@ -736,7 +736,7 @@ def _parse_bunq_datetime(raw: str) -> datetime:
     parsed: datetime | None = None
     for fmt in ("%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S"):
         try:
-            parsed = datetime.strptime(cleaned, fmt)  # noqa: DTZ007 — naive UTC returned by bunq, tz attached below
+            parsed = datetime.strptime(cleaned, fmt)
             break
         except ValueError:
             continue
