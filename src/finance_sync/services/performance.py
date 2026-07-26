@@ -569,18 +569,18 @@ class PerformanceService:
         components: list[AttributionComponent] = []
 
         for sec_type in sorted(all_types):
-            pw = start_holdings.get(sec_type, _ZERO)
-            bw = bench_weights.get(sec_type, _ZERO)
-            pr = sector_returns.get(sec_type, _ZERO)
+            pw: E = start_holdings.get(sec_type, _ZERO)
+            bw: E = bench_weights.get(sec_type, _ZERO)
+            pr: E = sector_returns.get(sec_type, _ZERO)
             # For benchmark sector returns, use the average of all
             # sector returns as proxy (since we don't have a real
             # multi-sector benchmark)
-            avg_bench_return = (
-                sum(sector_returns.values()) / len(sector_returns)
+            avg_bench_return: E = (
+                sum(sector_returns.values()) / E(len(sector_returns))
                 if sector_returns
                 else _ZERO
             )
-            br = avg_bench_return
+            br: E = avg_bench_return
 
             allocation_effect = (pw - bw) * (br - avg_bench_return)
             selection_effect = bw * (pr - br)

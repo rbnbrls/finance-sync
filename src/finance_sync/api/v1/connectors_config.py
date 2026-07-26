@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from finance_sync.api.deps.auth import (
     AuthContext,
-    get_auth_context,
+    require_role,
 )
 from finance_sync.connectors.models import (
     ConnectorConfig as ConnectorConfigModel,
@@ -117,7 +117,7 @@ class ConnectorTestResult(BaseModel):
 
 
 class InlineTestRequest(BaseModel):
-    """Payload for testing a connection with inline (not yet saved) credentials."""
+    """Test a connection with inline (unsaved) credentials."""
 
     credentials: dict[str, str] = Field(
         default_factory=dict,
@@ -144,7 +144,7 @@ class InlineTestResult(BaseModel):
     message: str
     accounts: list[InlineTestAccount] = Field(
         default_factory=list,
-        description="Accounts available via this connection (if test succeeded)",
+        description="Accounts accessible via this connection",
     )
 
 
@@ -579,8 +579,7 @@ async def test_connector_inline(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=(
-                f"Unknown connector '{provider_type}'. "
-                f"Available: {available}"
+                f"Unknown connector '{provider_type}'. Available: {available}"
             ),
         )
 
