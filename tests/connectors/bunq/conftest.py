@@ -14,12 +14,18 @@ import pytest
 from finance_sync.connectors.bunq import BunqConnector
 from finance_sync.connectors.models import ConnectorConfig
 from tests.connectors.fixtures.bunq_api_fixtures import (
+    CARD_PAYMENTS_CARD_7000001,
+    CARD_PAYMENTS_CARD_7000002,
+    CARDS_RESPONSE,
     MONETARY_ACCOUNTS_RESPONSE,
     PAGE_1_RESPONSE,
     PAGE_2_RESPONSE,
     PAYMENTS_ACCOUNT_1000001,
     PAYMENTS_ACCOUNT_1000002,
     PAYMENTS_ACCOUNT_1000003,
+    SCHEDULES_ACCOUNT_1000001,
+    SCHEDULES_ACCOUNT_1000002,
+    SCHEDULES_ACCOUNT_1000003,
     SESSION_SERVER_RESPONSE,
 )
 
@@ -55,8 +61,30 @@ class BunqApiMockTransport(httpx.MockTransport):
 
         # GET /v1/monetary-account/<id>/payment
         # Must be before monetary-account since payment URLs also match.
-        if request.method == "GET" and "/payment" in path:
+        is_payment = (
+            request.method == "GET"
+            and "/payment" in path
+            and "schedule" not in path
+        )
+        if is_payment:
             return self._handle_payments(str(request.url))
+
+        # GET /v1/monetary-account/<id>/schedule-payment
+        if request.method == "GET" and "/schedule-payment" in path:
+            return self._handle_schedule_payments(str(request.url))
+
+        # GET /v1/card/<id>/card-payment
+        if request.method == "GET" and "/card-payment" in path:
+            return self._handle_card_payments(str(request.url))
+
+        # GET /v1/user/<id>/card
+        if (
+            request.method == "GET"
+            and "/card" in path
+            and "/card-payment" not in path
+            and "/user/" in path
+        ):
+            return self._handle_cards(str(request.url))
 
         # GET /v1/user/<id>/monetary-account
         if request.method == "GET" and "monetary-account" in path:
@@ -88,6 +116,37 @@ class BunqApiMockTransport(httpx.MockTransport):
             return httpx.Response(200, json=PAYMENTS_ACCOUNT_1000002)
         if "monetary-account/1000003/payment" in url:
             return httpx.Response(200, json=PAYMENTS_ACCOUNT_1000003)
+        return httpx.Response(200, json={"Response": [], "Pagination": {}})
+
+    def _handle_schedule_payments(
+        self,
+        url: str,
+    ) -> httpx.Response:
+        """Return schedule payments for the account ID in the URL path."""
+        if "monetary-account/1000001/schedule-payment" in url:
+            return httpx.Response(200, json=SCHEDULES_ACCOUNT_1000001)
+        if "monetary-account/1000002/schedule-payment" in url:
+            return httpx.Response(200, json=SCHEDULES_ACCOUNT_1000002)
+        if "monetary-account/1000003/schedule-payment" in url:
+            return httpx.Response(200, json=SCHEDULES_ACCOUNT_1000003)
+        return httpx.Response(200, json={"Response": [], "Pagination": {}})
+
+    def _handle_cards(
+        self,
+        url: str,
+    ) -> httpx.Response:
+        """Return cards list for the user."""
+        return httpx.Response(200, json=CARDS_RESPONSE)
+
+    def _handle_card_payments(
+        self,
+        url: str,
+    ) -> httpx.Response:
+        """Return card payments for the card ID in the URL path."""
+        if "card/7000001/card-payment" in url:
+            return httpx.Response(200, json=CARD_PAYMENTS_CARD_7000001)
+        if "card/7000002/card-payment" in url:
+            return httpx.Response(200, json=CARD_PAYMENTS_CARD_7000002)
         return httpx.Response(200, json={"Response": [], "Pagination": {}})
 
 
