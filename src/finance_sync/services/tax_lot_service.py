@@ -21,7 +21,7 @@ Design notes
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any
 
@@ -67,7 +67,9 @@ async def create_tax_lots_for_purchase(
     lot = TaxLot(
         tenant_id=tenant_id,
         account_id=str(transaction.account_id),
-        security_id=str(transaction.security_id) if transaction.security_id else None,
+        security_id=str(transaction.security_id)
+        if transaction.security_id
+        else None,
         purchase_transaction_id=str(transaction.id),
         quantity=quantity,
         remaining_quantity=quantity,
@@ -115,11 +117,15 @@ async def match_sale_to_lots(
     assert transaction.transaction_type == TransactionType.SALE
     repo = TaxLotRepository(session)
 
-    sale_quantity = abs(transaction.quantity) if transaction.quantity else E("0")
+    sale_quantity = (
+        abs(transaction.quantity) if transaction.quantity else E("0")
+    )
     if sale_quantity <= E("0"):
         return []  # No quantity info — can't match
 
-    security_id = str(transaction.security_id) if transaction.security_id else None
+    security_id = (
+        str(transaction.security_id) if transaction.security_id else None
+    )
     if not security_id:
         return []
 
@@ -143,7 +149,11 @@ async def match_sale_to_lots(
         if transaction.quantity and transaction.quantity != E("0")
         else sale_quantity
     )
-    proceeds_per_unit = total_proceeds / sale_qty_from_txn if sale_qty_from_txn != E("0") else E("0")
+    proceeds_per_unit = (
+        total_proceeds / sale_qty_from_txn
+        if sale_qty_from_txn != E("0")
+        else E("0")
+    )
 
     for lot in open_lots:
         if remaining_to_sell <= E("0"):
@@ -234,7 +244,8 @@ async def compute_unrealized_pl(
                     "current_value": current_value,
                     "unrealized_pl": unrealized_pl,
                     "unrealized_pl_pct": unrealized_pl_pct,
-                    "currency_code": current_price_currency or lot.currency_code,
+                    "currency_code": current_price_currency
+                    or lot.currency_code,
                 }
             )
     return results
@@ -263,12 +274,16 @@ async def detect_and_adjust_wash_sales(
         return []
 
     # Only matters if there's a realised loss
-    sale_quantity = abs(transaction.quantity) if transaction.quantity else E("0")
+    sale_quantity = (
+        abs(transaction.quantity) if transaction.quantity else E("0")
+    )
     if sale_quantity <= E("0"):
         return []
 
     repo = TaxLotRepository(session)
-    security_id = str(transaction.security_id) if transaction.security_id else None
+    security_id = (
+        str(transaction.security_id) if transaction.security_id else None
+    )
     if not security_id:
         return []
 
@@ -306,8 +321,7 @@ async def detect_and_adjust_wash_sales(
     replacement_lots = [
         lot
         for lot in all_lots
-        if lot.is_open()
-        and lot.purchase_transaction_id != str(transaction.id)
+        if lot.is_open() and lot.purchase_transaction_id != str(transaction.id)
     ]
 
     remaining_loss = total_loss
@@ -358,7 +372,9 @@ async def process_transaction(
     txn_type = transaction.transaction_type
 
     if txn_type == TransactionType.PURCHASE and transaction.security_id:
-        lot = await create_tax_lots_for_purchase(session, tenant_id, transaction)
+        lot = await create_tax_lots_for_purchase(
+            session, tenant_id, transaction
+        )
         actions.append(
             {
                 "action": "lot_created",
@@ -373,12 +389,8 @@ async def process_transaction(
             transaction,
             cost_basis_method=cost_basis_method,
         )
-        matched_qty = sum(
-            c.get("quantity_sold", E("0")) for c in closures
-        )
-        total_pl = sum(
-            c.get("realized_pl", E("0")) for c in closures
-        )
+        matched_qty = sum(c.get("quantity_sold", E("0")) for c in closures)
+        total_pl = sum(c.get("realized_pl", E("0")) for c in closures)
         actions.append(
             {
                 "action": "lots_matched",
@@ -415,7 +427,6 @@ async def get_tax_lot_summary(
 
     Returns counts and totals for open and closed lots.
     """
-    from sqlalchemy import func, select
 
     repo = TaxLotRepository(session)
     conditions: list[Any] = [TaxLot.tenant_id == tenant_id]  # type: ignore[attr-defined]
@@ -430,7 +441,9 @@ async def get_tax_lot_summary(
     open_lots = [l for l in lots if l.is_open()]
     closed_lots = [l for l in lots if not l.is_open()] if include_closed else []
 
-    total_cost = sum((l.remaining_quantity * l.cost_basis_per_unit) for l in open_lots)
+    total_cost = sum(
+        (l.remaining_quantity * l.cost_basis_per_unit) for l in open_lots
+    )
     total_realized_pl = sum((l.realized_pl or E("0")) for l in closed_lots)
 
     return {
@@ -465,10 +478,12 @@ async def compute_all_tax_lots(
         select(Transaction)
         .where(
             Transaction.tenant_id == tenant_id,  # type: ignore[attr-defined]
-            Transaction.transaction_type.in_([  # type: ignore[attr-defined]
-                TransactionType.PURCHASE.value,
-                TransactionType.SALE.value,
-            ]),
+            Transaction.transaction_type.in_(
+                [  # type: ignore[attr-defined]
+                    TransactionType.PURCHASE.value,
+                    TransactionType.SALE.value,
+                ]
+            ),
             Transaction.security_id.isnot(None),  # type: ignore[attr-defined]
         )
         .order_by(Transaction.occurred_at.asc())  # type: ignore[attr-defined]
