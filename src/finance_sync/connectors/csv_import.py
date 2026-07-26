@@ -1,0 +1,239 @@
+"""CSV File Import connector.
+
+Reads financial transactions from CSV files.  Supports configurable
+column mapping, date formats, delimiters, and multi-file directories.
+Useful for banks / brokers that only offer CSV exports.
+
+Credentials
+    No credentials required — the connector works with local files.
+    ``config.options["csv_path"]`` — Path to a single CSV file.
+    ``config.options["csv_directory"]`` — Directory of CSV files.
+    ``config.options["column_mapping"]`` — Dict mapping fields to columns.
+    ``config.options["date_format"]`` — strptime format (default: ``%Y-%m-%d``).
+    ``config.options["delimiter"]`` — CSV delimiter (default: ``,``).
+    ``config.options["has_header"]`` — Whether CSV has a header (default: True).
+    ``config.options["currency"]`` — Currency code (default: ``EUR``).
+    ``config.options["account_name"]`` — Display name for the account.
+
+Example::
+
+    config = ConnectorConfig(
+        provider_type="csv_import",
+        credentials={},
+        options={
+            "csv_path": "/path/to/transactions.csv",
+            "date_format": "%Y-%m-%d",
+            "column_mapping": {
+                "date": "Date",
+                "description": "Description",
+                "amount": "Amount",
+            },
+        },
+    )
+    conn = CSVImportConnector(config)
+    await conn.authenticate()
+    txns = await conn.fetch_transactions(since=...)
+"""
+
+from __future__ import annotations
+
+import csv
+import os
+from datetime import UTC, datetime
+from decimal import Decimal
+
+from finance_sync.connectors.base import Connector
+from finance_sync.connectors.exceptions import (
+    PermanentError,
+    TransientError,
+)
+from finance_sync.connectors.models import RawAccount, RawTransaction
+
+
+class CSVImportConnector(Connector):
+    """Connector that reads financial transactions from CSV files.
+
+    Key features:
+
+    * File-based data source (no network I/O)
+    * Configurable column mapping
+    * Date format parsing
+    * Account auto-creation from file metadata
+    * Multi-file support (statements directory)
+    """
+
+    display_name = "CSV File Import"
+    sdk_version = "0.1.0"
+
+    # No rate limiting needed — this is file-based
+    rate_limit_policy = None
+
+    @property
+    def name(self) -> str:
+        return "csv_import"
+
+    async def authenticate(self) -> None:
+        """Validate that the CSV file or directory exists and is readable."""
+        csv_path = self.config.options.get("csv_path", "")
+        if not csv_path:
+            csv_path = self.config.options.get("csv_directory", "")
+
+        if not csv_path:
+            msg = (
+                "CSV import requires either 'csv_path' (single file) "
+                "or 'csv_directory' (directory of CSVs) in options"
+            )
+            raise PermanentError(msg)
+
+        if not os.path.exists(csv_path):  # noqa: ASYNC240
+            msg = f"CSV path does not exist: {csv_path}"
+            raise PermanentError(msg)
+
+        self._authenticated = True
+
+    async def fetch_accounts(self) -> list[RawAccount]:
+        """Derive accounts from CSV files.
+
+        If a single file is specified, creates one account named after
+        the file or the configured ``account_name``.
+        """
+        account_name = self.config.options.get(
+            "account_name", "CSV Import Account"
+        )
+
+        return [
+            RawAccount(
+                external_account_id="csv_default",
+                name=account_name,
+                account_type="checking",
+                currency_code=self.config.options.get("currency", "EUR"),
+            )
+        ]
+
+    async def fetch_transactions(
+        self,
+        since: datetime,
+        *,
+        _account_id: str | None = None,
+        limit: int | None = None,
+    ) -> list[RawTransaction]:
+        """Parse CSV file(s) and return transactions.
+
+        Supports:
+        - Single file via ``csv_path``
+        - Directory of CSV files via ``csv_directory``
+        - Column mapping via ``column_mapping``
+        - Date format via ``date_format``
+        """
+        csv_path = self.config.options.get("csv_path")
+        csv_directory = self.config.options.get("csv_directory")
+
+        if csv_path:
+            files = [csv_path]
+        elif csv_directory:
+            files = [
+                os.path.join(csv_directory, f)
+                for f in sorted(os.listdir(csv_directory))
+                if f.endswith(".csv")
+            ]
+        else:
+            return []
+
+        all_transactions: list[RawTransaction] = []
+        for file_path in files:
+            txns = self._parse_csv(file_path, since)
+            all_transactions.extend(txns)
+
+            if limit and len(all_transactions) >= limit:
+                all_transactions = all_transactions[:limit]
+                break
+
+        if limit:
+            all_transactions = all_transactions[:limit]
+
+        return all_transactions
+
+    def _parse_csv(
+        self,
+        file_path: str,
+        since: datetime,
+    ) -> list[RawTransaction]:
+        """Parse a single CSV file into RawTransaction objects."""
+        date_format = self.config.options.get("date_format", "%Y-%m-%d")
+        delimiter = self.config.options.get("delimiter", ",")
+        has_header = self.config.options.get("has_header", True)
+        column_mapping = self.config.options.get("column_mapping", {})
+        currency = self.config.options.get("currency", "EUR")
+        account_id_from_file = f"csv_{os.path.basename(file_path)}"
+
+        date_col = column_mapping.get("date", "Date")
+        desc_col = column_mapping.get("description", "Description")
+        amount_col = column_mapping.get("amount", "Amount")
+        type_col = column_mapping.get("type")
+
+        transactions: list[RawTransaction] = []
+
+        with open(file_path, newline="", encoding="utf-8-sig") as f:
+            reader = (
+                csv.DictReader(f, delimiter=delimiter)
+                if has_header
+                else csv.DictReader(
+                    f,
+                    delimiter=delimiter,
+                    fieldnames=[date_col, desc_col, amount_col],
+                )
+            )
+
+            for row_num, row in enumerate(reader, start=1):
+                try:
+                    raw_date = row.get(date_col, "").strip()
+                    if not raw_date:
+                        continue
+
+                    occurred_at = datetime.strptime(
+                        raw_date, date_format
+                    ).replace(tzinfo=UTC)
+                    if occurred_at < since:
+                        continue
+
+                    raw_amount = row.get(amount_col, "0").strip()
+                    # Remove currency symbols and whitespace
+                    raw_amount = (
+                        raw_amount.replace("\u20ac", "")
+                        .replace("$", "")
+                        .replace("\xa0", "")
+                        .strip()
+                    )
+                    amount = Decimal(raw_amount.replace(",", "."))
+
+                    description = row.get(desc_col, "").strip()
+                    transaction_type = (
+                        row.get(type_col, "").strip().lower()
+                        if type_col
+                        else ("credit" if amount > 0 else "debit")
+                    )
+
+                    txn_id = f"{account_id_from_file}_{row_num}"
+                    transactions.append(
+                        RawTransaction(
+                            external_transaction_id=txn_id,
+                            external_account_id=account_id_from_file,
+                            amount=amount,
+                            currency_code=currency,
+                            occurred_at=occurred_at,
+                            description=description,
+                            transaction_type=transaction_type,
+                            status="booked",
+                            provider_fingerprint=str(
+                                hash(f"{raw_date}{raw_amount}{description}")
+                            ),
+                        )
+                    )
+                except (ValueError, KeyError) as exc:
+                    msg = (
+                        f"Failed to parse CSV row {row_num} in "
+                        f"{file_path}: {exc}"
+                    )
+                    raise TransientError(msg) from exc
+
+        return transactions
