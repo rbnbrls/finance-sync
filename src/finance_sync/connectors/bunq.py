@@ -744,7 +744,7 @@ def _parse_bunq_datetime(raw: str) -> datetime:
     if parsed is None:
         return datetime.fromtimestamp(0, tz=UTC)
 
-    return parsed
+    return parsed.replace(tzinfo=UTC)
 
 
 def _parse_retry_after(response: httpx.Response) -> float | None:

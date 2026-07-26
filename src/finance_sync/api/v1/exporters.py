@@ -6,7 +6,7 @@ environment variables / Settings) and trigger export runs to Wealthfolio.
 
 from __future__ import annotations
 
-from datetime import datetime  # noqa: TC003
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 

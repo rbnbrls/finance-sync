@@ -18,7 +18,7 @@ ExportDelivery
 
 from __future__ import annotations
 
-from datetime import datetime  # noqa: TC003
+from datetime import datetime
 from typing import ClassVar
 
 from sqlalchemy import DateTime, ForeignKey, String, Text, UniqueConstraint
