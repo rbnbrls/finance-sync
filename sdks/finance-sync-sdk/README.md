@@ -58,3 +58,6 @@ mybank = "mybank_finance_sync:MyBankPlugin"
 
 See the [plugin development guide](https://github.com/rbnbrls/finance-sync/blob/main/docs/plugin-development.md)
 for full documentation.
+
+See the [compatibility policy](COMPATIBILITY.md) for versioning guarantees,
+deprecation policy, and dependency strategy.

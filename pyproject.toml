@@ -4,17 +4,9 @@ version = "0.1.0"
 description = "Self-hosted, API-first financial data platform"
 readme = "README.md"
 requires-python = ">=3.12"
-license = { text = "MIT" }
+license = "MIT"
 authors = [
     { name = "rbnbrls", email = "3826339+rbnbrls@users.noreply.github.com" },
-]
-classifiers = [
-    "Development Status :: 2 - Pre-Alpha",
-    "Intended Audience :: Financial and Insurance Industry",
-    "License :: OSI Approved :: MIT License",
-    "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.12",
-    "Programming Language :: Python :: 3.13",
 ]
 
 dependencies = [
@@ -121,10 +113,12 @@ line-ending = "auto"
 
 # Per-file overrides
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["T20", "D", "ARG", "SLF", "ASYNC"]
+"tests/**" = ["T20", "D", "ARG", "SLF", "ASYNC", "N817", "DTZ005", "PERF102", "PERF401", "A002", "E501", "RUF059"]
 "src/finance_sync/api/**" = ["B008"]
 "src/finance_sync/__init__.py" = ["T20"]
+"src/finance_sync/cli.py" = ["T20"]
 "src/finance_sync/models/*" = ["TC001", "TC003"]
+"src/finance_sync/schemas/*" = ["TC001", "TC003"]
 "src/finance_sync/db/repository.py" = ["A002", "TC002"]
 "src/finance_sync/db/uow.py" = ["TC002", "TC003"]
 
@@ -152,6 +146,9 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*", "async_test_*"]
+markers = [
+    "e2e: End-to-end tests that require Playwright and a browser (run separately).",
+]
 
 [tool.coverage.run]
 source = ["finance_sync", "src"]

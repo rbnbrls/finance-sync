@@ -555,6 +555,7 @@ def _parse_order(
         if ticker
         else f"{side} order {order_id}",
         transaction_type=_map_order_side(side),
+        quantity=Decimal(str(quantity)) if quantity else None,
         status=_map_order_status(status_raw),
         provider_metadata={
             "ticker": ticker,

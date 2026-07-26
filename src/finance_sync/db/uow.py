@@ -11,13 +11,17 @@ from typing import TYPE_CHECKING, Self
 from finance_sync.db.repositories import (
     AccountRepository,
     BalanceRepository,
+    DetectedSubscriptionRepository,
     EnrichmentFreshnessRepository,
+    FundamentalObservationRepository,
+    FxRateRepository,
     HoldingRepository,
     OutboxMessageRepository,
     ReconciliationResultRepository,
     ReconciliationRunRepository,
     ResolutionAuditLogRepository,
     SecurityListingRepository,
+    SecurityMetadataObservationRepository,
     SecurityPriceRepository,
     SecurityRepository,
     SyncRunRepository,
@@ -124,7 +128,7 @@ class UnitOfWork:
     def reconciliation_results(self) -> ReconciliationResultRepository:
         return self._repo(
             "reconciliation_results", ReconciliationResultRepository
-        )
+        )  # type: ignore[return-value]
 
     @property
     def webhooks(self) -> WebhookRepository:
@@ -133,6 +137,31 @@ class UnitOfWork:
     @property
     def webhook_delivery_logs(self) -> WebhookDeliveryLogRepository:
         return self._repo("webhook_delivery_logs", WebhookDeliveryLogRepository)  # type: ignore[return-value]
+
+    @property
+    def fx_rates(self) -> FxRateRepository:
+        return self._repo("fx_rates", FxRateRepository)  # type: ignore[return-value]
+
+    @property
+    def fundamental_observations(self) -> FundamentalObservationRepository:
+        return self._repo(
+            "fundamental_observations", FundamentalObservationRepository
+        )  # type: ignore[return-value]
+
+    @property
+    def security_metadata_observations(
+        self,
+    ) -> SecurityMetadataObservationRepository:
+        return self._repo(
+            "security_metadata_observations",
+            SecurityMetadataObservationRepository,
+        )  # type: ignore[return-value]
+
+    @property
+    def detected_subscriptions(self) -> DetectedSubscriptionRepository:
+        return self._repo(
+            "detected_subscriptions", DetectedSubscriptionRepository
+        )  # type: ignore[return-value]
 
     # ── Lifecycle ────────────────────────────────────────────────────
 

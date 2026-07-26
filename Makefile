@@ -65,6 +65,24 @@ pre-commit-install:                ## Install pre-commit hooks
 pre-commit-run:                    ## Run pre-commit on all files
 	pre-commit run --all-files
 
+# ── SDK ────────────────────────────────────────────────────────────
+SDK_DIR = sdks/finance-sync-sdk
+
+sdk-install:                       ## Install SDK with dev dependencies
+	cd $(SDK_DIR) && uv sync --extra dev
+
+sdk-build:                         ## Build SDK distribution packages
+	cd $(SDK_DIR) && python -m build
+
+sdk-test:                          ## Run SDK tests
+	cd $(SDK_DIR) && uv run pytest -v
+
+sdk-lint:                          ## Lint SDK source
+	cd $(SDK_DIR) && uv run ruff check src tests
+
+sdk-format:                        ## Format SDK source
+	cd $(SDK_DIR) && uv run ruff format src tests
+
 # ── Docker / Deploy ────────────────────────────────────────────────
 docker-build:                      ## Build Docker image
 	docker build -t finance-sync:latest .
