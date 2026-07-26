@@ -33,7 +33,7 @@ import structlog
 from sqlalchemy import select
 
 from finance_sync.exporter.models import ExportRun
-from finance_sync.exporter.wealthfolio.client import (  # noqa: TC001
+from finance_sync.exporter.wealthfolio.client import (
     WealthfolioClient,
 )
 from finance_sync.exporter.wealthfolio.transaction_mapper import (
