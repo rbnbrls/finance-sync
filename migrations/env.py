@@ -43,15 +43,15 @@ if config.config_file_name is not None:
 # ── Target metadata ─────────────────────────────────────────────────
 # Import all models so Alembic's autogenerate can detect them.
 
-from finance_sync.db import Base  # noqa: E402
-from finance_sync.models import *  # noqa: F403, E402
+from finance_sync.db import Base
+from finance_sync.models import *
 
 target_metadata = Base.metadata
 
 # ── Other config values — read from app Settings ─────────────────────
 # We use an env variable rather than importing the full Settings object
 # to keep the migration env decoupled from the app at import time.
-import os  # noqa: E402
+import os
 
 ASYNC_DB_URL = os.environ.get(
     "ASYNC_DB_URL",

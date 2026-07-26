@@ -986,7 +986,7 @@ class TestEdgeCases:
             30.0,
             30.0,
             30.0,  # Three monthly
-            60.0,  # One skipped (60 = 2× monthly)  # noqa: RUF003
+            60.0,  # One skipped (60 = 2x monthly)
             30.0,
             30.0,  # Normal again
         ]

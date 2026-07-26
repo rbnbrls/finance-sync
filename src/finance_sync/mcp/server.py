@@ -130,7 +130,7 @@ async def resource_accounts(ctx: Context) -> str:
         result = await read_service.list_accounts(tenant_id, limit=200)
         return _serialise(result.model_dump())
     finally:
-        await read_service._session.aclose()  # noqa: SLF001
+        await read_service._session.aclose()
 
 
 @mcp.resource(
@@ -154,7 +154,7 @@ async def resource_portfolio(ctx: Context) -> str:
         result = await read_service.get_portfolio(tenant_id)
         return _serialise(result.model_dump())
     finally:
-        await read_service._session.aclose()  # noqa: SLF001
+        await read_service._session.aclose()
 
 
 @mcp.resource(
@@ -189,7 +189,7 @@ async def resource_transactions(ctx: Context) -> str:
         all_txns.sort(key=lambda t: t.get("occurred_at") or "", reverse=True)
         return _serialise(all_txns[:50])
     finally:
-        await read_service._session.aclose()  # noqa: SLF001
+        await read_service._session.aclose()
 
 
 @mcp.resource(
@@ -213,7 +213,7 @@ async def resource_net_worth(ctx: Context) -> str:
         result = await read_service.get_net_worth(tenant_id)
         return _serialise(result.model_dump())
     finally:
-        await read_service._session.aclose()  # noqa: SLF001
+        await read_service._session.aclose()
 
 
 # ═════════════════════════════════════════════════════════════════════════
@@ -390,7 +390,7 @@ async def tool_resolve_security(ctx: Context, query: str) -> str:
             result = await read_service.list_securities(search=query, limit=20)
             return _serialise(result.model_dump())
         finally:
-            await read_service._session.aclose()  # noqa: SLF001
+            await read_service._session.aclose()
 
 
 # ═════════════════════════════════════════════════════════════════════════
