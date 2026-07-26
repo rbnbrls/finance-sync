@@ -519,7 +519,8 @@ class GetDailyBriefingInput(BaseModel):
     ),
 )
 async def tool_get_daily_briefing(
-    ctx: Context, timeframe: str = "today",
+    ctx: Context,
+    timeframe: str = "today",
 ) -> str:
     """Generate an AI-powered daily briefing."""
     tenant_id = _get_tenant_id(ctx)
@@ -588,8 +589,7 @@ class GetPerformanceInput(BaseModel):
     subject: str | None = Field(
         default=None,
         description=(
-            "Optional filter: account_id or security_id"
-            " to scope the query."
+            "Optional filter: account_id or security_id to scope the query."
         ),
     )
 
@@ -598,8 +598,7 @@ class GetPerformanceInput(BaseModel):
     name="get_performance",
     title="Get Performance",
     description=(
-        "Compute portfolio or investment performance for a"
-        " given period."
+        "Compute portfolio or investment performance for a given period."
     ),
 )
 async def tool_get_performance(
