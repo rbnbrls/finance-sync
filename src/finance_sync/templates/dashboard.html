@@ -427,33 +427,42 @@
             right: 0;
             top: 50%;
             transform: translateY(-50%);
-            background: var(--surface);
-            border: 1px solid var(--border);
+            background: transparent;
+            border: 1px solid transparent;
             border-right: none;
             border-radius: 8px 0 0 8px;
-            padding: 12px 8px;
+            padding: 10px 6px;
             cursor: pointer;
             z-index: 50;
             display: flex;
             flex-direction: column;
             align-items: center;
-            gap: 4px;
-            transition: all 0.2s;
+            gap: 3px;
+            transition: all 0.25s ease;
             color: var(--text-muted);
-            font-size: 0.7rem;
+            font-size: 0.65rem;
             font-weight: 500;
             writing-mode: vertical-lr;
-            letter-spacing: 0.06em;
+            letter-spacing: 0.04em;
+            opacity: 0.5;
+            backdrop-filter: none;
         }
         .feedback-trigger:hover {
-            background: var(--surface-2);
+            opacity: 1;
+            background: color-mix(in srgb, var(--surface) 70%, transparent);
             color: var(--accent);
-            border-color: var(--accent);
+            border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+            padding: 12px 8px;
         }
         .feedback-trigger .icon {
             writing-mode: horizontal-tb;
-            font-size: 1.1rem;
-            margin-bottom: 2px;
+            font-size: 1rem;
+            margin-bottom: 1px;
+            opacity: 0.7;
+            transition: opacity 0.2s;
+        }
+        .feedback-trigger:hover .icon {
+            opacity: 1;
         }
 
         /* ── Feedback Modal ────────────────────────────────────────────── */
@@ -498,37 +507,26 @@
             color: var(--text-muted);
             opacity: 0.6;
         }
-        .feedback-modal .type-select {
-            display: flex;
-            gap: 8px;
-        }
-        .feedback-modal .type-option {
-            flex: 1;
-            padding: 10px 16px;
+        .feedback-modal select {
+            width: 100%;
+            background: var(--bg);
             border: 1px solid var(--border);
             border-radius: 6px;
-            background: var(--bg);
-            color: var(--text-muted);
-            cursor: pointer;
-            font-size: 0.85rem;
-            font-weight: 500;
-            text-align: center;
-            transition: all 0.15s;
-            font-family: var(--font);
-        }
-        .feedback-modal .type-option:hover {
-            border-color: var(--accent);
+            padding: 9px 12px;
             color: var(--text);
+            font-size: 0.9rem;
+            font-family: var(--font);
+            outline: none;
+            cursor: pointer;
+            transition: border-color 0.15s;
+            appearance: auto;
         }
-        .feedback-modal .type-option.selected {
+        .feedback-modal select:focus {
             border-color: var(--accent);
-            background: rgba(108, 99, 255, 0.1);
-            color: var(--accent);
         }
-        .feedback-modal .type-option .type-icon {
-            display: block;
-            font-size: 1.2rem;
-            margin-bottom: 2px;
+        .feedback-modal select option {
+            background: var(--surface);
+            color: var(--text);
         }
         .feedback-modal .char-count {
             text-align: right;
@@ -598,10 +596,9 @@
         </div>
         <div id="section-exporters" class="hidden">
             <h1 class="page-title">Exporters</h1>
-            <p class="page-subtitle">Configure export destinations for your financial data.</p>
-            <div class="card">
-                <p style="color: var(--text-muted);">Exporter configuration will be available in a future update.</p>
-            </div>
+            <p class="page-subtitle">Configure export destinations and trigger data exports to Wealthfolio.</p>
+            <div id="exporter-list"></div>
+            <div id="exporter-runs" style="margin-top: 24px;"></div>
         </div>
         <div id="section-sync" class="hidden">
             <h1 class="page-title">Sync Runs</h1>
@@ -619,8 +616,8 @@
         </div>
     </main>
 
-    <!-- Feedback trigger button -->
-    <button class="feedback-trigger" id="feedback-trigger" onclick="openFeedbackModal()" title="Send feedback">
+    <!-- Feedback trigger button — emits custom event for integration layer -->
+    <button class="feedback-trigger" id="feedback-trigger" title="Send feedback">
         <span class="icon">&#9993;</span>
         Feedback
     </button>
@@ -634,6 +631,9 @@
         let token = localStorage.getItem('fs_token');
         let connectors = [];     // available connector types
         let configs = [];        // saved configs
+
+        // ── Feedback submission guard ────────────────────────────────────
+        let __feedbackSubmitting = false;  // state machine: prevents double-submit
 
         // ── Auth helpers ────────────────────────────────────────────────
         function authHeaders() {
@@ -670,6 +670,60 @@
             setTimeout(() => { el.style.opacity = '0'; el.style.transition = 'opacity 0.3s'; setTimeout(() => el.remove(), 300); }, 4000);
         }
 
+        // ── Frontend error monitoring ──────────────────────────────────
+        // Sends unhandled errors to the backend which creates GitHub issues.
+        let __errorReportToken = localStorage.getItem('fs_token');
+        let __lastErrorReport = 0;
+        let __errorReportCount = 0;
+        const ERROR_RATE_LIMIT_MS = 30000;  // at most one report per 30s
+        const ERROR_RATE_LIMIT_MAX = 5;      // max 5 reports per session
+
+        function reportError({ message, url, line, col, stack, context }) {
+            const now = Date.now();
+            if (now - __lastErrorReport < ERROR_RATE_LIMIT_MS) return;
+            if (__errorReportCount >= ERROR_RATE_LIMIT_MAX) return;
+            __lastErrorReport = now;
+            __errorReportCount++;
+            const token = localStorage.getItem('fs_token');
+            if (!token) return;
+            const payload = JSON.stringify({
+                message: String(message || 'Unknown error').slice(0, 500),
+                url: url || location.href,
+                line: line || null,
+                col: col || null,
+                stack: stack ? stack.slice(0, 2000) : null,
+                user_agent: navigator.userAgent,
+                context: context || null,
+            });
+            navigator.sendBeacon('/feedback/client-error', new Blob([payload], { type: 'application/json' }));
+        }
+
+        window.onerror = function (msg, url, line, col, err) {
+            reportError({
+                message: msg,
+                url: url,
+                line: line,
+                col: col,
+                stack: err && err.stack,
+                context: { type: 'window.onerror' },
+            });
+        };
+
+        window.addEventListener('unhandledrejection', function (event) {
+            const reason = event.reason;
+            let message = 'Unhandled Promise rejection';
+            let stack = null;
+            if (reason) {
+                message = reason.message || String(reason);
+                stack = reason.stack;
+            }
+            reportError({
+                message: message,
+                stack: stack,
+                context: { type: 'unhandledrejection', href: location.href },
+            });
+        });
+
         // ── Section switching ───────────────────────────────────────────
         function switchSection(name) {
             document.querySelectorAll('.sidebar-nav a').forEach(a => a.classList.remove('active'));
@@ -677,6 +731,8 @@
             document.querySelectorAll('[id^="section-"]').forEach(s => s.classList.add('hidden'));
             document.getElementById(`section-${name}`).classList.remove('hidden');
             if (name === 'connectors') loadConnectors();
+            if (name === 'exporters') loadExporters();
+            if (name === 'sync') loadSyncRuns();
         }
 
         // ── API calls ────────────────────────────────────────────────────
@@ -868,15 +924,19 @@
         }
 
         function closeModal() {
+            __feedbackSubmitting = false;
             const modals = document.querySelectorAll('.modal-overlay');
             modals.forEach(m => m.remove());
         }
 
         // ── Feedback ─────────────────────────────────────────────────────
-        function openFeedbackModal() {
+        function openFeedbackModal(onSubmit) {
             const modal = document.createElement('div');
             modal.className = 'modal-overlay';
             modal.id = 'feedback-modal-overlay';
+            // Store the optional callback for the integration layer.
+            // onSubmit receives { type, description, contact } when provided.
+            modal._onSubmit = typeof onSubmit === 'function' ? onSubmit : null;
             modal.innerHTML = `
                 <div class="feedback-modal">
                     <div id="feedback-form-view">
@@ -884,28 +944,27 @@
                         <div class="sub">Report a bug or suggest a feature for finance-sync.</div>
 
                         <div class="form-group">
-                            <label>Type</label>
-                            <div class="type-select">
-                                <div class="type-option selected" data-type="bug" onclick="selectFeedbackType(this)">
-                                    <span class="type-icon">&#128169;</span>
-                                    Bug Report
-                                </div>
-                                <div class="type-option" data-type="feature" onclick="selectFeedbackType(this)">
-                                    <span class="type-icon">&#128161;</span>
-                                    Feature Request
-                                </div>
-                            </div>
+                            <label for="feedback-type">Type</label>
+                            <select id="feedback-type">
+                                <option value="bug">&#128169; Bug Report</option>
+                                <option value="feature">&#128161; Feature Request</option>
+                            </select>
                         </div>
 
                         <div class="form-group">
                             <label for="feedback-title">Title <span style="color:var(--red)">*</span></label>
-                            <input type="text" id="feedback-title" placeholder="Brief summary of your feedback" required>
+                            <input type="text" id="feedback-title" placeholder="Brief summary of your feedback" maxlength="200" required>
                         </div>
 
                         <div class="form-group">
                             <label for="feedback-desc">Description <span style="color:var(--red)">*</span></label>
-                            <textarea id="feedback-desc" placeholder="Describe the bug or feature request in detail. What did you expect? What happened instead?" oninput="updateFeedbackCharCount()"></textarea>
+                            <textarea id="feedback-desc" placeholder="Describe the bug or feature request in detail. What did you expect? What happened instead?" maxlength="2000" oninput="updateFeedbackCharCount()"></textarea>
                             <div class="char-count" id="feedback-char-count">0 / 2000</div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="feedback-email">Email <span style="color:var(--text-muted);font-size:0.8rem;">(optional — for follow-up)</span></label>
+                            <input type="email" id="feedback-email" placeholder="your@email.com">
                         </div>
 
                         <div id="feedback-error" class="hidden alert alert-error"></div>
@@ -919,6 +978,7 @@
                             <div class="check">&#10003;</div>
                             <h3>Thank You!</h3>
                             <p>Your feedback has been submitted as a GitHub issue. We'll review it as soon as possible.</p>
+                            <p><a href="#" class="issue-link hidden" target="_blank" rel="noopener" style="color:var(--accent);font-weight:600;">View issue</a></p>
                             <button class="btn btn-primary" onclick="closeModal()">Close</button>
                         </div>
                     </div>
@@ -927,11 +987,6 @@
             document.getElementById('modal-container').appendChild(modal);
             modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
             document.getElementById('feedback-title').focus();
-        }
-
-        function selectFeedbackType(el) {
-            document.querySelectorAll('.type-option').forEach(o => o.classList.remove('selected'));
-            el.classList.add('selected');
         }
 
         function updateFeedbackCharCount() {
@@ -943,24 +998,32 @@
         }
 
         async function submitFeedback() {
+            // ── State machine: reject if already submitting ─────────────
+            if (__feedbackSubmitting) return;
+            __feedbackSubmitting = true;
+
             const title = document.getElementById('feedback-title').value.trim();
             const desc = document.getElementById('feedback-desc').value.trim();
-            const typeEl = document.querySelector('.type-option.selected');
-            const type = typeEl ? typeEl.dataset.type : 'feature';
+            const type = document.getElementById('feedback-type').value;
+            const email = document.getElementById('feedback-email').value.trim();
             const errorEl = document.getElementById('feedback-error');
             const submitBtn = document.getElementById('feedback-submit');
 
+            // ── Validation ─────────────────────────────────────────────
             if (!title) {
+                __feedbackSubmitting = false;
                 errorEl.textContent = 'Please enter a title.';
                 errorEl.classList.remove('hidden');
                 return;
             }
             if (!desc) {
+                __feedbackSubmitting = false;
                 errorEl.textContent = 'Please enter a description.';
                 errorEl.classList.remove('hidden');
                 return;
             }
             if (desc.length > 2000) {
+                __feedbackSubmitting = false;
                 errorEl.textContent = 'Description must be under 2000 characters.';
                 errorEl.classList.remove('hidden');
                 return;
@@ -970,13 +1033,52 @@
             submitBtn.disabled = true;
             submitBtn.innerHTML = '<span class="spinner"></span> Submitting...';
 
+            // ── Structured payload for the integration layer ──────────
+            const modal = document.getElementById('feedback-modal-overlay');
+            const payload = { type, description: desc, contact: email };
+
+            // If an onSubmit callback was provided, delegate to it.
+            if (modal && modal._onSubmit) {
+                try {
+                    await modal._onSubmit(payload);
+                    // On success, show the default thank-you view
+                    document.getElementById('feedback-form-view').classList.add('hidden');
+                    document.getElementById('feedback-success-view').classList.remove('hidden');
+                    toast('Feedback submitted — thank you!', 'success');
+                } catch (e) {
+                    __feedbackSubmitting = false;
+                    errorEl.textContent = e.message || 'Failed to submit feedback. Please try again.';
+                    errorEl.classList.remove('hidden');
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = 'Submit Feedback';
+                }
+                __feedbackSubmitting = false;
+                return;
+            }
+
+            // ── Default: call the feedback API ────────────────────────
+            const apiPayload = { title, description: desc, type };
+            if (email) apiPayload.email = email;
+
             try {
-                const result = await api('POST', '/feedback', { title, description: desc, type });
+                const result = await api('POST', '/feedback', apiPayload);
+
+                // Show success view with issue link
                 document.getElementById('feedback-form-view').classList.add('hidden');
                 document.getElementById('feedback-success-view').classList.remove('hidden');
-                toast('Feedback submitted!', 'success');
+
+                const link = document.querySelector('.issue-link');
+                if (link && result.issue_url) {
+                    link.href = result.issue_url;
+                    link.textContent = `View Issue #${result.issue_number}`;
+                    link.classList.remove('hidden');
+                }
+
+                toast('Feedback submitted — thank you!', 'success');
+                __feedbackSubmitting = false;
             } catch (e) {
-                errorEl.textContent = e.message;
+                __feedbackSubmitting = false;
+                errorEl.textContent = e.message || 'Failed to submit feedback. Please try again.';
                 errorEl.classList.remove('hidden');
                 submitBtn.disabled = false;
                 submitBtn.textContent = 'Submit Feedback';
@@ -1012,6 +1114,210 @@
                 toast(`Failed to remove: ${e.message}`, 'error');
             }
         }
+
+        // ══════════════════════════════════════════════════════════════════
+        // EXPORTERS
+        // ══════════════════════════════════════════════════════════════════
+
+        let exporterTypes = [];
+        let exporterConfig = null;
+        let exportRuns = [];
+
+        async function loadSyncRuns() {
+            // Placeholder - sync runs will be implemented in a future update
+        }
+
+        async function loadExporters() {
+            try {
+                const [types, config, runs] = await Promise.all([
+                    api('GET', '/exporters/types'),
+                    api('GET', '/exporters/config'),
+                    api('GET', '/exporters/runs?limit=10'),
+                ]);
+                exporterTypes = types || [];
+                exporterConfig = config || null;
+                exportRuns = (runs && runs.runs) || [];
+                renderExporters();
+            } catch (e) {
+                document.getElementById('exporter-list').innerHTML =
+                    `<div class="alert alert-error">Failed to load exporters: ${e.message}</div>`;
+                document.getElementById('exporter-runs').innerHTML = '';
+            }
+        }
+
+        function renderExporters() {
+            const container = document.getElementById('exporter-list');
+            if (!exporterTypes.length) {
+                container.innerHTML = `<div class="empty-state"><div class="icon">&#10145;</div><p>No exporters available.</p></div>`;
+                return;
+            }
+
+            let html = '<div class="connector-grid">';
+            for (const e of exporterTypes) {
+                const isConfigured = exporterConfig && exporterConfig.exporter_type === e.name;
+                const badgeClass = isConfigured ? 'connected' : 'unconfigured';
+                const badgeText = isConfigured ? 'Configured' : 'Not Configured';
+
+                html += `
+                    <div class="connector-card" data-exporter="${e.name}">
+                        <div class="top">
+                            <div class="name">${e.display_name}</div>
+                            <span class="badge ${badgeClass}" id="exporter-badge-${e.name}">${badgeText}</span>
+                        </div>
+                        <div class="desc">${e.description}</div>
+                        <div class="actions">
+                            <button class="btn btn-primary btn-sm" onclick="showExporterConfig('${e.name}')">&#9881; View Config</button>
+                            <button class="btn btn-success btn-sm" onclick="triggerExport('${e.name}')">&#9654; Run Export</button>
+                        </div>
+                        <div id="export-result-${e.name}" style="margin-top: 12px;"></div>
+                    </div>
+                `;
+            }
+            html += '</div>';
+            container.innerHTML = html;
+
+            renderExportRuns();
+        }
+
+        function renderExportRuns() {
+            const container = document.getElementById('exporter-runs');
+            if (!exportRuns.length) {
+                container.innerHTML = `
+                    <div class="card">
+                        <h2 style="font-size:1.05rem;font-weight:600;margin-bottom:16px;">Recent Export Runs</h2>
+                        <p style="color: var(--text-muted); font-size:0.9rem;">No export runs yet. Click "Run Export" to start your first export.</p>
+                    </div>
+                `;
+                return;
+            }
+
+            let rows = '';
+            for (const r of exportRuns) {
+                const badgeClass = r.status === 'completed' ? 'badge connected' : (r.status === 'failed' ? 'badge disconnected' : 'badge pending');
+                const startedAt = new Date(r.started_at).toLocaleString();
+                rows += `
+                    <tr>
+                        <td style="padding:8px 12px;border-bottom:1px solid var(--border);font-size:0.85rem;font-family:monospace;">${r.id.slice(0, 8)}</td>
+                        <td style="padding:8px 12px;border-bottom:1px solid var(--border);font-size:0.85rem;"><span class="${badgeClass}">${r.status}</span></td>
+                        <td style="padding:8px 12px;border-bottom:1px solid var(--border);font-size:0.85rem;">${startedAt}</td>
+                        <td style="padding:8px 12px;border-bottom:1px solid var(--border);font-size:0.85rem;">${r.transactions_attempted ?? '-'}</td>
+                        <td style="padding:8px 12px;border-bottom:1px solid var(--border);font-size:0.85rem;">${r.transactions_exported ?? '-'}</td>
+                        <td style="padding:8px 12px;border-bottom:1px solid var(--border);font-size:0.85rem;">
+                            ${r.error_message ? `<span style="color:var(--red);cursor:pointer;" title="${r.error_message.slice(0, 200)}">&#9888;</span>` : '-'}
+                        </td>
+                    </tr>
+                `;
+            }
+
+            container.innerHTML = `
+                <div class="card">
+                    <div class="card-header">
+                        <h2>Recent Export Runs</h2>
+                    </div>
+                    <div style="overflow-x:auto;">
+                        <table style="width:100%;border-collapse:collapse;">
+                            <thead>
+                                <tr>
+                                    <th style="padding:8px 12px;text-align:left;font-size:0.8rem;color:var(--text-muted);font-weight:600;border-bottom:2px solid var(--border);">ID</th>
+                                    <th style="padding:8px 12px;text-align:left;font-size:0.8rem;color:var(--text-muted);font-weight:600;border-bottom:2px solid var(--border);">Status</th>
+                                    <th style="padding:8px 12px;text-align:left;font-size:0.8rem;color:var(--text-muted);font-weight:600;border-bottom:2px solid var(--border);">Started</th>
+                                    <th style="padding:8px 12px;text-align:left;font-size:0.8rem;color:var(--text-muted);font-weight:600;border-bottom:2px solid var(--border);">Attempted</th>
+                                    <th style="padding:8px 12px;text-align:left;font-size:0.8rem;color:var(--text-muted);font-weight:600;border-bottom:2px solid var(--border);">Exported</th>
+                                    <th style="padding:8px 12px;text-align:left;font-size:0.8rem;color:var(--text-muted);font-weight:600;border-bottom:2px solid var(--border);">Error</th>
+                                </tr>
+                            </thead>
+                            <tbody>${rows}</tbody>
+                        </table>
+                    </div>
+                </div>
+            `;
+        }
+
+        function showExporterConfig(exporterType) {
+            if (!exporterConfig || exporterConfig.exporter_type !== exporterType) {
+                toast('No configuration loaded for ' + exporterType, 'info');
+                return;
+            }
+
+            const modal = document.createElement('div');
+            modal.className = 'modal-overlay';
+            modal.id = 'exporter-config-modal';
+            modal.innerHTML = `
+                <div class="modal" style="width:540px;">
+                    <h2>${exporterType.charAt(0).toUpperCase() + exporterType.slice(1)} Configuration</h2>
+                    <p style="color:var(--text-muted);font-size:0.85rem;margin-bottom:20px;">Configuration is read from environment variables.</p>
+                    <div class="form-group">
+                        <label>Output Directory</label>
+                        <input type="text" value="${exporterConfig.output_dir}" readonly style="background:var(--surface-2);cursor:default;">
+                    </div>
+                    <div class="form-group">
+                        <label>Default Currency</label>
+                        <input type="text" value="${exporterConfig.default_currency}" readonly style="background:var(--surface-2);cursor:default;">
+                    </div>
+                    <div class="form-group">
+                        <div class="checkbox-wrap">
+                            <input type="checkbox" ${exporterConfig.export_holdings ? 'checked' : ''} disabled>
+                            <label style="margin:0;">Export Holdings</label>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <div class="checkbox-wrap">
+                            <input type="checkbox" ${exporterConfig.include_pending ? 'checked' : ''} disabled>
+                            <label style="margin:0;">Include Pending</label>
+                        </div>
+                    </div>
+                    ${Object.keys(exporterConfig.account_name_overrides || {}).length > 0 ? `
+                    <h3 style="font-size:0.9rem;font-weight:600;margin:16px 0 8px;">Account Name Overrides</h3>
+                    <div style="background:var(--bg);border-radius:6px;padding:10px;font-size:0.8rem;font-family:monospace;color:var(--text-muted);">
+                        ${JSON.stringify(exporterConfig.account_name_overrides, null, 2)}
+                    </div>` : ''}
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" onclick="closeModal()">Close</button>
+                    </div>
+                </div>
+            `;
+            document.getElementById('modal-container').appendChild(modal);
+            modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
+        }
+
+        async function triggerExport(exporterType) {
+            const resultEl = document.getElementById(`export-result-${exporterType}`);
+            resultEl.innerHTML = '<div class="alert alert-info"><span class="spinner"></span> Running export...</div>';
+
+            try {
+                const result = await api('POST', '/exporters/export');
+                if (result.status === 'completed') {
+                    let details = `&#10003; Export completed in ${result.duration_s.toFixed(1)}s. `;
+                    details += `${result.transactions_exported}/${result.transactions_attempted} transactions exported`;
+                    if (result.holdings_exported > 0) details += `, ${result.holdings_exported} holdings`;
+                    if (result.csv_files.length > 0) details += `. ${result.csv_files.length} CSV file(s) generated.`;
+                    resultEl.innerHTML = `<div class="alert alert-success">${details}</div>`;
+                } else if (result.status === 'failed') {
+                    resultEl.innerHTML = `<div class="alert alert-error">&#10005; Export failed: ${result.error_message || 'Unknown error'}</div>`;
+                } else {
+                    resultEl.innerHTML = `<div class="alert alert-info">Export status: ${result.status}</div>`;
+                }
+                // Refresh runs
+                await loadExporters();
+            } catch (e) {
+                resultEl.innerHTML = `<div class="alert alert-error">&#10005; ${e.message}</div>`;
+            }
+        }
+
+        // ── Feedback button event wiring ────────────────────────────────
+        document.addEventListener('DOMContentLoaded', function () {
+            const btn = document.getElementById('feedback-trigger');
+            if (btn) {
+                btn.addEventListener('click', function () {
+                    document.dispatchEvent(new CustomEvent('open-feedback-form'));
+                });
+            }
+        });
+
+        // Listen for the custom event and open the feedback modal
+        document.addEventListener('open-feedback-form', function () {
+            openFeedbackModal();
+        });
 
         // ── Init ─────────────────────────────────────────────────────────
         (async function init() {

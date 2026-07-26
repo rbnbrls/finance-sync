@@ -149,7 +149,9 @@ class TestYnabConnectorContract:
         )
         assert isinstance(txns, list)
         # Transactions include the requested account_id
-        assert any(t.external_account_id == "ynab_acc_checking_01" for t in txns)
+        assert any(
+            t.external_account_id == "ynab_acc_checking_01" for t in txns
+        )
 
     async def test_fetch_transactions_with_limit(
         self, ynab_connector: YnabConnector
@@ -174,9 +176,7 @@ class TestYnabConnectorContract:
     async def test_transform_accounts_roundtrip(
         self,
         ynab_connector: YnabConnector,
-        sample_ynab_raw_data: tuple[
-            list[RawAccount], list[RawTransaction]
-        ],
+        sample_ynab_raw_data: tuple[list[RawAccount], list[RawTransaction]],
     ) -> None:
         """Transform should map RawAccount to CanonicalAccountData."""
         raw_accounts, _ = sample_ynab_raw_data
@@ -203,9 +203,7 @@ class TestYnabConnectorContract:
     async def test_transform_transactions_roundtrip(
         self,
         ynab_connector: YnabConnector,
-        sample_ynab_raw_data: tuple[
-            list[RawAccount], list[RawTransaction]
-        ],
+        sample_ynab_raw_data: tuple[list[RawAccount], list[RawTransaction]],
     ) -> None:
         """Transform should map RawTransaction to CanonicalTransactionData."""
         _, raw_txns = sample_ynab_raw_data
@@ -229,24 +227,18 @@ class TestYnabConnectorContract:
 
     # ── Name ───────────────────────────────────────────────────────────
 
-    async def test_name_is_string(
-        self, ynab_connector: YnabConnector
-    ) -> None:
+    async def test_name_is_string(self, ynab_connector: YnabConnector) -> None:
         """The name property should return a non-empty string."""
         assert isinstance(ynab_connector.name, str)
         assert len(ynab_connector.name) > 0
         assert ynab_connector.name == "ynab"
         assert ynab_connector.name == ynab_connector.config.provider_type
 
-    async def test_display_name(
-        self, ynab_connector: YnabConnector
-    ) -> None:
+    async def test_display_name(self, ynab_connector: YnabConnector) -> None:
         """display_name should be set."""
         assert ynab_connector.display_name == "YNAB"
 
-    async def test_sdk_version(
-        self, ynab_connector: YnabConnector
-    ) -> None:
+    async def test_sdk_version(self, ynab_connector: YnabConnector) -> None:
         """sdk_version should be a valid string."""
         assert ynab_connector.sdk_version == "0.1.0"
 
@@ -267,12 +259,12 @@ class TestYnabConnectorAuth:
         ynab_mock_transport: YnabApiMockTransport,
     ) -> None:
         """After auth, connector should have populated budget IDs."""
-        assert len(ynab_connector._budget_ids) == 0  # noqa: SLF001
+        assert len(ynab_connector._budget_ids) == 0
 
         await ynab_connector.authenticate()
 
-        assert len(ynab_connector._budget_ids) == 1  # noqa: SLF001
-        assert ynab_connector._budget_ids[0] == "ynab_budget_001"  # noqa: SLF001
+        assert len(ynab_connector._budget_ids) == 1
+        assert ynab_connector._budget_ids[0] == "ynab_budget_001"
 
         # Should have made exactly 1 GET to /budgets
         budget_calls = [
@@ -303,7 +295,7 @@ class TestYnabConnectorAuth:
         )
         conn = YnabConnector(config=config, http_client=http_client)
         await conn.authenticate()
-        assert len(conn._budget_ids) >= 1  # noqa: SLF001
+        assert len(conn._budget_ids) >= 1
 
 
 class TestYnabTransactionMapping:
@@ -328,9 +320,7 @@ class TestYnabTransactionMapping:
         """Interest categories should map to 'interest'."""
         from finance_sync.connectors.ynab import _map_category_to_type
 
-        assert (
-            _map_category_to_type("Interest Income", False) == "interest"
-        )
+        assert _map_category_to_type("Interest Income", False) == "interest"
         assert _map_category_to_type("Dividend", False) == "interest"
 
     def test_map_category_to_type_transfer(self) -> None:
@@ -377,7 +367,7 @@ class TestYnabTransactionMapping:
             config=ConnectorConfig(provider_type="ynab", credentials={})
         )
         # YNAB: positive amount = outflow (42.50 EUR spent)
-        txn = conn._parse_transaction(  # noqa: SLF001
+        txn = conn._parse_transaction(
             {
                 "id": "test_txn_001",
                 "date": "2025-06-15",

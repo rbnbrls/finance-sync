@@ -195,9 +195,7 @@ class TestCSVImportConnectorContract:
     async def test_transform_accounts_roundtrip(
         self,
         csv_connector: CSVImportConnector,
-        sample_csv_raw_data: tuple[
-            list[RawAccount], list[RawTransaction]
-        ],
+        sample_csv_raw_data: tuple[list[RawAccount], list[RawTransaction]],
     ) -> None:
         """Transform should map RawAccount to CanonicalAccountData."""
         raw_accounts, _ = sample_csv_raw_data
@@ -210,9 +208,7 @@ class TestCSVImportConnectorContract:
     async def test_transform_transactions_roundtrip(
         self,
         csv_connector: CSVImportConnector,
-        sample_csv_raw_data: tuple[
-            list[RawAccount], list[RawTransaction]
-        ],
+        sample_csv_raw_data: tuple[list[RawAccount], list[RawTransaction]],
     ) -> None:
         """Transform should map RawTransaction to CanonicalTransactionData."""
         _, raw_txns = sample_csv_raw_data

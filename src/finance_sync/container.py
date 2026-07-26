@@ -27,6 +27,7 @@ if TYPE_CHECKING:
     from finance_sync.enrichment.price_store import PriceStore
     from finance_sync.enrichment.security_resolver import SecurityResolver
     from finance_sync.identity.resolver import IdentityResolutionService
+    from finance_sync.services.fx_service import FxService
 
 
 class Container:
@@ -52,6 +53,7 @@ class Container:
         self._identity_resolution_service: IdentityResolutionService | None = (
             None
         )
+        self._fx_service: FxService | None = None
 
     # ── Initialisation ───────────────────────────────────────────────
 
@@ -203,6 +205,31 @@ class Container:
             )
         return self._identity_resolution_service
 
+    @property
+    def fx_service(self) -> FxService:
+        """Lazy-init the FX service for exchange rate management."""
+        if self._fx_service is None:
+            from finance_sync.providers.openbb_fx import OpenBBFxProvider
+            from finance_sync.services.fx_service import FxService
+
+            settings = self.settings
+            provider = OpenBBFxProvider(
+                api_key=(
+                    settings.openbb_api_key.get_secret_value()
+                    if settings.openbb_api_key
+                    else None
+                ),
+                base_url=settings.openbb_base_url,
+                max_requests_per_second=settings.openbb_rate_limit_rps,
+                request_timeout=settings.openbb_request_timeout,
+            )
+            self._fx_service = FxService(
+                settings=settings,
+                uow=self._make_uow(),
+                provider=provider,
+            )
+        return self._fx_service
+
     def _make_uow(self) -> UnitOfWork:
         """Create a UoW for the enrichment services."""
         from finance_sync.db.uow import UnitOfWork
@@ -236,3 +263,5 @@ class Container:
                 await r.aclose()
             if self._enrichment_gateway is not None:
                 await self._enrichment_gateway.close()
+            if self._fx_service is not None:
+                await self._fx_service.close()
