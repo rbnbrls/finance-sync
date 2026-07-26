@@ -30,7 +30,6 @@ dependencies = [
     "apscheduler>=3.10",
     "aiohttp>=3.9",
     "mcp>=1.28.1",
-    "ecdsa>=0.19",
 ]
 
 [project.optional-dependencies]
