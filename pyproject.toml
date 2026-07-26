@@ -126,6 +126,7 @@ line-ending = "auto"
 "migrations/**" = ["E402", "F403"]
 "src/finance_sync/connectors/*.py" = ["ASYNC"]
 "src/finance_sync/enrichment/models.py" = ["TC003"]
+"src/finance_sync/services/subscription_detector/service.py" = ["E501"]
 
 [tool.pyright]
 typeCheckingMode = "basic"

@@ -259,7 +259,6 @@ class Container:
             if self._engine is not None:
                 await self._engine.dispose()
             if self._redis is not None:
-
                 r: aioredis.Redis[bytes] = self._redis  # type: ignore[valid-type]
                 await r.aclose()
             if self._enrichment_gateway is not None:

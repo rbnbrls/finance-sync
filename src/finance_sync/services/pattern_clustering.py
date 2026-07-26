@@ -134,9 +134,7 @@ def _density_cluster_1d(
             cluster.append(p)
             # Add core neighbours for expansion
             if p in core:
-                stack.extend(
-                    nb for nb in neighbours[p] if nb not in visited
-                )
+                stack.extend(nb for nb in neighbours[p] if nb not in visited)
         if len(cluster) >= min_pts:
             clusters.append(sorted(cluster))
 

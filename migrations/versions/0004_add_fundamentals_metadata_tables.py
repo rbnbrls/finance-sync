@@ -225,8 +225,7 @@ def upgrade() -> None:
             "label",
             sa.String(256),
             nullable=True,
-            comment="Human-readable label "
-            "(e.g. ETF name, sector title)",
+            comment="Human-readable label (e.g. ETF name, sector title)",
         ),
         sa.Column(
             "source",

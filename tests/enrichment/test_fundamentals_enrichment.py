@@ -144,9 +144,7 @@ class TestSecurityMetadataObservationData:
             timestamp=now,
             metadata_json={
                 "primary_sector": "Technology",
-                "sector_exposures": [
-                    {"sector": "Technology", "weight": "1.0"}
-                ],
+                "sector_exposures": [{"sector": "Technology", "weight": "1.0"}],
             },
             label="Technology",
             source="openbb",
@@ -248,10 +246,8 @@ class TestGatewayFundamentals:
         if status_code >= 400:
             import httpx
 
-            mock_response.raise_for_status.side_effect = (
-                httpx.HTTPStatusError(
-                    "Error", request=MagicMock(), response=mock_response
-                )
+            mock_response.raise_for_status.side_effect = httpx.HTTPStatusError(
+                "Error", request=MagicMock(), response=mock_response
             )
         else:
             mock_response.raise_for_status = MagicMock()
@@ -291,7 +287,9 @@ class TestGatewayFundamentals:
         assert result.provider_metadata is not None
         assert result.provider_metadata["sector"] == "Technology"
 
-    async def test_get_fundamentals_degraded(self, settings, mock_uow, mock_price_store) -> None:
+    async def test_get_fundamentals_degraded(
+        self, settings, mock_uow, mock_price_store
+    ) -> None:
         """get_fundamentals returns None in degraded mode."""
         settings.openbb_api_key = None
         g = EnrichmentGateway(
@@ -304,9 +302,7 @@ class TestGatewayFundamentals:
 
     async def test_get_fundamentals_not_found(self, gateway) -> None:
         """get_fundamentals returns None on 404."""
-        mock_response = self._make_mock_response(
-            status_code=404, json_data={}
-        )
+        mock_response = self._make_mock_response(status_code=404, json_data={})
         gateway._http_client.get.return_value = mock_response
 
         result = await gateway.get_fundamentals("UNKNOWN")
@@ -316,9 +312,7 @@ class TestGatewayFundamentals:
         """get_fundamentals returns None on timeout."""
         import httpx
 
-        gateway._http_client.get.side_effect = httpx.TimeoutException(
-            "Timeout"
-        )
+        gateway._http_client.get.side_effect = httpx.TimeoutException("Timeout")
 
         result = await gateway.get_fundamentals("AAPL")
         assert result is None
@@ -365,10 +359,8 @@ class TestGatewayETFComposition:
         if status_code >= 400:
             import httpx
 
-            mock_response.raise_for_status.side_effect = (
-                httpx.HTTPStatusError(
-                    "Error", request=MagicMock(), response=mock_response
-                )
+            mock_response.raise_for_status.side_effect = httpx.HTTPStatusError(
+                "Error", request=MagicMock(), response=mock_response
             )
         else:
             mock_response.raise_for_status = MagicMock()
@@ -516,14 +508,8 @@ class TestMetadataEnricher:
         assert enricher.classify_sector("Semiconductors") == "Technology"
         assert enricher.classify_sector("Pharmaceuticals") == "Health Care"
         assert enricher.classify_sector("Banking") == "Financials"
-        assert (
-            enricher.classify_sector("Oil & Gas Exploration")
-            == "Energy"
-        )
-        assert (
-            enricher.classify_sector("Software & Services")
-            == "Technology"
-        )
+        assert enricher.classify_sector("Oil & Gas Exploration") == "Energy"
+        assert enricher.classify_sector("Software & Services") == "Technology"
 
     def test_classify_sector_none(self, enricher) -> None:
         assert enricher.classify_sector(None) is None
@@ -560,19 +546,15 @@ class TestMetadataEnricher:
 
     # ── enrich_security ─────────────────────────────────────────────
 
-    async def test_enrich_security_stock(
-        self, enricher, mock_gateway
-    ) -> None:
+    async def test_enrich_security_stock(self, enricher, mock_gateway) -> None:
         """enrich_security fetches fundamentals for a stock."""
         mock_gateway.is_degraded = False
-        mock_gateway.get_fundamentals.return_value = (
-            FundamentalObservationData(
-                security_id="",
-                timestamp=datetime.now(UTC),
-                pe_ratio=Decimal("22.5"),
-                source="openbb",
-                provider_metadata={"sector": "Technology"},
-            )
+        mock_gateway.get_fundamentals.return_value = FundamentalObservationData(
+            security_id="",
+            timestamp=datetime.now(UTC),
+            pe_ratio=Decimal("22.5"),
+            source="openbb",
+            provider_metadata={"sector": "Technology"},
         )
         mock_gateway.resolve_security.return_value = MagicMock(
             provider_metadata={"sector": "Technology"}
@@ -589,18 +571,14 @@ class TestMetadataEnricher:
         # ETF composition should be False for non-ETF
         assert result["etf_composition"] is False
 
-    async def test_enrich_security_etf(
-        self, enricher, mock_gateway
-    ) -> None:
+    async def test_enrich_security_etf(self, enricher, mock_gateway) -> None:
         """enrich_security fetches fundamentals + ETF composition for ETFs."""
         mock_gateway.is_degraded = False
-        mock_gateway.get_fundamentals.return_value = (
-            FundamentalObservationData(
-                security_id="",
-                timestamp=datetime.now(UTC),
-                pe_ratio=Decimal("20.0"),
-                source="openbb",
-            )
+        mock_gateway.get_fundamentals.return_value = FundamentalObservationData(
+            security_id="",
+            timestamp=datetime.now(UTC),
+            pe_ratio=Decimal("20.0"),
+            source="openbb",
         )
         mock_gateway.get_etf_composition.return_value = ETFComposition(
             etf_name="VOO",
@@ -645,9 +623,7 @@ class TestMetadataEnricher:
         result = await enricher.compute_ratio_summary("sec_1")
         assert result is None
 
-    async def test_get_recent_fundamentals(
-        self, enricher, mock_uow
-    ) -> None:
+    async def test_get_recent_fundamentals(self, enricher, mock_uow) -> None:
         """get_recent_fundamentals returns recent observations."""
         from finance_sync.models.fundamental_observation import (
             FundamentalObservation,
