@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from finance_sync.api.middleware.rate_limit import RateLimitMiddleware
 from finance_sync.api.v1.router import router as v1_router
@@ -66,6 +69,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     # ── Rate limiting ────────────────────────────────────────────────
     app.add_middleware(RateLimitMiddleware)
+
+    # ── Static files (CSS, JS) ───────────────────────────────────────
+    static_dir = Path(__file__).resolve().parent / "static"
+    static_dir.mkdir(parents=True, exist_ok=True)
+    app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
     # ── GUI router (served at root level) ────────────────────────────
     app.include_router(gui_router)
