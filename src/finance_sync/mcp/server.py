@@ -579,9 +579,7 @@ async def tool_get_subscriptions(ctx: Context, limit: int = 20) -> str:
                 "first_seen": (
                     s.first_seen.isoformat() if s.first_seen else None
                 ),
-                "last_seen": (
-                    s.last_seen.isoformat() if s.last_seen else None
-                ),
+                "last_seen": (s.last_seen.isoformat() if s.last_seen else None),
                 "details": s.details,
             }
             for s in subs[:limit]
