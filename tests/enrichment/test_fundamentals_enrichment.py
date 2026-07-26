@@ -19,7 +19,6 @@ from finance_sync.enrichment.gateway import EnrichmentGateway, _safe_decimal
 from finance_sync.enrichment.metadata_enricher import (
     GICS_SECTORS,
     MetadataEnricher,
-    _fund_obs_to_dto,
     _to_decimal,
 )
 from finance_sync.enrichment.models import (
@@ -31,7 +30,6 @@ from finance_sync.enrichment.models import (
     SectorExposure,
     SecurityMetadataObservationData,
 )
-
 
 # =====================================================================
 # Schema / DTO tests
@@ -68,9 +66,9 @@ class TestFundamentalObservationData:
             book_value_per_share=Decimal("15.00"),
             dividend_yield=Decimal("0.025"),
             dividend_rate=Decimal("1.20"),
-            market_cap=Decimal("3000000000000"),
-            enterprise_value=Decimal("3100000000000"),
-            shares_outstanding=Decimal("15000000000"),
+            market_cap=Decimal(3000000000000),
+            enterprise_value=Decimal(3100000000000),
+            shares_outstanding=Decimal(15000000000),
             beta=Decimal("1.2"),
             high_52w=Decimal("198.00"),
             low_52w=Decimal("145.00"),
@@ -78,7 +76,7 @@ class TestFundamentalObservationData:
             provider_metadata={"sector": "Technology"},
         )
         assert obs.pe_ratio == Decimal("22.5")
-        assert obs.market_cap == Decimal("3000000000000")
+        assert obs.market_cap == Decimal(3000000000000)
         assert obs.beta == Decimal("1.2")
         assert obs.dividend_yield == Decimal("0.025")
         assert obs.provider_metadata == {"sector": "Technology"}
@@ -106,11 +104,11 @@ class TestFundamentalRatioSummary:
             forward_pe=Decimal("20.1"),
             dividend_yield=Decimal("0.025"),
             eps=Decimal("5.20"),
-            market_cap=Decimal("3000000000000"),
+            market_cap=Decimal(3000000000000),
             beta=Decimal("1.2"),
         )
         assert summary.pe_ratio == Decimal("22.5")
-        assert summary.market_cap == Decimal("3000000000000")
+        assert summary.market_cap == Decimal(3000000000000)
 
     def test_empty(self) -> None:
         summary = FundamentalRatioSummary()
@@ -165,8 +163,8 @@ class TestETFModels:
             name="Apple Inc.",
             weight=Decimal("0.07"),
             sector="Technology",
-            market_value=Decimal("150000000000"),
-            shares=Decimal("1000000"),
+            market_value=Decimal(150000000000),
+            shares=Decimal(1000000),
         )
         assert h.ticker == "AAPL"
         assert h.weight == Decimal("0.07")
@@ -285,7 +283,7 @@ class TestGatewayFundamentals:
         assert result.pe_ratio == Decimal("22.5")
         assert result.forward_pe == Decimal("20.1")
         assert result.eps == Decimal("5.20")
-        assert result.market_cap == Decimal("3000000000000")
+        assert result.market_cap == Decimal(3000000000000)
         assert result.dividend_yield == Decimal("0.025")
         assert result.beta == Decimal("1.2")
         assert result.high_52w == Decimal("198.00")
@@ -666,7 +664,7 @@ class TestMetadataEnricher:
         mock_obs.book_value_per_share = None
         mock_obs.dividend_yield = Decimal("0.025")
         mock_obs.dividend_rate = None
-        mock_obs.market_cap = Decimal("3000000000000")
+        mock_obs.market_cap = Decimal(3000000000000)
         mock_obs.enterprise_value = None
         mock_obs.shares_outstanding = None
         mock_obs.beta = Decimal("1.2")
