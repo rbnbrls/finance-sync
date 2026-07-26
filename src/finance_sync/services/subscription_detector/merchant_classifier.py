@@ -251,7 +251,7 @@ def classification_from_db(
     )
 
 
-__all__ = [  # noqa: RUF022
+__all__ = [
     "MerchantClass",
     "classify_merchant",
     "classification_from_db",
