@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from decimal import (
-    Decimal,
+    Decimal,  # noqa: TC003 — runtime-import needed by Pydantic models
 )
 from typing import Any
 

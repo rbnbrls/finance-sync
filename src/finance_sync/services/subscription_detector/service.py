@@ -64,7 +64,7 @@ from finance_sync.services.subscription_detector.detector import (
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import async_sessionmaker
 
-    from finance_sync.services.subscription_detector.merchant_classifier import (
+    from finance_sync.services.subscription_detector.merchant_classifier import (  # noqa: E501
         MerchantClass,
     )
 
@@ -440,7 +440,7 @@ class SubscriptionDetectionService:
             - ``cancellation_merchants``: set of merchant names that
               exhibit cancellation signals.
         """
-        from finance_sync.services.subscription_detector.merchant_classifier import (
+        from finance_sync.services.subscription_detector.merchant_classifier import (  # noqa: E501
             classification_from_db,
             classify_merchant,
         )

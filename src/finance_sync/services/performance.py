@@ -818,7 +818,7 @@ class PerformanceService:
     @staticmethod
     def _to_daily_returns(
         prices: list[E],
-        base_value: E | None = None,
+        base_value: E | None = None,  # noqa: ARG004
     ) -> list[tuple[datetime | None, E]]:
         """Convert a price series to daily returns."""
         if len(prices) < 2:

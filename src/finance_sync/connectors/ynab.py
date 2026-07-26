@@ -461,7 +461,7 @@ def _parse_ynab_date(raw: str) -> datetime:
     if not raw:
         return datetime.fromtimestamp(0, tz=UTC)
     try:
-        parsed = datetime.strptime(raw, "%Y-%m-%d")
+        parsed = datetime.strptime(raw, "%Y-%m-%d")  # noqa: DTZ007
         return parsed.replace(tzinfo=UTC)
     except ValueError:
         return datetime.fromtimestamp(0, tz=UTC)

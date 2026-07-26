@@ -132,7 +132,7 @@ class APIKeyAuthResult:
 
 
 async def get_current_api_key(
-    request: Request,
+    request: Request,  # noqa: ARG001
     x_api_key: str | None = Header(default=None),
     db: AsyncSession = Depends(get_db),
 ) -> APIKeyAuthResult | None:
@@ -149,7 +149,7 @@ async def get_current_api_key(
     result = await db.execute(
         select(ApiKey).where(
             ApiKey.key_prefix == prefix,
-            ApiKey.is_active == True,
+            ApiKey.is_active,
         )
     )
     key_row = result.scalar_one_or_none()

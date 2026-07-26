@@ -59,7 +59,7 @@ from finance_sync.services.subscription_detector.service import (
     _has_cancellation_signal,
 )
 
-__all__ = [
+__all__ = [  # noqa: RUF022
     "_CATEGORY_KEYWORDS",
     "_DEFAULT_DAYS_BACK",
     "_FREQUENCY_BANDS",

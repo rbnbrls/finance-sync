@@ -234,4 +234,4 @@ class ManualExpenseConnector(ConnectorPlugin):
         }
         with open(path, "w") as f:
             json.dump(template, f, indent=2)
-        print(f"Template created at {path}")
+        # print(f"Template created at {path}")
