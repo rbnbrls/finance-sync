@@ -13,13 +13,11 @@ Two tiers of data model:
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from datetime import datetime  # noqa: TC003 — needed by model_rebuild()
+from decimal import Decimal  # noqa: TC003 — needed by model_rebuild()
+from typing import Any
 
 from pydantic import BaseModel, Field
-
-if TYPE_CHECKING:
-    from datetime import datetime
-    from decimal import Decimal
 
 # ── Raw (provider-native) models ────────────────────────────────────────
 
