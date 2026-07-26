@@ -15,13 +15,13 @@ Usage::
     await client.authenticate()
     result = await client.import_activities(activities)
 """
+
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 import httpx
-
 
 # ═══════════════════════════════════════════════════════════════════════
 # Exceptions
@@ -64,9 +64,11 @@ class WealthfolioClientConfig:
 
     def __post_init__(self) -> None:
         if not self.base_url:
-            raise ValueError("base_url must be a non-empty URL")
+            msg = "base_url must be a non-empty URL"
+            raise ValueError(msg)
         if not self.password:
-            raise ValueError("password must be non-empty")
+            msg = "password must be non-empty"
+            raise ValueError(msg)
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -150,15 +152,13 @@ class WealthfolioClient:
                 message = f"HTTP {response.status_code}"
 
             self._is_authenticated = False
-            raise WealthfolioAuthError(
-                f"Authentication failed: {message}"
-            )
+            msg = f"Authentication failed: {message}"
+            raise WealthfolioAuthError(msg)
 
         except httpx.RequestError as exc:
             self._is_authenticated = False
-            raise WealthfolioAuthError(
-                f"Connection failed: {exc}"
-            ) from exc
+            msg = f"Connection failed: {exc}"
+            raise WealthfolioAuthError(msg) from exc
 
     async def close(self) -> None:
         """Close the underlying HTTP client session."""
@@ -286,6 +286,5 @@ class WealthfolioClient:
     def _ensure_authenticated(self) -> None:
         """Raise if the client is not authenticated."""
         if not self._is_authenticated:
-            raise WealthfolioAuthError(
-                "Not authenticated. Call authenticate() first."
-            )
+            msg = "Not authenticated. Call authenticate() first."
+            raise WealthfolioAuthError(msg)

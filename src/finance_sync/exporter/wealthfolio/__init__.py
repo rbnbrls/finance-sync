@@ -1,4 +1,5 @@
 """Wealthfolio exporter package."""
+
 from finance_sync.exporter.wealthfolio.client import (
     WealthfolioClient,
     WealthfolioClientConfig,

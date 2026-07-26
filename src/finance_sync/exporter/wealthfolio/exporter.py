@@ -24,6 +24,7 @@ Usage::
 
 from __future__ import annotations
 
+import contextlib
 import traceback
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
@@ -32,12 +33,10 @@ import structlog
 from sqlalchemy import select
 
 from finance_sync.exporter.models import ExportRun
-from finance_sync.exporter.wealthfolio.client import (
+from finance_sync.exporter.wealthfolio.client import (  # noqa: TC001
     WealthfolioClient,
-    WealthfolioClientConfig,
 )
 from finance_sync.exporter.wealthfolio.transaction_mapper import (
-    map_holding_to_wf_row,
     map_holdings_to_csv,
     map_transaction_to_wf_row,
     map_transactions_to_csv,
@@ -580,7 +579,6 @@ class WealthfolioExporter:
                 run.error_message = error_message
             await session.flush()
 
-
     # ── Push to Wealthfolio instance ───────────────────────────────
 
     async def push_to_wealthfolio(
@@ -632,7 +630,11 @@ class WealthfolioExporter:
             # Map to Wealthfolio API format
             wf_activities = []
             for txn in txns:
-                sec = security_map.get(txn.security_id) if txn.security_id else None  # type: ignore[arg-type]
+                sec = (
+                    security_map.get(txn.security_id)
+                    if txn.security_id
+                    else None
+                )  # type: ignore[arg-type]
                 row = map_transaction_to_wf_row(
                     txn,
                     security=sec,
@@ -701,10 +703,8 @@ def _wf_row_to_api_activity(row: dict[str, Any]) -> dict[str, Any]:
     for numeric_key in ("quantity", "unitPrice", "amount", "fee", "fxRate"):
         val = row.get(numeric_key, "")
         if val != "" and val is not None:
-            try:
+            with contextlib.suppress(ValueError, TypeError):
                 activity[numeric_key] = float(val)
-            except (ValueError, TypeError):
-                pass
 
     # String fields
     for str_key in ("currency", "comment", "instrumentType"):

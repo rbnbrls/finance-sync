@@ -246,7 +246,9 @@ def _build_wealthfolio_subparser(
     export.add_argument(
         "--output-dir",
         default=None,
-        help="Output directory for CSV files (overrides WEALTHFOLIO_OUTPUT_DIR)",
+        help=(
+            "Output directory for CSV files (overrides WEALTHFOLIO_OUTPUT_DIR)"
+        ),
     )
     export.add_argument(
         "--account-ids",
@@ -604,7 +606,7 @@ async def _cmd_wealthfolio_export(
     wf_config = WealthfolioConfig.from_settings(container.settings)
     output_dir = args.output_dir or str(wf_config.output_dir)
 
-    print(f"Wealthfolio CSV export starting …")
+    print("Wealthfolio CSV export starting …")
     print(f"  Output dir:   {output_dir}")
     print(f"  Tenant:       {tenant_id[:16]}…")
     print(f"  Days back:    {args.days_back}")
@@ -624,7 +626,10 @@ async def _cmd_wealthfolio_export(
 
     print(f"\nResult: {result.status}")
     if result.status == "completed":
-        print(f"  Transactions: {result.transactions_exported}/{result.transactions_attempted}")
+        print(
+            f"  Transactions: {result.transactions_exported}"
+            f"/{result.transactions_attempted}"
+        )
         print(f"  Holdings:     {result.holdings_exported}")
         print(f"  CSV files:    {len(result.csv_files)}")
         for f in result.csv_files:
@@ -648,13 +653,11 @@ async def _cmd_wealthfolio_push(
     from finance_sync.exporter.wealthfolio.exporter import WealthfolioExporter
 
     # Resolve server URL and password
-    server_url = (
-        args.server_url
-        or getattr(container.settings, "wealthfolio_server_url", "")
+    server_url = args.server_url or getattr(
+        container.settings, "wealthfolio_server_url", ""
     )
-    password = (
-        args.password
-        or getattr(container.settings, "wealthfolio_password", "")
+    password = args.password or getattr(
+        container.settings, "wealthfolio_password", ""
     )
 
     if not server_url:
@@ -675,7 +678,7 @@ async def _cmd_wealthfolio_push(
     wf_config = WealthfolioConfig.from_settings(container.settings)
     since = datetime.now(UTC) - timedelta(days=args.days_back)
 
-    print(f"Wealthfolio push starting …")
+    print("Wealthfolio push starting …")
     print(f"  Server URL:   {server_url}")
     print(f"  Tenant:       {tenant_id[:16]}…")
     print(f"  Days back:    {args.days_back}")
@@ -724,7 +727,7 @@ async def _cmd_wealthfolio_push(
             wf_client=wf_client,
             since=since,
         )
-        print(f"\nResult:")
+        print("\nResult:")
         print(f"  Imported:     {result.get('imported', 0)}")
         print(f"  Skipped:     {result.get('skipped', 0)}")
         print(f"  Failed:      {result.get('failed', 0)}")

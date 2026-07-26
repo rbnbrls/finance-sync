@@ -2,21 +2,19 @@
 
 Follows TDD: RED phase — write failing tests first.
 """
+
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
-from decimal import Decimal
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
-from httpx import AsyncClient, RequestError
+from httpx import RequestError
 
 from finance_sync.exporter.wealthfolio.client import (
     WealthfolioAuthError,
     WealthfolioClient,
     WealthfolioClientConfig,
 )
-
 
 # ═══════════════════════════════════════════════════════════════════════
 # Fixtures
@@ -124,9 +122,7 @@ class TestWealthfolioClientAuth:
         """Connection error should raise WealthfolioAuthError."""
         with patch.object(client._client, "post") as mock_post:
             mock_post.side_effect = RequestError("Connection refused")
-            with pytest.raises(
-                WealthfolioAuthError, match="Connection failed"
-            ):
+            with pytest.raises(WealthfolioAuthError, match="Connection failed"):
                 await client.authenticate()
 
         assert client.is_authenticated is False
@@ -197,9 +193,7 @@ class TestWealthfolioClientImport:
         self, client: WealthfolioClient
     ) -> None:
         """Importing without auth should raise."""
-        with pytest.raises(
-            WealthfolioAuthError, match="Not authenticated"
-        ):
+        with pytest.raises(WealthfolioAuthError, match="Not authenticated"):
             await client.import_activities([])
 
     async def test_check_import_success(
