@@ -474,7 +474,7 @@ def _parse_t212_datetime(raw: str | None) -> datetime:
         "%Y-%m-%dT%H:%M:%S",
     ):
         try:
-            parsed = datetime.strptime(cleaned, fmt)
+            parsed = datetime.strptime(cleaned, fmt)  # noqa: DTZ007
             break
         except ValueError:
             continue

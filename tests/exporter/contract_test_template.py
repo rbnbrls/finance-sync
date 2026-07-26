@@ -139,9 +139,7 @@ class ExportResultContractTest:
         assert hasattr(completed_result, "duration_s")
         assert isinstance(completed_result.duration_s, float)
 
-    async def test_failed_result_has_error(
-        self, failed_result: Any
-    ) -> None:
+    async def test_failed_result_has_error(self, failed_result: Any) -> None:
         """Failed result should carry an error message."""
         assert failed_result.status == "failed"
         assert failed_result.error_message is not None

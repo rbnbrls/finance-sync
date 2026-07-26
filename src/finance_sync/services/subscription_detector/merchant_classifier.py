@@ -253,8 +253,8 @@ def classification_from_db(
 
 __all__ = [
     "MerchantClass",
-    "classify_merchant",
     "classification_from_db",
+    "classify_merchant",
     "normalise_merchant_name",
     "resolve_ticker",
     "sector_subscription_likelihood",
