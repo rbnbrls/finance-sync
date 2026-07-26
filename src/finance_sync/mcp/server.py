@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 import structlog
@@ -57,7 +58,8 @@ mcp = FastMCP(
         "MCP server for the finance-sync financial data platform. "
         "Provides read-only access to accounts, portfolio, transactions, "
         "and net worth data.  Tools allow triggering syncs, querying "
-        "financial summaries, and resolving security identifiers."
+        "financial summaries, AI-powered briefings, and resolving "
+        "security identifiers."
     ),
     lifespan=mcp_lifespan,
     host="0.0.0.0",
@@ -217,7 +219,7 @@ async def resource_net_worth(ctx: Context) -> str:
 
 
 # ═════════════════════════════════════════════════════════════════════════
-# Tools
+# Tools — existing
 # ═════════════════════════════════════════════════════════════════════════
 
 
