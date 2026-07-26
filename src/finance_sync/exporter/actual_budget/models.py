@@ -1,29 +1,17 @@
-"""ORM models for the Actual Budget exporter.
+"""SQLAlchemy ORM models for Actual Budget exporter integration.
 
-ExportRun
-    Tracks each export attempt (analogous to SyncRun for ingestion).
-    Shared with other exporters — defined in ``exporter.models``.
-
-ActualBudgetAccountMapping
-    Persists the mapping between a finance-sync account and an Actual Budget
-    account (identified by its internal UUID).  Created automatically on
-    first export for each account pair.
-
-ExportDelivery
-    Tracks the delivery cursor per account for idempotent export.
-    Records the last-successfully-exported transaction ID and timestamp
-    so that a subsequent run can pick up where it left off without
-    re-exporting already-delivered transactions.
+Stores the mapping between finance-sync accounts and Actual Budget
+accounts, as well as cursor state for incremental export — allowing
+a subsequent run to pick up where it left off without re-exporting
+already-delivered transactions.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, ClassVar
+from datetime import datetime  # noqa: TC003
+from typing import ClassVar
 
-if TYPE_CHECKING:
-    from datetime import datetime
-
-from sqlalchemy import DateTime, ForeignKey, String, Text, UniqueConstraint
+from sqlalchemy import DateTime, ForeignKey, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from finance_sync.db import Base, created_at_ts, pk_uuid, updated_at_ts
@@ -38,105 +26,46 @@ class ActualBudgetAccountMapping(Base):
 
     __tablename__ = "ab_account_mappings"
     __table_args__: ClassVar = (
-        UniqueConstraint(
-            "tenant_id",
-            "account_id",
-            name="uq_ab_mapping_account",
-        ),
+        UniqueConstraint("tenant_id", "ab_account_id", name="uq_ab_acct_map"),
     )
 
     id: Mapped[str] = pk_uuid()
-    tenant_id: Mapped[str] = mapped_column(
-        ForeignKey("tenants.id"), nullable=False, index=True
-    )
 
-    # ── Finance-sync side ────────────────────────────────────────────
+    tenant_id: Mapped[str] = mapped_column(
+        String(36), nullable=False, index=True
+    )
     account_id: Mapped[str] = mapped_column(
         ForeignKey("accounts.id", ondelete="CASCADE"),
         nullable=False,
-        comment="finance-sync account UUID",
+        unique=True,
     )
-
-    # ── Actual Budget side ───────────────────────────────────────────
     ab_account_id: Mapped[str] = mapped_column(
-        String(64),
-        nullable=False,
-        comment="Actual Budget internal account UUID",
-    )
-    ab_account_name: Mapped[str] = mapped_column(
-        String(256),
-        nullable=False,
-        comment="Actual Budget account display name (cached)",
+        String(255), nullable=False
     )
 
-    created_at = created_at_ts()
-
-    def __repr__(self) -> str:
-        return (
-            f"<ActualBudgetAccountMapping "
-            f"acct={self.account_id!r} -> ab={self.ab_account_name!r}>"
-        )
+    created_at: Mapped[datetime] = created_at_ts()
+    updated_at: Mapped[datetime] = updated_at_ts()
 
 
-class ExportDelivery(Base):
-    """Idempotency cursor for export deliveries.
+class ActualBudgetCursor(Base):
+    """Tracks the last transaction exported to Actual Budget.
 
-    Records the last successfully exported transaction per account
-    so that the next export run can resume from that point without
-    re-processing already-delivered transactions.
+    Used for incremental export — only transactions newer than
+    ``last_exported_at`` will be included in the next run.
     """
 
-    __tablename__ = "export_deliveries"
-    __table_args__: ClassVar = (
-        UniqueConstraint(
-            "tenant_id",
-            "account_id",
-            name="uq_export_delivery_account",
-        ),
-    )
+    __tablename__ = "ab_export_cursors"
 
     id: Mapped[str] = pk_uuid()
+
     tenant_id: Mapped[str] = mapped_column(
-        ForeignKey("tenants.id"), nullable=False, index=True
+        String(36), nullable=False, index=True
     )
-
-    # ── Finance-sync side ────────────────────────────────────────────
-    account_id: Mapped[str] = mapped_column(
-        ForeignKey("accounts.id", ondelete="CASCADE"),
-        nullable=False,
-        comment="finance-sync account UUID",
-    )
-
-    # ── Delivery cursor ──────────────────────────────────────────────
-    last_exported_transaction_id: Mapped[str | None] = mapped_column(
-        String(64),
-        nullable=True,
-        comment="ID of the last successfully exported transaction",
-    )
-    last_exported_at: Mapped[datetime | None] = mapped_column(
+    last_exported_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
-        nullable=True,
-        comment="Timestamp of the last successful export for this account",
-    )
-    last_cursor: Mapped[str | None] = mapped_column(
-        Text,
-        nullable=True,
-        comment="Provider cursor / checkpoint token for resume",
+        nullable=False,
+        comment="Timestamp of the most recently exported transaction",
     )
 
-    # ── Run tracking ─────────────────────────────────────────────────
-    export_run_id: Mapped[str | None] = mapped_column(
-        String(64),
-        nullable=True,
-        comment="ID of the ExportRun that last updated this cursor",
-    )
-
-    created_at = created_at_ts()
-    updated_at = updated_at_ts()
-
-    def __repr__(self) -> str:
-        return (
-            f"<ExportDelivery account={self.account_id!r} "
-            f"last_tx={self.last_exported_transaction_id!r} "
-            f"at={self.last_exported_at!r}>"
-        )
+    created_at: Mapped[datetime] = created_at_ts()
+    updated_at: Mapped[datetime] = updated_at_ts()

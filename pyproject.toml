@@ -1,22 +1,13 @@
 [project]
 name = "finance-sync"
 version = "0.1.0"
-description = "Self-hosted, API-first financial data platform"
-readme = "README.md"
+description = "Multi-provider financial data sync engine"
 requires-python = ">=3.12"
-license = "MIT"
-authors = [
-    { name = "rbnbrls", email = "3826339+rbnbrls@users.noreply.github.com" },
-]
-
+license = { text = "MIT" }
+authors = [{ name = "Ruben Barels", email = "3826339+rbnbrls@users.noreply.github.com" }]
 dependencies = [
-    "fastapi>=0.115",
-    "uvicorn[standard]>=0.32",
-    "jinja2>=3.1",
-    "sqlalchemy[asyncio]>=2.0",
-    "asyncpg>=0.30",
-    "alembic>=1.14",
-    "redis[hiredis]>=5.2",
+    "financestream>=0.1.0",
+    "structlog>=25.1",
     "pydantic>=2.10",
     "pydantic-settings>=2.7",
     "httpx>=0.28",
@@ -95,16 +86,16 @@ lint.select = [
     "PERF", # perflint
 ]
 lint.ignore = [
-    "RUF012",  # mutable class defaults — accepted pattern for Pydantic
-    "COM812",  # trailing comma magic — handled by formatter
-    "ISC001",  # implicit concat — handled by formatter
-    "D",       # docstring rules — will enable later
+    "RUF012",  # mutable class defaults -- accepted pattern for Pydantic
+    "COM812",  # trailing comma magic -- handled by formatter
+    "ISC001",  # implicit concat -- handled by formatter
+    "D",       # docstring rules -- will enable later
 ]
 
 # Line length
 line-length = 80
 
-# Formatting — use Ruff's built-in formatter
+# Formatting -- use Ruff's built-in formatter
 [tool.ruff.format]
 quote-style = "double"
 indent-style = "space"
@@ -121,7 +112,10 @@ line-ending = "auto"
 "src/finance_sync/schemas/*" = ["TC001", "TC003"]
 "src/finance_sync/db/repository.py" = ["A002", "TC002"]
 "src/finance_sync/db/uow.py" = ["TC002", "TC003"]
-
+"examples/**" = ["ASYNC", "DTZ"]
+"migrations/**" = ["E402", "F403"]
+"src/finance_sync/connectors/*.py" = ["ASYNC"]
+"src/finance_sync/enrichment/models.py" = ["TC003"]
 
 [tool.pyright]
 typeCheckingMode = "basic"
@@ -163,7 +157,3 @@ skip_empty = true
 
 [build-system]
 requires = ["setuptools>=75"]
-build-backend = "setuptools.build_meta"
-
-[tool.setuptools.packages.find]
-where = ["src"]

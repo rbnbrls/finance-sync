@@ -35,7 +35,7 @@ def _get_service(session: AsyncSession) -> ReadService:
 
 @router.get("", response_model=AccountDetailResponse)
 async def list_accounts(
-    request: Request,
+    _request: Request,
     auth: AuthContext = Depends(require_permission("accounts", "read")),
     db: AsyncSession = Depends(get_db),
     limit: int = Query(default=50, ge=1, le=200),
