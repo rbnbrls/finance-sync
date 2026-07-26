@@ -251,7 +251,7 @@ class PeriodCandidate:
     Attributes:
         period_days: Detected period in days.
         label: Human-readable frequency label (e.g. 'monthly').
-        score: Confidence score for this period (0.0–1.0).
+        score: Confidence score for this period (0.0-1.0).
         peak_count: Number of transaction pairs with this interval.
     """
 
@@ -444,7 +444,7 @@ def _detect_periods_from_intervals(
 
     # 4. Also check the raw histogram for other significant peaks outside
     #    standard bands that might indicate split intervals (e.g. 60-day
-    #    as 2× monthly, 45-day as semi-monthly, etc.)
+    #    as 2x monthly, 45-day as semi-monthly, etc.)
     peak_indices = _find_peaks(
         smoothed, min_height=max_smoothed * _PEAK_PROMINENCE_FACTOR
     )

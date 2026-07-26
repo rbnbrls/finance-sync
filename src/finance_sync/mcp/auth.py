@@ -179,7 +179,7 @@ class MCPAuthMiddleware:
                     result = await session.execute(
                         _sl(_Ak).where(
                             _Ak.key_prefix == prefix,
-                            _Ak.is_active == True,
+                            _Ak.is_active,
                         )
                     )
                     key_row = result.scalar_one_or_none()
