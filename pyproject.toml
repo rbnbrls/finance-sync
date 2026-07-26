@@ -115,7 +115,7 @@ line-ending = "auto"
 # Per-file overrides
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["T20", "D", "ARG", "SLF", "ASYNC", "N817", "DTZ005", "PERF102", "PERF401", "A002", "E501", "RUF059"]
-"src/finance_sync/api/**" = ["B008"]
+"src/finance_sync/api/**" = ["B008", "TC003"]
 "src/finance_sync/__init__.py" = ["T20"]
 "src/finance_sync/cli.py" = ["T20"]
 "src/finance_sync/models/*" = ["TC001", "TC003"]

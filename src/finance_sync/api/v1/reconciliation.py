@@ -1,9 +1,9 @@
 """Reconciliation API endpoints — trigger runs and view findings."""
 
+from __future__ import annotations
+
 from datetime import UTC, datetime
-from decimal import (
-    Decimal,
-)
+from decimal import Decimal
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
@@ -120,7 +120,7 @@ class CompareConnectorsResponse(BaseModel):
 
     connector_a: str
     connector_b: str
-    run: "ReconciliationRunResponse"
+    run: ReconciliationRunResponse
     message: str = ""
 
 
