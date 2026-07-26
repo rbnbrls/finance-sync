@@ -680,7 +680,8 @@ class FxService:
 
         try:
             rate = await self._provider.get_latest_rate(
-                base_currency, quote_currency,
+                base_currency,
+                quote_currency,
             )
 
             return FxRateObservation(

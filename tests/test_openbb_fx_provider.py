@@ -105,11 +105,15 @@ class TestDegradedMode:
         ):
             await degraded_provider.get_latest_rate("EUR", "USD")
 
-    async def test_degraded_flag(self, degraded_provider: OpenBBFxProvider) -> None:
+    async def test_degraded_flag(
+        self, degraded_provider: OpenBBFxProvider
+    ) -> None:
         """_degraded is True when no API key is set."""
         assert degraded_provider._degraded
 
-    async def test_close_idempotent(self, degraded_provider: OpenBBFxProvider) -> None:
+    async def test_close_idempotent(
+        self, degraded_provider: OpenBBFxProvider
+    ) -> None:
         """close() is safe to call on degraded provider."""
         await degraded_provider.close()
         await degraded_provider.close()
@@ -515,7 +519,9 @@ class TestHTTPClientLifecycle:
         mock_client.aclose.assert_awaited_once()
         await live_provider.close()  # second call — no error
 
-    async def test_close_no_client(self, live_provider: OpenBBFxProvider) -> None:
+    async def test_close_no_client(
+        self, live_provider: OpenBBFxProvider
+    ) -> None:
         """close() is safe when no client was created."""
         assert live_provider._http_client is None
         await live_provider.close()  # should not raise
@@ -548,7 +554,9 @@ class TestHeaders:
 class TestEdgeCases:
     """Boundary conditions and unusual inputs."""
 
-    async def test_empty_currency_code(self, live_provider: OpenBBFxProvider) -> None:
+    async def test_empty_currency_code(
+        self, live_provider: OpenBBFxProvider
+    ) -> None:
         """Empty currency codes are passed through (API handles validation)."""
         mock_http = _mock_http_client(
             return_value=_mock_response(
@@ -585,7 +593,9 @@ class TestEdgeCases:
         provider = OpenBBFxProvider(api_key="sk-test")
         assert provider._base_url == "https://openbb.co/api"
 
-    async def test_very_small_rate(self, live_provider: OpenBBFxProvider) -> None:
+    async def test_very_small_rate(
+        self, live_provider: OpenBBFxProvider
+    ) -> None:
         """Very small rates (e.g. JPY-related) are handled."""
         mock_http = _mock_http_client(
             return_value=_mock_response(
@@ -601,7 +611,9 @@ class TestEdgeCases:
         rate = await live_provider.get_latest_rate("JPY", "EUR")
         assert rate == Decimal("0.0061")
 
-    async def test_large_rate_value(self, live_provider: OpenBBFxProvider) -> None:
+    async def test_large_rate_value(
+        self, live_provider: OpenBBFxProvider
+    ) -> None:
         """Large rate values are handled correctly."""
         mock_http = _mock_http_client(
             return_value=_mock_response(
