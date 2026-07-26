@@ -1,7 +1,5 @@
 """Reconciliation API endpoints — trigger runs and view findings."""
 
-from __future__ import annotations
-
 from datetime import UTC, datetime
 from decimal import (
     Decimal,
@@ -122,7 +120,7 @@ class CompareConnectorsResponse(BaseModel):
 
     connector_a: str
     connector_b: str
-    run: ReconciliationRunResponse
+    run: "ReconciliationRunResponse"
     message: str = ""
 
 
