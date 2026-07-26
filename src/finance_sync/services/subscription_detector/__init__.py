@@ -59,7 +59,7 @@ from finance_sync.services.subscription_detector.service import (
     _has_cancellation_signal,
 )
 
-__all__ = [  # noqa: RUF022
+__all__ = [
     "_CATEGORY_KEYWORDS",
     "_DEFAULT_DAYS_BACK",
     "_FREQUENCY_BANDS",
@@ -69,15 +69,12 @@ __all__ = [  # noqa: RUF022
     "_SUBSCRIPTION_KEYWORDS",
     # ── Merchant classification (standalone) ──────────────────────────
     "MerchantClass",
-    "classification_from_db",
     # ── Pattern detector (standalone) ───────────────────────────────────
     "PatternDetector",
     "PatternResult",
     # ── Integrated service ───────────────────────────────────────────
     "Subscription",
     "SubscriptionDetectionService",
-    # ── Helpers ─────────────────────────────────────────────────────────
-    "_has_cancellation_signal",
     # ── Service ────────────────────────────────────────────────────────
     "SubscriptionDetector",
     # ── Functions (detector) ───────────────────────────────────────────
@@ -87,9 +84,12 @@ __all__ = [  # noqa: RUF022
     "_compute_confidence_score",
     "_detect_frequency",
     "_detect_frequency_robust",
+    # ── Helpers ─────────────────────────────────────────────────────────
+    "_has_cancellation_signal",
     "_is_subscription_keyword",
     "_merge_cross_validated",
     "_normalise_merchant",
+    "classification_from_db",
     "classify_merchant",
     "normalise_merchant_name",
     "resolve_ticker",

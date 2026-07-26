@@ -82,7 +82,7 @@ class TestMCPResources:
         assert "finance://portfolio" in uris
         assert "finance://transactions" in uris
         assert "finance://net-worth" in uris
-        assert len(uris) == 4
+        assert len(uris) == 8
 
     def test_resource_metadata(self) -> None:
         """Check resource metadata."""
@@ -112,7 +112,7 @@ class TestMCPTools:
         assert "run_sync" in tool_names
         assert "get_summary" in tool_names
         assert "resolve_security" in tool_names
-        assert len(tool_names) == 3
+        assert len(tool_names) == 9
 
     def test_tool_input_schemas(self) -> None:
         """Tools have the expected input parameters."""

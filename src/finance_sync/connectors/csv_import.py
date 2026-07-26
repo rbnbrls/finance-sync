@@ -85,7 +85,7 @@ class CSVImportConnector(Connector):
             )
             raise PermanentError(msg)
 
-        if not os.path.exists(csv_path):  # noqa: ASYNC240
+        if not os.path.exists(csv_path):
             msg = f"CSV path does not exist: {csv_path}"
             raise PermanentError(msg)
 

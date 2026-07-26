@@ -68,13 +68,13 @@ class ManualExpenseConnector(Connector):
     async def authenticate(self) -> None:
         """Validate the data source file exists and is readable."""
         data_path = self._get_data_path()
-        if not data_path or not os.path.exists(data_path):  # noqa: ASYNC240
+        if not data_path or not os.path.exists(data_path):
             # First run — data file will be created
             self._authenticated = True
             return
 
         try:
-            with open(data_path) as f:  # noqa: ASYNC230
+            with open(data_path) as f:
                 json.load(f)
         except (json.JSONDecodeError, OSError) as exc:
             msg = f"Invalid expense data file: {exc}"
@@ -124,10 +124,10 @@ class ManualExpenseConnector(Connector):
             }
         """
         data_path = self._get_data_path()
-        if not data_path or not os.path.exists(data_path):  # noqa: ASYNC240
+        if not data_path or not os.path.exists(data_path):
             return []
 
-        with open(data_path) as f:  # noqa: ASYNC230
+        with open(data_path) as f:
             data = json.load(f)
 
         expenses = data.get("expenses", [])

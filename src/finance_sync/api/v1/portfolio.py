@@ -27,7 +27,7 @@ def _get_service(session: AsyncSession) -> ReadService:
 
 @router.get("", response_model=PortfolioResponse)
 async def get_portfolio(
-    request: Request,  # noqa: ARG001
+    request: Request,
     auth: AuthContext = Depends(require_permission("holdings", "read")),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:

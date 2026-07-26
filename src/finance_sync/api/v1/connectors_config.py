@@ -242,7 +242,7 @@ async def list_available_connectors() -> list[ConnectorInfo]:
         cred_fields, opt_fields = _get_connector_credential_schema(name)
         capabilities: list[str] = []
         try:
-            cls = registry._classes.get(name)  # noqa: SLF001
+            cls = registry._classes.get(name)
             if cls and hasattr(cls, "supported_resources"):
                 capabilities = sorted(cls.supported_resources)  # type: ignore[attr-defined]
         except Exception:

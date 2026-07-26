@@ -82,7 +82,7 @@ class TestManualExpenseConnectorContract:
             mode="w", suffix=".json", delete=False
         ) as f:
             json.dump(expenses, f)
-            self._data_path = f.name
+        self._data_path = f.name
 
         return ConnectorConfig(
             provider_type="manual_expense",
