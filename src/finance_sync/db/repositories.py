@@ -251,7 +251,7 @@ class TaxLotRepository(Repository[TaxLot]):
         account_id: str,
         security_id: str,
     ) -> list[TaxLot]:
-        """Return open tax lots for an account+security, ordered by acquisition.
+        """Return open tax lots for an account+security, ordered by acquisition date.
 
         Used by the cost-basis matching engine.
         """
@@ -268,7 +268,7 @@ class TaxLotRepository(Repository[TaxLot]):
         tenant_id: str,
         transaction_id: str,
     ) -> list[TaxLot]:
-        """Find all tax lots linked to a specific transaction."""
+        """Find lots linked to a transaction (purchase or sale)."""
         return await self.list(
             TaxLot.tenant_id == tenant_id,  # type: ignore[attr-defined]
             (

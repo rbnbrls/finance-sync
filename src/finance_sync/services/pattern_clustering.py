@@ -444,7 +444,7 @@ def _detect_periods_from_intervals(
 
     # 4. Also check the raw histogram for other significant peaks outside
     #    standard bands that might indicate split intervals (e.g. 60-day
-    #    as 2x monthly, 45-day as semi-monthly, etc.)
+    #    as 2× monthly, 45-day as semi-monthly, etc.)
     peak_indices = _find_peaks(
         smoothed, min_height=max_smoothed * _PEAK_PROMINENCE_FACTOR
     )
