@@ -251,7 +251,8 @@ class TaxLotRepository(Repository[TaxLot]):
         account_id: str,
         security_id: str,
     ) -> list[TaxLot]:
-        """Return open tax lots for an account+security, ordered by acquisition date.
+        """Return open tax lots for an account+security, ordered by
+        acquisition date.
 
         Used by the cost-basis matching engine.
         """

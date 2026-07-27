@@ -478,9 +478,7 @@ class MetadataEnricher:
         *,
         observed_at: datetime,
     ) -> None:
-        """Persist fundamental data as a fundamental_ratios
-        metadata observation.
-        """
+        """Persist fundamental data as fundamental_ratios observation."""
         metadata_json: dict[str, Any] = {
             "pe_ratio": (
                 str(fund_data.pe_ratio)

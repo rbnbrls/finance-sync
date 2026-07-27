@@ -129,7 +129,6 @@ __all__ = [
     "Account",
     # Enums
     "AccountType",
-    "ActualBudgetAccountMapping",
     "ApiKey",
     "Balance",
     "BalanceKind",
@@ -142,8 +141,6 @@ __all__ = [
     "DetectedSubscription",
     "DetectionMethod",
     "EnrichmentFreshness",
-    "ExportDelivery",
-    "ExportRun",
     "FundamentalObservation",
     "FxRate",
     "Holding",

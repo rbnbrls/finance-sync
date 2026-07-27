@@ -684,4 +684,4 @@ def _pick_dominant_currency(currencies: list[str]) -> str:
     counts: dict[str, int] = {}
     for c in currencies:
         counts[c] = counts.get(c, 0) + 1
-    return max(counts, key=counts.get)
+    return max(counts, key=lambda k: counts[k])
