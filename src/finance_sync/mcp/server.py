@@ -502,9 +502,7 @@ class GetPerformanceInput(BaseModel):
     ),
 )
 async def tool_get_performance(
-    ctx: Context,
-    period: str = "1M",
-    subject: str | None = None,
+    ctx: Context, period: str = "1M", subject: str | None = None
 ) -> str:
     """Compute portfolio/investment performance."""
     from datetime import UTC, datetime, timedelta

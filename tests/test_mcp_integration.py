@@ -103,6 +103,43 @@ class TestMCPToolsCompleteness:
         props = t.parameters.get("properties", {})
         assert "query" in props
 
+    # ── New tools (performance-analytics) ───────────────────────────
+
+    def test_tool_get_performance(self) -> None:
+        """get_performance tool is registered."""
+        t = self._tool_map.get("get_performance")
+        assert t is not None
+        props = t.parameters.get("properties", {})
+        assert "period" in props
+
+    def test_tool_get_allocation(self) -> None:
+        """get_allocation tool is registered."""
+        t = self._tool_map.get("get_allocation")
+        assert t is not None
+        props = t.parameters.get("properties", {})
+        assert "by" in props
+
+    def test_tool_get_cashflow(self) -> None:
+        """get_cashflow tool is registered."""
+        t = self._tool_map.get("get_cashflow")
+        assert t is not None
+        props = t.parameters.get("properties", {})
+        assert "period" in props
+
+    def test_tool_list_sync_runs(self) -> None:
+        """list_sync_runs tool is registered."""
+        t = self._tool_map.get("list_sync_runs")
+        assert t is not None
+        props = t.parameters.get("properties", {})
+        assert "limit" in props
+
+    def test_tool_get_subscriptions(self) -> None:
+        """get_subscriptions tool is registered."""
+        t = self._tool_map.get("get_subscriptions")
+        assert t is not None
+        props = t.parameters.get("properties", {})
+        assert "active_only" in props
+
 
 # ═════════════════════════════════════════════════════════════════════════
 # Helper function tests
