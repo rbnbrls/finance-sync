@@ -132,7 +132,7 @@ class APIKeyAuthResult:
 
 
 async def get_current_api_key(
-    request: Request,
+    _request: Request,
     x_api_key: str | None = Header(default=None),
     db: AsyncSession = Depends(get_db),
 ) -> APIKeyAuthResult | None:

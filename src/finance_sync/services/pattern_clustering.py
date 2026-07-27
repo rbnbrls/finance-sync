@@ -1,26 +1,24 @@
-"""Pattern clustering for subscription detection — time-series and
-clustering methods.
+"""Pattern clustering for subscription detection — time-series
+and clustering methods.
 
 Provides advanced pattern recognition beyond simple merchant-based grouping:
 
-- **AmountClusterDetector**: Density-based clustering on transaction
-  amounts to
-  amounts to find groups of transactions that share similar values across
-  different merchants and time periods — catches subscriptions whose
-  prices changed or that appear under slightly different merchant names.
+- **AmountClusterDetector**: Density-based clustering on transaction amounts to
+  find groups of transactions that share similar values across different
+  merchants and time periods — catches subscriptions whose prices changed or
+  that appear
+  under slightly different merchant names.
 
-- **PeriodicPatternDetector**: Uses interval histogram analysis with
-  peak detection
-  detection to find dominant periodicities in a transaction time series
-  — more robust than simple median-interval matching because it handles
-  skipped/missed payments and overlapping frequency bands.
+- **PeriodicPatternDetector**: Uses interval histogram analysis with peak
+  detection to find dominant periodicities in a transaction time series — more
+  robust than simple median-interval matching because it handles skipped/missed
+  payments and overlapping frequency bands.
 
 - **CrossAccountMatcher**: Links subscription patterns detected across different
   accounts and providers, identifying the same subscription billed through
   different instruments.
 
-- **SubscriptionPatternEngine**: Orchestrates all detectors into a
-  unified pipeline
+- **SubscriptionPatternEngine**: Orchestrates all detectors into a unified
   pipeline that returns structured pattern results with confidence scores.
 """
 
@@ -447,7 +445,7 @@ def _detect_periods_from_intervals(
 
     # 4. Also check the raw histogram for other significant peaks outside
     #    standard bands that might indicate split intervals (e.g. 60-day
-    #    as 2x monthly, 45-day as semi-monthly, etc.)
+    #    as 2× monthly, 45-day as semi-monthly, etc.)
     peak_indices = _find_peaks(
         smoothed, min_height=max_smoothed * _PEAK_PROMINENCE_FACTOR
     )

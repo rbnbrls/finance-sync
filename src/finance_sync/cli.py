@@ -697,10 +697,10 @@ async def _cmd_wealthfolio_push(
 
     if args.dry_run:
         # Count transactions without pushing
-        accounts = await exporter._load_accounts(account_ids)
+        accounts = await exporter._load_accounts(account_ids)  # noqa: SLF001
         total = 0
         for acct in accounts:
-            txns = await exporter._fetch_pending_transactions(
+            txns = await exporter._fetch_pending_transactions(  # noqa: SLF001
                 account_id=acct.id,
                 since=since,
             )
