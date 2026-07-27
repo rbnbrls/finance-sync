@@ -420,7 +420,10 @@ class GetDailyBriefingInput(BaseModel):
         "activity.  Requires AI_ENABLED=true and AI_API_KEY to be set."
     ),
 )
-async def tool_get_daily_briefing(ctx: Context) -> str:
+async def tool_get_daily_briefing(
+    ctx: Context,
+    timeframe: str = "today",  # noqa: ARG001
+) -> str:
     """Generate an AI-powered daily financial briefing."""
     tenant_id = _get_tenant_id(ctx)
     container = _get_container(ctx)
@@ -445,9 +448,9 @@ async def tool_get_daily_briefing(ctx: Context) -> str:
 class GetSubscriptionsInput(BaseModel):
     """Input for ``get_subscriptions`` tool."""
 
-    limit: int = Field(
-        default=20,
-        description="Maximum number of subscriptions to return.",
+    active_only: bool = Field(
+        default=True,
+        description="Only return active subscriptions when True.",
     )
 
 
@@ -460,36 +463,23 @@ class GetSubscriptionsInput(BaseModel):
         "and pattern recognition."
     ),
 )
-async def tool_get_subscriptions(ctx: Context, limit: int = 20) -> str:
+async def tool_get_subscriptions(ctx: Context, active_only: bool = True) -> str:
     """Detect recurring subscriptions from transaction history."""
     tenant_id = _get_tenant_id(ctx)
     container = _get_container(ctx)
 
-    from finance_sync.services.subscription_detector.service import (
-        SubscriptionDetectionService as _Sds,
+    from finance_sync.services.subscription_detector.detector import (
+        SubscriptionDetector as _SubDetector,
     )
 
-    svc = _Sds(session_factory=container.session_factory)
-    subs = await svc.detect_subscriptions(user_id=tenant_id)
-    return _serialise(
-        [
-            {
-                "name": s.name,
-                "merchant": s.merchant,
-                "amount": str(s.amount) if s.amount else None,
-                "currency": s.currency,
-                "frequency": s.frequency,
-                "confidence": s.confidence,
-                "category": s.category,
-                "first_seen": (
-                    s.first_seen.isoformat() if s.first_seen else None
-                ),
-                "last_seen": (s.last_seen.isoformat() if s.last_seen else None),
-                "details": s.details,
-            }
-            for s in subs[:limit]
-        ]
+    detector = _SubDetector(
+        session_factory=container.session_factory,
+        tenant_id=tenant_id,
     )
+    subscriptions = await detector.list_subscriptions(
+        status="active" if active_only else None,
+    )
+    return _serialise([s.model_dump() for s in subscriptions])
 
 
 class GetPerformanceInput(BaseModel):
