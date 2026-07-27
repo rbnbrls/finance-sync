@@ -22,7 +22,7 @@ def _get_service(session: AsyncSession) -> ReadService:
 
 @router.get("", response_model=SyncRunListResponse)
 async def list_sync_runs(
-    auth: AuthContext = Depends(require_permission("sync", "read")),  # noqa: ARG001
+    _auth: AuthContext = Depends(require_permission("sync", "read")),
     db: AsyncSession = Depends(get_db),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),

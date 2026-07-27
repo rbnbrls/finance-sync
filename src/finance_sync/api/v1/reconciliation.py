@@ -3,10 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from decimal import (
-    Decimal,  # noqa: TC003 — runtime-import needed by Pydantic models
-)
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
@@ -14,6 +11,11 @@ from pydantic import BaseModel, Field
 from finance_sync.api.deps.auth import AuthContext, require_permission
 from finance_sync.dependencies import get_container
 from finance_sync.services.reconciliation import ReconciliationService
+
+if TYPE_CHECKING:
+    from decimal import (
+        Decimal,
+    )
 
 router = APIRouter(prefix="/reconciliation", tags=["reconciliation"])
 

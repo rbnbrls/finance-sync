@@ -321,7 +321,6 @@ async def me(
 @router.post("/api-keys", response_model=CreateAPIKeyResponse)
 async def create_api_key(
     body: CreateAPIKeyRequest,
-    request: Request,  # noqa: ARG001
     auth: AuthContext = Depends(require_role("admin")),
     db: AsyncSession = Depends(get_db),
 ) -> CreateAPIKeyResponse:

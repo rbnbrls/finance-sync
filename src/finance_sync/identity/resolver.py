@@ -357,7 +357,7 @@ class IdentityResolutionService:
 
         # Try OpenBB name search as fallback
         if not self._gateway.is_degraded:
-            result = await self._resolver._resolve_via_gateway(  # type: ignore[union-attr]  # noqa: SLF001  # nosec
+            result = await self._resolver._resolve_via_gateway(  # type: ignore[union-attr]  # nosec  # noqa: SLF001
                 identifier=cleansed_name,
                 identifier_type="name",
             )

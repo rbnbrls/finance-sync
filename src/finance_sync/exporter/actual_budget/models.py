@@ -18,13 +18,15 @@ ExportDelivery
 
 from __future__ import annotations
 
-from datetime import datetime  # noqa: TC003 — needed at runtime by SQLAlchemy
-from typing import ClassVar
+from typing import TYPE_CHECKING, ClassVar
 
 from sqlalchemy import DateTime, ForeignKey, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from finance_sync.db import Base, created_at_ts, pk_uuid, updated_at_ts
+
+if TYPE_CHECKING:
+    from datetime import datetime
 
 
 class ActualBudgetAccountMapping(Base):

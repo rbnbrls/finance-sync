@@ -7,7 +7,7 @@ because FastAPI needs runtime type introspection for OpenAPI generation.
 from datetime import datetime
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from finance_sync.api.deps.auth import AuthContext, require_permission
@@ -35,7 +35,6 @@ def _get_service(session: AsyncSession) -> ReadService:
 
 @router.get("", response_model=AccountDetailResponse)
 async def list_accounts(
-    request: Request,  # noqa: ARG001
     auth: AuthContext = Depends(require_permission("accounts", "read")),
     db: AsyncSession = Depends(get_db),
     limit: int = Query(default=50, ge=1, le=200),

@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
-from datetime import datetime  # noqa: TC003
 from decimal import Decimal
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
+
+if TYPE_CHECKING:
+    from datetime import datetime
 
 # ── Security Resolution ─────────────────────────────────────────────────
 
