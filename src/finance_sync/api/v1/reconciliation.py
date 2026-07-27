@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from decimal import Decimal
+from decimal import (
+    Decimal,
+)
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
@@ -185,6 +187,11 @@ class ReconciliationRunDetailResponse(BaseModel):
     total_results: int
     result_limit: int
     result_offset: int
+
+
+ReconciliationRunDetailResponse.model_rebuild()
+ReconciliationRunListResponse.model_rebuild()
+ReconciliationRunResponse.model_rebuild()
 
 
 # ── Helpers ───────────────────────────────────────────────────────────

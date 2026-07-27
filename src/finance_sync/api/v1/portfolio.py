@@ -7,7 +7,7 @@ because FastAPI needs runtime type introspection for OpenAPI generation.
 from datetime import datetime
 from typing import Any
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from finance_sync.api.deps.auth import AuthContext, require_permission
@@ -27,7 +27,6 @@ def _get_service(session: AsyncSession) -> ReadService:
 
 @router.get("", response_model=PortfolioResponse)
 async def get_portfolio(
-    _request: Request,
     auth: AuthContext = Depends(require_permission("holdings", "read")),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:

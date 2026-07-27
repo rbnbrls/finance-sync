@@ -265,7 +265,6 @@ _require_securities_read = require_permission("securities", "read")
 
 @router.get("")
 async def list_securities(
-    _request: Request,
     db: AsyncSession = Depends(get_db),
     _auth: AuthContext = Depends(_require_securities_read),
     limit: int = Query(default=50, ge=1, le=200),

@@ -6,16 +6,15 @@ environment variables / Settings) and trigger export runs to Wealthfolio.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import (
+    datetime,
+)
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
-
-if TYPE_CHECKING:
-    from sqlalchemy.ext.asyncio import AsyncSession
 
 from finance_sync.api.deps.auth import AuthContext, get_auth_context
 from finance_sync.dependencies import get_container, get_db
@@ -105,6 +104,9 @@ class ExportRunsListResponse(BaseModel):
     total: int
 
 
+ExportRunsListResponse.model_rebuild()
+
+
 # ── Helpers ──────────────────────────────────────────────────────────────
 
 
@@ -189,11 +191,11 @@ async def list_exporter_types() -> list[ExporterTypeInfo]:
 
 @router.get("/config", response_model=ExporterConfigResponse)
 async def get_exporter_config(
-    _request: Request,
+    request: Request,
     _auth: AuthContext = Depends(get_auth_context),
 ) -> ExporterConfigResponse:
     """Get the current exporter configuration."""
-    container = get_container(_request)
+    container = get_container(request)
     wf_config = _build_wealthfolio_config(container)
 
     return ExporterConfigResponse(
@@ -215,7 +217,6 @@ async def get_exporter_config(
 async def trigger_export(
     request: Request,
     auth: AuthContext = Depends(get_auth_context),
-    _db: AsyncSession = Depends(get_db),
 ) -> TriggerExportResponse:
     """Trigger a Wealthfolio export run.
 
