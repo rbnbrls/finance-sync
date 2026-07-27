@@ -103,7 +103,21 @@ class TestMCPToolsCompleteness:
         props = t.parameters.get("properties", {})
         assert "query" in props
 
-    # ── New tools (performance-analytics) ───────────────────────────
+    # ── New tools ──────────────────────────────────────────────────
+
+    def test_tool_get_daily_briefing(self) -> None:
+        """get_daily_briefing tool is registered."""
+        t = self._tool_map.get("get_daily_briefing")
+        assert t is not None
+        props = t.parameters.get("properties", {})
+        assert "timeframe" in props
+
+    def test_tool_get_subscriptions(self) -> None:
+        """get_subscriptions tool is registered."""
+        t = self._tool_map.get("get_subscriptions")
+        assert t is not None
+        props = t.parameters.get("properties", {})
+        assert "active_only" in props
 
     def test_tool_get_performance(self) -> None:
         """get_performance tool is registered."""
@@ -111,6 +125,7 @@ class TestMCPToolsCompleteness:
         assert t is not None
         props = t.parameters.get("properties", {})
         assert "period" in props
+        assert "subject" in props
 
     def test_tool_get_allocation(self) -> None:
         """get_allocation tool is registered."""
@@ -118,6 +133,7 @@ class TestMCPToolsCompleteness:
         assert t is not None
         props = t.parameters.get("properties", {})
         assert "by" in props
+        assert "target_currency" in props
 
     def test_tool_get_cashflow(self) -> None:
         """get_cashflow tool is registered."""
@@ -132,13 +148,7 @@ class TestMCPToolsCompleteness:
         assert t is not None
         props = t.parameters.get("properties", {})
         assert "limit" in props
-
-    def test_tool_get_subscriptions(self) -> None:
-        """get_subscriptions tool is registered."""
-        t = self._tool_map.get("get_subscriptions")
-        assert t is not None
-        props = t.parameters.get("properties", {})
-        assert "active_only" in props
+        assert "connector" in props
 
 
 # ═════════════════════════════════════════════════════════════════════════

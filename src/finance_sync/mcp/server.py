@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 import structlog
@@ -395,7 +396,7 @@ async def tool_resolve_security(ctx: Context, query: str) -> str:
 
 
 # ═════════════════════════════════════════════════════════════════════════
-# Tools — new
+# Tools — phase 3 new tools
 # ═════════════════════════════════════════════════════════════════════════
 
 
@@ -414,15 +415,16 @@ class GetDailyBriefingInput(BaseModel):
     name="get_daily_briefing",
     title="Get Daily Briefing",
     description=(
-        "Generate an AI-powered daily briefing of recent"
-        " financial activity and highlights."
+        "Generate an AI-powered daily briefing covering spending since "
+        "yesterday, net worth change, portfolio highlights, and unusual "
+        "activity.  Requires AI_ENABLED=true and AI_API_KEY to be set."
     ),
 )
 async def tool_get_daily_briefing(
     ctx: Context,
     timeframe: str = "today",
 ) -> str:
-    """Generate an AI-powered daily briefing."""
+    """Generate an AI-powered daily financial briefing."""
     tenant_id = _get_tenant_id(ctx)
     container = _get_container(ctx)
 
@@ -456,12 +458,13 @@ class GetSubscriptionsInput(BaseModel):
     name="get_subscriptions",
     title="Get Subscriptions",
     description=(
-        "List detected subscription services with cost,"
-        " billing cycle, and status."
+        "Detect and return recurring subscription payments "
+        "from transaction history, combining merchant classification "
+        "and pattern recognition."
     ),
 )
 async def tool_get_subscriptions(ctx: Context, active_only: bool = True) -> str:
-    """List detected subscriptions for the tenant."""
+    """Detect recurring subscriptions from transaction history."""
     tenant_id = _get_tenant_id(ctx)
     container = _get_container(ctx)
 
@@ -482,14 +485,18 @@ async def tool_get_subscriptions(ctx: Context, active_only: bool = True) -> str:
 class GetPerformanceInput(BaseModel):
     """Input for ``get_performance`` tool."""
 
-    period: str = Field(
-        default="1M",
-        description="Performance period, e.g. '1W', '1M', '3M', '1Y', 'YTD'.",
-    )
-    subject: str | None = Field(
-        default=None,
+    subject: str = Field(
+        default="portfolio",
         description=(
-            "Optional filter: account_id or security_id to scope the query."
+            "Performance subject: 'portfolio', 'account', or a specific "
+            "security identifier.  Defaults to the overall portfolio."
+        ),
+    )
+    period: str = Field(
+        default="1y",
+        description=(
+            "Evaluation period, e.g. '1m', '3m', '6m', '1y', 'ytd'.  "
+            "Defaults to '1y' (1 year)."
         ),
     )
 
@@ -498,49 +505,69 @@ class GetPerformanceInput(BaseModel):
     name="get_performance",
     title="Get Performance",
     description=(
-        "Compute portfolio or investment performance for a given period."
+        "Calculate portfolio performance metrics including "
+        "time-weighted return (TWR) for a given period and subject."
     ),
 )
 async def tool_get_performance(
-    ctx: Context, period: str = "1M", subject: str | None = None
+    ctx: Context,
+    subject: str = "portfolio",
+    period: str = "1y",
 ) -> str:
-    """Compute portfolio/investment performance."""
-    from datetime import UTC, datetime, timedelta
-
+    """Calculate portfolio performance metrics."""
     tenant_id = _get_tenant_id(ctx)
     container = _get_container(ctx)
 
-    from finance_sync.services.performance import PerformanceService as _PerfSvc
+    from finance_sync.services.performance import PerformanceService as _Perf
+
+    now = datetime.now(UTC)
+    days_map = {
+        "1m": 30,
+        "3m": 90,
+        "6m": 180,
+        "1y": 365,
+        "2y": 730,
+        "ytd": now.timetuple().tm_yday,
+    }
+    period_days = days_map.get(period, 365)
+    date_from = now - timedelta(days=period_days)
 
     async with container.session_factory() as session:
-        perf_service = _PerfSvc(session=session)
-        try:
-            # Map period string to date range
-            period_map = {
-                "1W": timedelta(weeks=1),
-                "1M": timedelta(days=30),
-                "3M": timedelta(days=90),
-                "6M": timedelta(days=180),
-                "1Y": timedelta(days=365),
-                "YTD": timedelta(days=datetime.now(UTC).timetuple().tm_yday),
-            }
-            date_from = datetime.now(UTC) - period_map.get(
-                period.upper(), timedelta(days=30)
-            )
-            result = await perf_service.get_summary(
-                tenant_id, date_from=date_from
-            )
-            return _serialise(result.model_dump())
-        finally:
-            await perf_service._session.aclose()
+        svc = _Perf(session)
+        result = await svc.calculate_twr(
+            tenant_id,
+            date_from=date_from,
+            date_to=now,
+            annualized=True,
+        )
+        return _serialise(result.model_dump())
+
+
+class GetAllocationInput(BaseModel):
+    """Input for ``get_allocation`` tool."""
+
+    by: str = Field(
+        default="asset_class",
+        description=(
+            "Allocation breakdown dimension: 'asset_class', 'sector', "
+            "or 'region'.  Defaults to 'asset_class'."
+        ),
+    )
+    target_currency: str | None = Field(
+        default=None,
+        description=(
+            "Optional ISO-4217 currency code to normalise all values "
+            "into a single currency (e.g. 'EUR', 'USD')."
+        ),
+    )
 
 
 @mcp.tool(
     name="get_allocation",
     title="Get Allocation",
     description=(
-        "Break down portfolio allocation by asset class,"
-        " sector, region, or account."
+        "Compute portfolio allocation breakdowns by asset class, "
+        "sector, or region with optional multi-currency normalisation."
     ),
 )
 async def tool_get_allocation(
@@ -548,49 +575,107 @@ async def tool_get_allocation(
     by: str = "asset_class",
     target_currency: str | None = None,
 ) -> str:
-    """Compute portfolio allocation breakdown."""
+    """Compute portfolio allocation breakdowns."""
     tenant_id = _get_tenant_id(ctx)
-    read_service = _get_read_service(ctx)
-    try:
-        result = await read_service.get_allocation(tenant_id, by=by)
+    container = _get_container(ctx)
+
+    from finance_sync.services.allocation import AllocationService as _Alloc
+
+    async with container.session_factory() as session:
+        svc = _Alloc(
+            session=session,
+            fx_service=(
+                container.fx_service
+                if container.settings.openbb_enabled
+                else None
+            ),
+        )
+        result = await svc.get_allocation(
+            tenant_id,
+            target_currency=target_currency,
+        )
         return _serialise(result.model_dump())
-    finally:
-        await read_service._session.aclose()
+
+
+class GetCashflowInput(BaseModel):
+    """Input for ``get_cashflow`` tool."""
+
+    period: str = Field(
+        default="30d",
+        description=(
+            "Lookback period, e.g. '7d', '30d', '90d', '1y'.  "
+            "Defaults to '30d'."
+        ),
+    )
 
 
 @mcp.tool(
     name="get_cashflow",
-    title="Get Cashflow",
-    description="Summarise cash inflows and outflows over a period.",
+    title="Get Cashflow Summary",
+    description=(
+        "Return aggregate cashflow (inflows, outflows, net) for "
+        "a given period across all accounts."
+    ),
 )
 async def tool_get_cashflow(ctx: Context, period: str = "30d") -> str:
-    """Summarise cashflow over the given period."""
-    from datetime import UTC, datetime, timedelta
-
+    """Return aggregate cashflow for a given period."""
     tenant_id = _get_tenant_id(ctx)
     read_service = _get_read_service(ctx)
     try:
         days = int(period[:-1]) if period.endswith("d") else 30
         date_from = datetime.now(UTC) - timedelta(days=days)
-        result = await read_service.get_cashflow(tenant_id, date_from=date_from)
+        result = await read_service.get_cashflow(
+            tenant_id,
+            date_from=date_from,
+        )
         return _serialise(result.model_dump())
     finally:
         await read_service._session.aclose()
 
 
+class ListSyncRunsInput(BaseModel):
+    """Input for ``list_sync_runs`` tool."""
+
+    limit: int = Field(
+        default=10,
+        description="Maximum number of sync runs to return.",
+    )
+    connector: str | None = Field(
+        default=None,
+        description="Optional filter by connector type (e.g. 'bunq').",
+    )
+    status: str | None = Field(
+        default=None,
+        description=(
+            "Optional filter by run status "
+            "(e.g. 'success', 'failed', 'running')."
+        ),
+    )
+
+
 @mcp.tool(
     name="list_sync_runs",
     title="List Sync Runs",
-    description="List recent sync run history with status and duration.",
+    description=(
+        "List recent sync runs with status, duration, "
+        "and per-connector success/failure counts."
+    ),
 )
 async def tool_list_sync_runs(
-    ctx: Context, limit: int = 20, connector: str | None = None
+    ctx: Context,
+    limit: int = 10,
+    connector: str | None = None,
+    status: str | None = None,
 ) -> str:
-    """List recent sync runs for the tenant."""
+    """List recent sync runs with status summaries."""
+    tenant_id = _get_tenant_id(ctx)
     read_service = _get_read_service(ctx)
     try:
         result = await read_service.list_sync_runs(
-            limit=limit, connector=connector
+            tenant_id,
+            limit=limit,
+            connector=connector,
+            status=status,
         )
         return _serialise(result.model_dump())
     finally:

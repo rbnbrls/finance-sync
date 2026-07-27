@@ -28,11 +28,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+if TYPE_CHECKING:
+    from datetime import datetime
+
 import pytest
 
 if TYPE_CHECKING:
     from collections.abc import Callable
-    from datetime import datetime
     from unittest.mock import MagicMock
 
 pytestmark = pytest.mark.asyncio

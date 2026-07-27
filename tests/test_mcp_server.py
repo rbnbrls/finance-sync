@@ -140,6 +140,40 @@ class TestMCPTools:
         props = resolve.parameters.get("properties", {})
         assert "query" in props
 
+        # New tools
+        briefing = tool_map["get_daily_briefing"]
+        assert briefing.parameters is not None
+        props = briefing.parameters.get("properties", {})
+        assert "timeframe" in props
+
+        subs = tool_map["get_subscriptions"]
+        assert subs.parameters is not None
+        props = subs.parameters.get("properties", {})
+        assert "active_only" in props
+
+        perf = tool_map["get_performance"]
+        assert perf.parameters is not None
+        props = perf.parameters.get("properties", {})
+        assert "period" in props
+        assert "subject" in props
+
+        alloc = tool_map["get_allocation"]
+        assert alloc.parameters is not None
+        props = alloc.parameters.get("properties", {})
+        assert "by" in props
+        assert "target_currency" in props
+
+        cf = tool_map["get_cashflow"]
+        assert cf.parameters is not None
+        props = cf.parameters.get("properties", {})
+        assert "period" in props
+
+        runs = tool_map["list_sync_runs"]
+        assert runs.parameters is not None
+        props = runs.parameters.get("properties", {})
+        assert "limit" in props
+        assert "connector" in props
+
 
 # ═════════════════════════════════════════════════════════════════════════
 # MCPAuthContext
