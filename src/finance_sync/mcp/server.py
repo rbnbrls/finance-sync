@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 import structlog
@@ -520,7 +521,7 @@ class GetPerformanceInput(BaseModel):
 )
 async def tool_get_performance(
     ctx: Context,
-    subject: str = "portfolio",  # noqa: ARG001
+    subject: str = "portfolio",
     period: str = "1y",
 ) -> str:
     """Calculate portfolio performance metrics."""
@@ -581,7 +582,7 @@ class GetAllocationInput(BaseModel):
 )
 async def tool_get_allocation(
     ctx: Context,
-    by: str = "asset_class",  # noqa: ARG001
+    by: str = "asset_class",
     target_currency: str | None = None,
 ) -> str:
     """Compute portfolio allocation breakdowns."""
