@@ -33,9 +33,6 @@ import structlog
 from sqlalchemy import select
 
 from finance_sync.exporter.models import ExportRun
-from finance_sync.exporter.wealthfolio.client import (
-    WealthfolioClient,
-)
 from finance_sync.exporter.wealthfolio.transaction_mapper import (
     map_holdings_to_csv,
     map_transaction_to_wf_row,
@@ -51,6 +48,9 @@ if TYPE_CHECKING:
         async_sessionmaker,
     )
 
+    from finance_sync.exporter.wealthfolio.client import (
+        WealthfolioClient,
+    )
     from finance_sync.exporter.wealthfolio.config import (
         WealthfolioConfig,
     )

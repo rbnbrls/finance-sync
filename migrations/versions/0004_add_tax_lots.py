@@ -49,12 +49,8 @@ def upgrade() -> None:
             server_default=sa.text("gen_random_uuid()"),
         ),
         sa.Column("tenant_id", postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column(
-            "account_id", postgresql.UUID(as_uuid=True), nullable=False
-        ),
-        sa.Column(
-            "security_id", postgresql.UUID(as_uuid=True), nullable=False
-        ),
+        sa.Column("account_id", postgresql.UUID(as_uuid=True), nullable=False),
+        sa.Column("security_id", postgresql.UUID(as_uuid=True), nullable=False),
         # Transaction links
         sa.Column(
             "purchase_transaction_id",
@@ -202,15 +198,9 @@ def upgrade() -> None:
     )
 
     # Indexes
-    op.create_index(
-        "ix_tax_lots_tenant_id", "tax_lots", ["tenant_id"]
-    )
-    op.create_index(
-        "ix_tax_lots_account_id", "tax_lots", ["account_id"]
-    )
-    op.create_index(
-        "ix_tax_lots_security_id", "tax_lots", ["security_id"]
-    )
+    op.create_index("ix_tax_lots_tenant_id", "tax_lots", ["tenant_id"])
+    op.create_index("ix_tax_lots_account_id", "tax_lots", ["account_id"])
+    op.create_index("ix_tax_lots_security_id", "tax_lots", ["security_id"])
     op.create_index(
         "ix_tax_lots_tenant_open",
         "tax_lots",
@@ -227,7 +217,13 @@ def upgrade() -> None:
     op.create_unique_constraint(
         "uq_tax_lots_purchase",
         "tax_lots",
-        ["tenant_id", "account_id", "security_id", "purchase_transaction_id", "acquired_at"],
+        [
+            "tenant_id",
+            "account_id",
+            "security_id",
+            "purchase_transaction_id",
+            "acquired_at",
+        ],
     )
 
 

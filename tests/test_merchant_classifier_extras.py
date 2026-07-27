@@ -49,9 +49,6 @@ class TestMerchantClassifierFundamentals:
     def mock_session(self, mock_security, mock_fundamentals) -> AsyncMock:
         """Mock session that returns security and fundamentals."""
         session = AsyncMock()
-        session.__aenter__ = AsyncMock(return_value=session)
-        session.__aexit__ = AsyncMock()
-
         # Mock the security query
         security_result = MagicMock()
         security_result.scalar_one_or_none.return_value = mock_security
@@ -66,12 +63,10 @@ class TestMerchantClassifierFundamentals:
 
     @pytest.fixture
     def mock_uow(self, mock_session) -> MagicMock:
-        """Mock UoW with a session factory."""
+        """Mock UoW with a session attribute."""
         uow = MagicMock()
-        session_factory = MagicMock()
-        session_factory.return_value = mock_session
-        # UoW has _session_factory as an attribute used by auth methods
-        type(uow)._session_factory = PropertyMock(return_value=session_factory)
+        # UoW has session as a property
+        type(uow).session = PropertyMock(return_value=mock_session)
         return uow
 
     @pytest.mark.asyncio
@@ -132,19 +127,11 @@ class TestMerchantClassifierFundamentals:
         """When security is not found in DB, fundamentals are skipped."""
         # Override the session to return None for security
         session = AsyncMock()
-        session.__aenter__ = AsyncMock(return_value=session)
-        session.__aexit__ = AsyncMock()
-
         security_result = MagicMock()
         security_result.scalar_one_or_none.return_value = None
-
         session.execute = AsyncMock(return_value=security_result)
 
-        session_factory = MagicMock()
-        session_factory.return_value = session
-        type(mock_uow)._session_factory = PropertyMock(
-            return_value=session_factory
-        )
+        type(mock_uow).session = PropertyMock(return_value=session)
 
         classifier = MerchantClassifier(uow=mock_uow)
         result = await classifier.classify(
@@ -166,15 +153,9 @@ class TestMerchantClassifierFundamentals:
         """When DB query raises, the exception is caught and fundamentals
         are gracefully skipped."""
         session = AsyncMock()
-        session.__aenter__ = AsyncMock(return_value=session)
-        session.__aexit__ = AsyncMock()
         session.execute = AsyncMock(side_effect=Exception("DB down"))
 
-        session_factory = MagicMock()
-        session_factory.return_value = session
-        type(mock_uow)._session_factory = PropertyMock(
-            return_value=session_factory
-        )
+        type(mock_uow).session = PropertyMock(return_value=session)
 
         classifier = MerchantClassifier(uow=mock_uow)
         result = await classifier.classify(
@@ -193,15 +174,9 @@ class TestMerchantClassifierFundamentals:
     ) -> None:
         """When the DB query raises, it's caught and returns None, None."""
         session = AsyncMock()
-        session.__aenter__ = AsyncMock(return_value=session)
-        session.__aexit__ = AsyncMock()
         session.execute = AsyncMock(side_effect=Exception("Connection refused"))
 
-        session_factory = MagicMock()
-        session_factory.return_value = session
-        type(mock_uow)._session_factory = PropertyMock(
-            return_value=session_factory
-        )
+        type(mock_uow).session = PropertyMock(return_value=session)
 
         classifier = MerchantClassifier(uow=mock_uow)
         (
@@ -253,19 +228,11 @@ class TestMerchantClassifierFundamentals:
         """_find_latest_fundamentals returns the most recent observation."""
         # Create a dedicated session that returns fund_result on first call
         session = AsyncMock()
-        session.__aenter__ = AsyncMock(return_value=session)
-        session.__aexit__ = AsyncMock()
-
         fund_result = MagicMock()
         fund_result.scalar_one_or_none.return_value = mock_fundamentals
-
         session.execute = AsyncMock(return_value=fund_result)
 
-        session_factory = MagicMock()
-        session_factory.return_value = session
-        type(mock_uow)._session_factory = PropertyMock(
-            return_value=session_factory
-        )
+        type(mock_uow).session = PropertyMock(return_value=session)
 
         classifier = MerchantClassifier(uow=mock_uow)
         result = await classifier._find_latest_fundamentals("sec_nflx")
@@ -279,19 +246,11 @@ class TestMerchantClassifierFundamentals:
     async def test_find_latest_fundamentals_no_result(self, mock_uow) -> None:
         """When no fundamentals found, returns None."""
         session = AsyncMock()
-        session.__aenter__ = AsyncMock(return_value=session)
-        session.__aexit__ = AsyncMock()
-
         fund_result = MagicMock()
         fund_result.scalar_one_or_none.return_value = None
-
         session.execute = AsyncMock(return_value=fund_result)
 
-        session_factory = MagicMock()
-        session_factory.return_value = session
-        type(mock_uow)._session_factory = PropertyMock(
-            return_value=session_factory
-        )
+        type(mock_uow).session = PropertyMock(return_value=session)
 
         classifier = MerchantClassifier(uow=mock_uow)
         result = await classifier._find_latest_fundamentals("sec_none")

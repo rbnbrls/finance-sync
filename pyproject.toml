@@ -17,6 +17,7 @@ dependencies = [
     "asyncpg>=0.30",
     "alembic>=1.14",
     "redis[hiredis]>=5.2",
+    "structlog>=25.1",
     "pydantic>=2.10",
     "pydantic-settings>=2.7",
     "httpx>=0.28",
@@ -94,17 +95,16 @@ lint.select = [
     "PERF", # perflint
 ]
 lint.ignore = [
-    "RUF012",  # mutable class defaults — accepted pattern for Pydantic
-    "COM812",  # trailing comma magic — handled by formatter
-    "ISC001",  # implicit concat — handled by formatter
-    "TC003",   # move-stdlib-into-type-checking-block — breaks Pydantic model_rebuild() with `from __future__ import annotations`
-    "D",       # docstring rules — will enable later
+    "RUF012",  # mutable class defaults -- accepted pattern for Pydantic
+    "COM812",  # trailing comma magic -- handled by formatter
+    "ISC001",  # implicit concat -- handled by formatter
+    "D",       # docstring rules -- will enable later
 ]
 
 # Line length
 line-length = 80
 
-# Formatting — use Ruff's built-in formatter
+# Formatting -- use Ruff's built-in formatter
 [tool.ruff.format]
 quote-style = "double"
 indent-style = "space"
@@ -113,35 +113,31 @@ line-ending = "auto"
 
 # Per-file overrides
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["T20", "D", "ARG", "SLF", "ASYNC", "N817", "DTZ005", "PERF102", "PERF401", "A002", "E501", "RUF059", "E402", "DTZ"]
-"src/finance_sync/api/**" = ["B008", "ARG", "SLF", "TC", "E501", "E712", "E741", "RET"]
-"src/finance_sync/app.py" = ["SLF"]
-"src/finance_sync/cli.py" = ["T20"]
-"src/finance_sync/connectors/**" = ["TC", "ASYNC", "DTZ", "T20"]
-"src/finance_sync/container.py" = ["TC"]
-"src/finance_sync/db/repositories.py" = ["A002", "TC002", "E501"]
-"src/finance_sync/enrichment/**" = ["TC"]
-"src/finance_sync/exporter/**" = ["TC"]
-"src/finance_sync/identity/**" = ["SLF"]
-"src/finance_sync/mcp/**" = ["SLF", "E712"]
+"tests/**" = ["T20", "D", "ARG", "SLF", "ASYNC", "N817", "DTZ005", "PERF102", "PERF401", "A002", "E501", "RUF059", "E402"]
+"src/finance_sync/api/**" = ["B008", "TC003"]
+"src/finance_sync/__init__.py" = ["T20"]
+"src/finance_sync/cli.py" = ["SLF001", "T20"]
+"src/finance_sync/app.py" = ["SLF001", "T20"]
+"src/finance_sync/connectors/**" = ["DTZ007", "ASYNC230", "ASYNC240"]
+"src/finance_sync/mcp/server.py" = ["SLF001", "ARG001"]
+"src/finance_sync/identity/resolver.py" = ["SLF001"]
+"src/finance_sync/services/merchant_classifier.py" = ["SLF001", "SLF"]
+"src/finance_sync/services/performance.py" = ["ARG004", "E501", "ARG"]
+"src/finance_sync/sync/orchestrator.py" = ["SLF001"]
 "src/finance_sync/models/*" = ["TC001", "TC003"]
 "src/finance_sync/schemas/*" = ["TC001", "TC003"]
-"src/finance_sync/services/merchant_classifier.py" = ["SLF"]
 "src/finance_sync/services/pattern_clustering.py" = ["E501", "PERF", "RUF002", "RUF003"]
-"src/finance_sync/services/performance.py" = ["E501", "ARG"]
 "src/finance_sync/services/subscription_detector/*" = ["E501", "RUF022", "TC"]
 "src/finance_sync/services/tax_lot_service.py" = ["E501", "E741"]
 "src/finance_sync/sync/**" = ["SLF", "TC"]
 "src/finance_sync/db/uow.py" = ["TC002", "TC003"]
-"src/finance_sync/connectors/*" = ["ASYNC230", "ASYNC240", "T201"]
+"examples/**" = ["ASYNC", "DTZ"]
+"migrations/**" = ["E402", "F403", "E501"]
+"src/finance_sync/connectors/*.py" = ["ASYNC"]
 "src/finance_sync/connectors/models.py" = ["TC003"]
-"src/finance_sync/connectors/csv_import.py" = ["ASYNC240"]
 "src/finance_sync/enrichment/models.py" = ["TC003"]
 "src/finance_sync/exporter/actual_budget/models.py" = ["TC003"]
-"src/finance_sync/identity/resolver.py" = ["SLF001"]
-"src/finance_sync/mcp/server.py" = ["SLF001"]
 "src/finance_sync/services/subscription_detector/service.py" = ["E501"]
-"tests/test_reconciliation_integration.py" = ["E402"]
 
 [tool.pyright]
 typeCheckingMode = "basic"
@@ -183,7 +179,3 @@ skip_empty = true
 
 [build-system]
 requires = ["setuptools>=75"]
-build-backend = "setuptools.build_meta"
-
-[tool.setuptools.packages.find]
-where = ["src"]

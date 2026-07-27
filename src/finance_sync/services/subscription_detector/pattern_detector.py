@@ -35,7 +35,7 @@ from finance_sync.models.enums import (
     DetectionMethod,
     SubscriptionConfidence,
 )
-from finance_sync.services.subscription_detector.detector import (
+from finance_sync.services.subscription_detector.detector import (  # type: ignore[reportPrivateUsage]
     _amounts_are_consistent,
     _amounts_step_change_score,
     _classify_category,
