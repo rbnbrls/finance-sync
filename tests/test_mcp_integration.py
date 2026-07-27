@@ -76,8 +76,8 @@ class TestMCPToolsCompleteness:
         self._tool_map = {t.name: t for t in self._tools}
 
     def test_tool_count(self) -> None:
-        """There are exactly 3 tools defined."""
-        assert len(self._tool_map) == 3
+        """There are exactly 9 tools defined."""
+        assert len(self._tool_map) == 9
 
     # ── Existing tools (regression) ────────────────────────────────
 
@@ -102,6 +102,53 @@ class TestMCPToolsCompleteness:
         assert t is not None
         props = t.parameters.get("properties", {})
         assert "query" in props
+
+    # ── New tools ──────────────────────────────────────────────────
+
+    def test_tool_get_daily_briefing(self) -> None:
+        """get_daily_briefing tool is registered."""
+        t = self._tool_map.get("get_daily_briefing")
+        assert t is not None
+        props = t.parameters.get("properties", {})
+        assert "timeframe" in props
+
+    def test_tool_get_subscriptions(self) -> None:
+        """get_subscriptions tool is registered."""
+        t = self._tool_map.get("get_subscriptions")
+        assert t is not None
+        props = t.parameters.get("properties", {})
+        assert "active_only" in props
+
+    def test_tool_get_performance(self) -> None:
+        """get_performance tool is registered."""
+        t = self._tool_map.get("get_performance")
+        assert t is not None
+        props = t.parameters.get("properties", {})
+        assert "period" in props
+        assert "subject" in props
+
+    def test_tool_get_allocation(self) -> None:
+        """get_allocation tool is registered."""
+        t = self._tool_map.get("get_allocation")
+        assert t is not None
+        props = t.parameters.get("properties", {})
+        assert "by" in props
+        assert "target_currency" in props
+
+    def test_tool_get_cashflow(self) -> None:
+        """get_cashflow tool is registered."""
+        t = self._tool_map.get("get_cashflow")
+        assert t is not None
+        props = t.parameters.get("properties", {})
+        assert "period" in props
+
+    def test_tool_list_sync_runs(self) -> None:
+        """list_sync_runs tool is registered."""
+        t = self._tool_map.get("list_sync_runs")
+        assert t is not None
+        props = t.parameters.get("properties", {})
+        assert "limit" in props
+        assert "connector" in props
 
 
 # ═════════════════════════════════════════════════════════════════════════
