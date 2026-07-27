@@ -126,7 +126,7 @@ class Settings(BaseSettings):
         description="Timeout in seconds for OpenBB HTTP requests.",
     )
     fx_rate_cache_ttl_seconds: int = Field(
-        default=600,
+        default=3600,
         ge=60,
         validation_alias="FX_RATE_CACHE_TTL_SECONDS",
         description="TTL in seconds for cached FX rates before re-fetch.",

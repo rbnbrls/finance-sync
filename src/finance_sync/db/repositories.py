@@ -328,8 +328,12 @@ class WebhookDeliveryLogRepository(Repository[WebhookDeliveryLog]):
     model_class = WebhookDeliveryLog
 
 
-class FundamentalObservationRepository(Repository[FundamentalObservation]):
-    model_class = FundamentalObservation
+class FxRateRepository(Repository[FxRate]):
+    model_class = FxRate
+
+
+class DetectedSubscriptionRepository(Repository[DetectedSubscription]):
+    model_class = DetectedSubscription
 
 
 class SecurityMetadataObservationRepository(
@@ -338,11 +342,5 @@ class SecurityMetadataObservationRepository(
     model_class = SecurityMetadataObservation
 
 
-class FxRateRepository(Repository[FxRate]):
-    model_class = FxRate
-
-
-class DetectedSubscriptionRepository(Repository[DetectedSubscription]):
-    """Repository for detected subscription records."""
-
-    model_class = DetectedSubscription
+class FundamentalObservationRepository(Repository[FundamentalObservation]):
+    model_class = FundamentalObservation

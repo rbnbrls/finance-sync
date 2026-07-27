@@ -99,7 +99,8 @@ def _density_cluster_1d(
     if n < min_pts:
         return []
 
-    # Build adjacency: neighbours[i] = set of j where |values[i]-values[j]| ≤ eps
+    # Build adjacency: neighbours[i] = set of j where
+    # |values[i]-values[j]| <= eps
     neighbours: list[set[int]] = [set() for _ in range(n)]
     for i in range(n):
         for j in range(i + 1, n):
@@ -134,9 +135,7 @@ def _density_cluster_1d(
             cluster.append(p)
             # Add core neighbours for expansion
             if p in core:
-                for nb in neighbours[p]:
-                    if nb not in visited:
-                        stack.append(nb)
+                stack.extend(nb for nb in neighbours[p] if nb not in visited)
         if len(cluster) >= min_pts:
             clusters.append(sorted(cluster))
 
@@ -584,7 +583,8 @@ class PeriodicPatternDetector:
 
         matches = 0
         for interval in intervals_days:
-            # Check if interval is close to a whole-number multiple of the period
+            # Check if interval is close to a whole-number multiple
+            # of the period
             if best.period_days > 0:
                 mult = round(interval / best.period_days)
                 if mult >= 1:
@@ -711,7 +711,7 @@ class CrossAccountMatcher:
         self,
         patterns: list[dict[str, Any]],
     ) -> list[CrossAccountMatch]:
-        """Merge patterns with different accounts/providers but same merchant."""
+        """Merge patterns from different accounts but same merchant."""
         accounts_seen: set[str] = set()
         matches: list[CrossAccountMatch] = []
 
@@ -938,7 +938,8 @@ def _compute_cluster_confidence(
     # Interval regularity (max 0.25)
     score += interval_regularity * 0.25
 
-    # Cluster density (max 0.15) — larger clusters within total = more likely subscription
+    # Cluster density (max 0.15) — larger clusters within total = more
+    # likely subscription
     cluster_density = min(1.0, cluster_size / 10.0)
     score += cluster_density * 0.15
 
@@ -1128,7 +1129,8 @@ class SubscriptionPatternEngine:
         else:
             method = DetectionMethod.SIMILAR_AMOUNT
 
-        # Build merchant name from the most common normalised merchant in the cluster
+        # Build merchant name from the most common normalised merchant
+        # in the cluster
         from finance_sync.services.subscription_detector import (
             _normalise_merchant,
         )
@@ -1219,7 +1221,8 @@ class SubscriptionPatternEngine:
             "first_detected_at": min(all_dates),
             "last_detected_at": max(all_dates),
             "occurrence_count": len(all_ids),
-            "detection_score": 0.0,  # cross-account patterns derive confidence from their sources
+            # cross-account patterns derive confidence from their sources
+            "detection_score": 0.0,
             "details": {
                 "cross_account_match": True,
                 "accounts": match.accounts,

@@ -30,7 +30,6 @@ dependencies = [
     "apscheduler>=3.10",
     "aiohttp>=3.9",
     "mcp>=1.28.1",
-    "ecdsa>=0.19",
 ]
 
 [project.optional-dependencies]
@@ -98,6 +97,7 @@ lint.ignore = [
     "RUF012",  # mutable class defaults — accepted pattern for Pydantic
     "COM812",  # trailing comma magic — handled by formatter
     "ISC001",  # implicit concat — handled by formatter
+    "TC003",   # move-stdlib-into-type-checking-block — breaks Pydantic model_rebuild() with `from __future__ import annotations`
     "D",       # docstring rules — will enable later
 ]
 
@@ -141,7 +141,6 @@ line-ending = "auto"
 "src/finance_sync/identity/resolver.py" = ["SLF001"]
 "src/finance_sync/mcp/server.py" = ["SLF001"]
 "src/finance_sync/services/subscription_detector/service.py" = ["E501"]
-"src/finance_sync/sync/orchestrator.py" = ["SLF001"]
 "tests/test_reconciliation_integration.py" = ["E402"]
 
 [tool.pyright]
