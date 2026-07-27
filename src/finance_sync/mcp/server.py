@@ -508,17 +508,31 @@ async def tool_get_performance(
     from datetime import UTC, datetime, timedelta
 
     tenant_id = _get_tenant_id(ctx)
-    read_service = _get_read_service(ctx)
-    try:
-        result = await read_service.get_performance(
-            tenant_id,
-            period=period,
-            granularity=granularity,
-            currency=currency,
-        )
-        return _serialise(result.model_dump())
-    finally:
-        await read_service._session.aclose()
+    container = _get_container(ctx)
+
+    from finance_sync.services.performance import PerformanceService as _PerfSvc
+
+    async with container.session_factory() as session:
+        perf_service = _PerfSvc(session=session)
+        try:
+            # Map period string to date range
+            period_map = {
+                "1W": timedelta(weeks=1),
+                "1M": timedelta(days=30),
+                "3M": timedelta(days=90),
+                "6M": timedelta(days=180),
+                "1Y": timedelta(days=365),
+                "YTD": timedelta(days=datetime.now(UTC).timetuple().tm_yday),
+            }
+            date_from = datetime.now(UTC) - period_map.get(
+                period.upper(), timedelta(days=30)
+            )
+            result = await perf_service.get_summary(
+                tenant_id, date_from=date_from
+            )
+            return _serialise(result.model_dump())
+        finally:
+            await perf_service._session.aclose()
 
 
 @mcp.tool(
