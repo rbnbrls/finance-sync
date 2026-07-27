@@ -736,7 +736,7 @@ def _parse_bunq_datetime(raw: str) -> datetime:
     parsed: datetime | None = None
     for fmt in ("%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S"):
         try:
-            parsed = datetime.strptime(cleaned, fmt).replace(tzinfo=UTC)
+            parsed = datetime.strptime(cleaned, fmt)
             break
         except ValueError:
             continue
@@ -744,7 +744,7 @@ def _parse_bunq_datetime(raw: str) -> datetime:
     if parsed is None:
         return datetime.fromtimestamp(0, tz=UTC)
 
-    return parsed
+    return parsed.replace(tzinfo=UTC)
 
 
 def _parse_retry_after(response: httpx.Response) -> float | None:

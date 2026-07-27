@@ -16,6 +16,7 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any
 
+import httpx
 import structlog
 
 from finance_sync.enrichment.models import (
@@ -28,20 +29,6 @@ from finance_sync.models.fx_rate import FxRate
 if TYPE_CHECKING:
     from finance_sync.config.settings import Settings
     from finance_sync.db.uow import UnitOfWork
-
-# Import the OpenBB provider at runtime to avoid circular imports
-try:
-    from finance_sync.providers.openbb_fx import (
-        OpenBBFxProvider,
-        OpenBBFxProviderNotFoundError,
-        OpenBBFxProviderRateLimitError,
-        OpenBBFxProviderTimeoutError,
-    )
-
-    _HAS_OPENBB_PROVIDER = True
-except ImportError:
-    _HAS_OPENBB_PROVIDER = False
-    OpenBBFxProvider = None  # type: ignore[assignment,misc]
 
 
 logger = structlog.get_logger(__name__)
@@ -85,7 +72,7 @@ class FxService:
     """
 
     # Common currency pairs that are often quoted inversely on the wire.
-    # The service normalises these to ensure consistent (base -> quote) storage.
+    # The service normalises these to ensure consistent (base → quote) storage.
     MAJOR_PAIRS: set[tuple[str, str]] = {
         ("EUR", "USD"),
         ("USD", "JPY"),
@@ -102,7 +89,7 @@ class FxService:
     # (inverse of the normal pair direction).
     INDIRECT_QUOTE_CURRENCIES: set[str] = {"JPY", "CHF", "CAD"}
 
-    # In-memory cache TTL as a fraction of the DB cache TTL -- the memory
+    # In-memory cache TTL as a fraction of the DB cache TTL — the memory
     # cache acts as an L1 hot cache that expires much sooner than the DB
     # (L2) so that stale rates aren't served for long.
     MEMORY_CACHE_TTL_MULTIPLIER: float = 0.1  # 10% of DB cache TTL
@@ -132,47 +119,23 @@ class FxService:
         self,
         settings: Settings,
         uow: UnitOfWork,
-        *,
-        provider: Any | None = None,
     ) -> None:
         self._settings = settings
         self._uow = uow
 
+        self._http_client: httpx.AsyncClient | None = None
         self._degraded = settings.openbb_api_key is None
 
         # In-memory cache: { (base_currency, quote_currency): _CacheEntry }
         self._memory_cache: dict[tuple[str, str], _CacheEntry] = {}
         self._cache_lock: asyncio.Lock = asyncio.Lock()
 
-        # Use provided provider or create one from settings
-        self._provider = provider
-        if (
-            not self._degraded
-            and self._provider is None
-            and _HAS_OPENBB_PROVIDER
-        ):
-            api_key = (
-                settings.openbb_api_key.get_secret_value()
-                if settings.openbb_api_key
-                else None
-            )
-            # Narrow for Pyright: OpenBBFxProvider is not None when
-            # _HAS_OPENBB_PROVIDER is True
-            provider_cls = OpenBBFxProvider
-            if provider_cls is not None:
-                self._provider = provider_cls(
-                    api_key=api_key,
-                    base_url=settings.openbb_base_url,
-                    max_requests_per_second=settings.openbb_rate_limit_rps,
-                    request_timeout=settings.openbb_request_timeout,
-                )
-
         if self._degraded:
             logger.warning(
                 "fx_service_degraded",
                 reason="no_openbb_api_key",
                 message=(
-                    "OpenBB API key not configured -- "
+                    "OpenBB API key not configured — "
                     "FX rates limited to cached data."
                 ),
             )
@@ -180,12 +143,31 @@ class FxService:
             logger.info(
                 "fx_service_initialised",
                 ttl_seconds=settings.fx_rate_cache_ttl_seconds,
-                provider_type=type(self._provider).__name__
-                if self._provider
-                else "built-in",
             )
 
-    # -- Public API ---------------------------------------------------------
+    @property
+    def http_client(self) -> httpx.AsyncClient:
+        """Lazy-init HTTP client for FX rate API calls."""
+        if self._http_client is None or self._http_client.is_closed:
+            self._http_client = httpx.AsyncClient(
+                base_url=self._settings.openbb_base_url,
+                timeout=httpx.Timeout(self._settings.openbb_request_timeout),
+                headers=self._build_headers(),
+            )
+        return self._http_client
+
+    def _build_headers(self) -> dict[str, str]:
+        """Build HTTP headers for FX API requests."""
+        headers: dict[str, str] = {
+            "Accept": "application/json",
+            "User-Agent": "finance-sync/0.1.0",
+        }
+        if self._settings.openbb_api_key:
+            api_key = self._settings.openbb_api_key.get_secret_value()
+            headers["Authorization"] = f"Bearer {api_key}"
+        return headers
+
+    # ── Public API ────────────────────────────────────────────────────
 
     async def get_rate(
         self,
@@ -203,7 +185,7 @@ class FxService:
           4. Hardcoded fallback rate
 
         When ``at_timestamp`` is provided the in-memory cache and fallback
-        rates are bypassed -- the lookup uses only the database and API.
+        rates are bypassed — the lookup uses only the database and API.
 
         Args:
             base_currency: ISO-4217 base currency code.
@@ -232,7 +214,7 @@ class FxService:
             base_currency, quote_currency
         )
 
-        # -- Layer 1: In-memory cache (non-historical only) -----------------
+        # ── Layer 1: In-memory cache (non-historical only) ────────────
         if at_timestamp is None:
             cached = await self._check_memory_cache(base, quote)
             if cached is not None:
@@ -244,7 +226,7 @@ class FxService:
                 )
                 return cached.inverse() if inverted else cached
 
-        # -- Layer 2: Local database ----------------------------------------
+        # ── Layer 2: Local database ───────────────────────────────────
         local = await self._lookup_local_rate(
             base, quote, at_timestamp=at_timestamp
         )
@@ -272,7 +254,7 @@ class FxService:
                     await self._set_memory_cache(result)
                 return result if not inverted else result.inverse()
 
-        # -- Layer 3: OpenBB API --------------------------------------------
+        # ── Layer 3: OpenBB API ───────────────────────────────────────
         if not self._degraded:
             logger.debug(
                 "fx_rate_api_fetch",
@@ -297,7 +279,7 @@ class FxService:
                 quote_currency=quote,
             )
 
-        # -- Layer 4: Hardcoded fallback (non-historical only) --------------
+        # ── Layer 4: Hardcoded fallback (non-historical only) ──────────
         if at_timestamp is None:
             fallback = self._get_fallback_rate(base, quote)
             if fallback is not None:
@@ -384,7 +366,7 @@ class FxService:
             at_timestamp: Optional timestamp for historical lookup.
 
         Returns:
-            A dict mapping target currency -> rate, or empty dict on failure.
+            A dict mapping target currency → rate, or empty dict on failure.
         """
         if targets is None:
             majors = ("USD", "EUR", "GBP", "JPY", "CHF", "CAD", "AUD", "NZD")
@@ -410,9 +392,9 @@ class FxService:
         """Fetch latest rates for a list of explicit currency pairs.
 
         Each pair is ``(base_currency, quote_currency)``.  Pairs are
-        resolved through the standard layered cache (memory -> DB ->
-        API -> fallback).  Results are returned even when some pairs
-        fail -- only successfully resolved pairs are included.
+        resolved through the standard layered cache (memory → DB →
+        API → fallback).  Results are returned even when some pairs
+        fail — only successfully resolved pairs are included.
 
         Args:
             pairs:  List of ``(base_currency, quote_currency)`` tuples
@@ -470,7 +452,7 @@ class FxService:
 
         Args:
             base_currencies: List of ISO-4217 base currency codes to
-                fetch rates for.  Defaults to ``["EUR", "USD", "GBP"]``
+                fetch rates for.  Defaults to ``[\"EUR\", \"USD\", \"GBP\"]``
                 which covers the majority of portfolio conversions.
 
         Returns:
@@ -491,7 +473,7 @@ class FxService:
         )
         return count
 
-    # -- Local storage ------------------------------------------------------
+    # ── Local storage ─────────────────────────────────────────────────
 
     async def _lookup_local_rate(
         self,
@@ -573,7 +555,7 @@ class FxService:
         )
         await self._uow.fx_rates.add(fx_rate)
 
-    # -- In-memory cache (L1) ----------------------------------------------
+    # ── In-memory cache (L1) ─────────────────────────────────────────
 
     async def _check_memory_cache(
         self,
@@ -618,7 +600,7 @@ class FxService:
                 expires_at=expires_at,
             )
 
-    # -- Fallback rates ----------------------------------------------------
+    # ── Fallback rates ───────────────────────────────────────────────
 
     def _get_fallback_rate(
         self,
@@ -652,17 +634,14 @@ class FxService:
             source=row.source,
         )
 
-    # -- API fetch ---------------------------------------------------------
+    # ── API fetch ─────────────────────────────────────────────────────
 
     async def _fetch_rate_from_api(
         self,
         base_currency: str,
         quote_currency: str,
     ) -> FxRateObservation | None:
-        """Fetch an exchange rate via the OpenBB provider.
-
-        Delegates to the configured provider (OpenBBFxProvider) and wraps
-        the result in an FxRateObservation.
+        """Fetch an exchange rate from the OpenBB API.
 
         Args:
             base_currency: Normalised base currency code.
@@ -671,55 +650,53 @@ class FxService:
         Returns:
             An FxRateObservation, or None on failure.
         """
-        if self._provider is None:
-            logger.error(
-                "fx_api_no_provider",
-                pair=f"{base_currency}/{quote_currency}",
-            )
-            return None
-
         try:
-            rate = await self._provider.get_latest_rate(
-                base_currency,
-                quote_currency,
+            response = await self.http_client.get(
+                f"/api/{self._settings.openbb_api_version}/market/forex",
+                params={
+                    "base": base_currency,
+                    "quote": quote_currency,
+                },
             )
+            response.raise_for_status()
+            data: dict[str, Any] = response.json()
 
             return FxRateObservation(
-                base_currency=base_currency,
-                quote_currency=quote_currency,
-                rate=rate,
-                timestamp=datetime.now(UTC),
-                source="openbb",
+                base_currency=data.get("base", base_currency),
+                quote_currency=data.get("quote", quote_currency),
+                rate=_safe_decimal(data.get("rate")),
+                timestamp=_parse_timestamp(data.get("timestamp")),
+                source=data.get("source", "openbb"),
             )
-        except OpenBBFxProviderNotFoundError:
-            logger.debug(
-                "fx_api_404",
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 404:
+                logger.debug(
+                    "fx_api_404",
+                    pair=f"{base_currency}/{quote_currency}",
+                )
+                return None
+            logger.warning(
+                "fx_api_http_error",
                 pair=f"{base_currency}/{quote_currency}",
+                status_code=exc.response.status_code,
             )
             return None
-        except OpenBBFxProviderTimeoutError:
+        except httpx.TimeoutException:
             logger.warning(
                 "fx_api_timeout",
                 pair=f"{base_currency}/{quote_currency}",
                 timeout=self._settings.openbb_request_timeout,
             )
             return None
-        except OpenBBFxProviderRateLimitError:
+        except httpx.HTTPError as exc:
             logger.warning(
-                "fx_api_rate_limited",
-                pair=f"{base_currency}/{quote_currency}",
-            )
-            return None
-        except Exception as exc:
-            logger.warning(
-                "fx_api_error",
+                "fx_api_http_error",
                 pair=f"{base_currency}/{quote_currency}",
                 error=str(exc),
-                error_type=type(exc).__name__,
             )
             return None
 
-    # -- Pair normalisation -------------------------------------------------
+    # ── Pair normalisation ────────────────────────────────────────────
 
     @staticmethod
     def _canonicalise_pair(
@@ -736,7 +713,7 @@ class FxService:
         currencies is USD, it prefers quoting as EUR/USD or GBP/USD
         rather than USD/EUR.
         """
-        # Same currency -- identity
+        # Same currency — identity
         if base == quote:
             return base, quote, False
 
@@ -748,15 +725,41 @@ class FxService:
         if (quote, base) in FxService.MAJOR_PAIRS:
             return quote, base, True  # inverted
 
-        # Default: keep original order -- caller will match on storage
+        # Default: keep original order — caller will match on storage
         return base, quote, False
 
-    # -- Cleanup -----------------------------------------------------------
+    # ── Cleanup ───────────────────────────────────────────────────────
 
     async def close(self) -> None:
-        """Close the underlying provider (idempotent)."""
-        if self._provider is not None:
-            await self._provider.close()
+        """Close the HTTP client."""
+        if self._http_client is not None and not self._http_client.is_closed:
+            await self._http_client.aclose()
+
+
+# ── Helpers ─────────────────────────────────────────────────────────────
+
+
+def _safe_decimal(value: Any) -> Decimal | None:
+    """Safely convert a value to Decimal, returning None on failure."""
+    if value is None:
+        return None
+    try:
+        return Decimal(str(value))
+    except (ValueError, TypeError, ArithmeticError):
+        return None
+
+
+def _parse_timestamp(raw: str | None) -> datetime:
+    """Parse an ISO-8601 timestamp string to a UTC-aware datetime."""
+    if not raw:
+        return datetime.now(UTC)
+    try:
+        cleaned = raw.rstrip("Z")
+        if not cleaned:
+            return datetime.now(UTC)
+        return datetime.fromisoformat(cleaned).replace(tzinfo=UTC)
+    except (ValueError, TypeError):
+        return datetime.now(UTC)
 
 
 async def convert_currency(
@@ -808,7 +811,7 @@ async def convert_currency(
 
     if result is None:
         msg = (
-            f"No exchange rate available for {from_currency} -> "
+            f"No exchange rate available for {from_currency} → "
             f"{to_currency}. All resolution layers (memory cache, "
             "local DB, upstream API, fallback rates) were exhausted."
         )

@@ -20,6 +20,8 @@ from sqlalchemy.ext.asyncio import (
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
 
+    import redis.asyncio as aioredis
+
     from finance_sync.config.settings import Settings
     from finance_sync.db.uow import UnitOfWork
     from finance_sync.enrichment.gateway import EnrichmentGateway
@@ -209,24 +211,11 @@ class Container:
     def fx_service(self) -> FxService:
         """Lazy-init the FX service for exchange rate management."""
         if self._fx_service is None:
-            from finance_sync.providers.openbb_fx import OpenBBFxProvider
             from finance_sync.services.fx_service import FxService
 
-            settings = self.settings
-            provider = OpenBBFxProvider(
-                api_key=(
-                    settings.openbb_api_key.get_secret_value()
-                    if settings.openbb_api_key
-                    else None
-                ),
-                base_url=settings.openbb_base_url,
-                max_requests_per_second=settings.openbb_rate_limit_rps,
-                request_timeout=settings.openbb_request_timeout,
-            )
             self._fx_service = FxService(
-                settings=settings,
+                settings=self.settings,
                 uow=self._make_uow(),
-                provider=provider,
             )
         return self._fx_service
 
@@ -257,8 +246,6 @@ class Container:
             if self._engine is not None:
                 await self._engine.dispose()
             if self._redis is not None:
-                import redis.asyncio as aioredis  # type: ignore[import]
-
                 r: aioredis.Redis[bytes] = self._redis  # type: ignore[valid-type]
                 await r.aclose()
             if self._enrichment_gateway is not None:
