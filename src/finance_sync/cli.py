@@ -18,6 +18,7 @@ from argparse import (
     RawDescriptionHelpFormatter,
 )
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from finance_sync.config.settings import Settings
 from finance_sync.container import Container
@@ -166,7 +167,102 @@ def _build_parser() -> ArgumentParser:
         help="Scan for duplicate transactions (default: enabled)",
     )
 
+    # ── wealthfolio ──────────────────────────────────────────────────
+    _build_wealthfolio_subparser(sub)
+
     return parser
+
+
+def _build_wealthfolio_subparser(
+    sub: Any,
+) -> ArgumentParser:
+    """Build the ``wealthfolio`` subcommand parser."""
+    wf = sub.add_parser(
+        "wealthfolio",
+        help="Export and push data to Wealthfolio",
+        description=(
+            "Export finance-sync data to Wealthfolio. By default writes CSV "
+            "files. With --server-url and --password, pushes directly to a "
+            "running Wealthfolio self-hosted instance via its REST API."
+        ),
+    )
+    wf_sub = wf.add_subparsers(dest="wf_command", required=True)
+
+    # ── push ─────────────────────────────────────────────────────────
+    push = wf_sub.add_parser(
+        "push",
+        help="Push transactions to a running Wealthfolio instance",
+        description=(
+            "Export pending transactions from finance-sync and push them "
+            "directly to a running Wealthfolio self-hosted instance via "
+            "its REST API. Requires WEALTHFOLIO_SERVER_URL and "
+            "WEALTHFOLIO_PASSWORD to be configured."
+        ),
+    )
+    push.add_argument(
+        "--server-url",
+        default=None,
+        help="Wealthfolio server URL (overrides WEALTHFOLIO_SERVER_URL env)",
+    )
+    push.add_argument(
+        "--password",
+        default=None,
+        help="Wealthfolio password (overrides WEALTHFOLIO_PASSWORD env)",
+    )
+    push.add_argument(
+        "--account-ids",
+        default=None,
+        help="Comma-separated account IDs to push (default: all active)",
+    )
+    push.add_argument(
+        "--days-back",
+        type=int,
+        default=90,
+        help="Days of transaction history to push (default: 90)",
+    )
+    push.add_argument(
+        "--max-transactions",
+        type=int,
+        default=None,
+        help="Hard limit on transactions to push per run",
+    )
+    push.add_argument(
+        "--dry-run",
+        action="store_true",
+        default=False,
+        help="Print what would be pushed without actually pushing",
+    )
+
+    # ── export (CSV) ─────────────────────────────────────────────────
+    export = wf_sub.add_parser(
+        "export",
+        help="Export transactions to Wealthfolio CSV files",
+        description=(
+            "Export transactions and holdings from finance-sync to "
+            "Wealthfolio-compatible CSV files in the configured output "
+            "directory."
+        ),
+    )
+    export.add_argument(
+        "--output-dir",
+        default=None,
+        help=(
+            "Output directory for CSV files (overrides WEALTHFOLIO_OUTPUT_DIR)"
+        ),
+    )
+    export.add_argument(
+        "--account-ids",
+        default=None,
+        help="Comma-separated account IDs to export (default: all active)",
+    )
+    export.add_argument(
+        "--days-back",
+        type=int,
+        default=90,
+        help="Days of transaction history to export (default: 90)",
+    )
+
+    return wf
 
 
 def _run_async(coro) -> None:
@@ -458,6 +554,191 @@ async def _cmd_compare(args: Namespace) -> None:
             sys.exit(2)
 
 
+# ═══════════════════════════════════════════════════════════════════════
+# Wealthfolio commands
+# ═══════════════════════════════════════════════════════════════════════
+
+
+async def _cmd_wealthfolio(args: Namespace) -> None:
+    """Execute the ``wealthfolio`` subcommand."""
+    settings = Settings()
+    configure_logging(
+        json_output=settings.is_production,
+        log_level=settings.log_level,
+    )
+
+    container = Container.from_settings(settings)
+
+    async with container.dispose():
+        tenant_id = getattr(args, "tenant_id", None)
+        if not tenant_id:
+            async with container.session_factory() as session:
+                uow = UnitOfWork(session)
+                tenants = await uow.tenants.list(limit=1)
+                if not tenants:
+                    print(
+                        "ERROR: No tenants found in the database.",
+                        file=sys.stderr,
+                    )
+                    sys.exit(2)
+                tenant_id = tenants[0].id
+
+        if args.wf_command == "export":
+            await _cmd_wealthfolio_export(args, container, tenant_id)
+        elif args.wf_command == "push":
+            await _cmd_wealthfolio_push(args, container, tenant_id)
+        else:
+            print(f"Unknown wealthfolio command: {args.wf_command}")
+            sys.exit(2)
+
+
+async def _cmd_wealthfolio_export(
+    args: Namespace,
+    container: Container,
+    tenant_id: str,
+) -> None:
+    """Export transactions to Wealthfolio CSV files."""
+    from pathlib import Path
+
+    from finance_sync.exporter.wealthfolio.config import WealthfolioConfig
+    from finance_sync.exporter.wealthfolio.exporter import WealthfolioExporter
+
+    wf_config = WealthfolioConfig.from_settings(container.settings)
+    output_dir = args.output_dir or str(wf_config.output_dir)
+
+    print("Wealthfolio CSV export starting …")
+    print(f"  Output dir:   {output_dir}")
+    print(f"  Tenant:       {tenant_id[:16]}…")
+    print(f"  Days back:    {args.days_back}")
+
+    since = datetime.now(UTC) - timedelta(days=args.days_back)
+
+    exporter = WealthfolioExporter(
+        session_factory=container.session_factory,
+        wf_config=wf_config,
+        tenant_id=tenant_id,
+    )
+
+    result = await exporter.run_export(
+        since=since,
+        output_dir=Path(output_dir),
+    )
+
+    print(f"\nResult: {result.status}")
+    if result.status == "completed":
+        print(
+            f"  Transactions: {result.transactions_exported}"
+            f"/{result.transactions_attempted}"
+        )
+        print(f"  Holdings:     {result.holdings_exported}")
+        print(f"  CSV files:    {len(result.csv_files)}")
+        for f in result.csv_files:
+            print(f"    {f}")
+    else:
+        print(f"  ERROR: {result.error_message}")
+        sys.exit(2)
+
+
+async def _cmd_wealthfolio_push(
+    args: Namespace,
+    container: Container,
+    tenant_id: str,
+) -> None:
+    """Push transactions directly to a running Wealthfolio instance."""
+    from finance_sync.exporter.wealthfolio.client import (
+        WealthfolioClient,
+        WealthfolioClientConfig,
+    )
+    from finance_sync.exporter.wealthfolio.config import WealthfolioConfig
+    from finance_sync.exporter.wealthfolio.exporter import WealthfolioExporter
+
+    # Resolve server URL and password
+    server_url = args.server_url or getattr(
+        container.settings, "wealthfolio_server_url", ""
+    )
+    password = args.password or getattr(
+        container.settings, "wealthfolio_password", ""
+    )
+
+    if not server_url:
+        print(
+            "ERROR: Wealthfolio server URL not configured.\n"
+            "  Set WEALTHFOLIO_SERVER_URL env var or pass --server-url.",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+    if not password:
+        print(
+            "ERROR: Wealthfolio password not configured.\n"
+            "  Set WEALTHFOLIO_PASSWORD env var or pass --password.",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+
+    wf_config = WealthfolioConfig.from_settings(container.settings)
+    since = datetime.now(UTC) - timedelta(days=args.days_back)
+
+    print("Wealthfolio push starting …")
+    print(f"  Server URL:   {server_url}")
+    print(f"  Tenant:       {tenant_id[:16]}…")
+    print(f"  Days back:    {args.days_back}")
+
+    exporter = WealthfolioExporter(
+        session_factory=container.session_factory,
+        wf_config=wf_config,
+        tenant_id=tenant_id,
+    )
+
+    account_ids: list[str] | None = None
+    if args.account_ids:
+        account_ids = [
+            a.strip() for a in args.account_ids.split(",") if a.strip()
+        ]
+
+    if args.dry_run:
+        # Count transactions without pushing
+        accounts = await exporter._load_accounts(account_ids)
+        total = 0
+        for acct in accounts:
+            txns = await exporter._fetch_pending_transactions(
+                account_id=acct.id,
+                since=since,
+            )
+            total += len(txns)
+            print(f"  [{acct.name}] {len(txns)} pending transactions")
+
+        print(f"\nDry run: {total} transaction(s) ready to push.")
+        print("Use --no-dry-run or omit --dry-run to push.")
+        return
+
+    # Authenticate and push
+    wf_client_config = WealthfolioClientConfig(
+        base_url=server_url,
+        password=password,
+    )
+    wf_client = WealthfolioClient(config=wf_client_config)
+
+    try:
+        print("  Authenticating …")
+        await wf_client.authenticate()
+        print("  ✓ Authenticated")
+
+        result = await exporter.push_to_wealthfolio(
+            wf_client=wf_client,
+            since=since,
+        )
+        print("\nResult:")
+        print(f"  Imported:     {result.get('imported', 0)}")
+        print(f"  Skipped:     {result.get('skipped', 0)}")
+        print(f"  Failed:      {result.get('failed', 0)}")
+
+    except Exception as exc:
+        print(f"FAILED: {exc}", file=sys.stderr)
+        sys.exit(2)
+    finally:
+        await wf_client.close()
+
+
 def main(argv: list[str] | None = None) -> None:
     """CLI entry point.
 
@@ -477,6 +758,8 @@ def main(argv: list[str] | None = None) -> None:
         _run_async(_cmd_reconcile(args))
     elif args.command == "compare":
         _run_async(_cmd_compare(args))
+    elif args.command == "wealthfolio":
+        _run_async(_cmd_wealthfolio(args))
     else:
         parser.print_help()
         sys.exit(2)
