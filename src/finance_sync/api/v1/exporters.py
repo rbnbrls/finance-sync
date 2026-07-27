@@ -7,7 +7,7 @@ environment variables / Settings) and trigger export runs to Wealthfolio.
 from __future__ import annotations
 
 from datetime import (
-    datetime,  # noqa: TC003 — runtime import needed by Pydantic models
+    datetime,
 )
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -195,7 +195,7 @@ async def get_exporter_config(
     _auth: AuthContext = Depends(get_auth_context),
 ) -> ExporterConfigResponse:
     """Get the current exporter configuration."""
-    container = get_container(_request)
+    container = get_container(request)
     wf_config = _build_wealthfolio_config(container)
 
     return ExporterConfigResponse(

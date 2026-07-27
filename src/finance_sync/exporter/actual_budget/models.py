@@ -19,7 +19,7 @@ ExportDelivery
 from __future__ import annotations
 
 from datetime import (
-    datetime,  # noqa: TC003 — runtime import needed by SQLAlchemy Mapped fields
+    datetime,
 )
 from typing import ClassVar
 
