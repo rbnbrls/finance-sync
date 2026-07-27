@@ -420,7 +420,7 @@ class GetDailyBriefingInput(BaseModel):
 )
 async def tool_get_daily_briefing(
     ctx: Context,
-    timeframe: str = "today",
+    timeframe: str = "today",  # noqa: ARG001
 ) -> str:
     """Generate an AI-powered daily briefing."""
     tenant_id = _get_tenant_id(ctx)
@@ -502,7 +502,9 @@ class GetPerformanceInput(BaseModel):
     ),
 )
 async def tool_get_performance(
-    ctx: Context, period: str = "1M", subject: str | None = None
+    ctx: Context,
+    period: str = "1M",
+    subject: str | None = None,  # noqa: ARG001
 ) -> str:
     """Compute portfolio/investment performance."""
     from datetime import UTC, datetime, timedelta
@@ -546,7 +548,7 @@ async def tool_get_performance(
 async def tool_get_allocation(
     ctx: Context,
     by: str = "asset_class",
-    target_currency: str | None = None,
+    target_currency: str | None = None,  # noqa: ARG001
 ) -> str:
     """Compute portfolio allocation breakdown."""
     tenant_id = _get_tenant_id(ctx)

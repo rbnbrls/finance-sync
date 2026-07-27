@@ -106,13 +106,19 @@ class TestMCPTools:
         self._mcp = mcp
 
     def test_tool_count(self) -> None:
-        """There are exactly 3 tools defined."""
+        """There are exactly 9 tools defined."""
         tools = self._mcp._tool_manager.list_tools()
         tool_names = {t.name for t in tools}
         assert "run_sync" in tool_names
         assert "get_summary" in tool_names
         assert "resolve_security" in tool_names
-        assert len(tool_names) == 3
+        assert "get_daily_briefing" in tool_names
+        assert "get_subscriptions" in tool_names
+        assert "get_performance" in tool_names
+        assert "get_allocation" in tool_names
+        assert "get_cashflow" in tool_names
+        assert "list_sync_runs" in tool_names
+        assert len(tool_names) == 9
 
     def test_tool_input_schemas(self) -> None:
         """Tools have the expected input parameters."""
