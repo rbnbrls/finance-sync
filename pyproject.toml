@@ -31,7 +31,6 @@ dependencies = [
     "apscheduler>=3.10",
     "aiohttp>=3.9",
     "mcp>=1.28.1",
-    "ecdsa>=0.19",
 ]
 
 [project.optional-dependencies]
@@ -117,7 +116,14 @@ line-ending = "auto"
 "tests/**" = ["T20", "D", "ARG", "SLF", "ASYNC", "N817", "DTZ005", "PERF102", "PERF401", "A002", "E501", "RUF059", "E402"]
 "src/finance_sync/api/**" = ["B008", "TC003"]
 "src/finance_sync/__init__.py" = ["T20"]
-"src/finance_sync/cli.py" = ["T20"]
+"src/finance_sync/cli.py" = ["SLF001", "T20"]
+"src/finance_sync/app.py" = ["SLF001", "T20"]
+"src/finance_sync/connectors/**" = ["DTZ007", "ASYNC230", "ASYNC240"]
+"src/finance_sync/mcp/server.py" = ["SLF001", "ARG001"]
+"src/finance_sync/identity/resolver.py" = ["SLF001"]
+"src/finance_sync/services/merchant_classifier.py" = ["SLF001"]
+"src/finance_sync/services/performance.py" = ["ARG004"]
+"src/finance_sync/sync/orchestrator.py" = ["SLF001"]
 "src/finance_sync/models/*" = ["TC001", "TC003"]
 "src/finance_sync/schemas/*" = ["TC001", "TC003"]
 "src/finance_sync/db/repository.py" = ["A002", "TC002"]

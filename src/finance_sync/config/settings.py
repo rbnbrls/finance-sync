@@ -126,7 +126,7 @@ class Settings(BaseSettings):
         description="Timeout in seconds for OpenBB HTTP requests.",
     )
     fx_rate_cache_ttl_seconds: int = Field(
-        default=600,
+        default=3600,
         ge=60,
         validation_alias="FX_RATE_CACHE_TTL_SECONDS",
         description="TTL in seconds for cached FX rates before re-fetch.",
@@ -241,6 +241,19 @@ class Settings(BaseSettings):
         default_factory=dict,
         validation_alias="WEALTHFOLIO_INSTRUMENT_TYPE_OVERRIDES",
         description="Override instrument type mapping.",
+    )
+
+    # ── Wealthfolio push API ─────────────────────────────────────────
+    wealthfolio_server_url: str = Field(
+        default="",
+        validation_alias="WEALTHFOLIO_SERVER_URL",
+        description="Wealthfolio self-hosted server URL for direct API "
+        "push (e.g. http://192.168.3.50:8080).",
+    )
+    wealthfolio_password: str = Field(
+        default="",
+        validation_alias="WEALTHFOLIO_PASSWORD",
+        description="Password for Wealthfolio self-hosted authentication.",
     )
 
     # ── Worker / APScheduler ───────────────────────────────────────

@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import json
 from contextlib import asynccontextmanager
-from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 import structlog
@@ -218,32 +217,27 @@ async def resource_net_worth(ctx: Context) -> str:
         await read_service._session.aclose()
 
 
-# ── Parameterised resources ─────────────────────────────────────────────
-
-
 @mcp.resource(
     "finance://account/{account_id}",
     name="account_detail",
     title="Account Detail",
-    description="Detailed information about a single financial account.",
+    description="Detailed information for a single financial account.",
     mime_type="application/json",
 )
 async def resource_account_detail(ctx: Context, account_id: str) -> str:
-    """Return detailed info about a single account.
+    """Return details for a single account.
 
-    URI: ``finance://account/{id}``
+    URI: ``finance://account/{account_id}``
 
-    Returns a JSON object with account details including balance,
-    type, and metadata.
+    Returns a JSON object with account id, name, type, currency,
+    balance, and metadata.
     """
     tenant_id = _get_tenant_id(ctx)
     read_service = _get_read_service(ctx)
     try:
-        result = await read_service.get_account(
-            tenant_id, account_id=account_id
-        )
+        result = await read_service.get_account(tenant_id, account_id)
         if result is None:
-            return _serialise({"error": f"Account {account_id!r} not found"})
+            return _serialise({"error": f"Account {account_id} not found"})
         return _serialise(result.model_dump())
     finally:
         await read_service._session.aclose()
@@ -253,7 +247,7 @@ async def resource_account_detail(ctx: Context, account_id: str) -> str:
     "finance://account/{account_id}/transactions",
     name="account_transactions",
     title="Account Transactions",
-    description="Recent transactions for a single account.",
+    description="Recent transactions for a single financial account.",
     mime_type="application/json",
 )
 async def resource_account_transactions(ctx: Context, account_id: str) -> str:
@@ -261,14 +255,14 @@ async def resource_account_transactions(ctx: Context, account_id: str) -> str:
 
     URI: ``finance://account/{account_id}/transactions``
 
-    Returns a JSON array of the 50 most recent transactions
-    for the specified account.
+    Returns a JSON array of the 50 most recent transactions for
+    the given account.
     """
     tenant_id = _get_tenant_id(ctx)
     read_service = _get_read_service(ctx)
     try:
         result = await read_service.list_account_transactions(
-            tenant_id, account_id=account_id, limit=50
+            tenant_id, account_id, limit=50
         )
         return _serialise(result.model_dump())
     finally:
@@ -279,21 +273,21 @@ async def resource_account_transactions(ctx: Context, account_id: str) -> str:
     "finance://portfolio/history",
     name="portfolio_history",
     title="Portfolio History",
-    description="Portfolio value over time (daily aggregation).",
+    description="Historical portfolio value over time.",
     mime_type="application/json",
 )
 async def resource_portfolio_history(ctx: Context) -> str:
-    """Return portfolio value over time.
+    """Return historical portfolio value data points.
 
     URI: ``finance://portfolio/history``
 
-    Returns a JSON array of daily portfolio values showing how
-    the total investment value has changed over time.
+    Returns a JSON array of portfolio snapshots with
+    timestamp and total value.
     """
     tenant_id = _get_tenant_id(ctx)
     read_service = _get_read_service(ctx)
     try:
-        result = await read_service.get_portfolio_history(tenant_id, limit=90)
+        result = await read_service.get_portfolio_history(tenant_id)
         return _serialise(result.model_dump())
     finally:
         await read_service._session.aclose()
@@ -303,22 +297,21 @@ async def resource_portfolio_history(ctx: Context) -> str:
     "finance://net-worth/history",
     name="net_worth_history",
     title="Net Worth History",
-    description="Net worth over time "
-    "(daily aggregation using balance snapshots).",
+    description="Historical net worth (assets minus liabilities) over time.",
     mime_type="application/json",
 )
 async def resource_net_worth_history(ctx: Context) -> str:
-    """Return net worth over time.
+    """Return historical net worth data points.
 
     URI: ``finance://net-worth/history``
 
-    Returns a JSON array of daily net worth entries (total assets,
-    total liabilities, net worth).
+    Returns a JSON array of net worth snapshots with
+    timestamp, total_assets, total_liabilities, and net_worth.
     """
     tenant_id = _get_tenant_id(ctx)
     read_service = _get_read_service(ctx)
     try:
-        result = await read_service.get_net_worth_history(tenant_id, limit=90)
+        result = await read_service.get_net_worth_history(tenant_id)
         return _serialise(result.model_dump())
     finally:
         await read_service._session.aclose()
@@ -506,9 +499,20 @@ async def tool_resolve_security(ctx: Context, query: str) -> str:
 # ═════════════════════════════════════════════════════════════════════════
 
 
+class GetDailyBriefingInput(BaseModel):
+    """Input for ``get_daily_briefing`` tool."""
+
+    timeframe: str = Field(
+        default="today",
+        description=(
+            "Time period for the briefing, e.g. 'today', 'week', 'month'."
+        ),
+    )
+
+
 @mcp.tool(
     name="get_daily_briefing",
-    title="Get Daily Financial Briefing",
+    title="Get Daily Briefing",
     description=(
         "Generate an AI-powered daily briefing covering spending since "
         "yesterday, net worth change, portfolio highlights, and unusual "
@@ -548,7 +552,7 @@ class GetSubscriptionsInput(BaseModel):
 
 @mcp.tool(
     name="get_subscriptions",
-    title="Get Detected Subscriptions",
+    title="Get Subscriptions",
     description=(
         "Detect and return recurring subscription payments "
         "from transaction history, combining merchant classification "
@@ -608,7 +612,7 @@ class GetPerformanceInput(BaseModel):
 
 @mcp.tool(
     name="get_performance",
-    title="Get Portfolio Performance",
+    title="Get Performance",
     description=(
         "Calculate portfolio performance metrics including "
         "time-weighted return (TWR) for a given period and subject."
@@ -669,7 +673,7 @@ class GetAllocationInput(BaseModel):
 
 @mcp.tool(
     name="get_allocation",
-    title="Get Portfolio Allocation",
+    title="Get Allocation",
     description=(
         "Compute portfolio allocation breakdowns by asset class, "
         "sector, or region with optional multi-currency normalisation."

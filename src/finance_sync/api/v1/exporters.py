@@ -26,6 +26,11 @@ from finance_sync.exporter.wealthfolio.exporter import (
     WealthfolioExportResult,
 )
 
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import (
+        AsyncSession,
+    )
+
 router = APIRouter(prefix="/exporters", tags=["exporters"])
 
 # ── Pydantic schemas ─────────────────────────────────────────────────────
