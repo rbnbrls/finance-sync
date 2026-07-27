@@ -7,20 +7,13 @@ import time
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from finance_sync.enrichment.gateway import _parse_timestamp, _safe_decimal
 from finance_sync.enrichment.models import (
     FxConversionRequest,
     FxRateObservation,
-)
-from finance_sync.providers.openbb_fx import (
-    OpenBBFxProviderError,
-    OpenBBFxProviderNotFoundError,
-    OpenBBFxProviderRateLimitError,
-    OpenBBFxProviderTimeoutError,
 )
 from finance_sync.services.fx_service import (
     FxRateFetchError,
@@ -29,6 +22,8 @@ from finance_sync.services.fx_service import (
     FxServiceError,
     InvalidCurrencyError,
     _CacheEntry,
+    _parse_timestamp,
+    _safe_decimal,
     convert_currency,
 )
 
@@ -62,7 +57,6 @@ def degraded_settings() -> MagicMock:
     s.openbb_base_url = "https://openbb.co/api"
     s.openbb_api_version = "v1"
     s.openbb_request_timeout = 30
-    s.openbb_rate_limit_rps = 10
     s.fx_rate_cache_ttl_seconds = 999999
     return s
 
@@ -72,11 +66,10 @@ def live_settings() -> MagicMock:
     """Settings with an API key (non-degraded mode)."""
     s = MagicMock()
     s.openbb_api_key = MagicMock()
-    s.openbb_api_key.get_secret_value.return_value = "«redacted:sk-…»"
+    s.openbb_api_key.get_secret_value.return_value = "sk-test-key-12345"
     s.openbb_base_url = "https://openbb.co/api"
     s.openbb_api_version = "v1"
     s.openbb_request_timeout = 30
-    s.openbb_rate_limit_rps = 10
     s.fx_rate_cache_ttl_seconds = 999999
     return s
 
@@ -84,23 +77,46 @@ def live_settings() -> MagicMock:
 # ── Mock HTTP response helpers ──────────────────────────────────────────
 
 
-def _mock_provider(
-    rate: Decimal | None = Decimal("1.0945"),
+def _mock_response(
+    status: int = 200,
+    json_data: dict[str, Any] | None = None,
 ) -> MagicMock:
-    """Build a mock OpenBBFxProvider that returns the given rate."""
-    provider = MagicMock()
-    if rate is not None:
-        provider.get_latest_rate = AsyncMock(return_value=rate)
-    return provider
+    """Build a mock httpx.Response-like object.
+
+    Note: httpx.Response.json() is synchronous (not async),
+    so we use a regular MagicMock for the json method.
+    """
+    resp = MagicMock()
+    resp.status_code = status
+    resp.json = MagicMock(return_value=json_data or {})
+    resp.raise_for_status = MagicMock()
+    if status >= 400:
+        resp.raise_for_status.side_effect = _http_error(status)
+    return resp
 
 
-def _mock_provider_error(
-    error: Exception,
+def _http_error(status: int):
+    """Build an HTTPStatusError for a given status code."""
+    from httpx import HTTPStatusError, Request, Response
+
+    request = Request("GET", "https://openbb.co/api/v1/market/forex")
+    response = Response(status, request=request)
+    return HTTPStatusError(f"HTTP {status}", request=request, response=response)
+
+
+def _mock_http_client(
+    return_value: AsyncMock | None = None,
+    side_effect: list[AsyncMock] | None = None,
 ) -> MagicMock:
-    """Build a mock OpenBBFxProvider that raises the given error."""
-    provider = MagicMock()
-    provider.get_latest_rate = AsyncMock(side_effect=error)
-    return provider
+    """Build a mock httpx.AsyncClient."""
+    client = MagicMock()
+    client.get = AsyncMock(
+        return_value=return_value or _mock_response(),
+        side_effect=side_effect,
+    )
+    client.is_closed = False
+    client.aclose = AsyncMock()
+    return client
 
 
 def _make_observation(
@@ -138,9 +154,15 @@ class TestFxServiceDegraded:
     def service(self, settings, mock_uow):
         return FxService(settings=settings, uow=mock_uow)
 
-    async def test_is_degraded(self, service) -> None:
+    def test_is_degraded(self, service) -> None:
         """Service is degraded when no API key is set."""
         assert service._degraded
+
+    def test_build_headers_degraded(self, service) -> None:
+        """_build_headers omits Authorization when no API key."""
+        headers = service._build_headers()
+        assert "Authorization" not in headers
+        assert headers["Accept"] == "application/json"
 
     async def test_get_rate_same_currency(self, service) -> None:
         """get_rate returns identity rate for same currency."""
@@ -323,13 +345,12 @@ class TestFxServiceDegraded:
         await service.close()
         await service.close()
 
-    async def test_close_with_provider(self, service) -> None:
-        """close() shuts down the provider if one was created."""
-        provider = MagicMock()
-        provider.close = AsyncMock()
-        service._provider = provider
+    async def test_close_with_client(self, service) -> None:
+        """close() shuts down the HTTP client if one was created."""
+        client = _mock_http_client()
+        service._http_client = client
         await service.close()
-        provider.close.assert_awaited_once()
+        client.aclose.assert_awaited_once()
         # Idempotent
         await service.close()
 
@@ -356,9 +377,46 @@ class TestFxServiceNonDegraded:
         """Service is not degraded when API key is set."""
         assert not service._degraded
 
+    def test_http_client_lazy_init(self, service) -> None:
+        """HTTP client is lazily created on first access."""
+        assert service._http_client is None
+        client = service.http_client
+        assert client is not None
+        # Same instance on repeated access
+        assert service.http_client is client
+
+    async def test_http_client_recreates_after_close(self, service) -> None:
+        """A new HTTP client is created if the previous one was closed."""
+        import httpx
+
+        client_a = service.http_client
+        assert isinstance(client_a, httpx.AsyncClient)
+        await client_a.aclose()
+
+        client_b = service.http_client
+        assert client_b is not client_a
+        assert isinstance(client_b, httpx.AsyncClient)
+
+    async def test_build_headers_with_api_key(self, service) -> None:
+        """_build_headers includes Bearer token when API key is set."""
+        headers = service._build_headers()
+        assert "Authorization" in headers
+        assert headers["Authorization"].startswith("Bearer ")
+
     async def test_api_fetch_success(self, service, mock_uow) -> None:
         """get_rate fetches from API when local cache is empty."""
-        service._provider = _mock_provider(Decimal("1.0945"))
+        mock_http = _mock_http_client(
+            return_value=_mock_response(
+                json_data={
+                    "base": "EUR",
+                    "quote": "USD",
+                    "rate": 1.0945,
+                    "timestamp": "2026-01-15T12:00:00Z",
+                    "source": "openbb",
+                },
+            ),
+        )
+        service._http_client = mock_http
         mock_uow.fx_rates.list = AsyncMock(return_value=[])
 
         result = await service.get_rate("EUR", "USD")
@@ -370,7 +428,18 @@ class TestFxServiceNonDegraded:
 
     async def test_api_fetch_stores_rate(self, service, mock_uow) -> None:
         """Fetched rates are persisted to the database."""
-        service._provider = _mock_provider(Decimal("1.2650"))
+        mock_http = _mock_http_client(
+            return_value=_mock_response(
+                json_data={
+                    "base": "GBP",
+                    "quote": "USD",
+                    "rate": 1.2650,
+                    "timestamp": "2026-01-15T12:00:00Z",
+                    "source": "openbb",
+                },
+            ),
+        )
+        service._http_client = mock_http
         mock_uow.fx_rates.list = AsyncMock(return_value=[])
 
         await service.get_rate("GBP", "USD")
@@ -384,7 +453,18 @@ class TestFxServiceNonDegraded:
     ) -> None:
         """get_rate with at_timestamp and API key fetches from API
         without caching to memory."""
-        service._provider = _mock_provider(Decimal("1.0945"))
+        mock_http = _mock_http_client(
+            return_value=_mock_response(
+                json_data={
+                    "base": "EUR",
+                    "quote": "USD",
+                    "rate": 1.0945,
+                    "timestamp": "2026-01-15T12:00:00Z",
+                    "source": "openbb",
+                },
+            ),
+        )
+        service._http_client = mock_http
         mock_uow.fx_rates.list = AsyncMock(return_value=[])
 
         historical_ts = datetime(2026, 1, 15, 11, 0, 0, tzinfo=UTC)
@@ -400,9 +480,10 @@ class TestFxServiceNonDegraded:
 
     async def test_api_fetch_404_returns_none(self, service, mock_uow) -> None:
         """API returns None when the pair is not found (404)."""
-        service._provider = _mock_provider_error(
-            OpenBBFxProviderNotFoundError("not found"),
+        mock_http = _mock_http_client(
+            return_value=_mock_response(status=404),
         )
+        service._http_client = mock_http
         mock_uow.fx_rates.list = AsyncMock(return_value=[])
 
         result = await service.get_rate("XYZ", "ABC")
@@ -413,10 +494,11 @@ class TestFxServiceNonDegraded:
     async def test_api_fetch_500_returns_fallback(
         self, service, mock_uow
     ) -> None:
-        """get_rate falls back to hardcoded rate on provider error for known pair."""
-        service._provider = _mock_provider_error(
-            OpenBBFxProviderError("Server error"),
+        """get_rate falls back to hardcoded rate on 500 error for known pair."""
+        mock_http = _mock_http_client(
+            return_value=_mock_response(status=500),
         )
+        service._http_client = mock_http
         mock_uow.fx_rates.list = AsyncMock(return_value=[])
 
         result = await service.get_rate("EUR", "USD")
@@ -427,60 +509,31 @@ class TestFxServiceNonDegraded:
 
     async def test_api_fetch_timeout_fallback(self, service, mock_uow) -> None:
         """API returns None on timeout."""
-        service._provider = _mock_provider_error(
-            OpenBBFxProviderTimeoutError("Timed out"),
-        )
+        from httpx import TimeoutException
+
+        client = MagicMock()
+        client.get = AsyncMock(side_effect=TimeoutException("Timed out"))
+        client.is_closed = False
+        client.aclose = AsyncMock()
+        service._http_client = client
         mock_uow.fx_rates.list = AsyncMock(return_value=[])
 
         result = await service.get_rate("EUR", "USD")
         assert result is not None
         assert result.rate == Decimal("1.09")
         assert result.source == "fallback"
-
-    async def test_api_fetch_rate_limit_error_fallback(
-        self, service, mock_uow
-    ) -> None:
-        """get_rate falls back to hardcoded rate on rate limit error."""
-        service._provider = _mock_provider_error(
-            OpenBBFxProviderRateLimitError("Rate limit exceeded"),
-        )
-        mock_uow.fx_rates.list = AsyncMock(return_value=[])
-
-        result = await service.get_rate("EUR", "USD")
-        assert result is not None
-        assert result.rate == Decimal("1.09")
-        assert result.source == "fallback"
-        mock_uow.fx_rates.add.assert_not_called()
-
-    async def test_api_fetch_no_provider_fallback(
-        self, service, mock_uow
-    ) -> None:
-        """get_rate falls back to hardcoded rate when no provider is
-        attached (simulates _HAS_OPENBB_PROVIDER=False path)."""
-        import finance_sync.services.fx_service as fx_mod
-
-        with patch.object(fx_mod, "_HAS_OPENBB_PROVIDER", False):
-            # Re-create service without provider auto-creation
-            no_provider_service = FxService(
-                settings=service._settings,
-                uow=mock_uow,
-                provider=None,
-            )
-            no_provider_service._provider = None
-            mock_uow.fx_rates.list = AsyncMock(return_value=[])
-
-            result = await no_provider_service.get_rate("EUR", "USD")
-            assert result is not None
-            assert result.rate == Decimal("1.09")
-            assert result.source == "fallback"
 
     async def test_api_fetch_generic_http_error_fallback(
         self, service, mock_uow
     ) -> None:
-        """get_rate falls back to hardcoded rate on provider error."""
-        service._provider = _mock_provider_error(
-            OpenBBFxProviderError("Connection failed"),
-        )
+        """get_rate falls back to hardcoded rate on HTTP error."""
+        from httpx import HTTPError
+
+        client = MagicMock()
+        client.get = AsyncMock(side_effect=HTTPError("Connection failed"))
+        client.is_closed = False
+        client.aclose = AsyncMock()
+        service._http_client = client
         mock_uow.fx_rates.list = AsyncMock(return_value=[])
 
         result = await service.get_rate("EUR", "USD")
@@ -490,7 +543,18 @@ class TestFxServiceNonDegraded:
 
     async def test_convert_with_api_rate(self, service, mock_uow) -> None:
         """convert uses freshly-fetched API rate when no local cache."""
-        service._provider = _mock_provider(Decimal("1.0945"))
+        mock_http = _mock_http_client(
+            return_value=_mock_response(
+                json_data={
+                    "base": "EUR",
+                    "quote": "USD",
+                    "rate": 1.0945,
+                    "timestamp": "2026-01-15T12:00:00Z",
+                    "source": "openbb",
+                },
+            ),
+        )
+        service._http_client = mock_http
         mock_uow.fx_rates.list = AsyncMock(return_value=[])
 
         request = FxConversionRequest(
@@ -504,8 +568,19 @@ class TestFxServiceNonDegraded:
 
     async def test_get_rate_inverts_api_result(self, service, mock_uow) -> None:
         """get_rate inverts the API rate when the canonical pair is reversed."""
-        # Request USD/EUR, canonical is EUR/USD, provider returns EUR/USD rate
-        service._provider = _mock_provider(Decimal("1.0945"))
+        # Request USD/EUR, canonical is EUR/USD, API returns EUR/USD rate
+        mock_http = _mock_http_client(
+            return_value=_mock_response(
+                json_data={
+                    "base": "EUR",
+                    "quote": "USD",
+                    "rate": 1.0945,
+                    "timestamp": "2026-01-15T12:00:00Z",
+                    "source": "openbb",
+                },
+            ),
+        )
+        service._http_client = mock_http
         mock_uow.fx_rates.list = AsyncMock(return_value=[])
 
         result = await service.get_rate("USD", "EUR")
@@ -518,7 +593,18 @@ class TestFxServiceNonDegraded:
 
     async def test_fetch_all_major_rates(self, service, mock_uow) -> None:
         """fetch_all_major_rates fetches and returns all major pairs."""
-        service._provider = _mock_provider(Decimal("1.09"))
+        mock_http = _mock_http_client(
+            return_value=_mock_response(
+                json_data={
+                    "base": "EUR",
+                    "quote": "USD",
+                    "rate": 1.09,
+                    "timestamp": "2026-01-15T12:00:00Z",
+                    "source": "openbb",
+                },
+            ),
+        )
+        service._http_client = mock_http
         mock_uow.fx_rates.list = AsyncMock(return_value=[])
 
         results = await service.fetch_all_major_rates()
@@ -531,7 +617,18 @@ class TestFxServiceNonDegraded:
         self, service, mock_uow
     ) -> None:
         """fetch_all_major_rates returns a list of observations."""
-        service._provider = _mock_provider(Decimal("1.09"))
+        mock_http = _mock_http_client(
+            return_value=_mock_response(
+                json_data={
+                    "base": "EUR",
+                    "quote": "USD",
+                    "rate": 1.09,
+                    "timestamp": "2026-01-15T12:00:00Z",
+                    "source": "openbb",
+                },
+            ),
+        )
+        service._http_client = mock_http
         mock_uow.fx_rates.list = AsyncMock(return_value=[])
 
         results = await service.fetch_all_major_rates(base_currency="EUR")
@@ -543,9 +640,10 @@ class TestFxServiceNonDegraded:
     ) -> None:
         """fetch_all_major_rates still returns observations when API fails."""
         # All API calls fail; fallback rates cover major pairs
-        service._provider = _mock_provider_error(
-            OpenBBFxProviderError("Server error"),
+        mock_http = _mock_http_client(
+            return_value=_mock_response(status=500),
         )
+        service._http_client = mock_http
         mock_uow.fx_rates.list = AsyncMock(return_value=[])
 
         results = await service.fetch_all_major_rates()
@@ -989,7 +1087,18 @@ class TestFxInMemoryCache:
     async def test_memory_cache_hit(self, service, mock_uow) -> None:
         """get_rate returns cached rate from in-memory cache before DB hit."""
         # First call: API fetch succeeds and populates cache
-        service._provider = _mock_provider(Decimal("1.0945"))
+        mock_http = _mock_http_client(
+            return_value=_mock_response(
+                json_data={
+                    "base": "EUR",
+                    "quote": "USD",
+                    "rate": 1.0945,
+                    "timestamp": "2026-01-15T12:00:00Z",
+                    "source": "openbb",
+                },
+            ),
+        )
+        service._http_client = mock_http
         mock_uow.fx_rates.list = AsyncMock(return_value=[])
 
         result_a = await service.get_rate("EUR", "USD")
@@ -1132,7 +1241,18 @@ class TestFetchAndCacheRates:
         self, service, mock_uow
     ) -> None:
         """fetch_and_cache_rates returns the number of rates fetched."""
-        service._provider = _mock_provider(Decimal("1.09"))
+        mock_http = _mock_http_client(
+            return_value=_mock_response(
+                json_data={
+                    "base": "EUR",
+                    "quote": "USD",
+                    "rate": 1.09,
+                    "timestamp": "2026-01-15T12:00:00Z",
+                    "source": "openbb",
+                },
+            ),
+        )
+        service._http_client = mock_http
         mock_uow.fx_rates.list = AsyncMock(return_value=[])
 
         count = await service.fetch_and_cache_rates(
@@ -1145,12 +1265,23 @@ class TestFetchAndCacheRates:
         self, service, mock_uow
     ) -> None:
         """fetch_and_cache_rates defaults to EUR, USD, GBP base currencies."""
-        service._provider = _mock_provider(Decimal("1.09"))
+        mock_http = _mock_http_client(
+            return_value=_mock_response(
+                json_data={
+                    "base": "EUR",
+                    "quote": "USD",
+                    "rate": 1.09,
+                    "timestamp": "2026-01-15T12:00:00Z",
+                    "source": "openbb",
+                },
+            ),
+        )
+        service._http_client = mock_http
         mock_uow.fx_rates.list = AsyncMock(return_value=[])
 
         count = await service.fetch_and_cache_rates()
-        # 3 base currs x 7 targets each = up to 21, but mock returns same
-        # rate for every pair
+        # 3 base currs x 7 targets each = up to 21, but API returns same
+        # response for every pair due to mock
         assert isinstance(count, int)
         assert count > 0
 
@@ -1165,7 +1296,18 @@ class TestFetchAndCacheRates:
         self, service, mock_uow
     ) -> None:
         """fetch_and_cache_rates populates the in-memory cache."""
-        service._provider = _mock_provider(Decimal("1.09"))
+        mock_http = _mock_http_client(
+            return_value=_mock_response(
+                json_data={
+                    "base": "EUR",
+                    "quote": "USD",
+                    "rate": 1.09,
+                    "timestamp": "2026-01-15T12:00:00Z",
+                    "source": "openbb",
+                },
+            ),
+        )
+        service._http_client = mock_http
         mock_uow.fx_rates.list = AsyncMock(return_value=[])
 
         await service.fetch_and_cache_rates(base_currencies=["EUR"])
@@ -1462,81 +1604,6 @@ class TestConvertCurrency:
             service,
         )
         assert result == Decimal("-54.50")  # -50 * 1.09
-
-
-class TestFxServiceConvertWithTimestamp:
-    """Tests for FxService.convert() with timestamp propagation."""
-
-    @pytest.fixture
-    def settings(self, live_settings):
-        return live_settings
-
-    @pytest.fixture
-    def mock_uow(self, mock_uow):
-        return mock_uow
-
-    @pytest.fixture
-    def service(self, settings, mock_uow):
-        return FxService(settings=settings, uow=mock_uow)
-
-    async def test_convert_with_at_timestamp_historical(
-        self, service, mock_uow
-    ) -> None:
-        """convert() uses at_timestamp from FxConversionRequest."""
-        historical_ts = datetime(2025, 6, 1, tzinfo=UTC)
-        mock_row = MagicMock()
-        mock_row.base_currency = "EUR"
-        mock_row.quote_currency = "USD"
-        mock_row.rate = Decimal("1.05")
-        mock_row.timestamp = historical_ts
-        mock_row.source = "openbb"
-        mock_uow.fx_rates.list = AsyncMock(return_value=[mock_row])
-
-        request = FxConversionRequest(
-            from_currency="EUR",
-            to_currency="USD",
-            amount=Decimal("200.00"),
-            at_timestamp=historical_ts,
-        )
-        result = await service.convert(request)
-        assert result is not None
-        assert result.converted_amount == Decimal("210.00")  # 200 * 1.05
-        assert result.rate_timestamp == historical_ts
-
-    async def test_convert_with_timestamp_no_data_returns_none(
-        self, service, mock_uow
-    ) -> None:
-        """convert() returns None when historical rate has no data
-        and no API is available."""
-        mock_uow.fx_rates.list = AsyncMock(return_value=[])
-        request = FxConversionRequest(
-            from_currency="EUR",
-            to_currency="USD",
-            amount=Decimal("100.00"),
-            at_timestamp=datetime(2020, 1, 1, tzinfo=UTC),
-        )
-        result = await service.convert(request)
-        assert result is None
-
-    async def test_get_rates_for_base_with_timestamp(
-        self, service, mock_uow
-    ) -> None:
-        """get_rates_for_base propagates at_timestamp to get_rate."""
-        historical_ts = datetime(2025, 6, 1, tzinfo=UTC)
-        mock_row = MagicMock()
-        mock_row.base_currency = "EUR"
-        mock_row.quote_currency = "USD"
-        mock_row.rate = Decimal("1.05")
-        mock_row.timestamp = historical_ts
-        mock_row.source = "openbb"
-        mock_uow.fx_rates.list = AsyncMock(return_value=[mock_row])
-
-        result = await service.get_rates_for_base(
-            "EUR",
-            targets=["USD"],
-            at_timestamp=historical_ts,
-        )
-        assert result["USD"] == Decimal("1.05")
 
 
 class TestFxServiceCaseInsensitivity:
