@@ -2,15 +2,13 @@
 
 Provides batch and single-currency conversion functions with efficient
 rate deduplication and clear error handling for missing exchange rates,
-including indirect-path resolution (e.g. EUR -> GBP -> USD) when a
+including indirect-path resolution (e.g. EUR → GBP → USD) when a
 direct exchange rate is unavailable.
 """
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
@@ -20,6 +18,7 @@ from finance_sync.enrichment.models import FxConversionRequest
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
+    from datetime import datetime
 
     from finance_sync.services.fx_service import FxService
 
@@ -27,7 +26,7 @@ if TYPE_CHECKING:
 logger = structlog.get_logger(__name__)
 
 
-# -- Exceptions --------------------------------------------------------------
+# ── Exceptions ─────────────────────────────────────────────────────────
 
 
 class CurrencyConversionError(Exception):
@@ -38,7 +37,7 @@ class NoRateError(CurrencyConversionError):
     """Raised when no exchange rate is available for a required pair."""
 
 
-# -- Protocols / DTOs --------------------------------------------------------
+# ── Protocols / DTOs ───────────────────────────────────────────────────
 
 
 @runtime_checkable
@@ -47,7 +46,7 @@ class HasCurrency(Protocol):
 
     Any dataclass, ORM model, or Pydantic model with ``amount``
     (``Decimal``) and ``currency_code`` (``str``) attributes satisfies
-    this protocol automatically -- no inheritance needed.
+    this protocol automatically — no inheritance needed.
     """
 
     amount: Decimal
@@ -73,7 +72,7 @@ class ConvertedItem:
     rate_used: Decimal = field(compare=False)
 
 
-# -- Public API --------------------------------------------------------------
+# ── Public API ─────────────────────────────────────────────────────────
 
 
 async def convert_single(
@@ -116,78 +115,20 @@ async def convert_single(
             from_currency=from_currency,
             to_currency=to_currency,
         )
-        msg = f"No exchange rate available for {from_currency} -> {to_currency}"
+        msg = (
+            f"No exchange rate available for {from_currency}"
+            f" \u2192 {to_currency}"
+        )
         raise NoRateError(msg)
 
     return result.converted_amount
 
 
-async def convert(
-    amount: Decimal,
-    from_currency: str,
-    to_currency: str,
-    *,
-    at_date: date | None = None,
-    fx_service: FxService,
-) -> Decimal:
-    """Convert an amount from one currency to another, with cross-rate fallback.
-
-    This is the primary multi-currency conversion entry point matching the
-    Phase 4 API surface.  It supports:
-
-    * **Direct conversion** — when a direct exchange rate exists for the
-      requested pair.
-    * **Cross-rate (indirect) conversion** — when the direct rate is
-      unavailable, falls back through major intermediary currencies
-      (USD → EUR → GBP → …) to find a path.
-    * **Historical conversion** — pass ``at_date`` for a point-in-time
-      rate (falls back to the latest available rate if no historical
-      data exists for that date).
-
-    Args:
-        amount:         The monetary amount to convert.
-        from_currency:  Source ISO-4217 currency code (e.g. ``"EUR"``).
-        to_currency:    Target ISO-4217 currency code (e.g. ``"USD"``).
-        at_date:        Optional date for historical rate lookup.
-                        Internally converted to a UTC datetime at
-                        midnight for compatibility with :class:`FxService`.
-        fx_service:     Initialised :class:`FxService` instance.
-
-    Returns:
-        The converted amount, rounded to 2 decimal places.
-
-    Raises:
-        NoRateError: If no exchange rate is available through any
-            resolution path (direct or cross-rate).
-
-    Example:
-        >>> from decimal import Decimal
-        >>> from finance_sync.utils.currency_converter import convert
-        >>> result = await convert(
-        ...     Decimal("100.00"), "EUR", "USD", fx_service=service,
-        ... )
-        >>> isinstance(result, Decimal)
-        True
-    """
-    if from_currency == to_currency:
-        return amount
-
-    at_timestamp: datetime | None = (
-        datetime.combine(at_date, datetime.min.time(), tzinfo=UTC)
-        if at_date is not None
-        else None
-    )
-
-    return await convert_currency_rate(
-        amount,
-        from_currency,
-        to_currency,
-        at_timestamp=at_timestamp,
-        fx_service=fx_service,
-    )
-
-
-# -- Intermediate currencies for indirect path resolution --------------------
+# ── Intermediate currencies for indirect path resolution ────────────────
+#
+# Currencies tried as intermediaries when a direct FX rate is unavailable.
+# Ordered by liquidity (most traded first) so the first successful
+# cross-rate is also the most reliable.
 _INDIRECT_PATH_INTERMEDIARIES: tuple[str, ...] = (
     "USD",
     "EUR",
@@ -212,8 +153,8 @@ async def convert_currency_rate(
 
     Tries the direct exchange rate first via ``FxService.get_rate()``.
     If the direct rate is unavailable, attempts to find an indirect path
-    through a common intermediate currency (e.g. EUR -> USD -> GBP when
-    the direct EUR -> GBP rate is missing).
+    through a common intermediate currency (e.g. EUR → USD → GBP when
+    the direct EUR → GBP rate is missing).
 
     Args:
         amount:        The monetary amount to convert.
@@ -235,7 +176,7 @@ async def convert_currency_rate(
     from_code = from_currency.upper()
     to_code = to_currency.upper()
 
-    # -- 1. Direct path -----------------------------------------------------
+    # ── 1. Direct path ────────────────────────────────────────────────
     direct = await fx_service.get_rate(
         from_code,
         to_code,
@@ -253,7 +194,7 @@ async def convert_currency_rate(
             rounding="ROUND_HALF_UP",
         )
 
-    # -- 2. Indirect path through an intermediate currency -------------------
+    # ── 2. Indirect path through an intermediate currency ──────────────
     for intermediary in _INDIRECT_PATH_INTERMEDIARIES:
         if intermediary in (from_code, to_code):
             continue
@@ -289,107 +230,18 @@ async def convert_currency_rate(
             rounding="ROUND_HALF_UP",
         )
 
-    # -- 3. All paths exhausted ---------------------------------------------
+    # ── 3. All paths exhausted ────────────────────────────────────────
     logger.warning(
         "conversion_rate_unavailable",
         from_currency=from_code,
         to_currency=to_code,
     )
     msg = (
-        f"No exchange rate available for {from_code} -> {to_code}. "
+        f"No exchange rate available for {from_code} → {to_code}. "
         f"Direct rate and indirect paths through "
         f"{', '.join(_INDIRECT_PATH_INTERMEDIARIES)} were exhausted."
     )
     raise NoRateError(msg)
-
-
-# -- Type alias for the rates-fetcher callable --------------------------------
-
-RatesFetcher = Callable[[str, str], Awaitable[Decimal | None]]
-"""An async callable that, given ``(from_currency, to_currency)``, returns
-the exchange rate as a :class:`Decimal`, or ``None`` if the rate is
-unavailable.
-
-Example
--------
-A ``rates_fetcher`` backed by ``FxService.get_rate()``::
-
-    async def my_fetcher(from_: str, to_: str) -> Decimal | None:
-        obs = await fx_service.get_rate(from_, to_)
-        return obs.rate if obs is not None else None
-"""
-
-
-async def convert_amount(
-    amount: Decimal,
-    from_currency: str,
-    to_currency: str,
-    rates_fetcher: RatesFetcher,
-) -> Decimal:
-    """Convert an amount using a lightweight rates-fetcher callable.
-
-    Unlike the higher-level ``convert()`` / ``convert_currency_rate()``
-    functions that take an :class:`FxService` instance and support
-    indirect-path resolution, this function works with any async callable
-    that returns a ``Decimal | None`` given a currency pair.  It
-    supports:
-
-    * **Direct conversion** — calls ``rates_fetcher(from, to)``.
-    * **Inverse-pair fallback** — if the direct rate is unavailable,
-      swaps the currencies and inverts the rate (``1 / inverse_rate``).
-    * **Identity shortcut** — same-currency requests return the amount
-      unchanged without calling the fetcher.
-
-    Args:
-        amount:         The monetary amount to convert.
-        from_currency:  Source ISO-4217 currency code (e.g. ``\"EUR\"``).
-        to_currency:    Target ISO-4217 currency code (e.g. ``\"USD\"``).
-        rates_fetcher:  Async callable ``(from, to) -> Decimal | None``.
-
-    Returns:
-        The converted amount, rounded to 2 decimal places.
-
-    Raises:
-        NoRateError: If neither the direct nor the inverse pair yields
-            a valid exchange rate.
-
-    Example:
-        >>> from decimal import Decimal
-        >>> from finance_sync.utils.currency_converter import convert_amount
-        >>> fetcher = lambda f, t: Decimal("1.09")
-        >>> r = await convert_amount(Decimal(100), "EUR", "USD", fetcher)
-        >>> r
-        Decimal('109.00')
-    """
-    from_code = from_currency.upper()
-    to_code = to_currency.upper()
-
-    if from_code == to_code:
-        return amount.quantize(Decimal("0.01"), rounding="ROUND_HALF_UP")
-
-    # -- 1. Direct rate ----------------------------------------------------
-    rate = await rates_fetcher(from_code, to_code)
-
-    # -- 2. Inverse-pair fallback ------------------------------------------
-    if rate is None:
-        inverse_rate = await rates_fetcher(to_code, from_code)
-        if inverse_rate is not None and inverse_rate != Decimal(0):
-            rate = (Decimal(1) / inverse_rate).quantize(
-                Decimal("0.000000000001"),
-                rounding="ROUND_HALF_UP",
-            )
-
-    if rate is None:
-        msg = (
-            f"No exchange rate available for {from_code} -> {to_code}. "
-            f"Both direct and inverse-pair lookups were exhausted."
-        )
-        raise NoRateError(msg)
-
-    return (amount * rate).quantize(
-        Decimal("0.01"),
-        rounding="ROUND_HALF_UP",
-    )
 
 
 async def convert_portfolio_items(
@@ -401,7 +253,7 @@ async def convert_portfolio_items(
 ) -> list[ConvertedItem]:
     """Convert a batch of portfolio items to a target currency.
 
-    Optimises API calls by deduplicating source currencies -- rates are
+    Optimises API calls by deduplicating source currencies — rates are
     fetched once per unique ``currency_code`` rather than per item.
 
     Args:
@@ -412,16 +264,16 @@ async def convert_portfolio_items(
         fx_service:      Initialised :class:`FxService` instance.
 
     Returns:
-        A list of :class:`ConvertedItem` -- one per input item, in the
+        A list of :class:`ConvertedItem` — one per input item, in the
         same order as ``items``.
 
     Raises:
         NoRateError: If any required exchange rate is unavailable.
     """
-    # -- Step 1: gather unique source currencies ---------------------------
+    # ── Step 1: gather unique source currencies ──────────────────────
     unique_currencies: set[str] = {item.currency_code for item in items}
 
-    # Identity-map: currency -> rate (Decimal).  Iterate in sorted order
+    # Identity-map: currency → rate (Decimal).  Iterate in sorted order
     # for deterministic behaviour (callers and tests expect it).
     rates: dict[str, Decimal] = {}
     for currency in sorted(unique_currencies):
@@ -438,12 +290,12 @@ async def convert_portfolio_items(
         if result is None:
             msg = (
                 f"No exchange rate available for "
-                f"{currency} -> {target_currency}"
+                f"{currency} \u2192 {target_currency}"
             )
             raise NoRateError(msg)
         rates[currency] = result.rate_used
 
-    # -- Step 2: apply rates to every item ---------------------------------
+    # ── Step 2: apply rates to every item ────────────────────────────
     converted: list[ConvertedItem] = []
     for item in items:
         rate = rates[item.currency_code]
