@@ -11,7 +11,7 @@ Consists of:
 
 from __future__ import annotations
 
-from finance_sync.services.subscription_detector.detector import (
+from finance_sync.services.subscription_detector.detector import (  # type: ignore[reportPrivateUsage]
     # ── Regex patterns ─────────────────────────────────────────────────
     _CATEGORY_KEYWORDS,
     # ── Constants ──────────────────────────────────────────────────────
@@ -53,7 +53,7 @@ from finance_sync.services.subscription_detector.pattern_detector import (
 )
 
 # ── Re-export integrated service
-from finance_sync.services.subscription_detector.service import (
+from finance_sync.services.subscription_detector.service import (  # type: ignore[reportPrivateUsage]
     Subscription,
     SubscriptionDetectionService,
     _has_cancellation_signal,

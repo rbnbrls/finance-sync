@@ -14,6 +14,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
+
 from finance_sync.api.deps.auth import AuthContext, get_auth_context
 from finance_sync.dependencies import get_container, get_db
 from finance_sync.exporter.models import ExportRun
@@ -186,11 +189,11 @@ async def list_exporter_types() -> list[ExporterTypeInfo]:
 
 @router.get("/config", response_model=ExporterConfigResponse)
 async def get_exporter_config(
-    request: Request,
+    _request: Request,
     _auth: AuthContext = Depends(get_auth_context),
 ) -> ExporterConfigResponse:
     """Get the current exporter configuration."""
-    container = get_container(request)
+    container = get_container(_request)
     wf_config = _build_wealthfolio_config(container)
 
     return ExporterConfigResponse(

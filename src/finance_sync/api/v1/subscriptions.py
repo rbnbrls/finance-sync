@@ -177,10 +177,7 @@ class DetectionResultItem(BaseModel):
     )
     fundamentals_available: bool = Field(
         default=False,
-        description=(
-            "Whether fundamentals data (PE ratio, dividend yield)"
-            " was used in classification"
-        ),
+        description="Whether fundamentals (PE, dividend yield) used",
     )
     sector: str | None = Field(default=None, description="GICS sector")
     category: str | None = Field(
