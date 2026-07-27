@@ -6,6 +6,9 @@ environment variables / Settings) and trigger export runs to Wealthfolio.
 
 from __future__ import annotations
 
+from datetime import (
+    datetime,  # noqa: TC003 — runtime import needed by Pydantic models
+)
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -23,8 +26,6 @@ from finance_sync.exporter.wealthfolio.exporter import (
 )
 
 if TYPE_CHECKING:
-    from datetime import datetime
-
     from sqlalchemy.ext.asyncio import (
         AsyncSession,
     )
@@ -101,6 +102,9 @@ class ExportRunsListResponse(BaseModel):
 
     runs: list[ExportRunResponse]
     total: int
+
+
+ExportRunsListResponse.model_rebuild()
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────
