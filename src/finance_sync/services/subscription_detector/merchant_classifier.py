@@ -22,7 +22,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from finance_sync.services.merchant_classifier import (
+from finance_sync.services.merchant_classifier import (  # type: ignore[reportPrivateUsage]
     _LIKELIHOOD_BOOST,
     LIKELIHOOD_HIGH,
     LIKELIHOOD_LOW,

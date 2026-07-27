@@ -211,24 +211,11 @@ class Container:
     def fx_service(self) -> FxService:
         """Lazy-init the FX service for exchange rate management."""
         if self._fx_service is None:
-            from finance_sync.providers.openbb_fx import OpenBBFxProvider
             from finance_sync.services.fx_service import FxService
 
-            settings = self.settings
-            provider = OpenBBFxProvider(
-                api_key=(
-                    settings.openbb_api_key.get_secret_value()
-                    if settings.openbb_api_key
-                    else None
-                ),
-                base_url=settings.openbb_base_url,
-                max_requests_per_second=settings.openbb_rate_limit_rps,
-                request_timeout=settings.openbb_request_timeout,
-            )
             self._fx_service = FxService(
-                settings=settings,
+                settings=self.settings,
                 uow=self._make_uow(),
-                provider=provider,
             )
         return self._fx_service
 

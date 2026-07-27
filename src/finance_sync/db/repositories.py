@@ -251,7 +251,8 @@ class TaxLotRepository(Repository[TaxLot]):
         account_id: str,
         security_id: str,
     ) -> list[TaxLot]:
-        """Return open tax lots for an account+security, ordered by acquisition.
+        """Return open tax lots for an account+security, ordered by
+        acquisition date.
 
         Used by the cost-basis matching engine.
         """
@@ -268,7 +269,7 @@ class TaxLotRepository(Repository[TaxLot]):
         tenant_id: str,
         transaction_id: str,
     ) -> list[TaxLot]:
-        """Find all tax lots linked to a specific transaction."""
+        """Find lots linked to a transaction (purchase or sale)."""
         return await self.list(
             TaxLot.tenant_id == tenant_id,  # type: ignore[attr-defined]
             (
@@ -328,8 +329,12 @@ class WebhookDeliveryLogRepository(Repository[WebhookDeliveryLog]):
     model_class = WebhookDeliveryLog
 
 
-class FundamentalObservationRepository(Repository[FundamentalObservation]):
-    model_class = FundamentalObservation
+class FxRateRepository(Repository[FxRate]):
+    model_class = FxRate
+
+
+class DetectedSubscriptionRepository(Repository[DetectedSubscription]):
+    model_class = DetectedSubscription
 
 
 class SecurityMetadataObservationRepository(
@@ -338,11 +343,5 @@ class SecurityMetadataObservationRepository(
     model_class = SecurityMetadataObservation
 
 
-class FxRateRepository(Repository[FxRate]):
-    model_class = FxRate
-
-
-class DetectedSubscriptionRepository(Repository[DetectedSubscription]):
-    """Repository for detected subscription records."""
-
-    model_class = DetectedSubscription
+class FundamentalObservationRepository(Repository[FundamentalObservation]):
+    model_class = FundamentalObservation

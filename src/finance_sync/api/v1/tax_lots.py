@@ -6,13 +6,14 @@ Exposes:
 - POST /tax-lots/compute — trigger recomputation
 """
 
+from __future__ import annotations
+
 from datetime import datetime
 from decimal import Decimal
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from finance_sync.api.deps.auth import AuthContext, require_permission
 from finance_sync.db.repositories import TaxLotRepository
@@ -22,6 +23,9 @@ from finance_sync.services.tax_lot_service import (
     compute_all_tax_lots,
     get_tax_lot_summary,
 )
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
 
 router = APIRouter(prefix="/tax-lots", tags=["tax-lots"])
 

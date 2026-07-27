@@ -244,8 +244,7 @@ def upgrade() -> None:
             "label",
             sa.String(256),
             nullable=True,
-            comment="Human-readable label "
-            "(e.g. ETF name, sector title)",
+            comment="Human-readable label (e.g. ETF name, sector title)",
         ),
         sa.Column(
             "source",
@@ -396,8 +395,7 @@ def upgrade() -> None:
             postgresql.JSONB,
             nullable=True,
             comment=(
-                "Run scope: {account_ids: [..], "
-                "date_from: '..', date_to: '..'}"
+                "Run scope: {account_ids: [..], date_from: '..', date_to: '..'}"
             ),
         ),
         sa.Column(
@@ -442,9 +440,7 @@ def upgrade() -> None:
         sa.Column(
             "run_id",
             postgresql.UUID(as_uuid=True),
-            sa.ForeignKey(
-                "reconciliation_runs.id", ondelete="CASCADE"
-            ),
+            sa.ForeignKey("reconciliation_runs.id", ondelete="CASCADE"),
             nullable=False,
             index=True,
         ),
@@ -865,12 +861,8 @@ def upgrade() -> None:
             server_default=sa.text("gen_random_uuid()"),
         ),
         sa.Column("tenant_id", postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column(
-            "account_id", postgresql.UUID(as_uuid=True), nullable=False
-        ),
-        sa.Column(
-            "security_id", postgresql.UUID(as_uuid=True), nullable=False
-        ),
+        sa.Column("account_id", postgresql.UUID(as_uuid=True), nullable=False),
+        sa.Column("security_id", postgresql.UUID(as_uuid=True), nullable=False),
         # Transaction links
         sa.Column(
             "purchase_transaction_id",
@@ -1018,15 +1010,9 @@ def upgrade() -> None:
     )
 
     # Indexes for tax_lots
-    op.create_index(
-        "ix_tax_lots_tenant_id", "tax_lots", ["tenant_id"]
-    )
-    op.create_index(
-        "ix_tax_lots_account_id", "tax_lots", ["account_id"]
-    )
-    op.create_index(
-        "ix_tax_lots_security_id", "tax_lots", ["security_id"]
-    )
+    op.create_index("ix_tax_lots_tenant_id", "tax_lots", ["tenant_id"])
+    op.create_index("ix_tax_lots_account_id", "tax_lots", ["account_id"])
+    op.create_index("ix_tax_lots_security_id", "tax_lots", ["security_id"])
     op.create_index(
         "ix_tax_lots_tenant_open",
         "tax_lots",
@@ -1039,11 +1025,17 @@ def upgrade() -> None:
         ["tenant_id", "security_id", "acquired_at"],
     )
 
-    # Unique constraint: one lot per (tenant, account, security, purchase_txn, acquired_at)
+    # Unique constraint: one lot per (tenant, account, security, purchase_txn, acquired_at)  # noqa: E501
     op.create_unique_constraint(
         "uq_tax_lots_purchase",
         "tax_lots",
-        ["tenant_id", "account_id", "security_id", "purchase_transaction_id", "acquired_at"],
+        [
+            "tenant_id",
+            "account_id",
+            "security_id",
+            "purchase_transaction_id",
+            "acquired_at",
+        ],
     )
 
 

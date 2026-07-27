@@ -1,24 +1,25 @@
-"""Pattern clustering for subscription detection — time-series and clustering methods.
+"""Pattern clustering for subscription detection — time-series and clustering
+methods.
 
 Provides advanced pattern recognition beyond simple merchant-based grouping:
 
-- **AmountClusterDetector**: Density-based clustering on transaction amounts to
-  find groups of transactions that share similar values across different merchants
-  and time periods — catches subscriptions whose prices changed or that appear
-  under slightly different merchant names.
+- **AmountClusterDetector**: Density-based clustering on transaction amounts
+  to find groups of transactions that share similar values across different
+  merchants and time periods — catches subscriptions whose prices changed or
+  that appear under slightly different merchant names.
 
-- **PeriodicPatternDetector**: Uses interval histogram analysis with peak detection
-  to find dominant periodicities in a transaction time series — more robust than
-  simple median-interval matching because it handles skipped/missed payments and
-  overlapping frequency bands.
+- **PeriodicPatternDetector**: Uses interval histogram analysis with peak
+  detection to find dominant periodicities in a transaction time series — more
+  robust than simple median-interval matching because it handles skipped/missed
+  payments and overlapping frequency bands.
 
 - **CrossAccountMatcher**: Links subscription patterns detected across different
   accounts and providers, identifying the same subscription billed through
   different instruments.
 
-- **SubscriptionPatternEngine**: Orchestrates all detectors into a unified pipeline
-  that returns structured pattern results with confidence scores.
-"""  # noqa: E501
+- **SubscriptionPatternEngine**: Orchestrates all detectors into a unified
+  pipeline that returns structured pattern results with confidence scores.
+"""
 
 from __future__ import annotations
 
@@ -97,7 +98,8 @@ def _density_cluster_1d(
     if n < min_pts:
         return []
 
-    # Build adjacency: neighbours[i] = set of j where |values[i]-values[j]| ≤ eps  # noqa: E501
+    # Build adjacency: neighbours[i] = set of j where
+    # |values[i]-values[j]| ≤ eps
     neighbours: list[set[int]] = [set() for _ in range(n)]
     for i in range(n):
         for j in range(i + 1, n):
@@ -132,9 +134,7 @@ def _density_cluster_1d(
             cluster.append(p)
             # Add core neighbours for expansion
             if p in core:
-                for nb in neighbours[p]:
-                    if nb not in visited:
-                        stack.append(nb)  # noqa: PERF401
+                stack.extend(nb for nb in neighbours[p] if nb not in visited)
         if len(cluster) >= min_pts:
             clusters.append(sorted(cluster))
 
@@ -228,7 +228,7 @@ class AmountClusterDetector:
         for indices in clusters:
             cluster_amounts = [amounts[i] for i in indices]
             median_amt = _median_decimal(cluster_amounts)
-            total_amt = sum(abs(a) for a in cluster_amounts)
+            total_amt = sum((abs(a) for a in cluster_amounts), Decimal(0))
             result.append(
                 AmountCluster(
                     amount=median_amt,
@@ -444,7 +444,7 @@ def _detect_periods_from_intervals(
 
     # 4. Also check the raw histogram for other significant peaks outside
     #    standard bands that might indicate split intervals (e.g. 60-day
-    #    as 2x monthly, 45-day as semi-monthly, etc.)
+    #    as 2× monthly, 45-day as semi-monthly, etc.)
     peak_indices = _find_peaks(
         smoothed, min_height=max_smoothed * _PEAK_PROMINENCE_FACTOR
     )
@@ -582,7 +582,8 @@ class PeriodicPatternDetector:
 
         matches = 0
         for interval in intervals_days:
-            # Check if interval is close to a whole-number multiple of the period  # noqa: E501
+            # Check if interval is close to a whole-number multiple of the
+            # period
             if best.period_days > 0:
                 mult = round(interval / best.period_days)
                 if mult >= 1:
@@ -709,7 +710,8 @@ class CrossAccountMatcher:
         self,
         patterns: list[dict[str, Any]],
     ) -> list[CrossAccountMatch]:
-        """Merge patterns with different accounts/providers but same merchant."""  # noqa: E501
+        """Merge patterns with different accounts/providers but same
+        merchant."""
         accounts_seen: set[str] = set()
         matches: list[CrossAccountMatch] = []
 
@@ -936,7 +938,8 @@ def _compute_cluster_confidence(
     # Interval regularity (max 0.25)
     score += interval_regularity * 0.25
 
-    # Cluster density (max 0.15) — larger clusters within total = more likely subscription  # noqa: E501
+    # Cluster density (max 0.15) — larger clusters within total = more
+    # likely subscription
     cluster_density = min(1.0, cluster_size / 10.0)
     score += cluster_density * 0.15
 
@@ -1101,7 +1104,7 @@ class SubscriptionPatternEngine:
         raw_descriptions = " ".join(descriptions)
 
         # Category hints
-        from finance_sync.services.subscription_detector import (
+        from finance_sync.services.subscription_detector import (  # type: ignore[reportPrivateUsage]
             _classify_category,
             _is_subscription_keyword,
         )
@@ -1126,8 +1129,9 @@ class SubscriptionPatternEngine:
         else:
             method = DetectionMethod.SIMILAR_AMOUNT
 
-        # Build merchant name from the most common normalised merchant in the cluster  # noqa: E501
-        from finance_sync.services.subscription_detector import (
+        # Build merchant name from the most common normalised merchant in
+        # the cluster
+        from finance_sync.services.subscription_detector import (  # type: ignore[reportPrivateUsage]
             _normalise_merchant,
         )
 
@@ -1217,7 +1221,8 @@ class SubscriptionPatternEngine:
             "first_detected_at": min(all_dates),
             "last_detected_at": max(all_dates),
             "occurrence_count": len(all_ids),
-            "detection_score": 0.0,  # cross-account patterns derive confidence from their sources  # noqa: E501
+            "detection_score": 0.0,  # cross-account patterns derive
+            # confidence from their sources
             "details": {
                 "cross_account_match": True,
                 "accounts": match.accounts,
@@ -1237,7 +1242,7 @@ class SubscriptionPatternEngine:
         if len(amounts) < 2:
             return 1.0
 
-        from finance_sync.services.subscription_detector import (
+        from finance_sync.services.subscription_detector import (  # type: ignore[reportPrivateUsage]
             _amounts_are_consistent,
         )
 

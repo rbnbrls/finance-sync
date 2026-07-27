@@ -24,6 +24,7 @@ Usage::
 
 from __future__ import annotations
 
+import contextlib
 import traceback
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
@@ -34,6 +35,7 @@ from sqlalchemy import select
 from finance_sync.exporter.models import ExportRun
 from finance_sync.exporter.wealthfolio.transaction_mapper import (
     map_holdings_to_csv,
+    map_transaction_to_wf_row,
     map_transactions_to_csv,
 )
 from finance_sync.models import Account, Holding, Security, Transaction
@@ -46,6 +48,9 @@ if TYPE_CHECKING:
         async_sessionmaker,
     )
 
+    from finance_sync.exporter.wealthfolio.client import (
+        WealthfolioClient,
+    )
     from finance_sync.exporter.wealthfolio.config import (
         WealthfolioConfig,
     )
@@ -574,6 +579,96 @@ class WealthfolioExporter:
                 run.error_message = error_message
             await session.flush()
 
+    # ── Push to Wealthfolio instance ───────────────────────────────
+
+    async def push_to_wealthfolio(
+        self,
+        wf_client: WealthfolioClient,
+        *,
+        accounts: list[Account] | None = None,
+        since: datetime | None = None,
+        max_transactions: int | None = None,
+    ) -> dict[str, Any]:
+        """Push exported data directly to a running Wealthfolio instance.
+
+        Authenticates, fetches pending transactions, maps them to
+        Wealthfolio format, and imports them via the Wealthfolio API.
+
+        Args:
+            wf_client: Authenticated :class:`WealthfolioClient`.
+            accounts: Optional list of accounts to push. If omitted,
+                      loads all active accounts.
+            since:    Only push transactions on or after this time.
+            max_transactions: Hard limit on transactions to push.
+
+        Returns:
+            The import result dict from Wealthfolio API.
+
+        Raises:
+            WealthfolioAuthError: If the client is not authenticated.
+            WealthfolioAPIError:  If the Wealthfolio API rejects data.
+        """
+        _since = since or await self._last_export_time()
+        fs_accounts = accounts or await self._load_accounts(None)
+        security_map = await self._load_securities()
+
+        total_imported = 0
+        total_skipped = 0
+        total_failed = 0
+
+        for fs_acct in fs_accounts:
+            txns = await self._fetch_pending_transactions(
+                account_id=fs_acct.id,
+                since=_since,
+            )
+            if not txns:
+                continue
+
+            if max_transactions:
+                txns = txns[:max_transactions]
+
+            # Map to Wealthfolio API format
+            wf_activities = []
+            for txn in txns:
+                sec = (
+                    security_map.get(txn.security_id)
+                    if txn.security_id
+                    else None
+                )  # type: ignore[arg-type]
+                row = map_transaction_to_wf_row(
+                    txn,
+                    security=sec,
+                    instrument_type_map=self._wf_config.instrument_type_overrides,
+                    default_currency=self._wf_config.default_currency,
+                )
+                wf_activities.append(_wf_row_to_api_activity(row))
+
+            if not wf_activities:
+                continue
+
+            # Push via Wealthfolio API
+            result = await wf_client.push_activities(wf_activities)
+            total_imported += result.get("imported", 0)
+            total_skipped += result.get("skipped", 0)
+            total_failed += result.get("failed", 0)
+
+            self._log.info(
+                "pushed_to_wealthfolio",
+                account=fs_acct.name,
+                imported=result.get("imported", 0),
+                skipped=result.get("skipped", 0),
+                failed=result.get("failed", 0),
+            )
+
+            # Mark as exported
+            await self._mark_exported([t.id for t in txns])
+
+        return {
+            "imported": total_imported,
+            "skipped": total_skipped,
+            "failed": total_failed,
+        }
+
 
 # ═══════════════════════════════════════════════════════════════════════
 # Helpers
@@ -585,3 +680,36 @@ def _default_since() -> datetime:
     from datetime import timedelta
 
     return datetime.now(UTC) - timedelta(days=90)
+
+
+def _wf_row_to_api_activity(row: dict[str, Any]) -> dict[str, Any]:
+    """Convert a Wealthfolio CSV row dict to API activity format.
+
+    The transaction mapper produces CSV-row dicts with string-formatted
+    values.  This helper converts them to the types the Wealthfolio
+    REST API expects (numbers as floats, booleans as needed).
+    """
+    activity: dict[str, Any] = {
+        "activityType": row.get("activityType", ""),
+        "date": row.get("date", ""),
+    }
+
+    # Symbol — blank for cash activities
+    symbol = row.get("symbol", "")
+    if symbol:
+        activity["symbol"] = symbol
+
+    # Numeric fields
+    for numeric_key in ("quantity", "unitPrice", "amount", "fee", "fxRate"):
+        val = row.get(numeric_key, "")
+        if val != "" and val is not None:
+            with contextlib.suppress(ValueError, TypeError):
+                activity[numeric_key] = float(val)
+
+    # String fields
+    for str_key in ("currency", "comment", "instrumentType"):
+        val = row.get(str_key, "")
+        if val:
+            activity[str_key] = val
+
+    return activity

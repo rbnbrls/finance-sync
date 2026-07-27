@@ -281,8 +281,8 @@ class TestMatchSaleToLotsFIFO:
 
         with patch(
             "finance_sync.services.tax_lot_service.TaxLotRepository"
-        ) as mock_repo_cls:
-            mock_repo = mock_repo_cls.return_value
+        ) as mock_repo_class:
+            mock_repo = mock_repo_class.return_value
             mock_repo.find_open_lots = AsyncMock(return_value=[lot])
             mock_repo.update = AsyncMock()
 
@@ -318,8 +318,8 @@ class TestMatchSaleToLotsFIFO:
 
         with patch(
             "finance_sync.services.tax_lot_service.TaxLotRepository"
-        ) as mock_repo_cls:
-            mock_repo = mock_repo_cls.return_value
+        ) as mock_repo_class:
+            mock_repo = mock_repo_class.return_value
             mock_repo.find_open_lots = AsyncMock(return_value=[lot])
             mock_repo.update = AsyncMock()
 
@@ -380,8 +380,8 @@ class TestMatchSaleToLotsFIFO:
 
         with patch(
             "finance_sync.services.tax_lot_service.TaxLotRepository"
-        ) as mock_repo_cls:
-            mock_repo = mock_repo_cls.return_value
+        ) as mock_repo_class:
+            mock_repo = mock_repo_class.return_value
             mock_repo.find_open_lots = AsyncMock(return_value=[lot1, lot2])
             mock_repo.update = AsyncMock()
 
@@ -427,8 +427,8 @@ class TestMatchSaleToLotsFIFO:
 
         with patch(
             "finance_sync.services.tax_lot_service.TaxLotRepository"
-        ) as mock_repo_cls:
-            mock_repo = mock_repo_cls.return_value
+        ) as mock_repo_class:
+            mock_repo = mock_repo_class.return_value
             mock_repo.find_open_lots = AsyncMock(return_value=[lot])
             mock_repo.update = AsyncMock()
 
@@ -468,8 +468,8 @@ class TestRealizedPL:
 
         with patch(
             "finance_sync.services.tax_lot_service.TaxLotRepository"
-        ) as mock_repo_cls:
-            mock_repo = mock_repo_cls.return_value
+        ) as mock_repo_class:
+            mock_repo = mock_repo_class.return_value
             mock_repo.find_open_lots = AsyncMock(return_value=[lot])
             mock_repo.update = AsyncMock()
 
@@ -497,8 +497,8 @@ class TestRealizedPL:
 
         with patch(
             "finance_sync.services.tax_lot_service.TaxLotRepository"
-        ) as mock_repo_cls:
-            mock_repo = mock_repo_cls.return_value
+        ) as mock_repo_class:
+            mock_repo = mock_repo_class.return_value
             mock_repo.find_open_lots = AsyncMock(return_value=[lot])
             mock_repo.update = AsyncMock()
 
@@ -527,8 +527,8 @@ class TestWashSaleDetection:
 
         with patch(
             "finance_sync.services.tax_lot_service.TaxLotRepository"
-        ) as mock_repo_cls:
-            mock_repo = mock_repo_cls.return_value
+        ) as mock_repo_class:
+            mock_repo = mock_repo_class.return_value
             mock_repo.find_lots_for_transaction = AsyncMock(return_value=[])
             mock_repo.list = AsyncMock(return_value=[])
 
@@ -585,8 +585,8 @@ class TestWashSaleDetection:
 
         with patch(
             "finance_sync.services.tax_lot_service.TaxLotRepository"
-        ) as mock_repo_cls:
-            mock_repo = mock_repo_cls.return_value
+        ) as mock_repo_class:
+            mock_repo = mock_repo_class.return_value
             mock_repo.find_lots_for_transaction = AsyncMock(
                 return_value=[closed_lot]
             )
@@ -638,8 +638,8 @@ class TestProcessTransaction:
         """Sale with no prior lots — should still process gracefully."""
         with patch(
             "finance_sync.services.tax_lot_service.TaxLotRepository"
-        ) as mock_repo_cls:
-            mock_repo = mock_repo_cls.return_value
+        ) as mock_repo_class:
+            mock_repo = mock_repo_class.return_value
             mock_repo.find_open_lots = AsyncMock(return_value=[])
             mock_repo.list = AsyncMock(return_value=[])
             mock_repo.find_lots_for_transaction = AsyncMock(return_value=[])
@@ -665,8 +665,8 @@ class TestTaxLotSummary:
     async def test_empty_summary(self) -> None:
         with patch(
             "finance_sync.services.tax_lot_service.TaxLotRepository"
-        ) as mock_repo_cls:
-            mock_repo = mock_repo_cls.return_value
+        ) as mock_repo_class:
+            mock_repo = mock_repo_class.return_value
             mock_repo.list = AsyncMock(return_value=[])
 
             summary = await get_tax_lot_summary(AsyncMock(), _TENANT_ID)

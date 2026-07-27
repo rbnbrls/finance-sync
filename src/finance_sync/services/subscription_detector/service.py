@@ -52,7 +52,7 @@ from finance_sync.models.enums import (
     SubscriptionConfidence,
     SubscriptionStatus,
 )
-from finance_sync.services.subscription_detector.detector import (
+from finance_sync.services.subscription_detector.detector import (  # type: ignore[reportPrivateUsage]
     _amounts_step_change_score,
     _classify_category,
     _compute_confidence_score,
@@ -64,7 +64,7 @@ from finance_sync.services.subscription_detector.detector import (
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import async_sessionmaker
 
-    from finance_sync.services.subscription_detector.merchant_classifier import (  # noqa: E501
+    from finance_sync.services.subscription_detector.merchant_classifier import (
         MerchantClass,
     )
 
@@ -440,7 +440,7 @@ class SubscriptionDetectionService:
             - ``cancellation_merchants``: set of merchant names that
               exhibit cancellation signals.
         """
-        from finance_sync.services.subscription_detector.merchant_classifier import (  # noqa: E501
+        from finance_sync.services.subscription_detector.merchant_classifier import (
             classification_from_db,
             classify_merchant,
         )
@@ -626,7 +626,7 @@ class SubscriptionDetectionService:
                 )
 
         # ── Amount consistency ───────────────────────────────────────
-        from finance_sync.services.subscription_detector.detector import (
+        from finance_sync.services.subscription_detector.detector import (  # type: ignore[reportPrivateUsage]
             _amounts_are_consistent,
         )
 
@@ -870,7 +870,7 @@ class SubscriptionDetectionService:
         return Subscription(
             merchant_name=merchant,
             raw_description=latest.get("description"),
-            amount=avg_amount,
+            amount=Decimal(avg_amount),
             currency_code=latest.get("currency_code", "EUR"),
             frequency_days=None,
             frequency_label=None,

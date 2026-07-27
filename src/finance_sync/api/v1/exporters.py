@@ -191,7 +191,7 @@ async def get_exporter_config(
     _auth: AuthContext = Depends(get_auth_context),
 ) -> ExporterConfigResponse:
     """Get the current exporter configuration."""
-    container = get_container(request)
+    container = get_container(_request)
     wf_config = _build_wealthfolio_config(container)
 
     return ExporterConfigResponse(

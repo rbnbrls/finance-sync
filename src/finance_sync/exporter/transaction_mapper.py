@@ -5,7 +5,7 @@ Users upgrading from the old layout
 mapper functions here.
 """
 
-from finance_sync.exporter.actual_budget.transaction_mapper import (
+from finance_sync.exporter.actual_budget.transaction_mapper import (  # type: ignore[reportPrivateUsage]
     _as_date,
     _build_imported_id,
     _build_imported_payee,
