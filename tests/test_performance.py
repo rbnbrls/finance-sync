@@ -48,7 +48,7 @@ E = Decimal
 _ZERO = E("0")
 
 
-def _assert_sql_contains(mock: AsyncMock, fragment: str) -> None:  # type: ignore[reportUnusedFunction]
+def _assert_sql_contains(mock: AsyncMock, fragment: str) -> None:  # pyright: ignore[reportUnusedFunction]
     """Assert that the compiled SQL from execute() contains ``fragment``."""
     call_args = mock.execute.call_args
     assert call_args is not None
