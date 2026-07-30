@@ -52,7 +52,7 @@ from finance_sync.models.enums import (
     SubscriptionConfidence,
     SubscriptionStatus,
 )
-from finance_sync.services.subscription_detector.detector import (  # type: ignore[reportPrivateUsage]  # noqa: TC002
+from finance_sync.services.subscription_detector.detector import (  # type: ignore[reportPrivateUsage]
     _amounts_step_change_score,
     _classify_category,
     _compute_confidence_score,
