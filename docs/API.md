@@ -142,6 +142,7 @@ Configuration (env vars or settings):
 
 | Variable | Description |
 |----------|-------------|
+| `EXPORTER_ACTUAL_BUDGET_ENABLED` | Master switch for the Actual Budget exporter (default `true`). When `false`, the CLI commands below exit with code 2 and the exporter is omitted from `GET /exporters/types`. |
 | `ACTUAL_BUDGET_SERVER_URL` | Actual Budget server URL (e.g. `http://localhost:5006`). |
 | `ACTUAL_BUDGET_PASSWORD` | Server password (Settings → Show advanced). |
 | `ACTUAL_BUDGET_BUDGET_NAME` | Budget file display name. |
@@ -171,3 +172,21 @@ Options:
 | `--dry-run` | off | Count pending transactions without pushing. |
 
 Exit codes: **0** — completed (or dry-run finished), **2** — error.
+
+## Exporters: feature flags
+
+Both exporters are behind per-exporter kill switches (roadmap dr.3 / gap
+G-13), so unfinished exporter work never ships without an operator
+override.
+
+| Variable | Default | Effect when `false` |
+|----------|---------|---------------------|
+| `EXPORTER_WEALTHFOLIO_ENABLED` | `true` | `GET /exporters/config` and `POST /exporters/export` return **404** ("Wealthfolio exporter is disabled"); `GET /exporters/types` omits `wealthfolio`; `finance-sync wealthfolio export/push` exits with code 2. |
+| `EXPORTER_ACTUAL_BUDGET_ENABLED` | `true` | `GET /exporters/types` omits `actual-budget`; `finance-sync actual-budget export/push` exits with code 2. |
+
+Defaults are `true` for both: the exporters ship enabled, matching the
+historical behaviour — the Actual Budget R1 CLI triggers landed in PR #201,
+so there is no unfinished exporter surface to protect by default. Toggling
+a flag enables/disables the exporter's API and CLI surface without a code
+change. `GET /exporters/runs` history is not gated — it remains readable as
+audit data regardless of the flags.

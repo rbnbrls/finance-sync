@@ -670,6 +670,14 @@ async def _cmd_wealthfolio(args: Namespace) -> None:
         log_level=settings.log_level,
     )
 
+    if not settings.exporter_wealthfolio_enabled:
+        print(
+            "ERROR: Wealthfolio exporter is disabled "
+            "(EXPORTER_WEALTHFOLIO_ENABLED=false).",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+
     container = Container.from_settings(settings)
 
     async with container.dispose():
@@ -854,6 +862,14 @@ async def _cmd_actual_budget(args: Namespace) -> None:
         json_output=settings.is_production,
         log_level=settings.log_level,
     )
+
+    if not settings.exporter_actual_budget_enabled:
+        print(
+            "ERROR: Actual Budget exporter is disabled "
+            "(EXPORTER_ACTUAL_BUDGET_ENABLED=false).",
+            file=sys.stderr,
+        )
+        sys.exit(2)
 
     container = Container.from_settings(settings)
 

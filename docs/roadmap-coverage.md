@@ -41,7 +41,7 @@ for direct Kanban task creation.
 |---|---|---|---|
 | dr.1 | Every milestone ships migrations, typed configuration, structured logs, health signals, tests, documentation, and an upgrade note | **PARTIAL** | Migrations exist (`migrations/versions/0001..0004*`) but the chain is broken (4 files all declare `revision="0004"`, `down_revision="0003"` — duplicate IDs, unresolvable by `alembic upgrade head`); `export_runs`/`export_deliveries` tables have **no migration** at all (only `Base.metadata.create_all` fallback in `src/finance_sync/lifespan.py:48`, which also stamps `ALEMBIC_HEAD="0003"`). Typed config ✓ (`config/settings.py`, pydantic-settings). Structured logs ✓ (`observability/logging.py`, structlog). Health ✓ (`observability/health.py`). Tests ✓ (2,240 `def test`). Docs ✓ (`docs/`). **Upgrade note: missing** — no UPGRADE.md / release notes / changelog anywhere in the repo. → G-01, G-02 |
 | dr.2 | Do not begin live connector work until mock/recorded contract fixtures and secret handling exist | **DONE** | Contract fixtures: `tests/connectors/fixtures/{bunq_api,trading212_api,ynab_api}_fixtures.py`, `tests/connectors/contract_test_template.py`, `tests/exporter/contract_test_template.py`. Secret handling: envelope encryption AES-256-GCM (`services/auth.py:115-175`, `MASTER_ENCRYPTION_KEY`), `models/credential.py`. |
-| dr.3 | Feature flags protect unfinished providers/exporters | **PARTIAL** | Flags exist for worker jobs and AI/HA: `worker_job_bunq_sync_enabled`, `worker_job_trading212_sync_enabled`, `worker_job_price_enrichment_enabled`, `worker_job_reconciliation_enabled`, `worker_job_outbox_enabled`, `ai_enabled`, `ha_enabled` (`config/settings.py:260-429`, honoured in `worker/scheduler.py` and `api/v1/ai_summary.py`). **No per-exporter flags** (Actual Budget / Wealthfolio exporters are not behind a feature flag). → G-13 |
+| dr.3 | Feature flags protect unfinished providers/exporters | **DONE** | Flags exist for worker jobs and AI/HA: `worker_job_bunq_sync_enabled`, `worker_job_trading212_sync_enabled`, `worker_job_price_enrichment_enabled`, `worker_job_reconciliation_enabled`, `worker_job_outbox_enabled`, `ai_enabled`, `ha_enabled` (`config/settings.py:260-429`, honoured in `worker/scheduler.py` and `api/v1/ai_summary.py`). Per-exporter flags `exporter_actual_budget_enabled` / `exporter_wealthfolio_enabled` added (G-13, PR #202), honoured in `api/v1/exporters.py` (404 when off, type listing filtered) and `cli.py` (exit 2 when off). |
 
 ## Milestone 1 — Foundation
 
@@ -339,6 +339,11 @@ Actions, or system cron inside the deployment).
     when flag off; document in `.env.example`.
   - Acceptance: toggling the flag disables/enables each exporter's API and
     worker job without code change.
+- **Status: IMPLEMENTED** (PR #202). Both flags default to `true` (matching
+  historical behaviour; the Actual Budget R1 CLI landed in PR #201).
+  Honoured in `api/v1/exporters.py` (404 on config/export, type listing
+  filtered) and `cli.py` (exit 2 on export/push); documented in
+  `.env.example` and `docs/API.md`.
 
 ### G-14 — Export dead-letter visibility + Wealthfolio delivery cursor + export migrations
 - **Roadmap IDs:** ms.4.ac.1, rk.6, dr.1

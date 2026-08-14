@@ -134,6 +134,7 @@ def mock_container() -> MagicMock:
     mock_settings = SimpleNamespace(
         is_production=False,
         log_level="DEBUG",
+        exporter_actual_budget_enabled=True,
         actual_budget_server_url="http://localhost:5006",
         actual_budget_password="test-password",
     )
@@ -357,6 +358,7 @@ class TestCmdActualBudgetPush:
         mock_settings_cls.return_value = SimpleNamespace(
             is_production=False,
             log_level="DEBUG",
+            exporter_actual_budget_enabled=True,
             actual_budget_server_url="",
             actual_budget_password="test-password",
         )
@@ -389,6 +391,7 @@ class TestCmdActualBudgetPush:
         mock_settings_cls.return_value = SimpleNamespace(
             is_production=False,
             log_level="DEBUG",
+            exporter_actual_budget_enabled=True,
             actual_budget_server_url="http://localhost:5006",
             actual_budget_password="",
         )
@@ -494,3 +497,64 @@ class TestCmdActualBudgetPush:
         captured = capsys.readouterr()
         assert "Status:       failed" in captured.out
         assert "Auth failed" in captured.out + captured.err
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Feature-flag gate tests (roadmap dr.3 / gap G-13)
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class TestActualBudgetFeatureFlag:
+    """When EXPORTER_ACTUAL_BUDGET_ENABLED=false the CLI refuses to run."""
+
+    @patch("finance_sync.cli.Container.from_settings")
+    @patch("finance_sync.cli.Settings")
+    def test_export_disabled_exits_2(
+        self,
+        mock_settings_cls: MagicMock,
+        mock_from_settings: MagicMock,
+        capsys: pytest.CaptureFixture,
+    ) -> None:
+        """``actual-budget export`` exits 2 with a clear error when disabled."""
+        mock_settings = SimpleNamespace(
+            is_production=False,
+            log_level="DEBUG",
+            exporter_actual_budget_enabled=False,
+        )
+        mock_settings_cls.return_value = mock_settings
+        mock_from_settings.return_value = MagicMock()
+
+        with pytest.raises(SystemExit) as exc:
+            main(["actual-budget", "export"])
+        assert exc.value.code == 2
+
+        captured = capsys.readouterr()
+        assert "disabled" in captured.err
+        assert "EXPORTER_ACTUAL_BUDGET_ENABLED" in captured.err
+        mock_from_settings.assert_not_called()
+
+    @patch("finance_sync.cli.Container.from_settings")
+    @patch("finance_sync.cli.Settings")
+    def test_push_disabled_exits_2(
+        self,
+        mock_settings_cls: MagicMock,
+        mock_from_settings: MagicMock,
+        capsys: pytest.CaptureFixture,
+    ) -> None:
+        """``actual-budget push`` exits 2 with a clear error when disabled."""
+        mock_settings = SimpleNamespace(
+            is_production=False,
+            log_level="DEBUG",
+            exporter_actual_budget_enabled=False,
+        )
+        mock_settings_cls.return_value = mock_settings
+        mock_from_settings.return_value = MagicMock()
+
+        with pytest.raises(SystemExit) as exc:
+            main(["actual-budget", "push"])
+        assert exc.value.code == 2
+
+        captured = capsys.readouterr()
+        assert "disabled" in captured.err
+        assert "EXPORTER_ACTUAL_BUDGET_ENABLED" in captured.err
+        mock_from_settings.assert_not_called()
