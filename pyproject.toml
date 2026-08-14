@@ -63,6 +63,9 @@ manual_expense = "finance_sync.connectors.manual_expense:ManualExpenseConnector"
 plaid_like = "finance_sync.connectors.plaid_like:PlaidLikeConnector"
 ynab = "finance_sync.connectors.ynab:YnabConnector"
 
+[project.scripts]
+finance-sync = "finance_sync.cli:main"
+
 [tool.ruff]
 # Enable all default rules and a curated set of optional ones
 lint.select = [
