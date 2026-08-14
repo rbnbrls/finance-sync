@@ -8,6 +8,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
@@ -907,3 +908,288 @@ class TestWealthfolioExporter:
             )
 
         assert result.status == "completed"
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Tests for push_to_wealthfolio — delivery cursor + DLQ (Gap G-14)
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class TestWealthfolioPushCursor:
+    """Idempotent push resume via the per-account delivery cursor."""
+
+    def _mock_wf_client(self, **push_overrides: Any) -> MagicMock:
+        """Client whose push_activities returns configurable counts."""
+        client = MagicMock()
+        result = {"imported": 0, "skipped": 0, "failed": 0}
+        result.update(push_overrides)
+        client.push_activities = AsyncMock(return_value=result)
+        return client
+
+    def _patch_push_deps(
+        self,
+        exporter: WealthfolioExporter,
+        *,
+        accounts: list[MagicMock],
+        txns_by_account: dict[str, list[MagicMock]],
+    ) -> tuple[MagicMock, AsyncMock, AsyncMock]:
+        """Patch push internals; return (wf_client, fetch_mock, complete_mock)."""
+        wf_client = self._mock_wf_client()
+
+        async def _fake_fetch(*, account_id: str, since: datetime) -> list:
+            return txns_by_account.get(account_id, [])
+
+        fetch_mock = AsyncMock(side_effect=_fake_fetch)
+        complete_mock = AsyncMock(return_value=None)
+        update_mock = AsyncMock(return_value=None)
+
+        patch.object(
+            exporter,
+            "_last_export_time",
+            return_value=datetime(2020, 1, 1, tzinfo=UTC),
+        ).start()
+        patch.object(exporter, "_load_accounts", return_value=accounts).start()
+        patch.object(exporter, "_load_securities", return_value={}).start()
+        patch.object(
+            exporter, "_fetch_pending_transactions", fetch_mock
+        ).start()
+        patch.object(
+            exporter, "_update_wealthfolio_delivery", update_mock
+        ).start()
+        patch.object(exporter, "_complete_run", complete_mock).start()
+        patch(
+            "finance_sync.exporter.wealthfolio.exporter.ExportRun",
+            return_value=MagicMock(id=str(uuid4())),
+        ).start()
+        return wf_client, fetch_mock, complete_mock
+
+    @pytest.mark.asyncio
+    async def test_push_resumes_from_delivery_cursor(
+        self, exporter: WealthfolioExporter
+    ) -> None:
+        """Cursor timestamp wins over the fallback ``since``."""
+        acct = _make_mock_account()
+        txn = _make_mock_transaction()
+        cursor_ts = datetime(2025, 6, 1, 12, 0, tzinfo=UTC)
+
+        delivery = MagicMock(last_exported_at=cursor_ts)
+        with patch.object(
+            exporter, "_get_wealthfolio_delivery", return_value=delivery
+        ):
+            wf_client, fetch_mock, _complete_mock = self._patch_push_deps(
+                exporter,
+                accounts=[acct],
+                txns_by_account={acct.id: [txn]},
+            )
+            wf_client.push_activities.return_value = {
+                "imported": 1,
+                "skipped": 0,
+                "failed": 0,
+            }
+            result = await exporter.push_to_wealthfolio(
+                wf_client,
+                since=datetime(2020, 1, 1, tzinfo=UTC),
+            )
+
+        # Fetch used the cursor timestamp, not the fallback
+        assert fetch_mock.await_args.kwargs["since"] == cursor_ts
+        assert result["imported"] == 1
+        assert result["errors"] == []
+
+    @pytest.mark.asyncio
+    async def test_push_uses_fallback_when_no_cursor(
+        self, exporter: WealthfolioExporter
+    ) -> None:
+        """No cursor yet → falls back to the provided/derived since."""
+        acct = _make_mock_account()
+        txn = _make_mock_transaction()
+
+        with patch.object(
+            exporter, "_get_wealthfolio_delivery", return_value=None
+        ):
+            wf_client, fetch_mock, _complete_mock = self._patch_push_deps(
+                exporter,
+                accounts=[acct],
+                txns_by_account={acct.id: [txn]},
+            )
+            wf_client.push_activities.return_value = {
+                "imported": 1,
+                "skipped": 0,
+                "failed": 0,
+            }
+            fallback = datetime(2021, 3, 1, tzinfo=UTC)
+            await exporter.push_to_wealthfolio(wf_client, since=fallback)
+
+        assert fetch_mock.await_args.kwargs["since"] == fallback
+
+    @pytest.mark.asyncio
+    async def test_push_advances_cursor_after_success(
+        self, exporter: WealthfolioExporter
+    ) -> None:
+        """Cursor is updated per account after a successful push."""
+        acct = _make_mock_account()
+        txns = [_make_mock_transaction() for _ in range(2)]
+
+        with patch.object(
+            exporter, "_get_wealthfolio_delivery", return_value=None
+        ):
+            wf_client, _fetch_mock, complete_mock = self._patch_push_deps(
+                exporter,
+                accounts=[acct],
+                txns_by_account={acct.id: txns},
+            )
+            wf_client.push_activities.return_value = {
+                "imported": 2,
+                "skipped": 0,
+                "failed": 0,
+            }
+            result = await exporter.push_to_wealthfolio(wf_client)
+
+        update_mock = exporter._update_wealthfolio_delivery
+        assert update_mock.await_count == 1
+        kwargs = update_mock.await_args.kwargs
+        assert kwargs["account_id"] == acct.id
+        assert kwargs["transactions"] == txns
+        assert kwargs["export_run_id"] is not None
+
+        # Run completed with the imported counts
+        complete_kwargs = complete_mock.await_args.kwargs
+        assert complete_kwargs["status"] == "completed"
+        assert complete_kwargs["attempted"] == 2
+        assert complete_kwargs["exported"] == 2
+        assert complete_kwargs["failed"] == 0
+        assert result["run_id"] is not None
+        assert result["errors"] == []
+
+    @pytest.mark.asyncio
+    async def test_push_partial_failure_keeps_cursor_and_records_error(
+        self, exporter: WealthfolioExporter
+    ) -> None:
+        """A failing account does not abort the push and keeps its cursor.
+
+        The successful account's cursor advances; the failed account's
+        cursor stays put so a retry re-processes only that account.
+        """
+        acct_ok = _make_mock_account(name="Good Broker")
+        acct_bad = _make_mock_account(name="Bad Broker")
+        txns_ok = [_make_mock_transaction(account_id=acct_ok.id)]
+        txns_bad = [
+            _make_mock_transaction(account_id=acct_bad.id) for _ in range(2)
+        ]
+
+        with patch.object(
+            exporter, "_get_wealthfolio_delivery", return_value=None
+        ):
+            wf_client, _fetch_mock, complete_mock = self._patch_push_deps(
+                exporter,
+                accounts=[acct_ok, acct_bad],
+                txns_by_account={
+                    acct_ok.id: txns_ok,
+                    acct_bad.id: txns_bad,
+                },
+            )
+            wf_client.push_activities = AsyncMock(
+                side_effect=[
+                    {"imported": 1, "skipped": 0, "failed": 0},
+                    RuntimeError("Wealthfolio API rejected the batch"),
+                ]
+            )
+            result = await exporter.push_to_wealthfolio(wf_client)
+
+        # Failure recorded, run marked failed, counts accurate
+        assert result["failed"] == 2
+        assert len(result["errors"]) == 1
+        assert result["errors"][0]["account_name"] == "Bad Broker"
+        assert "rejected" in result["errors"][0]["error"]
+
+        complete_kwargs = complete_mock.await_args.kwargs
+        assert complete_kwargs["status"] == "failed"
+        assert "1 account(s) failed to push" in complete_kwargs["error_message"]
+
+        # Cursor only advanced for the successful account
+        update_mock = exporter._update_wealthfolio_delivery
+        assert update_mock.await_count == 1
+        assert update_mock.await_args.kwargs["account_id"] == acct_ok.id
+
+    @pytest.mark.asyncio
+    async def test_push_api_rejected_batch_keeps_cursor(
+        self, exporter: WealthfolioExporter
+    ) -> None:
+        """API-reported failures in a batch do not advance the cursor."""
+        acct = _make_mock_account(name="Partial Broker")
+        txns = [_make_mock_transaction(account_id=acct.id) for _ in range(3)]
+
+        with patch.object(
+            exporter, "_get_wealthfolio_delivery", return_value=None
+        ):
+            wf_client, _fetch_mock, complete_mock = self._patch_push_deps(
+                exporter,
+                accounts=[acct],
+                txns_by_account={acct.id: txns},
+            )
+            # API accepts 1, skips 1, rejects 1 — cursor must not advance
+            wf_client.push_activities.return_value = {
+                "imported": 1,
+                "skipped": 1,
+                "failed": 1,
+            }
+            result = await exporter.push_to_wealthfolio(wf_client)
+
+        assert result["failed"] == 1
+        assert len(result["errors"]) == 1
+        assert "rejected 1 of 3" in result["errors"][0]["error"]
+
+        # Cursor NOT advanced → retry re-pushes this account's batch
+        update_mock = exporter._update_wealthfolio_delivery
+        assert update_mock.await_count == 0
+
+        complete_kwargs = complete_mock.await_args.kwargs
+        assert complete_kwargs["status"] == "failed"
+        assert "1 account(s) failed to push" in complete_kwargs["error_message"]
+
+    @pytest.mark.asyncio
+    async def test_push_no_accounts_completes_cleanly(
+        self, exporter: WealthfolioExporter
+    ) -> None:
+        """No accounts → completed run with zero counts and no errors."""
+        with patch.object(
+            exporter, "_get_wealthfolio_delivery", return_value=None
+        ):
+            wf_client, _fetch_mock, complete_mock = self._patch_push_deps(
+                exporter, accounts=[], txns_by_account={}
+            )
+            result = await exporter.push_to_wealthfolio(wf_client)
+
+        assert result == {
+            "imported": 0,
+            "skipped": 0,
+            "failed": 0,
+            "run_id": result["run_id"],
+            "errors": [],
+        }
+        complete_kwargs = complete_mock.await_args.kwargs
+        assert complete_kwargs["status"] == "completed"
+        assert complete_kwargs["attempted"] == 0
+
+    @pytest.mark.asyncio
+    async def test_push_fatal_error_marks_run_failed_and_reraises(
+        self, exporter: WealthfolioExporter
+    ) -> None:
+        """Unexpected errors outside the per-account loop → failed run."""
+        with patch.object(
+            exporter, "_get_wealthfolio_delivery", return_value=None
+        ):
+            wf_client, _fetch_mock, complete_mock = self._patch_push_deps(
+                exporter, accounts=[_make_mock_account()], txns_by_account={}
+            )
+            # _load_securities is patched by _patch_push_deps; break it
+            # after patching by re-patching with a raising side effect.
+            exporter._load_securities = AsyncMock(
+                side_effect=RuntimeError("DB connection lost")
+            )
+            with pytest.raises(RuntimeError, match="DB connection lost"):
+                await exporter.push_to_wealthfolio(wf_client)
+
+        complete_kwargs = complete_mock.await_args.kwargs
+        assert complete_kwargs["status"] == "failed"
+        assert complete_kwargs["error_message"] is not None

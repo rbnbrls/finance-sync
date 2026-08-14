@@ -31,6 +31,11 @@ class ExportRun(Base):
     id: Mapped[str] = pk_uuid()
 
     # ── State ────────────────────────────────────────────────────────
+    exporter_type: Mapped[str | None] = mapped_column(
+        String(32),
+        nullable=True,
+        comment="Exporter key ('wealthfolio', 'actual-budget') that ran this",
+    )
     status: Mapped[str] = mapped_column(
         String(16),
         default="running",

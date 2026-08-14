@@ -216,7 +216,12 @@ jobs:
           async def main() -> None:
               engine = create_async_engine(os.environ["ASYNC_DB_URL"])
               async with engine.connect() as conn:
-                  for table in ("export_runs", "export_deliveries", "ab_account_mappings"):
+                  for table in (
+                      "export_runs",
+                      "export_deliveries",
+                      "ab_account_mappings",
+                      "wealthfolio_deliveries",
+                  ):
                       result = await conn.execute(
                           text(f"SELECT to_regclass('public.{table}')")
                       )

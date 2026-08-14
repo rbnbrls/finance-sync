@@ -82,6 +82,7 @@ from finance_sync.models.webhook import Webhook, WebhookDeliveryLog
 _actual_budget_account_mapping: type | None = None
 _export_run: type | None = None
 _export_delivery: type | None = None
+_wealthfolio_delivery: type | None = None
 
 
 def ensure_exporter_models_loaded() -> None:
@@ -91,16 +92,21 @@ def ensure_exporter_models_loaded() -> None:
     Safe to call multiple times.
     """
     global _actual_budget_account_mapping, _export_run, _export_delivery
+    global _wealthfolio_delivery
     if _actual_budget_account_mapping is None:
         from finance_sync.exporter.actual_budget.models import (
             ActualBudgetAccountMapping,
             ExportDelivery,
         )
         from finance_sync.exporter.models import ExportRun
+        from finance_sync.exporter.wealthfolio.models import (
+            WealthfolioDelivery,
+        )
 
         _actual_budget_account_mapping = ActualBudgetAccountMapping
         _export_run = ExportRun
         _export_delivery = ExportDelivery
+        _wealthfolio_delivery = WealthfolioDelivery
 
 
 def __getattr__(name: str) -> object:
@@ -122,6 +128,10 @@ def __getattr__(name: str) -> object:
         ensure_exporter_models_loaded()
         if _export_delivery is not None:
             return _export_delivery
+    if name == "WealthfolioDelivery":
+        ensure_exporter_models_loaded()
+        if _wealthfolio_delivery is not None:
+            return _wealthfolio_delivery
     msg = f"module {__name__!r} has no attribute {name!r}"
     raise AttributeError(msg)
 
