@@ -281,6 +281,23 @@ class Settings(BaseSettings):
         validation_alias="WORKER_JOB_BUNQ_SYNC_INTERVAL_MINUTES",
     )
 
+    # ── Worker: bunq cards/scheduled-payments job ──────────────────
+    # Gated behind its own flag (dr.3) so operators can enable the
+    # hourly cards/schedules ingestion independently of the main
+    # 15-minute transaction sync.
+    worker_job_bunq_cards_enabled: bool = Field(
+        default=True,
+        validation_alias="WORKER_JOB_BUNQ_CARDS_ENABLED",
+    )
+    worker_job_bunq_cards_interval_hours: int = Field(
+        default=1,
+        ge=1,
+        validation_alias="WORKER_JOB_BUNQ_CARDS_INTERVAL_HOURS",
+        description="Hourly cadence for card transactions + scheduled "
+        "payments ingestion (ARCHITECTURE.md §5 promises hourly bunq "
+        "cards/scheduled payments).",
+    )
+
     # ── Worker: Trading212 sync job ────────────────────────────────
     worker_job_trading212_sync_enabled: bool = Field(
         default=True,

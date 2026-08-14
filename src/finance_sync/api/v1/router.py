@@ -8,6 +8,9 @@ from finance_sync.api.v1.accounts import router as accounts_router
 from finance_sync.api.v1.ai_summary import router as ai_summary_router
 from finance_sync.api.v1.allocation import router as allocation_router
 from finance_sync.api.v1.auth import router as auth_router
+from finance_sync.api.v1.card_transactions import (
+    router as card_transactions_router,
+)
 from finance_sync.api.v1.cashflow import router as cashflow_router
 from finance_sync.api.v1.connectors_config import (
     router as connectors_config_router,
@@ -21,6 +24,9 @@ from finance_sync.api.v1.performance import router as performance_router
 from finance_sync.api.v1.portfolio import router as portfolio_router
 from finance_sync.api.v1.reconciliation import router as reconciliation_router
 from finance_sync.api.v1.root import router as root_router
+from finance_sync.api.v1.scheduled_payments import (
+    router as scheduled_payments_router,
+)
 from finance_sync.api.v1.securities import router as securities_router
 from finance_sync.api.v1.subscriptions import router as subscriptions_router
 from finance_sync.api.v1.sync_runs import router as sync_runs_router
@@ -48,3 +54,5 @@ router.include_router(subscriptions_router)
 router.include_router(sync_runs_router)
 router.include_router(tax_lots_router)
 router.include_router(webhooks_router)
+router.include_router(scheduled_payments_router)
+router.include_router(card_transactions_router)

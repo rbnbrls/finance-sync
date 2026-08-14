@@ -33,9 +33,17 @@ from finance_sync.connectors.exceptions import (
     PermanentError,
     TransientError,
 )
-from finance_sync.models import Account, Transaction
+from finance_sync.models import (
+    Account,
+    CardTransaction,
+    ScheduledPayment,
+    Transaction,
+)
 from finance_sync.models.enums import (
+    CardAuthorizationType,
     ReconciliationRunStatus,
+    ScheduleFrequency,
+    ScheduleStatus,
     SyncRunStatus,
     TransactionStatus,
     TransactionType,
@@ -58,6 +66,8 @@ if TYPE_CHECKING:
     from finance_sync.connectors.base import Connector
     from finance_sync.connectors.models import (
         CanonicalAccountData,
+        CanonicalCardTransactionData,
+        CanonicalScheduledPaymentData,
         CanonicalTransactionData,
         ConnectorConfig,
     )
@@ -187,6 +197,63 @@ class SyncOrchestrator:
         else:
             log.error(
                 "sync_failed",
+                error=result.error_message,
+                duration_s=result.duration_s,
+            )
+
+        return result
+
+    # ── Bunq cards / scheduled payments sync ──────────────────────────
+
+    async def run_bunq_cards_sync(
+        self,
+        config: ConnectorConfig,
+        *,
+        since: dt_type | None = None,
+    ) -> BunqCardsSyncResult:
+        """Fetch scheduled payments + card transactions and upsert them.
+
+        Runs as an independent sync cycle (connector ``bunq_cards``) so
+        the hourly cards/schedules cadence does not depend on the main
+        15-minute transaction sync.  Upserts are idempotent: both tables
+        carry a ``(tenant_id, provider_key, external_*)`` unique
+        constraint, so re-runs update in place instead of duplicating.
+
+        Args:
+            config: ``ConnectorConfig`` with credentials + options.
+            since:  Only fetch card transactions on or after this time.
+                    Defaults to 90 days ago.  Scheduled payments are
+                    always fetched in full (they are templates, not an
+                    append-only stream).
+
+        Returns:
+            A ``BunqCardsSyncResult`` with status, counts, and error.
+        """
+        _since = since or _default_since()
+        log = logger.bind(
+            provider="bunq",
+            tenant_id=self._tenant_id,
+            since=_since.isoformat(),
+        )
+        log.info("bunq_cards_sync_starting")
+
+        connector = self._registry.get_connector(config)
+
+        async with self._session_factory() as session:
+            result = await self._run_cards_pipeline(
+                session, connector, _since, log
+            )
+
+        if result.status == SyncRunStatus.COMPLETED:
+            log.info(
+                "bunq_cards_sync_completed",
+                schedules=result.schedules_synced,
+                card_transactions=result.card_transactions_synced,
+                duration_s=result.duration_s,
+            )
+        else:
+            log.error(
+                "bunq_cards_sync_failed",
                 error=result.error_message,
                 duration_s=result.duration_s,
             )
@@ -392,6 +459,127 @@ class SyncOrchestrator:
                 duration_s=(end_ts - start_ts).total_seconds(),
             )
 
+    # ── Cards pipeline ─────────────────────────────────────────────
+
+    async def _run_cards_pipeline(
+        self,
+        session: AsyncSession,
+        connector: Connector,
+        since: dt_type,
+        log: structlog.BoundLogger,
+    ) -> BunqCardsSyncResult:
+        """Internal pipeline for bunq cards + scheduled payments.
+
+        Steps (all inside one ``UnitOfWork`` transaction):
+
+            1. SyncRun record (connector ``bunq_cards``)
+            2. authenticate()
+            3. Upsert accounts (schedules need the FK target)
+            4. fetch_scheduled_payments() → upsert ScheduledPayment
+            5. fetch_card_transactions(since) → upsert CardTransaction
+            6. Complete SyncRun
+
+        Any failure rolls back the whole batch and marks the run failed.
+        """
+        from datetime import datetime as _dt
+
+        start_ts = _dt.now(UTC)
+        from finance_sync.db.uow import UnitOfWork as _UnitOfWork
+
+        uow = _UnitOfWork(session)
+        run = None
+        schedules_synced = 0
+        card_txns_synced = 0
+
+        try:
+            async with uow:
+                # 1. SyncRun record
+                run = await start_sync_run(uow, connector="bunq_cards")
+                log = log.bind(sync_run_id=str(run.id))
+
+                # 2. Authenticate
+                await connector.authenticate()
+                log.debug("authenticated")
+
+                # 3. Fetch + upsert accounts so schedules can resolve
+                #    their account FK (mirrors the main pipeline).
+                raw_accounts = await connector._rate_limited_fetch_accounts()  # type: ignore[attr-defined]
+                canonical_accounts = connector.transform_accounts(raw_accounts)
+                for ca in canonical_accounts:
+                    await self._upsert_account(uow, ca)
+                log.debug("accounts_fetched", count=len(canonical_accounts))
+
+                # 4. Scheduled payments (full fetch — templates, not a
+                #    since-filtered stream).
+                raw_schedules = await connector.fetch_scheduled_payments()
+                canonical_schedules = connector.transform_scheduled_payments(
+                    raw_schedules
+                )
+                for cs in canonical_schedules:
+                    acct = await uow.accounts.get_by_external_id(
+                        self._tenant_id,
+                        cs.provider_key,
+                        cs.external_account_id,
+                    )
+                    if acct is None:
+                        log.warning(
+                            "account_not_found_for_schedule",
+                            external_account_id=cs.external_account_id,
+                        )
+                        continue
+                    await self._upsert_scheduled_payment(uow, cs, acct.id)
+                schedules_synced = len(canonical_schedules)
+                log.debug("schedules_fetched", count=schedules_synced)
+
+                # 5. Card transactions (since-filtered)
+                raw_card_txns = await connector.fetch_card_transactions(since)
+                canonical_card_txns = connector.transform_card_transactions(
+                    raw_card_txns
+                )
+                for cct in canonical_card_txns:
+                    await self._upsert_card_transaction(uow, cct)
+                card_txns_synced = len(canonical_card_txns)
+                log.debug("card_transactions_fetched", count=card_txns_synced)
+
+                # 6. Complete the run
+                await complete_sync_run(
+                    uow,
+                    run,
+                    status=SyncRunStatus.COMPLETED,
+                    items_processed=schedules_synced + card_txns_synced,
+                )
+
+            end_ts = _dt.now(UTC)
+            return BunqCardsSyncResult(
+                status=SyncRunStatus.COMPLETED,
+                schedules_synced=schedules_synced,
+                card_transactions_synced=card_txns_synced,
+                error_message=None,
+                duration_s=(end_ts - start_ts).total_seconds(),
+            )
+
+        except (PermanentError, TransientError, ConnectorError) as exc:
+            end_ts = _dt.now(UTC)
+            await self._mark_run_failed(session, run, str(exc), log)
+            return BunqCardsSyncResult(
+                status=SyncRunStatus.FAILED,
+                schedules_synced=schedules_synced,
+                card_transactions_synced=card_txns_synced,
+                error_message=str(exc),
+                duration_s=(end_ts - start_ts).total_seconds(),
+            )
+        except Exception:
+            end_ts = _dt.now(UTC)
+            tb = traceback.format_exc()
+            await self._mark_run_failed(session, run, tb, log)
+            return BunqCardsSyncResult(
+                status=SyncRunStatus.FAILED,
+                schedules_synced=schedules_synced,
+                card_transactions_synced=card_txns_synced,
+                error_message=tb,
+                duration_s=(end_ts - start_ts).total_seconds(),
+            )
+
     # ── Entity upsert helpers ──────────────────────────────────────
 
     async def _upsert_account(
@@ -560,6 +748,197 @@ class SyncOrchestrator:
         )
         return transaction
 
+    async def _upsert_scheduled_payment(
+        self,
+        uow: UnitOfWork,
+        csp: CanonicalScheduledPaymentData,
+        account_id: str,
+    ) -> ScheduledPayment:
+        """Create or update a ScheduledPayment from connector data.
+
+        Idempotent: looked up by the ``(tenant, provider, external
+        schedule id)`` unique constraint — a re-run updates mutable
+        fields instead of inserting a duplicate.
+        """
+        existing = await uow.scheduled_payments.get_by_external_id(
+            tenant_id=self._tenant_id,
+            provider_key=csp.provider_key,
+            external_schedule_id=csp.external_schedule_id,
+        )
+
+        if existing is not None:
+            changed: dict[str, Any] = {}
+            for field in (
+                "amount",
+                "currency_code",
+                "frequency",
+                "interval",
+                "next_execution_date",
+                "end_date",
+                "max_executions",
+                "execution_count",
+                "counterparty_name",
+                "counterparty_iban",
+                "description",
+                "status",
+            ):
+                new_val = getattr(csp, field, None)
+                old_val = getattr(existing, field, None)
+                if new_val is not None and str(new_val) != str(old_val):
+                    setattr(existing, field, new_val)
+                    changed[field] = new_val
+
+            if changed:
+                await uow.session.flush()
+            return existing
+
+        # Create new scheduled payment
+        from uuid import uuid4
+
+        frequency = (
+            ScheduleFrequency(csp.frequency)
+            if csp.frequency in ScheduleFrequency.__members__.values()
+            else ScheduleFrequency.CUSTOM
+        )
+        status = (
+            ScheduleStatus(csp.status)
+            if csp.status in ScheduleStatus.__members__.values()
+            else ScheduleStatus.ACTIVE
+        )
+
+        schedule = ScheduledPayment(
+            id=uuid4(),
+            tenant_id=self._tenant_id,
+            provider_key=csp.provider_key,
+            external_schedule_id=csp.external_schedule_id,
+            account_id=account_id,
+            amount=Decimal(str(csp.amount)),
+            currency_code=csp.currency_code,
+            frequency=frequency,
+            interval=csp.interval,
+            next_execution_date=csp.next_execution_date,
+            end_date=csp.end_date,
+            max_executions=csp.max_executions,
+            execution_count=csp.execution_count or 0,
+            counterparty_name=csp.counterparty_name,
+            counterparty_iban=csp.counterparty_iban,
+            description=csp.description,
+            status=status,
+        )
+        uow.session.add(schedule)
+        await uow.session.flush()
+        return schedule
+
+    async def _upsert_card_transaction(
+        self,
+        uow: UnitOfWork,
+        cct: CanonicalCardTransactionData,
+    ) -> CardTransaction:
+        """Create or update a CardTransaction from connector data.
+
+        Idempotent: looked up by the ``(tenant, provider, external card
+        transaction id)`` unique constraint.
+
+        The canonical record's ``external_account_id`` is the *card*
+        identifier for bunq (card payments are card-scoped, not
+        account-scoped), so the account link is best-effort: it is set
+        when the id resolves to a known account, otherwise ``None``.
+        """
+        existing = await uow.card_transactions.get_by_external_id(
+            tenant_id=self._tenant_id,
+            provider_key=cct.provider_key,
+            external_card_transaction_id=cct.external_card_transaction_id,
+        )
+
+        if existing is not None:
+            changed: dict[str, Any] = {}
+            for field in (
+                "amount",
+                "currency_code",
+                "merchant_name",
+                "merchant_city",
+                "merchant_country",
+                "mcc",
+                "card_id",
+                "card_type",
+                "card_last_four",
+                "occurred_at",
+                "booked_at",
+                "authorization_type",
+                "description",
+                "status",
+            ):
+                new_val = getattr(cct, field, None)
+                old_val = getattr(existing, field, None)
+                if new_val is not None and str(new_val) != str(old_val):
+                    setattr(existing, field, new_val)
+                    changed[field] = new_val
+
+            if changed:
+                await uow.session.flush()
+            return existing
+
+        # Best-effort account resolution (card id may not be an account)
+        account_id: str | None = None
+        if cct.external_account_id:
+            acct = await uow.accounts.get_by_external_id(
+                tenant_id=self._tenant_id,
+                provider_key=cct.provider_key,
+                external_account_id=cct.external_account_id,
+            )
+            if acct is not None:
+                account_id = acct.id
+
+        # Create new card transaction
+        from uuid import uuid4
+
+        # Canonical card data carries no transaction_type — card payments
+        # are always classified as card_payment unless a provider says
+        # otherwise.
+        raw_txn_type = getattr(cct, "transaction_type", None)
+        txn_type = (
+            TransactionType(raw_txn_type)
+            if raw_txn_type in TransactionType.__members__.values()
+            else TransactionType.CARD_PAYMENT
+        )
+        auth_type = (
+            CardAuthorizationType(cct.authorization_type)
+            if cct.authorization_type
+            in CardAuthorizationType.__members__.values()
+            else CardAuthorizationType.OTHER
+        )
+        txn_status = (
+            TransactionStatus(cct.status)
+            if cct.status in TransactionStatus.__members__.values()
+            else TransactionStatus.PENDING
+        )
+
+        card_txn = CardTransaction(
+            id=uuid4(),
+            tenant_id=self._tenant_id,
+            provider_key=cct.provider_key,
+            external_card_transaction_id=cct.external_card_transaction_id,
+            account_id=account_id,
+            amount=Decimal(str(cct.amount)),
+            currency_code=cct.currency_code,
+            merchant_name=cct.merchant_name,
+            merchant_city=cct.merchant_city,
+            merchant_country=cct.merchant_country,
+            mcc=cct.mcc,
+            card_id=cct.card_id,
+            card_type=cct.card_type,
+            card_last_four=cct.card_last_four,
+            occurred_at=cct.occurred_at,
+            booked_at=cct.booked_at,
+            transaction_type=txn_type,
+            authorization_type=auth_type,
+            description=cct.description,
+            status=txn_status,
+        )
+        uow.session.add(card_txn)
+        await uow.session.flush()
+        return card_txn
+
     # ── Failure handling ───────────────────────────────────────────
 
     async def _mark_run_failed(
@@ -656,6 +1035,41 @@ class ReconciliationRunSummary:
         return (
             f"<ReconciliationRunSummary run_id={self.run_id!r} "
             f"status={self.status!r} findings={self.finding_count}>"
+        )
+
+
+class BunqCardsSyncResult:
+    """Outcome of a bunq cards/scheduled-payments sync run."""
+
+    __slots__ = (
+        "card_transactions_synced",
+        "duration_s",
+        "error_message",
+        "schedules_synced",
+        "status",
+    )
+
+    def __init__(
+        self,
+        *,
+        status: SyncRunStatus,
+        schedules_synced: int,
+        card_transactions_synced: int,
+        error_message: str | None,
+        duration_s: float,
+    ) -> None:
+        self.status = status
+        self.schedules_synced = schedules_synced
+        self.card_transactions_synced = card_transactions_synced
+        self.error_message = error_message
+        self.duration_s = duration_s
+
+    def __repr__(self) -> str:
+        return (
+            f"<BunqCardsSyncResult status={self.status!r} "
+            f"schedules={self.schedules_synced} "
+            f"cards={self.card_transactions_synced} "
+            f"err={self.error_message!r} dur={self.duration_s:.2f}s>"
         )
 
 

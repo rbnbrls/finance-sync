@@ -15,7 +15,9 @@ from sqlalchemy import and_, desc, func, or_, select
 
 from finance_sync.models.account import Account
 from finance_sync.models.balance import Balance
+from finance_sync.models.card_transaction import CardTransaction
 from finance_sync.models.holding import Holding
+from finance_sync.models.scheduled_payment import ScheduledPayment
 from finance_sync.models.security import Security
 from finance_sync.models.security_price import SecurityPrice
 from finance_sync.models.sync_run import SyncRun
@@ -68,6 +70,67 @@ class TransactionResponse(BaseModel):
 
 class TransactionListResponse(BaseModel):
     items: list[TransactionResponse]
+    total: int
+    limit: int
+    offset: int
+
+
+class ScheduledPaymentResponse(BaseModel):
+    id: str
+    account_id: str | None = None
+    provider_key: str
+    external_schedule_id: str
+    amount: E
+    currency_code: str
+    amount_in_base: E | None = None
+    frequency: str
+    interval: int | None = None
+    next_execution_date: datetime | None = None
+    end_date: datetime | None = None
+    max_executions: int | None = None
+    execution_count: int = 0
+    counterparty_name: str | None = None
+    counterparty_iban: str | None = None
+    description: str | None = None
+    status: str
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class ScheduledPaymentListResponse(BaseModel):
+    items: list[ScheduledPaymentResponse]
+    total: int
+    limit: int
+    offset: int
+
+
+class CardTransactionResponse(BaseModel):
+    id: str
+    account_id: str | None = None
+    provider_key: str
+    external_card_transaction_id: str
+    amount: E
+    currency_code: str
+    amount_in_base: E | None = None
+    merchant_name: str | None = None
+    merchant_city: str | None = None
+    merchant_country: str | None = None
+    mcc: str | None = None
+    card_id: str | None = None
+    card_type: str | None = None
+    card_last_four: str | None = None
+    occurred_at: datetime
+    booked_at: datetime | None = None
+    transaction_type: str
+    authorization_type: str
+    description: str | None = None
+    status: str
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class CardTransactionListResponse(BaseModel):
+    items: list[CardTransactionResponse]
     total: int
     limit: int
     offset: int
@@ -280,6 +343,16 @@ _SORTABLE_TRANSACTION_FIELDS = {
     "amount": Transaction.amount,
     "created_at": Transaction.created_at,
 }
+_SORTABLE_SCHEDULED_PAYMENT_FIELDS = {
+    "next_execution_date": ScheduledPayment.next_execution_date,
+    "amount": ScheduledPayment.amount,
+    "created_at": ScheduledPayment.created_at,
+}
+_SORTABLE_CARD_TRANSACTION_FIELDS = {
+    "occurred_at": CardTransaction.occurred_at,
+    "amount": CardTransaction.amount,
+    "created_at": CardTransaction.created_at,
+}
 _SORTABLE_SYNC_RUN_FIELDS = {
     "started_at": SyncRun.started_at,
     "completed_at": SyncRun.completed_at,
@@ -475,6 +548,173 @@ class ReadService:
             transaction_type=str(t.transaction_type),
             status=str(t.status),
             provider_key=t.provider_key,
+            created_at=t.created_at,
+            updated_at=t.updated_at,
+        )
+
+    # ── Scheduled payments ────────────────────────────────────────────
+
+    async def list_scheduled_payments(
+        self,
+        tenant_id: str,
+        *,
+        account_id: str | None = None,
+        provider_key: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+        sort_by: str = "next_execution_date",
+        sort_order: str = "desc",
+    ) -> ScheduledPaymentListResponse:
+        """List scheduled payments with optional account/provider filters."""
+        conditions = [
+            ScheduledPayment.tenant_id == tenant_id,  # type: ignore[attr-defined]
+        ]
+
+        if account_id is not None:
+            conditions.append(  # type: ignore[attr-defined]
+                ScheduledPayment.account_id == account_id
+            )
+        if provider_key is not None:
+            conditions.append(  # type: ignore[attr-defined]
+                ScheduledPayment.provider_key == provider_key
+            )
+
+        count_stmt = (
+            select(func.count())
+            .select_from(ScheduledPayment)
+            .where(_expr(*conditions))
+        )
+        total_result = await self._session.execute(count_stmt)
+        total: int = total_result.scalar() or 0  # type: ignore[assignment]
+
+        order = _sort_field(
+            _SORTABLE_SCHEDULED_PAYMENT_FIELDS, sort_by, sort_order
+        )
+        stmt = (
+            select(ScheduledPayment)
+            .where(_expr(*conditions))
+            .order_by(order)
+            .offset(offset)
+            .limit(limit)
+        )
+        result = await self._session.execute(stmt)
+        rows: list[ScheduledPayment] = list(result.scalars().all())  # type: ignore[assignment]
+
+        return ScheduledPaymentListResponse(
+            items=[self._schedule_to_response(s) for s in rows],
+            total=total,
+            limit=limit,
+            offset=offset,
+        )
+
+    @staticmethod
+    def _schedule_to_response(s: ScheduledPayment) -> ScheduledPaymentResponse:
+        return ScheduledPaymentResponse(
+            id=str(s.id),
+            account_id=str(s.account_id) if s.account_id else None,
+            provider_key=s.provider_key,
+            external_schedule_id=s.external_schedule_id,
+            amount=s.amount,
+            currency_code=s.currency_code,
+            amount_in_base=s.amount_in_base,
+            frequency=str(s.frequency),
+            interval=s.interval,
+            next_execution_date=s.next_execution_date,
+            end_date=s.end_date,
+            max_executions=s.max_executions,
+            execution_count=s.execution_count or 0,
+            counterparty_name=s.counterparty_name,
+            counterparty_iban=s.counterparty_iban,
+            description=s.description,
+            status=str(s.status),
+            created_at=s.created_at,
+            updated_at=s.updated_at,
+        )
+
+    # ── Card transactions ─────────────────────────────────────────────
+
+    async def list_card_transactions(
+        self,
+        tenant_id: str,
+        *,
+        account_id: str | None = None,
+        provider_key: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+        sort_by: str = "occurred_at",
+        sort_order: str = "desc",
+        date_from: datetime | None = None,
+        date_to: datetime | None = None,
+    ) -> CardTransactionListResponse:
+        """List card transactions with optional account/provider filters."""
+        conditions = [
+            CardTransaction.tenant_id == tenant_id,  # type: ignore[attr-defined]
+        ]
+
+        if account_id is not None:
+            conditions.append(  # type: ignore[attr-defined]
+                CardTransaction.account_id == account_id
+            )
+        if provider_key is not None:
+            conditions.append(  # type: ignore[attr-defined]
+                CardTransaction.provider_key == provider_key
+            )
+        if date_from is not None:
+            conditions.append(CardTransaction.occurred_at >= date_from)  # type: ignore[attr-defined]
+        if date_to is not None:
+            conditions.append(CardTransaction.occurred_at <= date_to)  # type: ignore[attr-defined]
+
+        count_stmt = (
+            select(func.count())
+            .select_from(CardTransaction)
+            .where(_expr(*conditions))
+        )
+        total_result = await self._session.execute(count_stmt)
+        total: int = total_result.scalar() or 0  # type: ignore[assignment]
+
+        order = _sort_field(
+            _SORTABLE_CARD_TRANSACTION_FIELDS, sort_by, sort_order
+        )
+        stmt = (
+            select(CardTransaction)
+            .where(_expr(*conditions))
+            .order_by(order)
+            .offset(offset)
+            .limit(limit)
+        )
+        result = await self._session.execute(stmt)
+        rows: list[CardTransaction] = list(result.scalars().all())  # type: ignore[assignment]
+
+        return CardTransactionListResponse(
+            items=[self._card_tx_to_response(t) for t in rows],
+            total=total,
+            limit=limit,
+            offset=offset,
+        )
+
+    @staticmethod
+    def _card_tx_to_response(t: CardTransaction) -> CardTransactionResponse:
+        return CardTransactionResponse(
+            id=str(t.id),
+            account_id=str(t.account_id) if t.account_id else None,
+            provider_key=t.provider_key,
+            external_card_transaction_id=t.external_card_transaction_id,
+            amount=t.amount,
+            currency_code=t.currency_code,
+            amount_in_base=t.amount_in_base,
+            merchant_name=t.merchant_name,
+            merchant_city=t.merchant_city,
+            merchant_country=t.merchant_country,
+            mcc=t.mcc,
+            card_id=t.card_id,
+            card_type=t.card_type,
+            card_last_four=t.card_last_four,
+            occurred_at=t.occurred_at,
+            booked_at=t.booked_at,
+            transaction_type=str(t.transaction_type),
+            authorization_type=str(t.authorization_type),
+            description=t.description,
+            status=str(t.status),
             created_at=t.created_at,
             updated_at=t.updated_at,
         )

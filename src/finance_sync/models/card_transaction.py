@@ -56,10 +56,15 @@ class CardTransaction(TimestampMixin, Base):
         comment="Provider's card transaction identifier",
     )
 
-    account_id: Mapped[str] = mapped_column(
+    account_id: Mapped[str | None] = mapped_column(
         ForeignKey("accounts.id", ondelete="RESTRICT"),
-        nullable=False,
+        nullable=True,
         index=True,
+        comment=(
+            "Optional canonical account link. Card payments are tied to a "
+            "card, not a monetary account; providers may not expose the "
+            "settling account at ingestion time."
+        ),
     )
 
     amount: Mapped[Decimal] = mapped_column(

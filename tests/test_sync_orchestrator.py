@@ -22,6 +22,8 @@ from sqlalchemy.orm import Mapped, declarative_base, mapped_column
 from finance_sync.connectors.exceptions import PermanentError
 from finance_sync.connectors.models import (
     CanonicalAccountData,
+    CanonicalCardTransactionData,
+    CanonicalScheduledPaymentData,
     CanonicalTransactionData,
 )
 from finance_sync.models.enums import (
@@ -654,6 +656,479 @@ class TestUpsertTransaction:
         assert result is not None
         assert result.amount == Decimal("-42.50")
         assert result.description == "Coffee"
+
+
+# ── Upsert scheduled payments / card transactions ─────────────────
+
+
+class TestUpsertScheduledPayment:
+    """Test _upsert_scheduled_payment logic in isolation."""
+
+    @pytest.fixture
+    def orchestrator(self) -> SyncOrchestrator:
+        return SyncOrchestrator(
+            session_factory=MagicMock(),
+            registry=MagicMock(),
+            tenant_id="tenant_1",
+        )
+
+    @pytest.fixture
+    def sample_schedule_data(self) -> CanonicalScheduledPaymentData:
+        return CanonicalScheduledPaymentData(
+            provider_key="bunq",
+            external_schedule_id="ext_sched_1",
+            external_account_id="ext_acc_1",
+            amount=Decimal("-150.00"),
+            currency_code="EUR",
+            frequency="monthly",
+            interval=1,
+            next_execution_date=datetime(2025, 7, 1, 0, 0, tzinfo=UTC),
+            execution_count=6,
+            counterparty_name="Landlord B.V.",
+            description="Monthly rent",
+            status="active",
+        )
+
+    async def test_upsert_creates_new_schedule(
+        self, orchestrator, sample_schedule_data
+    ) -> None:
+        """New schedule is created with normalised enums."""
+        uow = MagicMock()
+        uow.session = AsyncMock()
+        uow.scheduled_payments.get_by_external_id = AsyncMock(return_value=None)
+
+        result = await orchestrator._upsert_scheduled_payment(
+            uow, sample_schedule_data, "acct_uuid_1"
+        )
+
+        assert result is not None
+        assert result.amount == Decimal("-150.00")
+        assert result.frequency == "monthly"
+        assert result.status == "active"
+        assert result.account_id == "acct_uuid_1"
+        assert result.execution_count == 6
+
+    async def test_upsert_updates_existing_schedule(
+        self, orchestrator, sample_schedule_data
+    ) -> None:
+        """Existing schedule is updated in place (idempotent re-run)."""
+        uow = MagicMock()
+        uow.session = AsyncMock()
+
+        existing = MagicMock()
+        existing.amount = Decimal("-100.00")  # stale amount
+        existing.execution_count = 3
+        existing.frequency = "weekly"
+        existing.status = "paused"
+        existing.next_execution_date = None
+        existing.end_date = None
+        existing.max_executions = None
+        existing.counterparty_name = None
+        existing.counterparty_iban = None
+        existing.description = None
+        existing.currency_code = "EUR"
+        existing.interval = 1
+        uow.scheduled_payments.get_by_external_id = AsyncMock(
+            return_value=existing
+        )
+
+        result = await orchestrator._upsert_scheduled_payment(
+            uow, sample_schedule_data, "acct_uuid_1"
+        )
+
+        assert result is existing
+        assert existing.amount == Decimal("-150.00")
+        assert existing.execution_count == 6
+        assert existing.frequency == "monthly"
+        assert existing.status == "active"
+
+
+class TestUpsertCardTransaction:
+    """Test _upsert_card_transaction logic in isolation."""
+
+    @pytest.fixture
+    def orchestrator(self) -> SyncOrchestrator:
+        return SyncOrchestrator(
+            session_factory=MagicMock(),
+            registry=MagicMock(),
+            tenant_id="tenant_1",
+        )
+
+    @pytest.fixture
+    def sample_card_data(self) -> CanonicalCardTransactionData:
+        return CanonicalCardTransactionData(
+            provider_key="bunq",
+            external_card_transaction_id="ext_card_1",
+            external_account_id="7000001",  # card id, not an account id
+            amount=Decimal("-42.50"),
+            currency_code="EUR",
+            merchant_name="Supermarket B.V.",
+            merchant_city="Amsterdam",
+            mcc="5411",
+            card_id="7000001",
+            card_type="DEBIT_CARD",
+            occurred_at=datetime(2025, 6, 20, 14, 30, tzinfo=UTC),
+            authorization_type="authorization",
+            status="pending",
+        )
+
+    async def test_upsert_creates_new_card_txn_without_account(
+        self, orchestrator, sample_card_data
+    ) -> None:
+        """Card id does not resolve to an account → account_id is None."""
+        uow = MagicMock()
+        uow.session = AsyncMock()
+        uow.card_transactions.get_by_external_id = AsyncMock(return_value=None)
+        # external_account_id is a card id — no account matches
+        uow.accounts.get_by_external_id = AsyncMock(return_value=None)
+
+        result = await orchestrator._upsert_card_transaction(
+            uow, sample_card_data
+        )
+
+        assert result is not None
+        assert result.amount == Decimal("-42.50")
+        assert result.merchant_name == "Supermarket B.V."
+        assert result.account_id is None
+        assert result.authorization_type == "authorization"
+        assert result.status == "pending"
+        assert result.transaction_type == "card_payment"
+
+    async def test_upsert_resolves_account_when_available(
+        self, orchestrator, sample_card_data
+    ) -> None:
+        """When external_account_id matches an account, link it."""
+        uow = MagicMock()
+        uow.session = AsyncMock()
+        uow.card_transactions.get_by_external_id = AsyncMock(return_value=None)
+        acct = MagicMock()
+        acct.id = "acct_uuid_1"
+        uow.accounts.get_by_external_id = AsyncMock(return_value=acct)
+
+        result = await orchestrator._upsert_card_transaction(
+            uow, sample_card_data
+        )
+
+        assert result.account_id == "acct_uuid_1"
+        uow.accounts.get_by_external_id.assert_awaited_once()
+
+    async def test_upsert_updates_existing_card_txn(
+        self, orchestrator, sample_card_data
+    ) -> None:
+        """Existing card txn is updated in place (idempotent re-run)."""
+        uow = MagicMock()
+        uow.session = AsyncMock()
+
+        existing = MagicMock()
+        existing.amount = Decimal("-10.00")
+        existing.status = "booked"
+        existing.merchant_name = None
+        existing.merchant_city = None
+        existing.merchant_country = None
+        existing.mcc = None
+        existing.card_id = None
+        existing.card_type = None
+        existing.card_last_four = None
+        existing.occurred_at = None
+        existing.booked_at = None
+        existing.authorization_type = "other"
+        existing.description = None
+        existing.currency_code = "EUR"
+        uow.card_transactions.get_by_external_id = AsyncMock(
+            return_value=existing
+        )
+
+        result = await orchestrator._upsert_card_transaction(
+            uow, sample_card_data
+        )
+
+        assert result is existing
+        assert existing.amount == Decimal("-42.50")
+        assert existing.status == "pending"
+        assert existing.merchant_name == "Supermarket B.V."
+        assert existing.authorization_type == "authorization"
+
+
+# ── Bunq cards / scheduled payments pipeline ───────────────────────
+
+
+class TestBunqCardsSync:
+    """Test the run_bunq_cards_sync pipeline with a mocked UoW."""
+
+    @pytest.fixture
+    def orchestrator(self) -> SyncOrchestrator:
+        session_factory = AsyncMock()
+        registry = MagicMock()
+        return SyncOrchestrator(
+            session_factory=session_factory,
+            registry=registry,
+            tenant_id="tenant_1",
+        )
+
+    @pytest.fixture
+    def sample_schedule_data(self) -> CanonicalScheduledPaymentData:
+        return CanonicalScheduledPaymentData(
+            provider_key="bunq",
+            external_schedule_id="ext_sched_1",
+            external_account_id="ext_acc_1",
+            amount=Decimal("-150.00"),
+            currency_code="EUR",
+            frequency="monthly",
+            interval=1,
+            next_execution_date=datetime(2025, 7, 1, 0, 0, tzinfo=UTC),
+            execution_count=6,
+            counterparty_name="Landlord B.V.",
+            description="Monthly rent",
+            status="active",
+        )
+
+    @pytest.fixture
+    def sample_card_data(self) -> CanonicalCardTransactionData:
+        return CanonicalCardTransactionData(
+            provider_key="bunq",
+            external_card_transaction_id="ext_card_1",
+            external_account_id="7000001",  # card id, not an account id
+            amount=Decimal("-42.50"),
+            currency_code="EUR",
+            merchant_name="Supermarket B.V.",
+            merchant_city="Amsterdam",
+            mcc="5411",
+            card_id="7000001",
+            card_type="DEBIT_CARD",
+            occurred_at=datetime(2025, 6, 20, 14, 30, tzinfo=UTC),
+            authorization_type="authorization",
+            status="pending",
+        )
+
+    @pytest.fixture
+    def mock_connector(
+        self, sample_account_data, sample_schedule_data, sample_card_data
+    ):
+        """Connector returning accounts, schedules and card txns."""
+        connector = MagicMock()
+        connector.name = "bunq"
+        connector.authenticate = AsyncMock()
+        connector._rate_limited_fetch_accounts = AsyncMock(
+            return_value=[sample_account_data]
+        )
+        connector.transform_accounts = MagicMock(
+            return_value=[sample_account_data]
+        )
+        connector.fetch_scheduled_payments = AsyncMock(
+            return_value=[sample_schedule_data]
+        )
+        connector.transform_scheduled_payments = MagicMock(
+            return_value=[sample_schedule_data]
+        )
+        connector.fetch_card_transactions = AsyncMock(
+            return_value=[sample_card_data]
+        )
+        connector.transform_card_transactions = MagicMock(
+            return_value=[sample_card_data]
+        )
+        return connector
+
+    @pytest.fixture
+    def mock_uow(self):
+        """UnitOfWork with mocked repositories for the cards pipeline."""
+        uow = MagicMock()
+        session = AsyncMock()
+        uow.session = session
+
+        existing_account = MagicMock()
+        existing_account.id = "acct_uuid_1"
+
+        accounts_repo = AsyncMock()
+        accounts_repo.get_by_external_id = AsyncMock(
+            return_value=existing_account
+        )
+        uow.accounts = accounts_repo
+
+        schedules_repo = AsyncMock()
+        schedules_repo.get_by_external_id = AsyncMock(return_value=None)
+        uow.scheduled_payments = schedules_repo
+
+        card_txns_repo = AsyncMock()
+        card_txns_repo.get_by_external_id = AsyncMock(return_value=None)
+        uow.card_transactions = card_txns_repo
+
+        uow.__aenter__ = AsyncMock(return_value=uow)
+        uow.__aexit__ = AsyncMock(return_value=None)
+        uow.commit = AsyncMock()
+        uow.rollback = AsyncMock()
+
+        return uow
+
+    @patch("finance_sync.sync.orchestrator.start_sync_run")
+    @patch("finance_sync.sync.orchestrator.complete_sync_run")
+    async def test_cards_pipeline_ingests(
+        self,
+        mock_complete_run,
+        mock_start_run,
+        orchestrator,
+        mock_connector,
+        mock_uow,
+    ) -> None:
+        """Schedules + card txns are upserted and the run completes."""
+        mock_run = MagicMock(id="run_cards_1")
+        mock_start_run.return_value = mock_run
+        mock_complete_run.return_value = mock_run
+
+        with patch("finance_sync.db.uow.UnitOfWork", return_value=mock_uow):
+            result = await orchestrator._run_cards_pipeline(
+                session=mock_uow.session,
+                connector=mock_connector,
+                since=datetime.now(UTC) - timedelta(days=30),
+                log=MagicMock(),
+            )
+
+        assert result.status == SyncRunStatus.COMPLETED
+        assert result.schedules_synced == 1
+        assert result.card_transactions_synced == 1
+        assert result.error_message is None
+
+        mock_connector.authenticate.assert_awaited_once()
+        mock_connector.fetch_scheduled_payments.assert_awaited_once()
+        mock_connector.fetch_card_transactions.assert_awaited_once()
+        mock_complete_run.assert_awaited_once()
+        # Items processed = schedules + card txns
+        processed = mock_complete_run.call_args.kwargs.get("items_processed")
+        assert processed == 2
+
+    @patch("finance_sync.sync.orchestrator.start_sync_run")
+    @patch("finance_sync.sync.orchestrator.complete_sync_run")
+    async def test_cards_pipeline_idempotent_rerun(
+        self,
+        mock_complete_run,
+        mock_start_run,
+        orchestrator,
+        mock_connector,
+        mock_uow,
+    ) -> None:
+        """A re-run finds existing records and does not insert duplicates."""
+        mock_run = MagicMock(id="run_cards_2")
+        mock_start_run.return_value = mock_run
+
+        # Second run: both records already exist
+        existing_schedule = MagicMock()
+        existing_schedule.amount = Decimal("-150.00")
+        existing_schedule.execution_count = 6
+        existing_schedule.frequency = "monthly"
+        existing_schedule.status = "active"
+        existing_schedule.next_execution_date = None
+        existing_schedule.end_date = None
+        existing_schedule.max_executions = None
+        existing_schedule.counterparty_name = None
+        existing_schedule.counterparty_iban = None
+        existing_schedule.description = None
+        existing_schedule.currency_code = "EUR"
+        existing_schedule.interval = 1
+
+        existing_card = MagicMock()
+        existing_card.amount = Decimal("-42.50")
+        existing_card.status = "pending"
+        existing_card.merchant_name = "Supermarket B.V."
+        existing_card.merchant_city = "Amsterdam"
+        existing_card.merchant_country = None
+        existing_card.mcc = "5411"
+        existing_card.card_id = "7000001"
+        existing_card.card_type = "DEBIT_CARD"
+        existing_card.card_last_four = None
+        existing_card.occurred_at = datetime(2025, 6, 20, 14, 30, tzinfo=UTC)
+        existing_card.booked_at = None
+        existing_card.authorization_type = "authorization"
+        existing_card.description = None
+        existing_card.currency_code = "EUR"
+
+        mock_uow.scheduled_payments.get_by_external_id = AsyncMock(
+            return_value=existing_schedule
+        )
+        mock_uow.card_transactions.get_by_external_id = AsyncMock(
+            return_value=existing_card
+        )
+
+        with patch("finance_sync.db.uow.UnitOfWork", return_value=mock_uow):
+            result = await orchestrator._run_cards_pipeline(
+                session=mock_uow.session,
+                connector=mock_connector,
+                since=datetime.now(UTC) - timedelta(days=30),
+                log=MagicMock(),
+            )
+
+        assert result.status == SyncRunStatus.COMPLETED
+        assert result.schedules_synced == 1
+        assert result.card_transactions_synced == 1
+        # No new entity inserts — both upserts hit the existing-record
+        # branch (only the account upsert may emit an outbox message).
+        from finance_sync.models import CardTransaction, ScheduledPayment
+
+        added_entities = [
+            c.args[0] for c in mock_uow.session.add.call_args_list
+        ]
+        assert not any(
+            isinstance(e, (ScheduledPayment, CardTransaction))
+            for e in added_entities
+        )
+
+    @patch("finance_sync.sync.orchestrator.start_sync_run")
+    async def test_cards_pipeline_permanent_error(
+        self,
+        mock_start_run,
+        orchestrator,
+        mock_uow,
+    ) -> None:
+        """PermanentError during cards sync marks the run failed."""
+        mock_run = MagicMock(id="run_cards_3")
+        mock_start_run.return_value = mock_run
+
+        connector = MagicMock()
+        connector.authenticate = AsyncMock(
+            side_effect=PermanentError("Bad credentials")
+        )
+        connector.name = "bunq"
+
+        with patch("finance_sync.db.uow.UnitOfWork", return_value=mock_uow):
+            result = await orchestrator._run_cards_pipeline(
+                session=mock_uow.session,
+                connector=connector,
+                since=datetime.now(UTC) - timedelta(days=30),
+                log=MagicMock(),
+            )
+
+        assert result.status == SyncRunStatus.FAILED
+        assert "Bad credentials" in (result.error_message or "")
+
+    @patch("finance_sync.sync.orchestrator.start_sync_run")
+    @patch("finance_sync.sync.orchestrator.complete_sync_run")
+    async def test_cards_pipeline_skips_schedule_without_account(
+        self,
+        mock_complete_run,
+        mock_start_run,
+        orchestrator,
+        mock_connector,
+        mock_uow,
+    ) -> None:
+        """Schedule whose account is unknown is skipped, run still green."""
+        mock_run = MagicMock(id="run_cards_4")
+        mock_start_run.return_value = mock_run
+        mock_complete_run.return_value = mock_run
+
+        # No account matches the schedule's external account id
+        mock_uow.accounts.get_by_external_id = AsyncMock(return_value=None)
+
+        with patch("finance_sync.db.uow.UnitOfWork", return_value=mock_uow):
+            result = await orchestrator._run_cards_pipeline(
+                session=mock_uow.session,
+                connector=mock_connector,
+                since=datetime.now(UTC) - timedelta(days=30),
+                log=MagicMock(),
+            )
+
+        assert result.status == SyncRunStatus.COMPLETED
+        # Schedule skipped (no account FK target); card txn still ingested
+        mock_uow.scheduled_payments.get_by_external_id.assert_not_awaited()
+        assert result.schedules_synced == 1  # fetched, but not persisted
+        assert result.card_transactions_synced == 1
 
 
 # ── Auto-reconciliation after sync ────────────────────────────────

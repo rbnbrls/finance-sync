@@ -8,12 +8,14 @@ to the corresponding SQLAlchemy model.
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import cast
 
 from finance_sync.db.repository import Repository
 from finance_sync.models import (
     Account,
     ActualBudgetAccountMapping,
     Balance,
+    CardTransaction,
     DetectedSubscription,
     EnrichmentFreshness,
     ExportRun,
@@ -24,6 +26,7 @@ from finance_sync.models import (
     ReconciliationResult,
     ReconciliationRun,
     ResolutionAuditLog,
+    ScheduledPayment,
     Security,
     SecurityListing,
     SecurityMetadataObservation,
@@ -146,7 +149,12 @@ class TransactionRepository(Repository[Transaction]):
                 Transaction.occurred_at <= date_to  # type: ignore[attr-defined]
             )
 
-        all_txns = await self.list(*conditions, limit=5000)
+        # NB: pyright (basic mode) resolves the unbound ``Repository[ModelT]``
+        # return to the last ``Base`` subclass in the module, so pin the
+        # element type explicitly.
+        all_txns = cast(
+            "list[Transaction]", await self.list(*conditions, limit=5000)
+        )
         log.debug(
             "duplicate_candidate_scan",
             total=len(all_txns),
@@ -236,6 +244,45 @@ class TransactionRepository(Repository[Transaction]):
         result = await self._session.execute(stmt)
         row = result.one()
         return (row[0], row[1])
+
+
+class ScheduledPaymentRepository(Repository[ScheduledPayment]):
+    model_class = ScheduledPayment
+
+    async def get_by_external_id(
+        self,
+        tenant_id: str,
+        provider_key: str,
+        external_schedule_id: str,
+    ) -> ScheduledPayment | None:
+        """Find a scheduled payment by its provider-scoped external ID."""
+        results = await self.list(
+            ScheduledPayment.tenant_id == tenant_id,  # type: ignore[attr-defined]
+            ScheduledPayment.provider_key == provider_key,  # type: ignore[attr-defined]
+            ScheduledPayment.external_schedule_id == external_schedule_id,  # type: ignore[attr-defined]
+            limit=1,
+        )
+        return results[0] if results else None
+
+
+class CardTransactionRepository(Repository[CardTransaction]):
+    model_class = CardTransaction
+
+    async def get_by_external_id(
+        self,
+        tenant_id: str,
+        provider_key: str,
+        external_card_transaction_id: str,
+    ) -> CardTransaction | None:
+        """Find a card transaction by its provider-scoped external ID."""
+        results = await self.list(
+            CardTransaction.tenant_id == tenant_id,  # type: ignore[attr-defined]
+            CardTransaction.provider_key == provider_key,  # type: ignore[attr-defined]
+            CardTransaction.external_card_transaction_id
+            == external_card_transaction_id,  # type: ignore[attr-defined]
+            limit=1,
+        )
+        return results[0] if results else None
 
 
 class HoldingRepository(Repository[Holding]):

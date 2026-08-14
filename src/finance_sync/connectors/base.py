@@ -20,10 +20,14 @@ from typing import TYPE_CHECKING
 from finance_sync.connectors.exceptions import ConnectorError
 from finance_sync.connectors.models import (
     CanonicalAccountData,
+    CanonicalCardTransactionData,
+    CanonicalScheduledPaymentData,
     CanonicalTransactionData,
     ConnectorConfig,
     ConnectorHealth,
     RawAccount,
+    RawCardTransaction,
+    RawScheduledPayment,
     RawTransaction,
 )
 from finance_sync.connectors.rate_limiter import RateLimiter, RateLimitPolicy
@@ -186,6 +190,71 @@ class Connector(ABC):
                 quantity=r.quantity,
                 status=r.status or "pending",
                 provider_fingerprint=r.provider_fingerprint,
+            )
+            for r in raw
+        ]
+
+    def transform_scheduled_payments(
+        self,
+        raw: list[RawScheduledPayment],
+    ) -> list[CanonicalScheduledPaymentData]:
+        """Transform raw scheduled payments to canonical form.
+
+        The default implementation copies matching fields by name and
+        normalises frequency to lowercase and status to the canonical
+        ``active/paused/completed/cancelled/failed`` set.  Override for
+        provider-specific normalisation.
+        """
+        return [
+            CanonicalScheduledPaymentData(
+                provider_key=self.name,
+                external_schedule_id=r.external_schedule_id,
+                external_account_id=r.external_account_id,
+                amount=r.amount,
+                currency_code=r.currency_code,
+                frequency=r.frequency.lower(),
+                interval=r.interval,
+                next_execution_date=r.next_execution_date,
+                end_date=r.end_date,
+                max_executions=r.max_executions,
+                execution_count=r.execution_count or 0,
+                counterparty_name=r.counterparty_name,
+                counterparty_iban=r.counterparty_iban,
+                description=r.description,
+                status=r.status or "active",
+            )
+            for r in raw
+        ]
+
+    def transform_card_transactions(
+        self,
+        raw: list[RawCardTransaction],
+    ) -> list[CanonicalCardTransactionData]:
+        """Transform raw card transactions to canonical form.
+
+        The default implementation copies matching fields by name and
+        normalises the authorization type and status to the canonical
+        sets.  Override for provider-specific normalisation.
+        """
+        return [
+            CanonicalCardTransactionData(
+                provider_key=self.name,
+                external_card_transaction_id=r.external_card_transaction_id,
+                external_account_id=r.external_account_id,
+                amount=r.amount,
+                currency_code=r.currency_code,
+                merchant_name=r.merchant_name,
+                merchant_city=r.merchant_city,
+                merchant_country=r.merchant_country,
+                mcc=r.mcc,
+                card_id=r.card_id,
+                card_type=r.card_type,
+                card_last_four=r.card_last_four,
+                occurred_at=r.occurred_at,
+                booked_at=r.booked_at,
+                authorization_type=r.authorization_type or "authorization",
+                description=r.description,
+                status=r.status or "pending",
             )
             for r in raw
         ]

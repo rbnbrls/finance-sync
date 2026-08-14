@@ -336,6 +336,9 @@ class TestWorkerSettings:
         assert settings.worker_job_bunq_sync_enabled is True
         assert settings.worker_job_bunq_sync_interval_minutes == 15
 
+        assert settings.worker_job_bunq_cards_enabled is True
+        assert settings.worker_job_bunq_cards_interval_hours == 1
+
         assert settings.worker_job_trading212_sync_enabled is True
         assert settings.worker_job_trading212_sync_interval_hours == 1
 
@@ -370,6 +373,7 @@ class TestWorkerScheduler:
         settings = Settings(  # type: ignore[call-arg]
             database_url=None,  # No DB — use in-memory job store
             worker_job_bunq_sync_enabled=False,
+            worker_job_bunq_cards_enabled=False,
             worker_job_trading212_sync_enabled=False,
             worker_job_price_enrichment_enabled=False,
             worker_job_reconciliation_enabled=False,
@@ -410,6 +414,7 @@ class TestWorkerScheduler:
         settings = Settings(  # type: ignore[call-arg]
             database_url=None,
             worker_job_bunq_sync_enabled=True,
+            worker_job_bunq_cards_enabled=False,
             worker_job_trading212_sync_enabled=False,
             worker_job_price_enrichment_enabled=False,
             worker_job_reconciliation_enabled=False,
@@ -426,8 +431,53 @@ class TestWorkerScheduler:
         assert "sync_bunq" in job_ids
         assert "process_outbox" in job_ids
         assert "sync_trading212" not in job_ids
+        assert "sync_bunq_cards" not in job_ids
 
         await scheduler.stop()
+
+    @pytest.mark.asyncio
+    async def test_bunq_cards_job_flag_gates_registration(self) -> None:
+        """The sync_bunq_cards job only registers when its flag is on."""
+        from finance_sync.config.settings import Settings
+        from finance_sync.container import Container
+        from finance_sync.worker.monitoring import JobMonitor
+        from finance_sync.worker.scheduler import WorkerScheduler
+
+        # Flag ON → job registered with the configured hourly trigger
+        settings_on = Settings(  # type: ignore[call-arg]
+            database_url=None,
+            worker_job_bunq_sync_enabled=False,
+            worker_job_bunq_cards_enabled=True,
+            worker_job_trading212_sync_enabled=False,
+            worker_job_price_enrichment_enabled=False,
+            worker_job_reconciliation_enabled=False,
+            worker_job_outbox_enabled=False,
+        )
+        container = Container.from_settings(settings_on)
+        scheduler_on = WorkerScheduler(settings_on, container, JobMonitor())
+        await scheduler_on.start()
+        job_ids_on = {j["id"] for j in scheduler_on.job_summary()}
+        assert "sync_bunq_cards" in job_ids_on
+        await scheduler_on.stop()
+
+        # Flag OFF → job not registered
+        settings_off = Settings(  # type: ignore[call-arg]
+            database_url=None,
+            worker_job_bunq_sync_enabled=False,
+            worker_job_bunq_cards_enabled=False,
+            worker_job_trading212_sync_enabled=False,
+            worker_job_price_enrichment_enabled=False,
+            worker_job_reconciliation_enabled=False,
+            worker_job_outbox_enabled=False,
+        )
+        container_off = Container.from_settings(settings_off)
+        scheduler_off = WorkerScheduler(
+            settings_off, container_off, JobMonitor()
+        )
+        await scheduler_off.start()
+        job_ids_off = {j["id"] for j in scheduler_off.job_summary()}
+        assert "sync_bunq_cards" not in job_ids_off
+        await scheduler_off.stop()
 
     @pytest.mark.asyncio
     async def test_pause_resume(self) -> None:
@@ -440,6 +490,7 @@ class TestWorkerScheduler:
         settings = Settings(  # type: ignore[call-arg]
             database_url=None,
             worker_job_bunq_sync_enabled=False,
+            worker_job_bunq_cards_enabled=False,
             worker_job_trading212_sync_enabled=False,
             worker_job_price_enrichment_enabled=False,
             worker_job_reconciliation_enabled=False,

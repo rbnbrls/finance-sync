@@ -96,27 +96,8 @@ class TestScheduledPayments:
         raw = await bunq_connector.fetch_scheduled_payments()
         assert len(raw) >= 1
 
-        # Apply default transform (identity mapping)
-        canonical = [
-            CanonicalScheduledPaymentData(
-                provider_key=bunq_connector.name,
-                external_schedule_id=r.external_schedule_id,
-                external_account_id=r.external_account_id,
-                amount=r.amount,
-                currency_code=r.currency_code,
-                frequency=r.frequency.lower(),
-                interval=r.interval,
-                next_execution_date=r.next_execution_date,
-                end_date=r.end_date,
-                max_executions=r.max_executions,
-                execution_count=r.execution_count or 0,
-                counterparty_name=r.counterparty_name,
-                counterparty_iban=r.counterparty_iban,
-                description=r.description,
-                status=r.status or "active",
-            )
-            for r in raw
-        ]
+        # Connector-level transform (base-class default)
+        canonical = bunq_connector.transform_scheduled_payments(raw)
 
         assert len(canonical) == 2
         assert all(
@@ -124,10 +105,12 @@ class TestScheduledPayments:
         )
 
         monthly = canonical[0]
+        assert monthly.provider_key == "bunq"
         assert monthly.amount == Decimal("-150.00")
-        assert monthly.frequency == "monthly"
+        assert monthly.frequency == "monthly"  # normalised to lowercase
         assert monthly.execution_count == 6
         assert monthly.counterparty_name == "Landlord B.V."
+        assert monthly.status == "active"
 
     # ── Mapping helpers ────────────────────────────────────────────────
 
@@ -226,29 +209,8 @@ class TestCardTransactions:
         raw = await bunq_connector.fetch_card_transactions(since=since)
         assert len(raw) >= 1
 
-        # Apply default transform (identity mapping)
-        canonical = [
-            CanonicalCardTransactionData(
-                provider_key=bunq_connector.name,
-                external_card_transaction_id=r.external_card_transaction_id,
-                external_account_id=r.external_account_id,
-                amount=r.amount,
-                currency_code=r.currency_code,
-                merchant_name=r.merchant_name,
-                merchant_city=r.merchant_city,
-                merchant_country=r.merchant_country,
-                mcc=r.mcc,
-                card_id=r.card_id,
-                card_type=r.card_type,
-                card_last_four=r.card_last_four,
-                occurred_at=r.occurred_at,
-                booked_at=r.booked_at,
-                authorization_type=r.authorization_type or "authorization",
-                description=r.description,
-                status=r.status or "pending",
-            )
-            for r in raw
-        ]
+        # Connector-level transform (base-class default)
+        canonical = bunq_connector.transform_card_transactions(raw)
 
         assert len(canonical) == 3
         assert all(
@@ -256,6 +218,7 @@ class TestCardTransactions:
         )
 
         auth = canonical[0]
+        assert auth.provider_key == "bunq"
         assert auth.amount == Decimal("-42.50")
         assert auth.merchant_name == "Supermarket B.V."
         assert auth.mcc == "5411"

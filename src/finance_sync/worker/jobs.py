@@ -272,6 +272,108 @@ async def sync_bunq_job(container: Container) -> dict[str, Any]:
     return await sync_connector_job(container, "bunq")
 
 
+async def sync_bunq_cards_job(container: Container) -> dict[str, Any]:
+    """Sync bunq card transactions + scheduled payments for all tenants.
+
+    Runs on an hourly cadence (see ``worker_job_bunq_cards_enabled`` /
+    ``worker_job_bunq_cards_interval_hours``), independent of the
+    15-minute transaction sync, matching the ARCHITECTURE.md §5 promise
+    of hourly bunq cards/scheduled payments ingestion.
+    """
+    settings: Settings = container.settings
+    registry = ConnectorRegistry()
+    log = logger.bind(provider="bunq_cards")
+    log.info("bunq_cards_job_starting")
+
+    async with container.session_factory() as session:
+        uow = UnitOfWork(session)
+        session.info["settings"] = settings
+
+        configs = await _get_tenant_credentials(uow, "bunq")
+
+    if not configs:
+        log.info("bunq_cards_job_no_tenants")
+        return {
+            "provider": "bunq_cards",
+            "tenants_synced": 0,
+            "results": [],
+        }
+
+    summary: list[dict[str, Any]] = []
+
+    for tenant, config in configs:
+        tenant_log = log.bind(tenant_id=tenant.id)
+
+        async def _run_single(
+            _cfg: ConnectorConfig = config,
+            _tenant: Tenant = tenant,
+        ) -> dict[str, Any]:
+            orchestrator = SyncOrchestrator(
+                session_factory=container.session_factory,
+                registry=registry,
+                tenant_id=_tenant.id,
+                settings=settings,
+            )
+            since = datetime.now(UTC) - timedelta(days=90)
+            result = await orchestrator.run_bunq_cards_sync(
+                config=_cfg,
+                since=since,
+            )
+            return {
+                "tenant_id": _tenant.id,
+                "status": result.status.value,
+                "schedules_synced": result.schedules_synced,
+                "card_transactions_synced": result.card_transactions_synced,
+                "duration_s": round(result.duration_s, 2),
+                "error": result.error_message,
+            }
+
+        try:
+            tenant_result = await retry_with_backoff(
+                _run_single,
+                max_attempts=settings.worker_retry_max_attempts,
+                base_delay=settings.worker_retry_base_delay_s,
+                job_name=f"bunq_cards_{tenant.id[:8]}",
+            )
+            tenant_log.info("bunq_cards_job_tenant_complete", **tenant_result)
+        except Exception as exc:
+            tenant_result = {
+                "tenant_id": tenant.id,
+                "status": "failed",
+                "schedules_synced": 0,
+                "card_transactions_synced": 0,
+                "duration_s": 0.0,
+                "error": str(exc)[:500],
+            }
+            tenant_log.error(
+                "bunq_cards_job_tenant_failed",
+                error=str(exc)[:300],
+            )
+
+        summary.append(tenant_result)
+
+    total_schedules = sum(r["schedules_synced"] for r in summary)
+    total_cards = sum(r["card_transactions_synced"] for r in summary)
+    failed = [r for r in summary if r["status"] == "failed"]
+
+    log.info(
+        "bunq_cards_job_complete",
+        tenants_synced=len(summary),
+        total_schedules=total_schedules,
+        total_card_transactions=total_cards,
+        failed=len(failed),
+    )
+
+    return {
+        "provider": "bunq_cards",
+        "tenants_synced": len(summary),
+        "total_schedules": total_schedules,
+        "total_card_transactions": total_cards,
+        "failed": len(failed),
+        "results": summary,
+    }
+
+
 async def sync_trading212_job(container: Container) -> dict[str, Any]:
     """Sync all Trading212 connectors."""
     return await sync_connector_job(container, "trading212")
