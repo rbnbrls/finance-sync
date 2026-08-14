@@ -22,6 +22,7 @@ from finance_sync.worker.jobs import (
     nightly_reconciliation_job,
     process_outbox_job,
     process_webhook_retries_job,
+    sync_bunq_cards_job,
     sync_bunq_job,
     sync_trading212_job,
 )
@@ -202,6 +203,21 @@ class WorkerScheduler:
                 self._make_monitored_job("sync_bunq", sync_bunq_job),
                 trigger=IntervalTrigger(
                     minutes=settings.worker_job_bunq_sync_interval_minutes,
+                ),
+            )
+
+        # ── bunq cards/scheduled-payments job (hourly) ──────────────
+        # Independent cadence from the main transaction sync, gated by
+        # its own feature flag (dr.3).
+        if settings.worker_job_bunq_cards_enabled:
+            self._add_job(
+                "sync_bunq_cards",
+                self._make_monitored_job(
+                    "sync_bunq_cards",
+                    sync_bunq_cards_job,
+                ),
+                trigger=IntervalTrigger(
+                    hours=settings.worker_job_bunq_cards_interval_hours,
                 ),
             )
 

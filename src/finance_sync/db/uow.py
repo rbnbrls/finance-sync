@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Self
 from finance_sync.db.repositories import (
     AccountRepository,
     BalanceRepository,
+    CardTransactionRepository,
     EnrichmentFreshnessRepository,
     FundamentalObservationRepository,
     FxRateRepository,
@@ -19,6 +20,7 @@ from finance_sync.db.repositories import (
     ReconciliationResultRepository,
     ReconciliationRunRepository,
     ResolutionAuditLogRepository,
+    ScheduledPaymentRepository,
     SecurityListingRepository,
     SecurityMetadataObservationRepository,
     SecurityPriceRepository,
@@ -94,6 +96,14 @@ class UnitOfWork:
     @property
     def transactions(self) -> TransactionRepository:
         return self._repo("transactions", TransactionRepository)  # type: ignore[return-value]
+
+    @property
+    def scheduled_payments(self) -> ScheduledPaymentRepository:
+        return self._repo("scheduled_payments", ScheduledPaymentRepository)  # type: ignore[return-value]
+
+    @property
+    def card_transactions(self) -> CardTransactionRepository:
+        return self._repo("card_transactions", CardTransactionRepository)  # type: ignore[return-value]
 
     @property
     def holdings(self) -> HoldingRepository:

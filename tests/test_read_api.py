@@ -142,6 +142,26 @@ class TestOpenAPIRegistration:
         assert "/api/v1/sync-runs" in paths
         assert paths["/api/v1/sync-runs"]["get"]["tags"] == ["sync-runs"]
 
+    def test_scheduled_payments_endpoint_registered(
+        self, client: TestClient
+    ) -> None:
+        paths = client.get("/openapi.json").json()["paths"]
+
+        assert "/api/v1/scheduled-payments" in paths
+        assert paths["/api/v1/scheduled-payments"]["get"]["tags"] == [
+            "scheduled-payments"
+        ]
+
+    def test_card_transactions_endpoint_registered(
+        self, client: TestClient
+    ) -> None:
+        paths = client.get("/openapi.json").json()["paths"]
+
+        assert "/api/v1/card-transactions" in paths
+        assert paths["/api/v1/card-transactions"]["get"]["tags"] == [
+            "card-transactions"
+        ]
+
     def test_cashflow_endpoints_registered(self, client: TestClient) -> None:
         paths = client.get("/openapi.json").json()["paths"]
 
@@ -196,6 +216,8 @@ class TestAuthGuards:
         ("GET", "/api/v1/sync-runs"),
         ("GET", "/api/v1/securities"),
         ("GET", "/api/v1/securities/fake-id/prices"),
+        ("GET", "/api/v1/scheduled-payments"),
+        ("GET", "/api/v1/card-transactions"),
     ]
 
     @pytest.mark.parametrize("method,path", ENDPOINTS)
@@ -284,6 +306,49 @@ class TestReadServiceListTransactions:
         )
         _assert_sql_contains(mock_session, "2025-01-01")
         _assert_sql_contains(mock_session, "2025-06-30")
+
+
+class TestReadServiceListScheduledPayments:
+    """ReadService.list_scheduled_payments() behaviour."""
+
+    async def test_passes_tenant_filter(self, mock_session: AsyncMock) -> None:
+        svc = ReadService(mock_session)
+        await svc.list_scheduled_payments(tenant_id="tenant-xyz")
+        _assert_sql_contains(mock_session, "tenant-xyz")
+
+    async def test_filters_by_account(self, mock_session: AsyncMock) -> None:
+        svc = ReadService(mock_session)
+        await svc.list_scheduled_payments(tenant_id="t1", account_id="acct-7")
+        _assert_sql_contains(mock_session, "acct-7")
+
+    async def test_filters_by_provider(self, mock_session: AsyncMock) -> None:
+        svc = ReadService(mock_session)
+        await svc.list_scheduled_payments(tenant_id="t1", provider_key="bunq")
+        _assert_sql_contains(mock_session, "bunq")
+
+
+class TestReadServiceListCardTransactions:
+    """ReadService.list_card_transactions() behaviour."""
+
+    async def test_passes_tenant_filter(self, mock_session: AsyncMock) -> None:
+        svc = ReadService(mock_session)
+        await svc.list_card_transactions(tenant_id="tenant-abc")
+        _assert_sql_contains(mock_session, "tenant-abc")
+
+    async def test_filters_by_account(self, mock_session: AsyncMock) -> None:
+        svc = ReadService(mock_session)
+        await svc.list_card_transactions(tenant_id="t1", account_id="acct-9")
+        _assert_sql_contains(mock_session, "acct-9")
+
+    async def test_date_range_filter(self, mock_session: AsyncMock) -> None:
+        svc = ReadService(mock_session)
+        since = datetime(2025, 3, 1, tzinfo=UTC)
+        until = datetime(2025, 4, 1, tzinfo=UTC)
+        await svc.list_card_transactions(
+            tenant_id="t1", date_from=since, date_to=until
+        )
+        _assert_sql_contains(mock_session, "2025-03-01")
+        _assert_sql_contains(mock_session, "2025-04-01")
 
 
 class TestReadServiceListBalances:
