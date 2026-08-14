@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock
 
@@ -42,6 +42,7 @@ class TestEnrichmentGatewayDegraded:
         s.openbb_base_url = "https://openbb.co/api"
         s.openbb_api_version = "v1"
         s.openbb_request_timeout = 30
+        s.price_cache_ttl_seconds = 86400
         return s
 
     @pytest.fixture
@@ -92,6 +93,8 @@ class TestEnrichmentGatewayDegraded:
         assert quote is not None
         assert quote.price == Decimal("194.30")
         assert quote.source == "local"
+        # The cached observation (2025-06-15) is older than the 24h TTL
+        assert quote.stale is True
 
     async def test_get_quote_degraded_no_data(
         self, gateway, mock_price_store
@@ -124,8 +127,34 @@ class TestEnrichmentGatewayDegraded:
             security_id="sec_1",
             identifier="AAPL",
         )
-        assert len(result) == 1
-        assert result[0].price_close == Decimal("194.30")
+        assert len(result.observations) == 1
+        assert result.observations[0].price_close == Decimal("194.30")
+        # Cached row is older than the 24h TTL → flagged stale
+        assert result.stale is True
+
+    async def test_get_historical_prices_degraded_fresh_cache(
+        self, gateway, mock_price_store
+    ) -> None:
+        """Degraded mode serves a fresh cache without a stale flag."""
+        fresh = datetime.now(UTC) - timedelta(hours=1)
+        mock_price_store.get_price_history.return_value = [
+            PriceObservation(
+                security_id="sec_1",
+                timestamp=fresh,
+                price_close=Decimal("194.30"),
+                source="openbb",
+                interval="1d",
+                currency_code="USD",
+            )
+        ]
+
+        result = await gateway.get_historical_prices(
+            security_id="sec_1",
+            identifier="AAPL",
+            limit=1,
+        )
+        assert len(result.observations) == 1
+        assert result.stale is False
 
     async def test_update_freshness_new(self, gateway, mock_uow) -> None:
         """update_freshness creates a new record when none exists."""
@@ -182,6 +211,7 @@ class TestEnrichmentGatewayWithApiKey:
         s.openbb_request_timeout = 30
         s.price_store_keep_minute_days = 30
         s.price_store_keep_hour_days = 90
+        s.price_cache_ttl_seconds = 86400
         return s
 
     @pytest.fixture
@@ -282,3 +312,160 @@ class TestEnrichmentGatewayWithApiKey:
         assert quote is not None
         assert quote.price == Decimal("194.30")
         assert quote.source == "openbb"
+        assert quote.stale is False
+
+    def _make_observation(self, ts: datetime) -> PriceObservation:
+        """Build a simple daily PriceObservation at ``ts``."""
+        return PriceObservation(
+            security_id="sec_1",
+            timestamp=ts,
+            price_close=Decimal("194.30"),
+            source="openbb",
+            interval="1d",
+            currency_code="USD",
+        )
+
+    async def test_get_historical_prices_fresh_cache_no_refetch(
+        self, gateway, mock_price_store
+    ) -> None:
+        """A cache newer than the TTL satisfying limit is served as-is."""
+        fresh = datetime.now(UTC) - timedelta(hours=1)
+        mock_price_store.get_price_history.return_value = [
+            self._make_observation(fresh)
+        ]
+
+        result = await gateway.get_historical_prices(
+            security_id="sec_1",
+            identifier="AAPL",
+            limit=1,
+        )
+        assert result.stale is False
+        assert len(result.observations) == 1
+        assert result.as_of == fresh
+        # No OpenBB call happened
+        gateway._http_client.get.assert_not_awaited()
+
+    async def test_get_historical_prices_stale_cache_refetches(
+        self, gateway, mock_price_store
+    ) -> None:
+        """A cache older than the TTL triggers a refetch from OpenBB."""
+        stale = datetime.now(UTC) - timedelta(days=30)
+        fresh = datetime.now(UTC) - timedelta(hours=1)
+        mock_price_store.get_price_history.side_effect = [
+            [self._make_observation(stale)],  # initial cache read
+            [self._make_observation(fresh)],  # combined read after store
+        ]
+        mock_response = self._make_mock_response(
+            json_data=[
+                {
+                    "date": fresh.isoformat(),
+                    "open": 190.0,
+                    "high": 195.0,
+                    "low": 189.0,
+                    "close": 194.30,
+                    "volume": 1000,
+                    "currency": "USD",
+                }
+            ]
+        )
+        gateway._http_client.get.return_value = mock_response
+
+        result = await gateway.get_historical_prices(
+            security_id="sec_1",
+            identifier="AAPL",
+            limit=1,
+        )
+        gateway._http_client.get.assert_awaited_once()
+        mock_price_store.store_prices.assert_awaited_once()
+        assert result.stale is False
+        assert len(result.observations) == 1
+        assert result.observations[0].timestamp == fresh
+
+    async def test_get_historical_prices_refetch_failure_stale_flag(
+        self, gateway, mock_price_store
+    ) -> None:
+        """When the refetch fails, the stale cache is served flagged."""
+        stale = datetime.now(UTC) - timedelta(days=30)
+        mock_price_store.get_price_history.return_value = [
+            self._make_observation(stale)
+        ]
+        mock_response = self._make_mock_response(status_code=500, json_data={})
+        gateway._http_client.get.return_value = mock_response
+
+        result = await gateway.get_historical_prices(
+            security_id="sec_1",
+            identifier="AAPL",
+            limit=1,
+        )
+        assert result.stale is True
+        assert len(result.observations) == 1
+        assert result.observations[0].timestamp == stale
+
+    async def test_get_historical_prices_incomplete_cache_refetches(
+        self, gateway, mock_price_store
+    ) -> None:
+        """A fresh but short cache still triggers a refetch."""
+        fresh = datetime.now(UTC) - timedelta(hours=1)
+        newer = datetime.now(UTC) - timedelta(minutes=5)
+        mock_price_store.get_price_history.side_effect = [
+            [self._make_observation(fresh)],  # only 1 row for limit=10
+            [self._make_observation(newer)],
+        ]
+        mock_response = self._make_mock_response(
+            json_data=[
+                {
+                    "date": newer.isoformat(),
+                    "open": 190.0,
+                    "high": 195.0,
+                    "low": 189.0,
+                    "close": 194.30,
+                    "volume": 1000,
+                    "currency": "USD",
+                }
+            ]
+        )
+        gateway._http_client.get.return_value = mock_response
+
+        result = await gateway.get_historical_prices(
+            security_id="sec_1",
+            identifier="AAPL",
+            limit=10,
+        )
+        gateway._http_client.get.assert_awaited_once()
+        assert result.stale is False
+
+    async def test_get_quote_openbb_down_stale_local_flagged(
+        self, gateway, mock_price_store
+    ) -> None:
+        """OpenBB down + local quote older than TTL → stale flag set."""
+        mock_price_store.get_latest_price.return_value = self._make_observation(
+            datetime.now(UTC) - timedelta(days=30)
+        )
+        mock_response = self._make_mock_response(status_code=500, json_data={})
+        gateway._http_client.get.return_value = mock_response
+
+        quote = await gateway.get_latest_quote(
+            security_id="sec_1",
+            identifier="AAPL",
+        )
+        assert quote is not None
+        assert quote.source == "local"
+        assert quote.stale is True
+
+    async def test_get_quote_openbb_down_fresh_local_not_stale(
+        self, gateway, mock_price_store
+    ) -> None:
+        """OpenBB down + fresh local quote → no stale flag."""
+        mock_price_store.get_latest_price.return_value = self._make_observation(
+            datetime.now(UTC) - timedelta(hours=1)
+        )
+        mock_response = self._make_mock_response(status_code=500, json_data={})
+        gateway._http_client.get.return_value = mock_response
+
+        quote = await gateway.get_latest_quote(
+            security_id="sec_1",
+            identifier="AAPL",
+        )
+        assert quote is not None
+        assert quote.source == "local"
+        assert quote.stale is False

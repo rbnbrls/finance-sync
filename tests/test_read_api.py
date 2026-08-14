@@ -445,6 +445,36 @@ class TestReadServiceCashflow:
         assert result.net_cashflow == Decimal(0)
         assert result.transaction_count == 0
 
+    async def test_cashflow_meta_present(self, svc: ReadService) -> None:
+        """The cashflow response declares as-of/freshness/coverage."""
+        result = await svc.get_cashflow(tenant_id="t1")
+        assert result.meta is not None
+        assert result.meta.coverage is not None
+        assert result.meta.coverage.accounts == 0
+        assert result.meta.coverage.items == 0
+        # No transactions → no period_end → freshness unknown
+        assert result.meta.freshness == "unknown"
+
+    async def test_cashflow_meta_reflects_period_end(
+        self, mock_session: AsyncMock
+    ) -> None:
+        """Meta as_of tracks the most recent booked transaction."""
+        mock_row = MagicMock()
+        mock_row.total_inflows = Decimal(100)
+        mock_row.total_outflows = Decimal(40)
+        mock_row.transaction_count = 5
+        mock_row.period_start = datetime(2025, 1, 1, tzinfo=UTC)
+        mock_row.period_end = datetime.now(UTC)
+        mock_session.execute.return_value.one.return_value = mock_row
+
+        svc = ReadService(mock_session)
+        result = await svc.get_cashflow(tenant_id="t1")
+
+        assert result.meta.as_of == mock_row.period_end
+        assert result.meta.freshness == "fresh"
+        assert result.meta.coverage is not None
+        assert result.meta.coverage.items == 5
+
     async def test_cashflow_passes_tenant_filter(
         self, mock_session: AsyncMock
     ) -> None:
@@ -517,6 +547,10 @@ class TestReadServiceCashflow:
         result = await svc.get_cashflow_history(tenant_id="t1")
         assert result.total == 0
         assert result.items == []
+        # Meta envelope is present even for empty results
+        assert result.meta is not None
+        assert result.meta.coverage is not None
+        assert result.meta.coverage.accounts == 0
 
     async def test_cashflow_history_passes_tenant(
         self, mock_session: AsyncMock

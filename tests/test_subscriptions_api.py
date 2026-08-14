@@ -315,6 +315,25 @@ class TestListSubscriptionsEndpoint:
         assert "last_detected_at" in item
         assert item["user_notes"] is None
 
+    def test_list_declares_meta_envelope(
+        self, client: TestClient, mock_detector: MagicMock
+    ) -> None:
+        """The list response declares as-of/freshness/coverage."""
+        mock_detector.list_subscriptions.return_value = [
+            _mock_subscription(merchant_name="Netflix", account_id="acct_1"),
+            _mock_subscription(merchant_name="Spotify", account_id="acct_2"),
+        ]
+
+        response: Response = client.get("/api/v1/subscriptions")
+        data: dict[str, Any] = response.json()
+
+        meta = data["meta"]
+        assert meta is not None
+        assert meta["freshness"] == "fresh"
+        assert meta["as_of"] is not None
+        assert meta["coverage"]["accounts"] == 2
+        assert meta["coverage"]["items"] == 2
+
     def test_list_default_params(
         self, client: TestClient, mock_detector: MagicMock
     ) -> None:

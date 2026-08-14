@@ -78,7 +78,7 @@ for direct Kanban task creation.
 | ms.3.f.3 | latest/historical prices | **DONE** | `enrichment/gateway.py` (`get_latest_quote`, `get_historical_prices` with local-cache-first), `enrichment/price_store.py`, `api/v1/securities.py` `GET /securities/{id}/prices`, `tests/enrichment/test_price_store.py`. |
 | ms.3.f.4 | fundamentals/ETF metadata | **DONE** | `enrichment/gateway.py` (`get_fundamentals`, `get_etf_composition`), `enrichment/metadata_enricher.py`, `models/fundamental_observation.py`, `models/security_metadata_observation.py`, migration `0004_add_fundamentals_metadata_tables.py`, `tests/enrichment/test_fundamentals_enrichment.py`. |
 | ms.3.f.5 | FX valuation | **DONE** | `services/fx_service.py` (cache + history + graceful degradation), `providers/openbb_fx.py`, `models/fx_rate.py`, `schemas/fx_rate.py`, `utils/currency_converter.py`, migration `0004_add_fx_rates.py`, `tests/test_fx_service.py`, `tests/test_openbb_fx_provider.py`, `tests/test_fx_rate_model.py`, `tests/test_currency_converter.py`. |
-| ms.3.ac.1 | Cached data honors TTL and records provenance/freshness | **PARTIAL** | Freshness/provenance ✓: `models/enrichment_freshness.py`, `gateway.update_freshness()`, `api/v1/enrichment.py` (`/enrichment/status` with stale counts), price `source` field, `PriceStore.prune_*`. **TTL not enforced on cache reads**: `get_historical_prices` returns local rows whenever `len(local) >= limit` regardless of age (`gateway.py:469`); `get_latest_quote` falls back to any local price with no staleness check (`gateway.py:173`). → G-07 |
+| ms.3.ac.1 | Cached data honors TTL and records provenance/freshness | **DONE** | Freshness/provenance: `models/enrichment_freshness.py`, `gateway.update_freshness()`, `api/v1/enrichment.py` (`/enrichment/status` with stale counts), price `source` field, `PriceStore.prune_*`. TTL enforced on cache reads: `price_cache_ttl_seconds` (`config/settings.py`), `get_historical_prices` refetches when the newest cached row is older than the TTL or shorter than `limit`, `get_latest_quote` flags local fallbacks older than the TTL with `stale=True`; failed refetches serve the cache with an explicit stale flag (`enrichment/gateway.py`, `enrichment/models.py` `PriceHistoryResult`/`QuoteResult.stale`). → G-07 (resolved) |
 
 ## Milestone 4 — Consumer API
 
@@ -100,7 +100,7 @@ for direct Kanban task creation.
 | ms.5.f.3 | Grafana dashboard/alerts | **PARTIAL** | Dashboards ✓: `docker/grafana/dashboards/{portfolio,system,sync-health}.json` + provisioning + `docker/prometheus.yml`, compose service. **No alert rules** — zero `alert` definitions across the three dashboards. → G-06 |
 | ms.5.f.4 | performance analytics | **DONE** | `api/v1/performance.py` (summary, TWR, MWR, benchmark, attribution), `services/performance.py` (IRR iteration, Brinson attribution), `tests/test_performance.py`. |
 | ms.5.f.5 | subscription detection | **DONE** | `services/subscription_detector/` (merchant classifier, pattern detector, service with HYBRID cross-validation), `api/v1/subscriptions.py` (detect/analyze/confirm/ignore), docs `docs/subscription-detection.md`, 8 test files (incl. deep-coverage + edge cases). |
-| ms.5.ac.1 | Every aggregate declares as-of/freshness/coverage | **PARTIAL** | Portfolio/net-worth carry `as_of` (`services/read_api.py:187,952`); `/enrichment/status` reports coverage/staleness. But most responses (allocation, cashflow, performance, subscriptions) do **not** carry freshness/coverage metadata; `docs/API.md` promises `meta:{freshness}` that most endpoints don't return. → G-07 |
+| ms.5.ac.1 | Every aggregate declares as-of/freshness/coverage | **DONE** | Portfolio/net-worth carry `as_of` (`services/read_api.py`); `/enrichment/status` reports coverage/staleness. Allocation, cashflow, performance, and subscriptions responses now declare the `meta` envelope (`schemas/freshness.py` `AggregateMeta`/`CoverageInfo`, wired in `services/allocation.py`, `services/read_api.py`, `services/performance.py`, `api/v1/subscriptions.py`), documented in `docs/API.md`. → G-07 (resolved) |
 
 ## Milestone 6 — Ecosystem
 
@@ -138,7 +138,7 @@ for direct Kanban task creation.
 | rk.1 | Provider APIs change/limit/omit history | **DONE** | `sdk_version` + connector versioning (`connectors/base.py`), fixture suites, `rate_limit_policy` + backoff retries (`connectors/rate_limiter.py`, `worker/jobs.py:retry_with_backoff`), manual sync + reconciliation API/CLI. |
 | rk.2 | Ambiguous ticker identity | **DONE** | ISIN/FIGI-first 4-stage resolver (`identity/resolver.py`), `security_listings` model, confidence scores, unresolved review queue + audit log + resolve/map APIs. |
 | rk.3 | Duplicate/mutating transactions | **DONE** | Unique `(tenant, provider, external_id)` + `provider_fingerprint` (`models/transaction.py`), upsert semantics in orchestrator, outbox idempotency keys, reconciliation duplicate detection. |
-| rk.4 | Stale/incomplete valuation | **PARTIAL** | Per-field freshness (`models/enrichment_freshness.py`), price provenance (`source`), coverage endpoint; but TTL not enforced on cache reads and aggregates lack coverage/caveats (see ms.3.ac.1 / ms.5.ac.1). → G-07 |
+| rk.4 | Stale/incomplete valuation | **DONE** | Per-field freshness (`models/enrichment_freshness.py`), price provenance (`source`), coverage endpoint, TTL enforced on cache reads with explicit stale flags, and per-aggregate `meta` coverage/caveats (see ms.3.ac.1 / ms.5.ac.1). → G-07 (resolved) |
 | rk.5 | Credential/financial-data exposure | **DONE** | Envelope encryption AES-256-GCM (`services/auth.py`), scoped API-key permissions + RBAC (`api/deps/auth.py`), resolution audit logs, pip-audit + SBOM in CI, non-root Docker user. |
 | rk.6 | Exporter API mismatch | **PARTIAL** | Isolated adapters (`exporter/actual_budget/`, `exporter/wealthfolio/`), integration contract tests ✓, delivery cursor ✓ (Actual Budget only). **Dead-letter visibility missing**; Wealthfolio lacks cursor; export tables unmigrated. → G-14 |
 | rk.7 | Premature distributed complexity | **DONE** | Modular monolith documented (`docs/ARCHITECTURE.md`, ADR-0001 `docs/adr/0001-modular-monolith-and-durable-outbox.md`); single compose stack, extractable boundaries. |
@@ -247,7 +247,12 @@ Actions, or system cron inside the deployment).
 
 ### G-07 — Enforce cache TTL and per-aggregate freshness/coverage
 - **Roadmap IDs:** ms.3.ac.1, ms.5.ac.1, rk.4
-- **What's missing:** Price cache reads don't honor TTL; most aggregate
+- **Status:** RESOLVED — price cache reads honor `price_cache_ttl_seconds`
+  (refetch when stale, explicit stale flag when the source is down);
+  allocation/cashflow/performance/subscriptions declare the `meta`
+  envelope (`schemas/freshness.py`), exposed via OpenAPI and documented
+  in `docs/API.md`.
+- **What was missing:** Price cache reads don't honor TTL; most aggregate
   endpoints lack as-of/freshness/coverage metadata.
 - **Task outline:**
   - Title: `Enforce price TTL on cache reads and add freshness metadata to aggregates`

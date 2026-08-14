@@ -132,6 +132,19 @@ class Settings(BaseSettings):
         description="TTL in seconds for cached FX rates before re-fetch.",
     )
 
+    # -- Price-store cache TTL --
+    price_cache_ttl_seconds: int = Field(
+        default=86400,
+        ge=60,
+        validation_alias="PRICE_CACHE_TTL_SECONDS",
+        description=(
+            "TTL in seconds for cached price data (latest quotes and "
+            "historical series) before a re-fetch is triggered.  When a "
+            "re-fetch fails (source down / degraded mode), cached data "
+            "older than this TTL is served with an explicit stale flag."
+        ),
+    )
+
     # -- Price-store pruning --
     price_store_keep_minute_days: int = Field(
         default=30,

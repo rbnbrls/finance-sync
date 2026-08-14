@@ -36,6 +36,14 @@ from finance_sync.models.security import Security
 from finance_sync.models.security_metadata_observation import (
     SecurityMetadataObservation,
 )
+from finance_sync.schemas.freshness import (
+    AGGREGATE_STALE_AFTER,
+    FRESHNESS_STALE,
+    AggregateMeta,
+    CoverageInfo,
+    build_meta,
+    freshness_for,
+)
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -126,6 +134,13 @@ class AllocationResponse(BaseModel):
         default=None,
         description="Timestamp of the holding data used",
     )
+    meta: AggregateMeta = Field(
+        default_factory=AggregateMeta,
+        description=(
+            "As-of / freshness / coverage envelope (docs/API.md "
+            "``meta`` contract)"
+        ),
+    )
 
 
 # ── Service ────────────────────────────────────────────────────────────
@@ -174,7 +189,13 @@ class AllocationService:
         )
         if not portfolio_data:
             now = datetime.now(UTC)
-            return AllocationResponse(as_of=now)
+            return AllocationResponse(
+                as_of=now,
+                meta=build_meta(
+                    as_of=now,
+                    coverage=CoverageInfo(),
+                ),
+            )
 
         holdings_list, security_map, account_map, as_of = portfolio_data
 
@@ -283,6 +304,32 @@ class AllocationService:
                 )
             )
 
+        # 8. As-of / freshness / coverage metadata
+        now = datetime.now(UTC)
+        priced_holdings = sum(
+            1 for h in holdings_list if h.market_value is not None
+        )
+        stale_holdings = sum(
+            1
+            for h in holdings_list
+            if h.observed_at is not None
+            and (now - h.observed_at) > AGGREGATE_STALE_AFTER
+        )
+        caveats: list[str] = []
+        if stale_holdings:
+            caveats.append(
+                f"{stale_holdings} holding(s) have observations older "
+                f"than {AGGREGATE_STALE_AFTER.days * 24}h"
+            )
+        if (
+            as_of is not None
+            and freshness_for(as_of, now=now) == FRESHNESS_STALE
+        ):
+            caveats.append(
+                "Latest holding observation is older than the 24h "
+                "freshness horizon"
+            )
+
         return AllocationResponse(
             total_value=total_value,
             currency_code=effective_currency,
@@ -291,6 +338,17 @@ class AllocationService:
             by_region=by_region,
             accounts=account_breakdowns,
             as_of=as_of,
+            meta=build_meta(
+                as_of=as_of,
+                now=now,
+                coverage=CoverageInfo(
+                    accounts=len(account_breakdowns),
+                    holdings=len(holding_allocs),
+                    priced_holdings=priced_holdings,
+                    stale_holdings=stale_holdings,
+                ),
+                caveats=caveats,
+            ),
         )
 
     # ── Data Loading ──────────────────────────────────────────────────

@@ -10,7 +10,7 @@ Provides:
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
@@ -26,6 +26,7 @@ from finance_sync.enrichment.models import (
     ETFComposition,
     ETFHolding,
     FundamentalObservationData,
+    PriceHistoryResult,
     PriceObservation,
     QuoteResult,
     RegionExposure,
@@ -85,6 +86,35 @@ class EnrichmentGateway:
         """Whether the gateway is operating in degraded mode
         (no OpenBB API key configured)."""
         return self._degraded
+
+    # ── Cache TTL policy ────────────────────────────────────────────────
+
+    @property
+    def _price_cache_ttl(self) -> timedelta:
+        """Configured price-cache TTL (seconds → timedelta).
+
+        Uses ``getattr`` so test doubles that don't declare the new
+        setting fall back to the documented default of 24h.
+        """
+        seconds = getattr(self._settings, "price_cache_ttl_seconds", 86400)
+        return timedelta(seconds=seconds)
+
+    def _is_stale(
+        self,
+        timestamp: datetime | None,
+        *,
+        reference: datetime | None = None,
+    ) -> bool:
+        """Return True when a cached observation is older than the TTL.
+
+        ``reference`` defaults to now; callers that request a
+        historical window ending in the past pass the window end so
+        backfills are not spuriously flagged as stale.
+        """
+        if timestamp is None:
+            return True
+        reference = reference or datetime.now(UTC)
+        return (reference - timestamp) > self._price_cache_ttl
 
     # ── Security Resolution ──────────────────────────────────────────────
 
@@ -151,7 +181,10 @@ class EnrichmentGateway:
     ) -> QuoteResult | None:
         """Fetch the latest quote for a security via OpenBB.
 
-        Falls back to local price data if OpenBB is unavailable.
+        Falls back to local price data if OpenBB is unavailable.  A
+        local fallback older than the configured price-cache TTL is
+        returned with ``stale=True`` (degraded mode) rather than being
+        silently presented as fresh.
         """
         # Try OpenBB first
         if not self._degraded:
@@ -178,6 +211,7 @@ class EnrichmentGateway:
                 currency_code=observation.currency_code,
                 timestamp=observation.timestamp,
                 source="local",
+                stale=self._is_stale(observation.timestamp),
             )
 
         return None
@@ -452,13 +486,19 @@ class EnrichmentGateway:
         start_date: datetime | None = None,
         end_date: datetime | None = None,
         limit: int = 100,
-    ) -> list[PriceObservation]:
+    ) -> PriceHistoryResult:
         """Fetch historical prices, checking local cache first.
 
-        Returns cached data if fresh enough, otherwise fetches from
-        OpenBB and stores the results.
+        Cache policy (TTL = ``settings.price_cache_ttl_seconds``):
+
+        - A local series whose most recent observation is newer than
+          the TTL and that satisfies ``limit`` is returned as-is.
+        - A local series older than the TTL (or shorter than ``limit``)
+          triggers a re-fetch from OpenBB.
+        - When the re-fetch is impossible (degraded mode) or fails
+          (HTTP error), the cached series is returned with
+          ``stale=True`` so callers can flag degraded data.
         """
-        # Check if we have local data first
         local = await self._price_store.get_price_history(
             security_id=security_id,
             interval=interval,
@@ -466,12 +506,30 @@ class EnrichmentGateway:
             end=end_date,
             limit=limit,
         )
-        if local and len(local) >= limit:
-            return local
 
-        # Fetch from OpenBB
+        # Most recent cached observation (rows come back newest-first).
+        latest_ts = local[0].timestamp if local else None
+        # Staleness is measured against the requested window end so
+        # historical backfills ending in the past aren't flagged.
+        reference = end_date or datetime.now(UTC)
+        cache_stale = self._is_stale(latest_ts, reference=reference)
+
+        # Fresh cache with enough rows — no refetch needed.
+        if local and not cache_stale and len(local) >= limit:
+            return PriceHistoryResult(
+                observations=local,
+                stale=False,
+                as_of=latest_ts,
+            )
+
+        # Cache stale and/or incomplete — refetch from OpenBB.
         if self._degraded:
-            return local  # return whatever we had locally
+            # Source unavailable: serve cache, flagging staleness.
+            return PriceHistoryResult(
+                observations=local,
+                stale=bool(local) and cache_stale,
+                as_of=latest_ts,
+            )
 
         try:
             observations = await self._fetch_openbb_history(
@@ -490,16 +548,26 @@ class EnrichmentGateway:
             await self._price_store.store_prices(observations)
 
             # Return combined results
-            return await self._price_store.get_price_history(
+            combined = await self._price_store.get_price_history(
                 security_id=security_id,
                 interval=interval,
                 start=start_date,
                 end=end_date,
                 limit=limit,
             )
-
+            combined_ts = combined[0].timestamp if combined else None
+            return PriceHistoryResult(
+                observations=combined,
+                stale=False,
+                as_of=combined_ts,
+            )
         except httpx.HTTPError:
-            return local  # fall back to local
+            # Source down: serve the cache, flagging staleness.
+            return PriceHistoryResult(
+                observations=local,
+                stale=bool(local) and cache_stale,
+                as_of=latest_ts,
+            )
 
     async def _fetch_openbb_history(
         self,

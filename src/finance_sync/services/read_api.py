@@ -22,6 +22,11 @@ from finance_sync.models.security import Security
 from finance_sync.models.security_price import SecurityPrice
 from finance_sync.models.sync_run import SyncRun
 from finance_sync.models.transaction import Transaction
+from finance_sync.schemas.freshness import (
+    AggregateMeta,
+    CoverageInfo,
+    build_meta,
+)
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -280,6 +285,13 @@ class CashflowResponse(BaseModel):
     currency_code: str = "EUR"
     period_start: datetime | None = None
     period_end: datetime | None = None
+    meta: AggregateMeta = Field(
+        default_factory=AggregateMeta,
+        description=(
+            "As-of / freshness / coverage envelope (docs/API.md "
+            "``meta`` contract)"
+        ),
+    )
 
 
 class CashflowHistoryEntry(BaseModel):
@@ -302,6 +314,13 @@ class CashflowHistoryResponse(BaseModel):
     offset: int
     period_start: datetime | None = None
     period_end: datetime | None = None
+    meta: AggregateMeta = Field(
+        default_factory=AggregateMeta,
+        description=(
+            "As-of / freshness / coverage envelope (docs/API.md "
+            "``meta`` contract)"
+        ),
+    )
 
 
 class SyncRunResponse(BaseModel):
@@ -1328,6 +1347,15 @@ class ReadService:
         total_outflows = row.total_outflows or E("0")
         net_cashflow = total_inflows - total_outflows
 
+        # Account coverage for the same conditions
+        acct_count_q = (
+            select(func.count(func.distinct(Transaction.account_id)))  # type: ignore[attr-defined]
+            .select_from(Transaction)
+            .where(_expr(*conditions))
+        )
+        acct_result = await self._session.execute(acct_count_q)
+        account_count: int = acct_result.scalar() or 0  # type: ignore[assignment]
+
         return CashflowResponse(
             total_inflows=total_inflows,
             total_outflows=total_outflows,
@@ -1335,6 +1363,13 @@ class ReadService:
             transaction_count=row.transaction_count or 0,
             period_start=row.period_start,
             period_end=row.period_end,
+            meta=build_meta(
+                as_of=row.period_end,
+                coverage=CoverageInfo(
+                    accounts=account_count,
+                    items=row.transaction_count or 0,
+                ),
+            ),
         )
 
     async def get_cashflow_history(
@@ -1423,6 +1458,15 @@ class ReadService:
             period_start = min(i.date for i in items)
             period_end = max(i.date for i in items)
 
+        # Account coverage for the same conditions
+        acct_count_q = (
+            select(func.count(func.distinct(Transaction.account_id)))  # type: ignore[attr-defined]
+            .select_from(Transaction)
+            .where(_expr(*conditions))
+        )
+        acct_result = await self._session.execute(acct_count_q)
+        account_count: int = acct_result.scalar() or 0  # type: ignore[assignment]
+
         return CashflowHistoryResponse(
             items=items,
             total=total,
@@ -1430,6 +1474,13 @@ class ReadService:
             offset=offset,
             period_start=period_start,
             period_end=period_end,
+            meta=build_meta(
+                as_of=period_end,
+                coverage=CoverageInfo(
+                    accounts=account_count,
+                    items=total,
+                ),
+            ),
         )
 
     # ── Sync Runs ─────────────────────────────────────────────────────
