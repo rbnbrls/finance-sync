@@ -34,6 +34,7 @@ import structlog
 
 from finance_sync.models import OutboxMessage
 from finance_sync.models.enums import OutboxMessageStatus
+from finance_sync.observability.metrics import outbox_messages_pending_total
 
 if TYPE_CHECKING:
     from sqlalchemy import Result
@@ -95,6 +96,9 @@ class OutboxPublisher:
 
         Returns the number of messages processed in this tick.
         """
+        # Track the true backlog (not just this batch) for alerting.
+        outbox_messages_pending_total.set(await self._count_pending())
+
         messages = await self._fetch_pending()
 
         if not messages:
@@ -142,6 +146,22 @@ class OutboxPublisher:
         self._running = False
 
     # ── Internal ───────────────────────────────────────────────────
+
+    async def _count_pending(self) -> int:
+        """Return the total number of pending outbox messages."""
+        from sqlalchemy import func, select
+
+        async with self._session_factory() as session:
+            stmt = (
+                select(func.count())
+                .select_from(OutboxMessage)
+                .where(
+                    OutboxMessage.status == OutboxMessageStatus.PENDING  # type: ignore[attr-defined]
+                )
+            )
+            result = await session.execute(stmt)
+            count: int = result.scalar_one()
+            return count
 
     async def _fetch_pending(self) -> list[OutboxMessage]:
         """Return pending messages ordered by creation time."""

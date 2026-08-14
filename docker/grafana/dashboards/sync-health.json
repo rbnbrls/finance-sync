@@ -5,7 +5,10 @@
   "uid": "finance-sync-sync-health",
   "version": 1,
   "schemaVersion": 39,
-  "tags": ["finance-sync", "sync"],
+  "tags": [
+    "finance-sync",
+    "sync"
+  ],
   "timezone": "browser",
   "editable": true,
   "refresh": "30s",
@@ -13,22 +16,39 @@
     {
       "title": "Sync Runs (24h)",
       "type": "stat",
-      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 0 },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 0,
+        "y": 0
+      },
       "id": 1,
       "options": {
         "colorMode": "value",
         "graphMode": "area",
         "justifyMode": "auto",
         "orientation": "auto",
-        "reduceOptions": { "calcs": ["lastNotNull"], "values": false, "fields": "" },
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false,
+          "fields": ""
+        },
         "textMode": "auto"
       },
       "fieldConfig": {
         "defaults": {
-          "color": { "mode": "fixed", "fixedColor": "green" },
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "green"
+          },
           "unit": "short",
           "min": 0,
-          "custom": { "displayMode": "auto", "orientation": "horizontal" }
+          "custom": {
+            "displayMode": "auto",
+            "orientation": "horizontal"
+          }
         },
         "overrides": []
       },
@@ -45,22 +65,39 @@
     {
       "title": "Sync Failures (24h)",
       "type": "stat",
-      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 0 },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 4,
+        "y": 0
+      },
       "id": 2,
       "options": {
         "colorMode": "value",
         "graphMode": "area",
         "justifyMode": "auto",
         "orientation": "auto",
-        "reduceOptions": { "calcs": ["lastNotNull"], "values": false, "fields": "" },
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false,
+          "fields": ""
+        },
         "textMode": "auto"
       },
       "fieldConfig": {
         "defaults": {
-          "color": { "mode": "fixed", "fixedColor": "red" },
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "red"
+          },
           "unit": "short",
           "min": 0,
-          "custom": { "displayMode": "auto", "orientation": "horizontal" }
+          "custom": {
+            "displayMode": "auto",
+            "orientation": "horizontal"
+          }
         },
         "overrides": []
       },
@@ -72,36 +109,69 @@
           "refId": "A"
         }
       ],
-      "description": "Total failed sync runs in the last 24 hours."
+      "description": "Total failed sync runs in the last 24 hours.",
+      "links": [
+        {
+          "title": "View alert: Failed sync runs alert",
+          "type": "link",
+          "url": "/alerting/grafana/finance-sync-failed-sync-runs/edit",
+          "targetBlank": true
+        }
+      ]
     },
     {
       "title": "Success Rate (24h)",
       "type": "stat",
-      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 0 },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 8,
+        "y": 0
+      },
       "id": 3,
       "options": {
         "colorMode": "value",
         "graphMode": "area",
         "justifyMode": "auto",
         "orientation": "auto",
-        "reduceOptions": { "calcs": ["lastNotNull"], "values": false, "fields": "" },
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false,
+          "fields": ""
+        },
         "textMode": "auto"
       },
       "fieldConfig": {
         "defaults": {
-          "color": { "mode": "thresholds" },
+          "color": {
+            "mode": "thresholds"
+          },
           "unit": "percentunit",
           "min": 0,
           "max": 1,
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "red", "value": null },
-              { "color": "orange", "value": 0.9 },
-              { "color": "green", "value": 0.99 }
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.9
+              },
+              {
+                "color": "green",
+                "value": 0.99
+              }
             ]
           },
-          "custom": { "displayMode": "auto", "orientation": "horizontal" }
+          "custom": {
+            "displayMode": "auto",
+            "orientation": "horizontal"
+          }
         },
         "overrides": []
       },
@@ -118,20 +188,34 @@
     {
       "title": "Sync Run Status (24h)",
       "type": "barchart",
-      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 4 },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 4
+      },
       "id": 4,
       "options": {
         "orientation": "horizontal",
         "groupWidth": 0.7,
         "barWidth": 0.8,
         "showValue": "auto",
-        "legend": { "displayMode": "list", "showLegend": true, "placement": "right" }
+        "legend": {
+          "displayMode": "list",
+          "showLegend": true,
+          "placement": "right"
+        }
       },
       "fieldConfig": {
         "defaults": {
           "unit": "short",
           "min": 0,
-          "custom": { "stacking": { "mode": "normal" }, "axisBorderShow": false }
+          "custom": {
+            "stacking": {
+              "mode": "normal"
+            },
+            "axisBorderShow": false
+          }
         },
         "overrides": []
       },
@@ -148,20 +232,34 @@
     {
       "title": "Sync Runs per Provider (24h)",
       "type": "barchart",
-      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 4 },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 4
+      },
       "id": 5,
       "options": {
         "orientation": "horizontal",
         "groupWidth": 0.7,
         "barWidth": 0.8,
         "showValue": "auto",
-        "legend": { "displayMode": "list", "showLegend": true, "placement": "right" }
+        "legend": {
+          "displayMode": "list",
+          "showLegend": true,
+          "placement": "right"
+        }
       },
       "fieldConfig": {
         "defaults": {
           "unit": "short",
           "min": 0,
-          "custom": { "stacking": { "mode": "normal" }, "axisBorderShow": false }
+          "custom": {
+            "stacking": {
+              "mode": "normal"
+            },
+            "axisBorderShow": false
+          }
         },
         "overrides": []
       },
@@ -178,17 +276,35 @@
     {
       "title": "Transactions Ingested (24h)",
       "type": "timeseries",
-      "gridPos": { "h": 6, "w": 8, "x": 0, "y": 12 },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 0,
+        "y": 12
+      },
       "id": 6,
       "options": {
-        "legend": { "displayMode": "table", "placement": "right", "calcs": ["sum", "max", "mean"] },
-        "tooltip": { "mode": "multi" }
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "sum",
+            "max",
+            "mean"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
       },
       "fieldConfig": {
         "defaults": {
           "unit": "short",
           "min": 0,
-          "custom": { "showPoints": "never", "lineInterpolation": "stepBefore" }
+          "custom": {
+            "showPoints": "never",
+            "lineInterpolation": "stepBefore"
+          }
         },
         "overrides": []
       },
@@ -205,17 +321,34 @@
     {
       "title": "Sync Runs Over Time (24h)",
       "type": "timeseries",
-      "gridPos": { "h": 6, "w": 8, "x": 8, "y": 12 },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 8,
+        "y": 12
+      },
       "id": 7,
       "options": {
-        "legend": { "displayMode": "table", "placement": "right", "calcs": ["sum", "max"] },
-        "tooltip": { "mode": "multi" }
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "sum",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
       },
       "fieldConfig": {
         "defaults": {
           "unit": "short",
           "min": 0,
-          "custom": { "showPoints": "never", "lineInterpolation": "stepBefore" }
+          "custom": {
+            "showPoints": "never",
+            "lineInterpolation": "stepBefore"
+          }
         },
         "overrides": []
       },
@@ -232,30 +365,55 @@
     {
       "title": "Scrape health",
       "type": "stat",
-      "gridPos": { "h": 3, "w": 4, "x": 0, "y": 18 },
+      "gridPos": {
+        "h": 3,
+        "w": 4,
+        "x": 0,
+        "y": 18
+      },
       "id": 8,
       "options": {
         "colorMode": "value",
         "graphMode": "none",
         "justifyMode": "auto",
         "orientation": "auto",
-        "reduceOptions": { "calcs": ["lastNotNull"], "values": false, "fields": "" },
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false,
+          "fields": ""
+        },
         "textMode": "auto"
       },
       "fieldConfig": {
         "defaults": {
-          "color": { "mode": "thresholds" },
+          "color": {
+            "mode": "thresholds"
+          },
           "unit": "s",
           "min": 0,
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "green", "value": null },
-              { "color": "orange", "value": 60 },
-              { "color": "red", "value": 300 }
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 60
+              },
+              {
+                "color": "red",
+                "value": 300
+              }
             ]
           },
-          "custom": { "displayMode": "auto", "orientation": "horizontal" }
+          "custom": {
+            "displayMode": "auto",
+            "orientation": "horizontal"
+          }
         },
         "overrides": []
       },
@@ -267,35 +425,68 @@
           "refId": "A"
         }
       ],
-      "description": "Time since this target was last scraped by Prometheus."
+      "description": "Time since this target was last scraped by Prometheus.",
+      "links": [
+        {
+          "title": "View alert: Worker down alert",
+          "type": "link",
+          "url": "/alerting/grafana/finance-sync-worker-down/edit",
+          "targetBlank": true
+        }
+      ]
     },
     {
       "title": "Outbox Queue Depth",
       "type": "stat",
-      "gridPos": { "h": 3, "w": 4, "x": 4, "y": 18 },
+      "gridPos": {
+        "h": 3,
+        "w": 4,
+        "x": 4,
+        "y": 18
+      },
       "id": 9,
       "options": {
         "colorMode": "value",
         "graphMode": "area",
         "justifyMode": "auto",
         "orientation": "auto",
-        "reduceOptions": { "calcs": ["lastNotNull"], "values": false, "fields": "" },
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false,
+          "fields": ""
+        },
         "textMode": "auto"
       },
       "fieldConfig": {
         "defaults": {
-          "color": { "mode": "thresholds" },
+          "color": {
+            "mode": "thresholds"
+          },
           "unit": "short",
           "min": 0,
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "green", "value": null },
-              { "color": "orange", "value": 100 },
-              { "color": "red", "value": 500 }
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 100
+              },
+              {
+                "color": "red",
+                "value": 500
+              }
             ]
           },
-          "custom": { "displayMode": "auto", "orientation": "horizontal" }
+          "custom": {
+            "displayMode": "auto",
+            "orientation": "horizontal"
+          }
         },
         "overrides": []
       },
@@ -307,22 +498,48 @@
           "refId": "A"
         }
       ],
-      "description": "Number of pending outbox messages awaiting publication.\nRequires the `outbox_messages_pending_total` metric to be exposed (Phase 5.4+)."
+      "description": "Number of pending outbox messages awaiting publication.\nRequires the `outbox_messages_pending_total` metric to be exposed (Phase 5.4+).",
+      "links": [
+        {
+          "title": "View alert: Outbox backlog alert",
+          "type": "link",
+          "url": "/alerting/grafana/finance-sync-outbox-backlog/edit",
+          "targetBlank": true
+        }
+      ]
     },
     {
       "title": "Sync Duration (recent runs)",
       "type": "timeseries",
-      "gridPos": { "h": 6, "w": 8, "x": 0, "y": 21 },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 0,
+        "y": 21
+      },
       "id": 10,
       "options": {
-        "legend": { "displayMode": "table", "placement": "right", "calcs": ["max", "mean", "last"] },
-        "tooltip": { "mode": "multi" }
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "max",
+            "mean",
+            "last"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
       },
       "fieldConfig": {
         "defaults": {
           "unit": "s",
           "min": 0,
-          "custom": { "showPoints": "never", "lineInterpolation": "linear" }
+          "custom": {
+            "showPoints": "never",
+            "lineInterpolation": "linear"
+          }
         },
         "overrides": []
       },
@@ -334,7 +551,15 @@
           "refId": "A"
         }
       ],
-      "description": "Duration of individual sync runs.\nRequires the `sync_run_duration_seconds` gauge to be exposed (add to sync/orchestrator.py)."
+      "description": "Duration of individual sync runs.\nRequires the `sync_run_duration_seconds` gauge to be exposed (add to sync/orchestrator.py).",
+      "links": [
+        {
+          "title": "View alert: Stale enrichment alert",
+          "type": "link",
+          "url": "/alerting/grafana/finance-sync-stale-enrichment/edit",
+          "targetBlank": true
+        }
+      ]
     }
   ],
   "templating": {
@@ -343,7 +568,11 @@
         "name": "datasource",
         "type": "datasource",
         "query": "prometheus",
-        "current": { "selected": true, "text": "Prometheus", "value": "prometheus" },
+        "current": {
+          "selected": true,
+          "text": "Prometheus",
+          "value": "prometheus"
+        },
         "hide": 0,
         "refresh": 1
       },
@@ -351,7 +580,11 @@
         "name": "env",
         "type": "custom",
         "query": "dev, staging, prod",
-        "current": { "selected": true, "text": "prod", "value": "prod" },
+        "current": {
+          "selected": true,
+          "text": "prod",
+          "value": "prod"
+        },
         "hide": 0,
         "refresh": 1,
         "label": "Environment",
@@ -363,7 +596,10 @@
     "list": [
       {
         "builtIn": 1,
-        "datasource": { "type": "grafana", "uid": "-- Grafana --" },
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
         "enable": true,
         "hide": true,
         "iconColor": "rgba(0, 211, 255, 1)",
@@ -373,7 +609,25 @@
     ]
   },
   "links": [
-    { "title": "Portfolio", "type": "dashboards", "tags": ["finance-sync"] },
-    { "title": "System", "type": "dashboards", "tags": ["finance-sync"] }
+    {
+      "title": "Portfolio",
+      "type": "dashboards",
+      "tags": [
+        "finance-sync"
+      ]
+    },
+    {
+      "title": "System",
+      "type": "dashboards",
+      "tags": [
+        "finance-sync"
+      ]
+    },
+    {
+      "title": "Alert rules",
+      "type": "link",
+      "url": "/alerting/list?search=Finance%20Sync",
+      "targetBlank": true
+    }
   ]
 }

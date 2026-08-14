@@ -5,7 +5,10 @@
   "uid": "finance-sync-system",
   "version": 1,
   "schemaVersion": 39,
-  "tags": ["finance-sync", "system"],
+  "tags": [
+    "finance-sync",
+    "system"
+  ],
   "timezone": "browser",
   "editable": true,
   "refresh": "15s",
@@ -13,17 +16,35 @@
     {
       "title": "Request Rate",
       "type": "timeseries",
-      "gridPos": { "h": 7, "w": 6, "x": 0, "y": 0 },
+      "gridPos": {
+        "h": 7,
+        "w": 6,
+        "x": 0,
+        "y": 0
+      },
       "id": 1,
       "options": {
-        "legend": { "displayMode": "table", "placement": "right", "calcs": ["sum", "max", "mean"] },
-        "tooltip": { "mode": "multi" }
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "sum",
+            "max",
+            "mean"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
       },
       "fieldConfig": {
         "defaults": {
           "unit": "rps",
           "min": 0,
-          "custom": { "showPoints": "never", "lineInterpolation": "linear" }
+          "custom": {
+            "showPoints": "never",
+            "lineInterpolation": "linear"
+          }
         },
         "overrides": []
       },
@@ -55,17 +76,34 @@
     {
       "title": "Request Latency (p50 / p95 / p99)",
       "type": "timeseries",
-      "gridPos": { "h": 7, "w": 6, "x": 6, "y": 0 },
+      "gridPos": {
+        "h": 7,
+        "w": 6,
+        "x": 6,
+        "y": 0
+      },
       "id": 2,
       "options": {
-        "legend": { "displayMode": "table", "placement": "right", "calcs": ["last", "max"] },
-        "tooltip": { "mode": "multi" }
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "last",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
       },
       "fieldConfig": {
         "defaults": {
           "unit": "s",
           "min": 0,
-          "custom": { "showPoints": "never", "lineInterpolation": "linear" }
+          "custom": {
+            "showPoints": "never",
+            "lineInterpolation": "linear"
+          }
         },
         "overrides": []
       },
@@ -92,25 +130,54 @@
     {
       "title": "Error Rate",
       "type": "timeseries",
-      "gridPos": { "h": 7, "w": 6, "x": 12, "y": 0 },
+      "gridPos": {
+        "h": 7,
+        "w": 6,
+        "x": 12,
+        "y": 0
+      },
       "id": 3,
       "options": {
-        "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean", "max"] },
-        "tooltip": { "mode": "multi" }
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
       },
       "fieldConfig": {
         "defaults": {
           "unit": "percentunit",
           "min": 0,
           "max": 1,
-          "custom": { "showPoints": "never", "lineInterpolation": "linear" }
+          "custom": {
+            "showPoints": "never",
+            "lineInterpolation": "linear"
+          }
         },
         "overrides": [
           {
-            "matcher": { "id": "byName", "options": "Error ratio" },
+            "matcher": {
+              "id": "byName",
+              "options": "Error ratio"
+            },
             "properties": [
-              { "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } },
-              { "id": "custom.fillOpacity", "value": 15 }
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 15
+              }
             ]
           }
         ]
@@ -123,22 +190,47 @@
           "refId": "A"
         }
       ],
-      "description": "Ratio of 5xx responses to total requests (5m rate)."
+      "description": "Ratio of 5xx responses to total requests (5m rate).",
+      "links": [
+        {
+          "title": "View alert: App down alert",
+          "type": "link",
+          "url": "/alerting/grafana/finance-sync-app-down/edit",
+          "targetBlank": true
+        }
+      ]
     },
     {
       "title": "Avg Response Size",
       "type": "timeseries",
-      "gridPos": { "h": 7, "w": 6, "x": 18, "y": 0 },
+      "gridPos": {
+        "h": 7,
+        "w": 6,
+        "x": 18,
+        "y": 0
+      },
       "id": 4,
       "options": {
-        "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean", "max"] },
-        "tooltip": { "mode": "multi" }
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
       },
       "fieldConfig": {
         "defaults": {
           "unit": "bytes",
           "min": 0,
-          "custom": { "showPoints": "never", "lineInterpolation": "linear" }
+          "custom": {
+            "showPoints": "never",
+            "lineInterpolation": "linear"
+          }
         },
         "overrides": []
       },
@@ -160,20 +252,34 @@
     {
       "title": "Requests by Path",
       "type": "barchart",
-      "gridPos": { "h": 7, "w": 8, "x": 0, "y": 7 },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 0,
+        "y": 7
+      },
       "id": 5,
       "options": {
         "orientation": "horizontal",
         "groupWidth": 0.7,
         "barWidth": 0.8,
         "showValue": "auto",
-        "legend": { "displayMode": "list", "showLegend": true, "placement": "right" }
+        "legend": {
+          "displayMode": "list",
+          "showLegend": true,
+          "placement": "right"
+        }
       },
       "fieldConfig": {
         "defaults": {
           "unit": "rps",
           "min": 0,
-          "custom": { "stacking": { "mode": "normal" }, "axisBorderShow": false }
+          "custom": {
+            "stacking": {
+              "mode": "normal"
+            },
+            "axisBorderShow": false
+          }
         },
         "overrides": []
       },
@@ -190,17 +296,35 @@
     {
       "title": "DB Connection Pool",
       "type": "timeseries",
-      "gridPos": { "h": 7, "w": 8, "x": 8, "y": 7 },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 8,
+        "y": 7
+      },
       "id": 6,
       "options": {
-        "legend": { "displayMode": "table", "placement": "right", "calcs": ["last", "max", "mean"] },
-        "tooltip": { "mode": "multi" }
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "last",
+            "max",
+            "mean"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
       },
       "fieldConfig": {
         "defaults": {
           "unit": "short",
           "min": 0,
-          "custom": { "showPoints": "never", "lineInterpolation": "stepBefore" }
+          "custom": {
+            "showPoints": "never",
+            "lineInterpolation": "stepBefore"
+          }
         },
         "overrides": []
       },
@@ -227,10 +351,21 @@
     {
       "title": "DB Pool Utilisation",
       "type": "gauge",
-      "gridPos": { "h": 7, "w": 4, "x": 16, "y": 7 },
+      "gridPos": {
+        "h": 7,
+        "w": 4,
+        "x": 16,
+        "y": 7
+      },
       "id": 7,
       "options": {
-        "reduceOptions": { "calcs": ["lastNotNull"], "values": false, "fields": "" },
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false,
+          "fields": ""
+        },
         "showThresholdLabels": false,
         "showThresholdMarkers": true,
         "orientation": "auto",
@@ -244,12 +379,24 @@
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "green", "value": null },
-              { "color": "orange", "value": 0.6 },
-              { "color": "red", "value": 0.85 }
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.6
+              },
+              {
+                "color": "red",
+                "value": 0.85
+              }
             ]
           },
-          "custom": { "displayMode": "auto", "orientation": "horizontal" }
+          "custom": {
+            "displayMode": "auto",
+            "orientation": "horizontal"
+          }
         },
         "overrides": []
       },
@@ -266,18 +413,35 @@
     {
       "title": "Redis Cache Hit Ratio",
       "type": "timeseries",
-      "gridPos": { "h": 7, "w": 8, "x": 0, "y": 14 },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 0,
+        "y": 14
+      },
       "id": 8,
       "options": {
-        "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean", "last"] },
-        "tooltip": { "mode": "multi" }
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "mean",
+            "last"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
       },
       "fieldConfig": {
         "defaults": {
           "unit": "percentunit",
           "min": 0,
           "max": 1,
-          "custom": { "showPoints": "never", "lineInterpolation": "linear" }
+          "custom": {
+            "showPoints": "never",
+            "lineInterpolation": "linear"
+          }
         },
         "overrides": []
       },
@@ -294,17 +458,34 @@
     {
       "title": "Redis Operations Rate",
       "type": "timeseries",
-      "gridPos": { "h": 7, "w": 8, "x": 8, "y": 14 },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 8,
+        "y": 14
+      },
       "id": 9,
       "options": {
-        "legend": { "displayMode": "table", "placement": "right", "calcs": ["sum", "mean"] },
-        "tooltip": { "mode": "multi" }
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "sum",
+            "mean"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
       },
       "fieldConfig": {
         "defaults": {
           "unit": "ops",
           "min": 0,
-          "custom": { "showPoints": "never", "lineInterpolation": "stepBefore" }
+          "custom": {
+            "showPoints": "never",
+            "lineInterpolation": "stepBefore"
+          }
         },
         "overrides": []
       },
@@ -321,17 +502,35 @@
     {
       "title": "Worker Job Durations",
       "type": "timeseries",
-      "gridPos": { "h": 7, "w": 8, "x": 0, "y": 21 },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 0,
+        "y": 21
+      },
       "id": 10,
       "options": {
-        "legend": { "displayMode": "table", "placement": "right", "calcs": ["max", "mean", "last"] },
-        "tooltip": { "mode": "multi" }
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "max",
+            "mean",
+            "last"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
       },
       "fieldConfig": {
         "defaults": {
           "unit": "s",
           "min": 0,
-          "custom": { "showPoints": "never", "lineInterpolation": "linear" }
+          "custom": {
+            "showPoints": "never",
+            "lineInterpolation": "linear"
+          }
         },
         "overrides": []
       },
@@ -343,36 +542,69 @@
           "refId": "A"
         }
       ],
-      "description": "Duration of worker job executions.\nRequires the `worker_job_duration_seconds` gauge to be exposed (add to worker/monitoring.py)."
+      "description": "Duration of worker job executions.\nRequires the `worker_job_duration_seconds` gauge to be exposed (add to worker/monitoring.py).",
+      "links": [
+        {
+          "title": "View alert: Worker down alert",
+          "type": "link",
+          "url": "/alerting/grafana/finance-sync-worker-down/edit",
+          "targetBlank": true
+        }
+      ]
     },
     {
       "title": "Worker Job Success Rate (rolling 100 runs)",
       "type": "stat",
-      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 21 },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 8,
+        "y": 21
+      },
       "id": 11,
       "options": {
         "colorMode": "value",
         "graphMode": "none",
         "justifyMode": "auto",
         "orientation": "auto",
-        "reduceOptions": { "calcs": ["lastNotNull"], "values": false, "fields": "" },
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false,
+          "fields": ""
+        },
         "textMode": "auto"
       },
       "fieldConfig": {
         "defaults": {
-          "color": { "mode": "thresholds" },
+          "color": {
+            "mode": "thresholds"
+          },
           "unit": "percentunit",
           "min": 0,
           "max": 1,
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "red", "value": null },
-              { "color": "orange", "value": 0.9 },
-              { "color": "green", "value": 0.98 }
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.9
+              },
+              {
+                "color": "green",
+                "value": 0.98
+              }
             ]
           },
-          "custom": { "displayMode": "auto", "orientation": "horizontal" }
+          "custom": {
+            "displayMode": "auto",
+            "orientation": "horizontal"
+          }
         },
         "overrides": []
       },
@@ -384,42 +616,81 @@
           "refId": "A"
         }
       ],
-      "description": "Worker job success rate as a ratio.\nRequires `worker_job_success_rate` to be exposed."
+      "description": "Worker job success rate as a ratio.\nRequires `worker_job_success_rate` to be exposed.",
+      "links": [
+        {
+          "title": "View alert: Worker down alert",
+          "type": "link",
+          "url": "/alerting/grafana/finance-sync-worker-down/edit",
+          "targetBlank": true
+        }
+      ]
     },
     {
       "title": "Worker Health",
       "type": "stat",
-      "gridPos": { "h": 4, "w": 8, "x": 12, "y": 21 },
+      "gridPos": {
+        "h": 4,
+        "w": 8,
+        "x": 12,
+        "y": 21
+      },
       "id": 12,
       "options": {
         "colorMode": "value",
         "graphMode": "none",
         "justifyMode": "auto",
         "orientation": "auto",
-        "reduceOptions": { "calcs": ["lastNotNull"], "values": false, "fields": "" },
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false,
+          "fields": ""
+        },
         "textMode": "auto"
       },
       "fieldConfig": {
         "defaults": {
-          "color": { "mode": "thresholds" },
+          "color": {
+            "mode": "thresholds"
+          },
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "red", "value": null },
-              { "color": "green", "value": 0 },
-              { "color": "green", "value": 1 }
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
             ]
           },
           "mappings": [
             {
               "type": "value",
               "options": {
-                "0": { "text": "DOWN", "color": "red" },
-                "1": { "text": "UP", "color": "green" }
+                "0": {
+                  "text": "DOWN",
+                  "color": "red"
+                },
+                "1": {
+                  "text": "UP",
+                  "color": "green"
+                }
               }
             }
           ],
-          "custom": { "displayMode": "auto", "orientation": "horizontal" }
+          "custom": {
+            "displayMode": "auto",
+            "orientation": "horizontal"
+          }
         },
         "overrides": []
       },
@@ -431,26 +702,48 @@
           "refId": "A"
         }
       ],
-      "description": "Worker process up/down status."
+      "description": "Worker process up/down status.",
+      "links": [
+        {
+          "title": "View alert: Worker down alert",
+          "type": "link",
+          "url": "/alerting/grafana/finance-sync-worker-down/edit",
+          "targetBlank": true
+        }
+      ]
     },
     {
       "title": "Uptime",
       "type": "stat",
-      "gridPos": { "h": 3, "w": 4, "x": 20, "y": 21 },
+      "gridPos": {
+        "h": 3,
+        "w": 4,
+        "x": 20,
+        "y": 21
+      },
       "id": 13,
       "options": {
         "colorMode": "none",
         "graphMode": "none",
         "justifyMode": "auto",
         "orientation": "auto",
-        "reduceOptions": { "calcs": ["lastNotNull"], "values": false, "fields": "" },
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false,
+          "fields": ""
+        },
         "textMode": "auto"
       },
       "fieldConfig": {
         "defaults": {
           "unit": "dtdurations",
           "decimals": 1,
-          "custom": { "displayMode": "auto", "orientation": "horizontal" }
+          "custom": {
+            "displayMode": "auto",
+            "orientation": "horizontal"
+          }
         },
         "overrides": []
       },
@@ -471,7 +764,11 @@
         "name": "datasource",
         "type": "datasource",
         "query": "prometheus",
-        "current": { "selected": true, "text": "Prometheus", "value": "prometheus" },
+        "current": {
+          "selected": true,
+          "text": "Prometheus",
+          "value": "prometheus"
+        },
         "hide": 0,
         "refresh": 1
       },
@@ -479,7 +776,11 @@
         "name": "env",
         "type": "custom",
         "query": "dev, staging, prod",
-        "current": { "selected": true, "text": "prod", "value": "prod" },
+        "current": {
+          "selected": true,
+          "text": "prod",
+          "value": "prod"
+        },
         "hide": 0,
         "refresh": 1,
         "label": "Environment",
@@ -489,7 +790,11 @@
         "name": "path",
         "type": "query",
         "query": "label_values(http_requests_total, path)",
-        "current": { "selected": true, "text": "All", "value": "__all" },
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "__all"
+        },
         "hide": 0,
         "refresh": 2,
         "label": "Path",
@@ -503,7 +808,10 @@
     "list": [
       {
         "builtIn": 1,
-        "datasource": { "type": "grafana", "uid": "-- Grafana --" },
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
         "enable": true,
         "hide": true,
         "iconColor": "rgba(0, 211, 255, 1)",
@@ -513,7 +821,25 @@
     ]
   },
   "links": [
-    { "title": "Sync Health", "type": "dashboards", "tags": ["finance-sync"] },
-    { "title": "Portfolio", "type": "dashboards", "tags": ["finance-sync"] }
+    {
+      "title": "Sync Health",
+      "type": "dashboards",
+      "tags": [
+        "finance-sync"
+      ]
+    },
+    {
+      "title": "Portfolio",
+      "type": "dashboards",
+      "tags": [
+        "finance-sync"
+      ]
+    },
+    {
+      "title": "Alert rules",
+      "type": "link",
+      "url": "/alerting/list?search=Finance%20Sync",
+      "targetBlank": true
+    }
   ]
 }

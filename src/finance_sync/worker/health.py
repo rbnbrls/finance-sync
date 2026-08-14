@@ -65,6 +65,7 @@ class WorkerHealthServer:
         app.router.add_get("/health/live", self._handle_live)
         app.router.add_get("/health/ready", self._handle_ready)
         app.router.add_get("/health/jobs", self._handle_jobs)
+        app.router.add_get("/metrics", self._handle_metrics)
 
         runner = web.AppRunner(app)
         await runner.setup()
@@ -139,6 +140,25 @@ class WorkerHealthServer:
             {
                 "jobs": self._monitor.summarize(),
             }
+        )
+
+    async def _handle_metrics(
+        self,
+        _request: Any,  # web.Request
+    ) -> Any:  # web.Response
+        """Prometheus exposition for the worker process.
+
+        The worker registers its own metrics (outbox backlog, enrichment
+        staleness, job monitor gauges) in the default Prometheus registry;
+        this endpoint exposes them so ``prometheus.yml``'s
+        ``finance-sync-worker`` scrape target resolves.
+        """
+        from aiohttp import web
+        from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
+
+        return web.Response(
+            body=generate_latest(),
+            headers={"Content-Type": CONTENT_TYPE_LATEST},
         )
 
     # ── Internal helpers ─────────────────────────────────────────────

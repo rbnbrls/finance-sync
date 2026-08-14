@@ -37,6 +37,7 @@ from finance_sync.exporter.actual_budget.client import (
     ActualBudgetClient,
     ActualBudgetConnectionError,
 )
+from finance_sync.observability.metrics import export_runs_total
 
 if TYPE_CHECKING:
     from finance_sync.exporter.actual_budget.config import ActualBudgetConfig
@@ -130,6 +131,16 @@ class ActualBudgetExporter:
         self._log = logger.bind(tenant_id=tenant_id)
 
     # ── Public API ───────────────────────────────────────────────────
+
+    @staticmethod
+    def _record_export_metrics(
+        result: ExportResult,
+    ) -> None:
+        """Record the export run outcome as a Prometheus counter."""
+        export_runs_total.labels(
+            exporter="actual_budget",
+            status=result.status,
+        ).inc()
 
     async def run_export(
         self,
@@ -281,7 +292,7 @@ class ActualBudgetExporter:
                 txns_failed=txns_failed,
                 duration_s=(end_ts - start_ts).total_seconds(),
             )
-            return ExportResult(
+            result = ExportResult(
                 status="completed",
                 accounts_mapped=accts_mapped,
                 transactions_attempted=txns_attempted,
@@ -289,6 +300,8 @@ class ActualBudgetExporter:
                 transactions_failed=txns_failed,
                 duration_s=(end_ts - start_ts).total_seconds(),
             )
+            self._record_export_metrics(result)
+            return result
 
         except ActualBudgetConnectionError as exc:
             end_ts = datetime.now(UTC)
@@ -301,7 +314,7 @@ class ActualBudgetExporter:
                 failed=txns_failed,
             )
             self._log.error("export_connection_failed", error=str(exc))
-            return ExportResult(
+            result = ExportResult(
                 status="failed",
                 accounts_mapped=accts_mapped,
                 transactions_attempted=txns_attempted,
@@ -310,6 +323,8 @@ class ActualBudgetExporter:
                 error_message=str(exc),
                 duration_s=(end_ts - start_ts).total_seconds(),
             )
+            self._record_export_metrics(result)
+            return result
         except Exception:
             end_ts = datetime.now(UTC)
             tb = traceback.format_exc()
@@ -322,7 +337,7 @@ class ActualBudgetExporter:
                 failed=txns_failed,
             )
             self._log.error("export_failed", traceback=tb)
-            return ExportResult(
+            result = ExportResult(
                 status="failed",
                 accounts_mapped=accts_mapped,
                 transactions_attempted=txns_attempted,
@@ -331,6 +346,8 @@ class ActualBudgetExporter:
                 error_message=tb[:2048],
                 duration_s=(end_ts - start_ts).total_seconds(),
             )
+            self._record_export_metrics(result)
+            return result
 
     # ── Account resolution ──────────────────────────────────────────
 

@@ -610,3 +610,76 @@ class TestActualBudgetLifecycle(ExportLifecycleContractTest):
         assert result.status == "completed"
         assert result.transactions_attempted == 0
         assert result.transactions_exported == 0
+
+
+class TestActualBudgetExportMetrics:
+    """Export outcome Prometheus counter (G-06)."""
+
+    def test_record_metrics_completed(self) -> None:
+        """Completed export increments the exporter counter."""
+        from prometheus_client import REGISTRY
+
+        from finance_sync.exporter.actual_budget.exporter import (
+            ActualBudgetExporter,
+            ExportResult,
+        )
+
+        result = ExportResult(
+            status="completed",
+            accounts_mapped=1,
+            transactions_attempted=3,
+            transactions_exported=3,
+            transactions_failed=0,
+            duration_s=1.0,
+        )
+        before = (
+            REGISTRY.get_sample_value(
+                "export_runs_total",
+                {"exporter": "actual_budget", "status": "completed"},
+            )
+            or 0.0
+        )
+        ActualBudgetExporter._record_export_metrics(result)
+
+        assert (
+            REGISTRY.get_sample_value(
+                "export_runs_total",
+                {"exporter": "actual_budget", "status": "completed"},
+            )
+            == before + 1.0
+        )
+
+    def test_record_metrics_failed(self) -> None:
+        """Failed export increments the failed-status counter."""
+        from prometheus_client import REGISTRY
+
+        from finance_sync.exporter.actual_budget.exporter import (
+            ActualBudgetExporter,
+            ExportResult,
+        )
+
+        result = ExportResult(
+            status="failed",
+            accounts_mapped=0,
+            transactions_attempted=0,
+            transactions_exported=0,
+            transactions_failed=0,
+            error_message="boom",
+            duration_s=1.0,
+        )
+        before = (
+            REGISTRY.get_sample_value(
+                "export_runs_total",
+                {"exporter": "actual_budget", "status": "failed"},
+            )
+            or 0.0
+        )
+        ActualBudgetExporter._record_export_metrics(result)
+
+        assert (
+            REGISTRY.get_sample_value(
+                "export_runs_total",
+                {"exporter": "actual_budget", "status": "failed"},
+            )
+            == before + 1.0
+        )
