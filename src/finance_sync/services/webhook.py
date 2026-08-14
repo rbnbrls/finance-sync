@@ -212,6 +212,11 @@ class WebhookService:
         async with self._session_factory() as session:
             for wh in webhooks:
                 await self._deliver(wh, event_type, data, event_id, session)
+            # Persist every delivery-log row (and its status update) —
+            # without this commit the audit trail and the retry/DLQ
+            # mechanism (retry_due_deliveries) silently see nothing,
+            # because the session closes and rolls the rows back.
+            await session.commit()
 
         return len(webhooks)
 

@@ -15,13 +15,15 @@ The project uses GitHub Actions for CI/CD (`.github/workflows/ci.yml`):
 | **Test** | Pytest unit suite (aiosqlite, no external services) with coverage threshold |
 | **Migrations** | Alembic linear-chain check + `upgrade head` on an empty PostgreSQL |
 | **Integration** | `pytest -m integration` against ephemeral PostgreSQL + Redis (repositories, outbox, sync orchestrator, Redis locks/rate-limits, migration upgrade/downgrade) |
+| **E2E** | `pytest -m e2e` — full API → worker → outbox pipeline against ephemeral PostgreSQL + Redis, proving the exactly-once observable outcome under at-least-once delivery |
 | **Security** | pip-audit vulnerability scan + CycloneDX SBOM |
 | **Build & Push** | Docker image built with Buildx and pushed to `ghcr.io/rbnbrls/finance-sync` |
 | **Deploy** | Triggers Coolify deployment on push to `main` |
 
 ## Testing
 
-There are two test suites, split by the `integration` pytest marker:
+There are three test suites, split by the `integration` and `e2e` pytest
+markers:
 
 ### Unit tests (default, fast)
 
@@ -32,8 +34,9 @@ dependencies — no Docker, PostgreSQL or Redis required:
 uv run pytest                        # or: make test
 ```
 
-It covers everything under `tests/` except `tests/integration/` (the
-`-m "not integration"` deselect is applied by the Makefile and CI).
+It covers everything under `tests/` except `tests/integration/` and
+`tests/e2e/` (the `-m "not integration and not e2e"` deselect is applied
+by the Makefile and CI).
 
 ### Integration tests (real PostgreSQL + Redis)
 
@@ -68,6 +71,58 @@ uv run pytest -m integration -v
 If `TEST_DATABASE_URL` / `TEST_REDIS_URL` are unset the integration tests
 are skipped with a pointer to this section, so plain `pytest` stays green
 on machines without Docker.
+
+### E2E tests (API → worker exactly-once)
+
+`tests/e2e/` brings up the **full stack** — the FastAPI app, the
+background worker (`process_outbox_job`), real PostgreSQL and real Redis
+— and drives a sync **through the HTTP API**, then runs the worker's
+outbox consumer, exactly like a production deployment:
+
+1. `POST /api/v1/sync/{provider}` (Bearer auth) runs the sync pipeline:
+   accounts + transactions are upserted and `account.created` /
+   `transaction.created` events land in the transactional outbox —
+   all atomically.
+2. The worker (`process_outbox_job`) polls the outbox and delivers each
+   message to subscribed webhooks (a local capture server records every
+   POST).
+3. At-least-once delivery is simulated two ways: re-driving the same sync
+   through the API (a redelivered sync job), and re-processing outbox
+   messages that were delivered but whose `pending → sent` ack never
+   committed (a worker crash between side effect and commit).
+
+The suite then asserts the **exactly-once observable outcome**:
+
+* **Transactions/accounts** — re-syncs upsert by
+  `(tenant, provider, external_id)`; the row count and the set of
+  external ids never grow.
+* **Outbox entries** — `created` events are emitted only for new
+  entities, and every message carries a unique `idempotency_key`
+  (DB-unique); a redelivered sync adds no rows.
+* **Export runs / sync runs** — redeliveries create no export runs;
+  each sync *attempt* records its own `sync_runs` row (attempts are
+  expected), but no outcome is duplicated.
+* **Webhook fan-out** — the transport itself is at-least-once by design:
+  a redelivered message triggers one more POST carrying the same
+  `event_id`, which consumers dedupe on.  What never happens is a *new*
+  domain event: the domain tables stay exactly-once.
+
+Run it with Docker (same ephemeral PG+Redis stack as integration):
+
+```bash
+make test-e2e
+```
+
+or manually against any PG/Redis:
+
+```bash
+TEST_DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/finance_sync_test \
+TEST_REDIS_URL=redis://localhost:6379/15 \
+uv run pytest -m e2e -v
+```
+
+Like the integration suite, the e2e tests skip when the env vars are
+unset and are excluded from the default `pytest` run and the CI unit job.
 
 ### Required GitHub Secrets
 
