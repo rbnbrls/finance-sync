@@ -166,11 +166,16 @@ Hermes dependencies (each violates the independence requirement):
 5. **Not in the repo:** the script and its tests (`test_finance_sync_monitor.py`)
    live under `~/.hermes/scripts/`, so the repo has no record of its existence.
 
-Additional defect found during the audit: line 95 passes a literal
-`Authorization: Bearer ***` to the Coolify curl (the token is **not**
-interpolated), so `check_coolify_app()` always gets HTTP 401, `restart_count`
-is always `-1`, and restart-count-based crash detection never fires. Only the
-direct health-endpoint check works.
+Additional defect found during the audit: `check_coolify_app()` builds its
+auth header with `f"Authorization: Bearer {GITHUB_TOKEN}"` (line 95), but no
+module-level `GITHUB_TOKEN` exists — the script's own `TOKEN` (Coolify token,
+read from env / `~/.hermes/config.yaml` at lines 27–40) is never used for this
+call. The f-string therefore raises `NameError` on every run, the broad
+`except` swallows it, and `check_coolify_app()` always returns
+`status="error: name 'GITHUB_TOKEN' is not defined"`, `restart_count=-1`.
+Restart-count-based crash detection therefore never fires; only the direct
+health-endpoint check works. The correct fix is to pass `TOKEN`
+(`COOLIFY_API_TOKEN`) in that header.
 
 ### F2. `wealthfolio-daily-sync.sh` (designed for Hermes cron 06:00 — currently UNSCHEDULED)
 
@@ -206,7 +211,7 @@ functionality the repo needs at runtime.
 |---|---|---|---|
 | R1 | Give Actual Budget exporter a standalone CLI | S | Add `actual-budget push/export` subcommand to `src/finance_sync/cli.py` mirroring the Wealthfolio one (`ActualBudgetExporter` is already complete); add a `[project.scripts]` console entry for `python -m finance_sync` ergonomics; CLI test with mocked AB server. |
 | R2 | In-repo Wealthfolio delivery sweep job | S–M | Register an `export_wealthfolio` job in `worker/scheduler.py` (IntervalTrigger, default 5 min) per ARCHITECTURE.md §5, calling `WealthfolioExporter.push_to_wealthfolio` for configured tenants; gate on `WEALTHFOLIO_SERVER_URL`/`WEALTHFOLIO_PASSWORD` being set; add env `WORKER_JOB_EXPORT_ENABLED`; unit test. |
-| R3 | Port `finance-sync-monitor` into the repo and decouple from Hermes | M | Move script to `src/finance_sync/monitoring/health_monitor.py` (or `scripts/`); read tokens **only** from env (`COOLIFY_API_TOKEN`, `GITHUB_TOKEN`) with documented `.env`; move state to a data dir (e.g. `/var/lib/finance-sync/` or `STATE_FILE` env); fix the `Bearer ***` bug (line 95); ship a systemd timer unit (or Coolify scheduled task) as the standalone schedule; add tests; remove the `~/.hermes` copy and the Hermes cron job. |
+| R3 | Port `finance-sync-monitor` into the repo and decouple from Hermes | M | Move script to `src/finance_sync/monitoring/health_monitor.py` (or `scripts/`); read tokens **only** from env (`COOLIFY_API_TOKEN`, `GITHUB_TOKEN`) with documented `.env`; move state to a data dir (e.g. `/var/lib/finance-sync/` or `STATE_FILE` env); fix the Coolify auth header (use `TOKEN`/`COOLIFY_API_TOKEN` — line 95 currently interpolates the undefined `GITHUB_TOKEN` and always NameErrors); ship a systemd timer unit (or Coolify scheduled task) as the standalone schedule; add tests; remove the `~/.hermes` copy and the Hermes cron job. |
 | R4 | Fold / replace `wealthfolio-daily-sync.sh` | S | Preferred: delete it once R2 exists (the worker sweep covers daily push). Alternative: move into repo as `scripts/wealthfolio-daily-sync.sh` + systemd timer + documented env; remove `~/.hermes` copy; remove any Hermes cron reference. |
 | R5 | Alembic migrations for export tables | S | Part of G-01; add `export_runs` / `export_deliveries` / `actual_budget_account_mappings` to the migration chain so export runs are durable without `create_all`. |
 | R6 | Align ARCHITECTURE.md §5 with reality | S | Either implement the promised jobs (exporter sweep → R2; weekly fundamentals; hourly bunq cards/scheduled payments → G-04) or mark them explicitly as not-yet-implemented to stop doc/impl drift. |
