@@ -1,13 +1,14 @@
 # =============================================================================
 # CI Pipeline — finance-sync
 # =============================================================================
-# Runs on push/PR to main.  Five independent jobs:
+# Runs on push/PR to main.  Six independent jobs:
 #
-#   lint     – Ruff check + format check
-#   types    – Pyright strict mode
-#   test     – Pytest with coverage threshold 85%
-#   security – pip-audit vulnerability scan + CycloneDX SBOM
-#   build    – Docker image build (no push)
+#   lint       – Ruff check + format check
+#   types      – Pyright strict mode
+#   test       – Pytest with coverage threshold 85%
+#   migrations – Alembic upgrade head against an empty PostgreSQL
+#   security   – pip-audit vulnerability scan + CycloneDX SBOM
+#   build      – Docker image build (no push)
 #
 name: CI
 
@@ -150,6 +151,75 @@ jobs:
           name: test-results-${{ matrix.python-version }}
           path: junit.xml
           retention-days: 14
+
+  # ── Migration upgrade test ──────────────────────────────────────────
+  migrations:
+    name: Migrations
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: finance_sync_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.1.0
+        with:
+          enable-cache: true
+          cache-suffix: migrations
+
+      - name: Install Python 3.12
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: uv sync --extra dev --frozen
+
+      - name: Check migration chain is linear
+        run: >
+          uv run alembic history
+          | uv run python -c
+          "import sys; lines=[l for l in sys.stdin if l.strip()];
+          assert len([l for l in lines if '(head)' in l]) == 1, 'expected exactly one head';
+          print(f'linear chain OK: {len(lines)} revisions, single head')"
+        env:
+          ASYNC_DB_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/finance_sync_test
+
+      - name: Run alembic upgrade head on empty database
+        run: uv run alembic upgrade head
+        env:
+          ASYNC_DB_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/finance_sync_test
+
+      - name: Verify export tables exist after migration
+        run: >
+          uv run python -c
+          "import asyncio, os;
+          from sqlalchemy import text;
+          from sqlalchemy.ext.asyncio import create_async_engine;
+          async def main():
+              e = create_async_engine(os.environ['ASYNC_DB_URL']);
+              async with e.connect() as c:
+                  for t in ('export_runs','export_deliveries','ab_account_mappings'):
+                      r = await c.execute(text(f\"SELECT to_regclass('public.{t}')\"));
+                      assert r.scalar() == t, f'missing table {t}';
+                      print(f'{t}: OK');
+              await e.dispose();
+          asyncio.run(main())"
+        env:
+          ASYNC_DB_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/finance_sync_test
 
   # ── Security + SBOM ───────────────────────────────────────────────────
   security:
