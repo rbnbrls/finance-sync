@@ -95,6 +95,12 @@ def mock_session() -> AsyncMock:
     mock_result.scalar.return_value = 0
     mock_result.scalar_one_or_none.return_value = None
     mock_result.all.return_value = []
+    # Default row for result.one() (used by _get_valuation_coverage)
+    default_row = MagicMock()
+    default_row.as_of = None
+    default_row.accounts = 0
+    default_row.holdings = 0
+    mock_result.one.return_value = default_row
     session.execute.return_value = mock_result
     return session
 
@@ -239,6 +245,15 @@ class TestPerformanceServiceSummary:
         assert result.mwr is not None
         assert result.benchmark is not None
         assert result.attribution is not None
+
+    async def test_summary_meta_present(self, svc: PerformanceService) -> None:
+        """The performance summary declares as-of/freshness/coverage."""
+        result = await svc.get_summary(tenant_id="t1")
+        assert result.meta is not None
+        assert result.meta.coverage is not None
+        assert result.meta.coverage.accounts == 0
+        assert result.meta.coverage.holdings == 0
+        assert result.meta.freshness in ("fresh", "stale", "unknown")
 
 
 # ═══════════════════════════════════════════════════════════════════════

@@ -427,6 +427,24 @@ class TestAllocationServiceWithData:
         ac2_ac = {b.name: b for b in acct2.by_asset_class}
         assert ac2_ac["bond"].value == Decimal(300)
 
+    async def test_meta_envelope_present(self, mock_session: AsyncMock) -> None:
+        """The allocation response declares as-of/freshness/coverage."""
+        await self._setup_holdings(mock_session)
+        svc = AllocationService(mock_session)
+
+        result = await svc.get_allocation(tenant_id="t1")
+
+        assert result.meta is not None
+        assert result.meta.as_of == datetime(2025, 6, 15, tzinfo=UTC)
+        # Holdings observed in 2025 are older than the 24h horizon
+        assert result.meta.freshness == "stale"
+        assert result.meta.coverage is not None
+        assert result.meta.coverage.accounts == 2
+        assert result.meta.coverage.holdings == 3
+        assert result.meta.coverage.priced_holdings == 3
+        assert result.meta.coverage.stale_holdings == 3
+        assert result.meta.caveats
+
     async def test_sector_and_region_unclassified(
         self, mock_session: AsyncMock
     ) -> None:

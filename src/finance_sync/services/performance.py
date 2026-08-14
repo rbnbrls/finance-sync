@@ -26,6 +26,11 @@ from finance_sync.models.holding import Holding
 from finance_sync.models.security import Security
 from finance_sync.models.security_price import SecurityPrice
 from finance_sync.models.transaction import Transaction
+from finance_sync.schemas.freshness import (
+    AggregateMeta,
+    CoverageInfo,
+    build_meta,
+)
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -122,6 +127,13 @@ class PerformanceSummaryResponse(BaseModel):
     benchmark: BenchmarkComparisonResponse | None = None
     attribution: AttributionResponse | None = None
     currency_code: str = "EUR"
+    meta: AggregateMeta = Field(
+        default_factory=AggregateMeta,
+        description=(
+            "As-of / freshness / coverage envelope (docs/API.md "
+            "``meta`` contract)"
+        ),
+    )
 
 
 # ── Service ────────────────────────────────────────────────────────────
@@ -656,12 +668,53 @@ class PerformanceService:
             benchmark_security_id=benchmark_security_id,
         )
 
+        # As-of / freshness / coverage metadata from the underlying
+        # valuation data (holdings in the evaluation window).
+        (
+            as_of,
+            account_count,
+            holding_count,
+        ) = await self._get_valuation_coverage(tenant_id, start, end)
+
         return PerformanceSummaryResponse(
             twr=twr,
             mwr=mwr,
             benchmark=bench,
             attribution=attr,
+            meta=build_meta(
+                as_of=as_of,
+                coverage=CoverageInfo(
+                    accounts=account_count,
+                    holdings=holding_count,
+                    priced_holdings=holding_count,
+                ),
+            ),
         )
+
+    async def _get_valuation_coverage(
+        self,
+        tenant_id: str,
+        start: datetime,
+        end: datetime,
+    ) -> tuple[datetime | None, int, int]:
+        """Return (latest valuation timestamp, account count, holding count)
+        for holdings observed within ``[start, end]``."""
+        stmt = select(
+            func.max(Holding.observed_at).label("as_of"),
+            func.count(func.distinct(Holding.account_id)).label(  # type: ignore[attr-defined]
+                "accounts"
+            ),
+            func.count().label("holdings"),
+        ).where(
+            Holding.tenant_id == tenant_id,  # type: ignore[attr-defined]
+            Holding.observed_at >= start,  # type: ignore[attr-defined]
+            Holding.observed_at <= end,  # type: ignore[attr-defined]
+        )
+        result = await self._session.execute(stmt)
+        row = result.one()
+        accounts: int = row.accounts or 0  # type: ignore[assignment]
+        holdings: int = row.holdings or 0  # type: ignore[assignment]
+        return row.as_of, accounts, holdings
 
     # ── Internal helpers ──────────────────────────────────────────────
 

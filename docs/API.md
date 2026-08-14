@@ -2,6 +2,46 @@
 
 Base URL: `/api/v1`. JSON uses lower camel case externally, RFC 3339 timestamps, decimal values encoded as strings, and ISO currencies. Every collection endpoint supports `limit` (1–500), opaque `cursor`, `from`, `to`, and an `asOf` timestamp where meaningful. Responses include `meta: {asOf, currency, nextCursor, freshness}`.
 
+### Meta envelope — as-of / freshness / coverage
+
+Every aggregate endpoint (`/allocation`, `/cashflow`, `/performance`,
+`/subscriptions`, `/net-worth`) declares a `meta` object so clients can
+judge how current and how complete the underlying data is:
+
+```json
+{
+  "meta": {
+    "asOf": "2026-08-14T12:00:00Z",
+    "freshness": "fresh",
+    "coverage": {
+      "accounts": 4,
+      "holdings": 18,
+      "pricedHoldings": 18,
+      "staleHoldings": 1,
+      "items": 42
+    },
+    "caveats": ["1 holding(s) have observations older than 24h"]
+  }
+}
+```
+
+| Field | Meaning |
+|---|---|
+| `meta.asOf` | Timestamp of the underlying data (latest holding/transaction observation); `null` when no data exists. |
+| `meta.freshness` | `fresh` (data newer than the 24h horizon), `stale` (older), `unknown` (no data), or `partial` (reserved for mixed per-item freshness). |
+| `meta.coverage.accounts` | Accounts included in the computation. |
+| `meta.coverage.holdings` | Holdings/positions included (0 for cashflow/subscriptions). |
+| `meta.coverage.pricedHoldings` | Holdings with a market value. |
+| `meta.coverage.staleHoldings` | Holdings observed more than 24h ago. |
+| `meta.coverage.items` | Rows considered (transactions for `/cashflow`, subscriptions for `/subscriptions`). |
+| `meta.caveats` | Human-readable data-quality notes (e.g. stale holdings). |
+
+Price cache reads honor a configurable TTL (`PRICE_CACHE_TTL_SECONDS`,
+default 24h): cached prices older than the TTL are re-fetched from the
+upstream source; when the source is unavailable the cached data is
+served with an explicit stale marker (`quote.stale` / `history.stale`
+in the enrichment gateway, surfaced as `stale` in price responses).
+
 Authentication is `Authorization: Bearer <JWT>` or `X-API-Key`. Mutations require `Idempotency-Key`; replay returns the original result. Errors use RFC 9457 Problem Details, with a correlation ID.
 
 ## Resources

@@ -16,6 +16,11 @@ from pydantic import BaseModel, Field
 
 from finance_sync.api.deps.auth import AuthContext, require_permission
 from finance_sync.dependencies import get_container, get_db
+from finance_sync.schemas.freshness import (
+    AggregateMeta,
+    CoverageInfo,
+    build_meta,
+)
 from finance_sync.services.subscription_detector import SubscriptionDetector
 from finance_sync.services.subscription_detector.service import (
     Subscription as SubscriptionResult,
@@ -114,6 +119,13 @@ class SubscriptionListResponse(BaseModel):
     total: int
     limit: int
     offset: int
+    meta: AggregateMeta = Field(
+        default_factory=AggregateMeta,
+        description=(
+            "As-of / freshness / coverage envelope (docs/API.md "
+            "``meta`` contract)"
+        ),
+    )
 
 
 class SubscriptionUpdateRequest(BaseModel):
@@ -517,11 +529,26 @@ async def list_subscriptions(
         offset=offset,
     )
 
+    # As-of / freshness / coverage metadata: the list reflects the DB
+    # state at query time.
+    account_ids = {
+        str(getattr(s, "account_id", "") or "")
+        for s in subs
+        if getattr(s, "account_id", None)
+    }
+
     return {
         "items": [_sub_to_response(s).model_dump() for s in subs],
         "total": len(subs),
         "limit": limit,
         "offset": offset,
+        "meta": build_meta(
+            as_of=datetime.now(UTC),
+            coverage=CoverageInfo(
+                accounts=len(account_ids),
+                items=len(subs),
+            ),
+        ).model_dump(),
     }
 
 

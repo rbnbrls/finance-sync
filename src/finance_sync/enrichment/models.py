@@ -62,6 +62,41 @@ class QuoteResult(BaseModel):
     currency_code: str = Field(default="EUR", description="ISO-4217")
     timestamp: datetime = Field(description="When the quote was observed")
     source: str = Field(default="openbb")
+    stale: bool = Field(
+        default=False,
+        description=(
+            "True when the quote was served from a local cache entry "
+            "older than the configured price-cache TTL because the "
+            "upstream source was unavailable (degraded mode)."
+        ),
+    )
+
+
+class PriceHistoryResult(BaseModel):
+    """Historical price series plus cache-freshness metadata.
+
+    Returned by :meth:`EnrichmentGateway.get_historical_prices` so
+    callers can distinguish a fresh series from one that was served
+    from a cache older than the configured TTL because the upstream
+    source was unavailable.
+    """
+
+    observations: list[PriceObservation] = Field(
+        default_factory=list,
+        description="Historical price observations (newest first)",
+    )
+    stale: bool = Field(
+        default=False,
+        description=(
+            "True when the series was served from a local cache older "
+            "than the configured TTL because the upstream source was "
+            "unavailable (degraded mode)."
+        ),
+    )
+    as_of: datetime | None = Field(
+        default=None,
+        description="Timestamp of the most recent observation returned",
+    )
 
 
 class HistoricalPriceRequest(BaseModel):
