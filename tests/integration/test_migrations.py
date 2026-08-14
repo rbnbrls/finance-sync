@@ -59,6 +59,8 @@ EXPECTED_TABLES = {
     "unresolved_securities",
     "detected_subscriptions",
     "resolution_audit_log",
+    # sync cursor persistence (migration 0011)
+    "sync_cursor",
     # exporter tables (migration 0008)
     "export_runs",
     "ab_account_mappings",
@@ -146,7 +148,7 @@ class TestMigrationUpgrade:
         )
 
         version = await _alembic_version(fresh_database_url)
-        assert version == "0010", f"expected head revision 0010, got {version}"
+        assert version == "0011", f"expected head revision 0011, got {version}"
 
     async def test_single_head_linear_chain(
         self, fresh_database_url: str
@@ -209,7 +211,7 @@ class TestMigrationUpgrade:
         assert not missing, (
             f"missing tables after re-upgrade: {sorted(missing)}"
         )
-        assert await _alembic_version(fresh_database_url) == "0010"
+        assert await _alembic_version(fresh_database_url) == "0011"
 
     async def test_upgrade_head_is_idempotent(
         self, fresh_database_url: str
@@ -220,4 +222,4 @@ class TestMigrationUpgrade:
 
         tables = await _public_tables(fresh_database_url)
         assert "accounts" in tables
-        assert await _alembic_version(fresh_database_url) == "0010"
+        assert await _alembic_version(fresh_database_url) == "0011"

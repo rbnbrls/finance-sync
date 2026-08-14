@@ -576,6 +576,286 @@ class TestSyncOrchestratorRunPipeline:
         assert "Provider unavailable" in (result.error_message or "")
 
 
+class TestSyncCursorResume:
+    """Sync cursor persistence (G-03): first-sync, resume, idempotency.
+
+    Uses the same mocked UoW / connector fixtures as
+    ``TestSyncOrchestratorRunPipeline``.
+    """
+
+    @pytest.fixture
+    async def orchestrator(self) -> SyncOrchestrator:
+        session_factory = AsyncMock()
+        registry = MagicMock()
+        return SyncOrchestrator(
+            session_factory=session_factory,
+            registry=registry,
+            tenant_id="tenant_1",
+        )
+
+    @pytest.fixture
+    def mock_connector(self, sample_account_data, sample_transaction_data):
+        """Create a fully working mock connector."""
+        connector = MagicMock()
+        connector.name = "mock_provider"
+
+        connector.authenticate = AsyncMock()
+
+        connector._rate_limited_fetch_accounts = AsyncMock(
+            return_value=[sample_account_data]
+        )
+        connector.transform_accounts = MagicMock(
+            return_value=[sample_account_data]
+        )
+        connector.transform_transactions = MagicMock(
+            return_value=[sample_transaction_data]
+        )
+
+        async def fetch_txns(since, account_id=None, limit=None):
+            return [sample_transaction_data]
+
+        connector._rate_limited_fetch_transactions = AsyncMock(
+            side_effect=fetch_txns
+        )
+
+        return connector
+
+    @pytest.fixture
+    def mock_uow(self):
+        """Create a UnitOfWork with mocked repositories."""
+        uow = MagicMock()
+
+        session = AsyncMock()
+        uow.session = session
+
+        existing_account = MagicMock()
+        existing_account.id = "acct_uuid_1"
+
+        accounts_repo = AsyncMock()
+        accounts_repo.get_by_external_id = AsyncMock(
+            side_effect=[None, existing_account]
+        )
+        uow.accounts = accounts_repo
+
+        txn_repo = AsyncMock()
+        txn_repo.get_by_external_id = AsyncMock(return_value=None)
+        uow.transactions = txn_repo
+
+        sync_runs_repo = AsyncMock()
+        uow.sync_runs = sync_runs_repo
+
+        uow.__aenter__ = AsyncMock(return_value=uow)
+        uow.__aexit__ = AsyncMock(return_value=None)
+        uow.commit = AsyncMock()
+        uow.rollback = AsyncMock()
+
+        return uow
+
+    @patch("finance_sync.sync.orchestrator.get_connector_cursors")
+    @patch("finance_sync.sync.orchestrator.upsert_sync_cursor")
+    @patch("finance_sync.sync.orchestrator.start_sync_run")
+    @patch("finance_sync.sync.orchestrator.complete_sync_run")
+    async def test_first_sync_uses_default_window(
+        self,
+        mock_complete_run,
+        mock_start_run,
+        mock_upsert_cursor,
+        mock_get_cursors,
+        orchestrator,
+        mock_connector,
+        mock_uow,
+    ) -> None:
+        """No stored cursors → fetch from the 90-day default window."""
+        mock_get_cursors.return_value = {}
+        mock_start_run.return_value = MagicMock(id="run_cursor_1")
+        default_since = datetime.now(UTC) - timedelta(days=90)
+
+        with patch("finance_sync.db.uow.UnitOfWork", return_value=mock_uow):
+            result = await orchestrator._run_pipeline(
+                session=mock_uow.session,
+                connector=mock_connector,
+                provider_type="mock_provider",
+                since=default_since,
+                log=MagicMock(),
+            )
+
+        assert result.status == SyncRunStatus.COMPLETED
+        # Fetched the full default window, not a stored cursor
+        call = mock_connector._rate_limited_fetch_transactions.await_args
+        assert call.args[0] == default_since
+
+        # On success the cursor is persisted (run start watermark) and
+        # the SyncRun record exposes it.
+        upsert_kwargs = mock_upsert_cursor.await_args.kwargs
+        assert upsert_kwargs["resource"] == "ext_acc_1"
+        assert upsert_kwargs["cursor"] is not None
+        complete_kwargs = mock_complete_run.await_args.kwargs
+        assert complete_kwargs["cursor"] is not None
+
+    @patch("finance_sync.sync.orchestrator.get_connector_cursors")
+    @patch("finance_sync.sync.orchestrator.start_sync_run")
+    @patch("finance_sync.sync.orchestrator.complete_sync_run")
+    async def test_resume_uses_stored_cursor(
+        self,
+        mock_complete_run,
+        mock_start_run,
+        mock_get_cursors,
+        orchestrator,
+        mock_connector,
+        mock_uow,
+    ) -> None:
+        """A re-run resumes from the stored cursor, not the full window."""
+        stored = datetime.now(UTC) - timedelta(days=2)
+        mock_get_cursors.return_value = {"ext_acc_1": stored}
+        mock_start_run.return_value = MagicMock(id="run_cursor_2")
+        default_since = datetime.now(UTC) - timedelta(days=90)
+
+        with patch("finance_sync.db.uow.UnitOfWork", return_value=mock_uow):
+            result = await orchestrator._run_pipeline(
+                session=mock_uow.session,
+                connector=mock_connector,
+                provider_type="mock_provider",
+                since=default_since,
+                log=MagicMock(),
+            )
+
+        assert result.status == SyncRunStatus.COMPLETED
+        call = mock_connector._rate_limited_fetch_transactions.await_args
+        assert call.args[0] == stored
+        assert call.args[0] != default_since
+
+    @patch("finance_sync.sync.orchestrator.get_connector_cursors")
+    @patch("finance_sync.sync.orchestrator.start_sync_run")
+    @patch("finance_sync.sync.orchestrator.complete_sync_run")
+    async def test_mixed_new_and_resumed_accounts(
+        self,
+        mock_complete_run,
+        mock_start_run,
+        mock_get_cursors,
+        orchestrator,
+        mock_connector,
+        mock_uow,
+        sample_account_data,
+    ) -> None:
+        """Accounts without a cursor keep the default; resumed ones don't."""
+        second_account = CanonicalAccountData(
+            provider_key="mock_provider",
+            external_account_id="ext_acc_2",
+            name="Savings",
+            account_type="savings",
+            currency_code="EUR",
+            current_balance=Decimal("500.00"),
+            available_balance=Decimal("500.00"),
+        )
+        mock_connector.transform_accounts.return_value = [
+            sample_account_data,
+            second_account,
+        ]
+        mock_connector._rate_limited_fetch_transactions = AsyncMock(
+            return_value=[]
+        )
+
+        async def get_acct(tenant_id, provider_key, external_account_id):
+            acct = MagicMock()
+            acct.id = f"acct_{external_account_id}"
+            return acct
+
+        mock_uow.accounts.get_by_external_id = AsyncMock(side_effect=get_acct)
+
+        stored = datetime.now(UTC) - timedelta(days=2)
+        mock_get_cursors.return_value = {"ext_acc_1": stored}
+        mock_start_run.return_value = MagicMock(id="run_cursor_3")
+        default_since = datetime.now(UTC) - timedelta(days=90)
+
+        with patch("finance_sync.db.uow.UnitOfWork", return_value=mock_uow):
+            result = await orchestrator._run_pipeline(
+                session=mock_uow.session,
+                connector=mock_connector,
+                provider_type="mock_provider",
+                since=default_since,
+                log=MagicMock(),
+            )
+
+        assert result.status == SyncRunStatus.COMPLETED
+        calls = mock_connector._rate_limited_fetch_transactions.await_args_list
+        sices = {c.kwargs["account_id"]: c.args[0] for c in calls}
+        assert sices == {
+            "ext_acc_1": stored,  # resumes
+            "ext_acc_2": default_since,  # new account: full default window
+        }
+
+    @patch("finance_sync.sync.orchestrator.get_connector_cursors")
+    @patch("finance_sync.sync.orchestrator.start_sync_run")
+    @patch("finance_sync.sync.orchestrator.complete_sync_run")
+    async def test_explicit_since_overrides_stored_cursor(
+        self,
+        mock_complete_run,
+        mock_start_run,
+        mock_get_cursors,
+        orchestrator,
+        mock_connector,
+        mock_uow,
+    ) -> None:
+        """An operator backfill (explicit since) covers every account."""
+        stored = datetime.now(UTC) - timedelta(days=2)
+        mock_get_cursors.return_value = {"ext_acc_1": stored}
+        mock_start_run.return_value = MagicMock(id="run_cursor_4")
+        explicit = datetime.now(UTC) - timedelta(days=45)
+
+        with patch("finance_sync.db.uow.UnitOfWork", return_value=mock_uow):
+            result = await orchestrator._run_pipeline(
+                session=mock_uow.session,
+                connector=mock_connector,
+                provider_type="mock_provider",
+                since=explicit,
+                log=MagicMock(),
+                resume=False,
+            )
+
+        assert result.status == SyncRunStatus.COMPLETED
+        # Cursor lookup is skipped; the explicit window is used
+        mock_get_cursors.assert_not_awaited()
+        call = mock_connector._rate_limited_fetch_transactions.await_args
+        assert call.args[0] == explicit
+
+    @patch("finance_sync.sync.orchestrator.get_connector_cursors")
+    @patch("finance_sync.sync.orchestrator.upsert_sync_cursor")
+    @patch("finance_sync.sync.orchestrator.start_sync_run")
+    async def test_cursor_not_advanced_on_failure(
+        self,
+        mock_start_run,
+        mock_upsert_cursor,
+        mock_get_cursors,
+        orchestrator,
+        mock_uow,
+    ) -> None:
+        """A failed run never advances the stored cursor."""
+        from finance_sync.connectors.exceptions import PermanentError
+
+        mock_get_cursors.return_value = {
+            "ext_acc_1": datetime.now(UTC) - timedelta(days=2)
+        }
+        mock_start_run.return_value = MagicMock(id="run_cursor_fail")
+
+        connector = MagicMock()
+        connector.name = "mock_provider"
+        connector.authenticate = AsyncMock(
+            side_effect=PermanentError("Bad credentials")
+        )
+
+        with patch("finance_sync.db.uow.UnitOfWork", return_value=mock_uow):
+            result = await orchestrator._run_pipeline(
+                session=mock_uow.session,
+                connector=connector,
+                provider_type="mock_provider",
+                since=datetime.now(UTC) - timedelta(days=90),
+                log=MagicMock(),
+            )
+
+        assert result.status == SyncRunStatus.FAILED
+        mock_upsert_cursor.assert_not_awaited()
+
+
 # ── Upsert helpers (unit) ─────────────────────────────────────────
 
 
@@ -1071,6 +1351,158 @@ class TestBunqCardsSync:
         )
 
     @patch("finance_sync.sync.orchestrator.start_sync_run")
+    @patch("finance_sync.sync.orchestrator.upsert_sync_cursor")
+    @patch("finance_sync.sync.orchestrator.complete_sync_run")
+    async def test_cards_pipeline_persists_cursor_on_success(
+        self,
+        mock_complete_run,
+        mock_upsert_cursor,
+        mock_start_run,
+        orchestrator,
+        mock_connector,
+        mock_uow,
+    ) -> None:
+        """A successful cards run advances the card_transactions cursor."""
+        from finance_sync.sync.sync_cursor import RESOURCE_CARD_TRANSACTIONS
+
+        mock_start_run.return_value = MagicMock(id="run_cards_cursor")
+
+        with patch("finance_sync.db.uow.UnitOfWork", return_value=mock_uow):
+            result = await orchestrator._run_cards_pipeline(
+                session=mock_uow.session,
+                connector=mock_connector,
+                since=datetime.now(UTC) - timedelta(days=30),
+                log=MagicMock(),
+            )
+
+        assert result.status == SyncRunStatus.COMPLETED
+        upsert_kwargs = mock_upsert_cursor.await_args.kwargs
+        assert upsert_kwargs["resource"] == RESOURCE_CARD_TRANSACTIONS
+        assert upsert_kwargs["connector"] == "bunq_cards"
+        assert upsert_kwargs["cursor"] is not None
+        # Run record exposes the watermark
+        complete_kwargs = mock_complete_run.await_args.kwargs
+        assert complete_kwargs["cursor"] is not None
+
+    @patch("finance_sync.sync.orchestrator.get_cursor")
+    @patch(
+        "finance_sync.sync.orchestrator.SyncOrchestrator._record_sync_metrics"
+    )
+    @patch(
+        "finance_sync.sync.orchestrator.SyncOrchestrator._run_cards_pipeline"
+    )
+    async def test_cards_sync_resumes_from_stored_cursor(
+        self,
+        mock_pipeline,
+        mock_record_metrics,
+        mock_get_cursor,
+    ) -> None:
+        """run_bunq_cards_sync resumes from the stored cards cursor."""
+        from finance_sync.sync.orchestrator import BunqCardsSyncResult
+
+        # MagicMock factory: calling it yields an async-context-manager
+        # session (AsyncMock factories return bare coroutines instead).
+        orchestrator = SyncOrchestrator(
+            session_factory=MagicMock(),
+            registry=MagicMock(),
+            tenant_id="tenant_1",
+        )
+
+        stored = datetime.now(UTC) - timedelta(days=2)
+        mock_get_cursor.return_value = stored
+        mock_pipeline.return_value = BunqCardsSyncResult(
+            status=SyncRunStatus.COMPLETED,
+            schedules_synced=0,
+            card_transactions_synced=0,
+            error_message=None,
+            duration_s=0.0,
+        )
+
+        result = await orchestrator.run_bunq_cards_sync(MagicMock())
+
+        assert result.status == SyncRunStatus.COMPLETED
+        # Pipeline received the stored cursor as its since window
+        assert mock_pipeline.await_args.args[2] == stored
+
+    @patch("finance_sync.sync.orchestrator.get_cursor")
+    @patch(
+        "finance_sync.sync.orchestrator.SyncOrchestrator._record_sync_metrics"
+    )
+    @patch(
+        "finance_sync.sync.orchestrator.SyncOrchestrator._run_cards_pipeline"
+    )
+    async def test_cards_sync_first_run_uses_default_window(
+        self,
+        mock_pipeline,
+        mock_record_metrics,
+        mock_get_cursor,
+    ) -> None:
+        """No stored cards cursor → 90-day default window."""
+        from finance_sync.sync.orchestrator import BunqCardsSyncResult
+
+        orchestrator = SyncOrchestrator(
+            session_factory=MagicMock(),
+            registry=MagicMock(),
+            tenant_id="tenant_1",
+        )
+
+        mock_get_cursor.return_value = None
+        mock_pipeline.return_value = BunqCardsSyncResult(
+            status=SyncRunStatus.COMPLETED,
+            schedules_synced=0,
+            card_transactions_synced=0,
+            error_message=None,
+            duration_s=0.0,
+        )
+
+        result = await orchestrator.run_bunq_cards_sync(MagicMock())
+
+        assert result.status == SyncRunStatus.COMPLETED
+        since_arg = mock_pipeline.await_args.args[2]
+        floor = datetime.now(UTC) - timedelta(days=90, minutes=1)
+        assert since_arg >= floor
+        assert since_arg <= datetime.now(UTC)
+
+    @patch("finance_sync.sync.orchestrator.get_cursor")
+    @patch(
+        "finance_sync.sync.orchestrator.SyncOrchestrator._record_sync_metrics"
+    )
+    @patch(
+        "finance_sync.sync.orchestrator.SyncOrchestrator._run_cards_pipeline"
+    )
+    async def test_cards_explicit_since_skips_cursor_lookup(
+        self,
+        mock_pipeline,
+        mock_record_metrics,
+        mock_get_cursor,
+    ) -> None:
+        """An explicit cards since (backfill) wins over the cursor."""
+        from finance_sync.sync.orchestrator import BunqCardsSyncResult
+
+        orchestrator = SyncOrchestrator(
+            session_factory=MagicMock(),
+            registry=MagicMock(),
+            tenant_id="tenant_1",
+        )
+
+        explicit = datetime.now(UTC) - timedelta(days=400)
+        mock_pipeline.return_value = BunqCardsSyncResult(
+            status=SyncRunStatus.COMPLETED,
+            schedules_synced=0,
+            card_transactions_synced=0,
+            error_message=None,
+            duration_s=0.0,
+        )
+
+        result = await orchestrator.run_bunq_cards_sync(
+            MagicMock(), since=explicit
+        )
+
+        assert result.status == SyncRunStatus.COMPLETED
+        mock_get_cursor.assert_not_awaited()
+        assert mock_pipeline.await_args.args[2] == explicit
+
+    @patch("finance_sync.sync.orchestrator.start_sync_run")
     async def test_cards_pipeline_permanent_error(
         self,
         mock_start_run,
@@ -1169,7 +1601,9 @@ class TestAutoReconciliationAfterSync:
             duration_s=1.5,
         )
 
-        def patch_run_pipeline(session, connector, provider_type, since, log):
+        def patch_run_pipeline(
+            session, connector, provider_type, since, log, *, resume=True
+        ):
             return mock_result
 
         with (
@@ -1217,7 +1651,9 @@ class TestAutoReconciliationAfterSync:
             duration_s=0.5,
         )
 
-        def patch_run_pipeline(session, connector, provider_type, since, log):
+        def patch_run_pipeline(
+            session, connector, provider_type, since, log, *, resume=True
+        ):
             return mock_result
 
         with (
@@ -1258,7 +1694,9 @@ class TestAutoReconciliationAfterSync:
             duration_s=1.5,
         )
 
-        def patch_run_pipeline(session, connector, provider_type, since, log):
+        def patch_run_pipeline(
+            session, connector, provider_type, since, log, *, resume=True
+        ):
             return mock_result
 
         with (
@@ -1325,7 +1763,9 @@ class TestAutoReconciliationDisabled:
             duration_s=1.5,
         )
 
-        def patch_run_pipeline(session, connector, provider_type, since, log):
+        def patch_run_pipeline(
+            session, connector, provider_type, since, log, *, resume=True
+        ):
             return mock_result
 
         with (

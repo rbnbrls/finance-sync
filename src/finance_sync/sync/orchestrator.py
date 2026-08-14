@@ -58,6 +58,12 @@ from finance_sync.sync.outbox import (
     outbox_entity_updated,
     outbox_reconciliation_completed,
 )
+from finance_sync.sync.sync_cursor import (
+    RESOURCE_CARD_TRANSACTIONS,
+    get_connector_cursors,
+    get_cursor,
+    upsert_sync_cursor,
+)
 from finance_sync.sync.sync_run import complete_sync_run, start_sync_run
 
 if TYPE_CHECKING:
@@ -175,7 +181,9 @@ class SyncOrchestrator:
             provider_type:  Connector name (e.g. ``"bunq"``).
             config:         ``ConnectorConfig`` with credentials + options.
             since:          Only fetch transactions on or after this time.
-                            Defaults to 90 days ago.
+                            Defaults to each account's stored sync
+                            cursor (resume), or 90 days ago for accounts
+                            on their first sync.
 
         Returns:
             A ``SyncResult`` named tuple with status, counts, and error.
@@ -193,7 +201,15 @@ class SyncOrchestrator:
         # ── Run the pipeline ──────────────────────────────────────
         async with self._session_factory() as session:
             result = await self._run_pipeline(
-                session, connector, provider_type, _since, log
+                session,
+                connector,
+                provider_type,
+                _since,
+                log,
+                # An explicit `since` is an operator backfill: it wins
+                # over stored cursors.  The default (None) resumes each
+                # account from its stored cursor.
+                resume=since is None,
             )
 
         self._record_sync_metrics(provider_type, result)
@@ -257,14 +273,26 @@ class SyncOrchestrator:
         Args:
             config: ``ConnectorConfig`` with credentials + options.
             since:  Only fetch card transactions on or after this time.
-                    Defaults to 90 days ago.  Scheduled payments are
-                    always fetched in full (they are templates, not an
+                    Defaults to the stored cards cursor, or 90 days ago
+                    for the first sync.  Scheduled payments are always
+                    fetched in full (they are templates, not an
                     append-only stream).
 
         Returns:
             A ``BunqCardsSyncResult`` with status, counts, and error.
         """
-        _since = since or _default_since()
+        # Resume from the stored cards cursor unless an explicit window
+        # was given (explicit backfills always win).
+        cursor = None
+        if since is None:
+            async with self._session_factory() as session:
+                cursor = await get_cursor(
+                    session,
+                    tenant_id=self._tenant_id,
+                    connector="bunq_cards",
+                    resource=RESOURCE_CARD_TRANSACTIONS,
+                )
+        _since = since or cursor or _default_since()
         log = logger.bind(
             provider="bunq",
             tenant_id=self._tenant_id,
@@ -390,6 +418,8 @@ class SyncOrchestrator:
         provider_type: str,
         since: dt_type,
         log: structlog.BoundLogger,
+        *,
+        resume: bool = True,
     ) -> SyncResult:
         from datetime import datetime as _dt
 
@@ -420,10 +450,29 @@ class SyncOrchestrator:
                 accounts_synced = len(canonical_accounts)
                 log.debug("accounts_fetched", count=accounts_synced)
 
-                # 4. Fetch + upsert transactions per account
+                # 4. Fetch + upsert transactions per account.  Each
+                #    account resumes from its own stored cursor when one
+                #    exists; accounts without a cursor (first sync, or a
+                #    newly added account) fall back to the run-level
+                #    ``since`` (explicit backfill or the 90-day default).
+                #    An explicit ``since`` (``resume=False``) disables
+                #    cursor lookups so backfills cover every account.
+                cursors: dict[str, dt_type] = {}
+                if resume:
+                    cursors = await get_connector_cursors(
+                        uow.session,
+                        tenant_id=self._tenant_id,
+                        connector=provider_type,
+                    )
+                if cursors:
+                    log.debug(
+                        "sync_cursors_loaded",
+                        resources=sorted(cursors),
+                    )
                 for ca in canonical_accounts:
+                    acct_since = cursors.get(ca.external_account_id, since)
                     raw_txns = await connector._rate_limited_fetch_transactions(  # type: ignore[attr-defined]
-                        since, account_id=ca.external_account_id
+                        acct_since, account_id=ca.external_account_id
                     )
                     canonical_txns = connector.transform_transactions(raw_txns)
 
@@ -446,13 +495,25 @@ class SyncOrchestrator:
 
                 log.debug("transactions_fetched", count=transactions_synced)
 
-                # 5. Complete the run
+                # 5. Complete the run and advance the sync cursors —
+                #    both only happen on success, atomically inside the
+                #    same UoW transaction (a failure rolls everything
+                #    back so the next run retries the same window).
                 await complete_sync_run(
                     uow,
                     run,
                     status=SyncRunStatus.COMPLETED,
                     items_processed=accounts_synced + transactions_synced,
+                    cursor=start_ts,
                 )
+                for ca in canonical_accounts:
+                    await upsert_sync_cursor(
+                        uow.session,
+                        tenant_id=self._tenant_id,
+                        connector=provider_type,
+                        resource=ca.external_account_id,
+                        cursor=start_ts,
+                    )
 
             # If we get here, the UoW committed successfully
             end_ts = _dt.now(UTC)
@@ -578,12 +639,22 @@ class SyncOrchestrator:
                 card_txns_synced = len(canonical_card_txns)
                 log.debug("card_transactions_fetched", count=card_txns_synced)
 
-                # 6. Complete the run
+                # 6. Complete the run and advance the cards cursor on
+                #    success (scheduled payments are templates and are
+                #    always fetched in full — no cursor for them).
                 await complete_sync_run(
                     uow,
                     run,
                     status=SyncRunStatus.COMPLETED,
                     items_processed=schedules_synced + card_txns_synced,
+                    cursor=start_ts,
+                )
+                await upsert_sync_cursor(
+                    uow.session,
+                    tenant_id=self._tenant_id,
+                    connector="bunq_cards",
+                    resource=RESOURCE_CARD_TRANSACTIONS,
+                    cursor=start_ts,
                 )
 
             end_ts = _dt.now(UTC)
