@@ -89,7 +89,7 @@ for direct Kanban task creation.
 | ms.4.f.3 | Actual Budget exporter | **DONE** | `exporter/actual_budget/` (client, config, exporter with ExportRun + ExportDelivery cursor, transaction_mapper, models), `api/v1/exporters.py` (types/config/runs), `tests/test_actual_budget_exporter.py`, `tests/exporter/test_actual_budget_contract.py`. |
 | ms.4.f.4 | Wealthfolio exporter | **DONE** | `exporter/wealthfolio/` (client, config, exporter, transaction_mapper, models), API wiring in `api/v1/exporters.py`, `tests/test_wealthfolio_exporter.py`, `tests/exporter/test_wealthfolio_client.py`, `tests/exporter/test_wealthfolio_contract.py`. |
 | ms.4.f.5 | exporter contract suites | **DONE** | `tests/exporter/contract_test_template.py` (config/result/mapping/lifecycle/CSV mixins) + concrete suites for both exporters. |
-| ms.4.ac.1 | Consumer failure retries without source data loss | **DONE** | Actual Budget: ExportRun + per-account `ExportDelivery` cursor for idempotent resume (`exporter/actual_budget/exporter.py:246,460-471`), `retry_with_backoff` in worker. Wealthfolio: per-account `wealthfolio_deliveries` cursor + run tracking + `POST /exporters/{type}/runs/{id}/retry` (G-14, PR #__G14PR__). |
+| ms.4.ac.1 | Consumer failure retries without source data loss | **DONE** | Actual Budget: ExportRun + per-account `ExportDelivery` cursor for idempotent resume (`exporter/actual_budget/exporter.py:246,460-471`), `retry_with_backoff` in worker. Wealthfolio: per-account `wealthfolio_deliveries` cursor + run tracking + `POST /exporters/{type}/runs/{id}/retry` (G-14, PR #214). |
 
 ## Milestone 5 — Automation/insights
 
@@ -140,7 +140,7 @@ for direct Kanban task creation.
 | rk.3 | Duplicate/mutating transactions | **DONE** | Unique `(tenant, provider, external_id)` + `provider_fingerprint` (`models/transaction.py`), upsert semantics in orchestrator, outbox idempotency keys, reconciliation duplicate detection. |
 | rk.4 | Stale/incomplete valuation | **DONE** | Per-field freshness (`models/enrichment_freshness.py`), price provenance (`source`), coverage endpoint, TTL enforced on cache reads with explicit stale flags, and per-aggregate `meta` coverage/caveats (see ms.3.ac.1 / ms.5.ac.1). → G-07 (resolved) |
 | rk.5 | Credential/financial-data exposure | **DONE** | Envelope encryption AES-256-GCM (`services/auth.py`), scoped API-key permissions + RBAC (`api/deps/auth.py`), resolution audit logs, pip-audit + SBOM in CI, non-root Docker user. |
-| rk.6 | Exporter API mismatch | **DONE** | Isolated adapters (`exporter/actual_budget/`, `exporter/wealthfolio/`), integration contract tests ✓, delivery cursors for both exporters ✓ (G-14, PR #__G14PR__); DLQ visibility: `GET /exporters/runs?status=error` + retry endpoint; export tables migrated (G-01, PR #196). |
+| rk.6 | Exporter API mismatch | **DONE** | Isolated adapters (`exporter/actual_budget/`, `exporter/wealthfolio/`), integration contract tests ✓, delivery cursors for both exporters ✓ (G-14, PR #214); DLQ visibility: `GET /exporters/runs?status=error` + retry endpoint; export tables migrated (G-01, PR #196). |
 | rk.7 | Premature distributed complexity | **DONE** | Modular monolith documented (`docs/ARCHITECTURE.md`, ADR-0001 `docs/adr/0001-modular-monolith-and-durable-outbox.md`); single compose stack, extractable boundaries. |
 
 ---
@@ -388,7 +388,7 @@ Actions, or system cron inside the deployment).
   - Acceptance: failed export runs are listed with errors and can be
     retried without data loss; Wealthfolio resumes idempotently; tests
     cover retry.
-- **Status: IMPLEMENTED** (PR #__G14PR__). Export tables migrated in
+- **Status: IMPLEMENTED** (PR #214). Export tables migrated in
   G-01 (PR #196); this gap adds the Wealthfolio delivery cursor
   (`wealthfolio_deliveries`, migration 0012) so `push_to_wealthfolio`
   resumes idempotently per account after partial failure (run tracking
