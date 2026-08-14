@@ -985,24 +985,47 @@ class SyncOrchestrator:
         error_message: str,
         log: structlog.BoundLogger,
     ) -> None:
-        """Persist a failed SyncRun outside the main UoW (which rolled back)."""
+        """Persist a failed SyncRun outside the main UoW (which rolled back).
+
+        The in-flight ``SyncRun`` row was rolled back with the transaction,
+        so it cannot be reloaded — instead a fresh ``FAILED`` row is
+        inserted so failed runs stay observable (alerting relies on them).
+        """
         if run is None:
             log.error("sync_failed_before_run_created", error=error_message)
             return
 
         # Use a separate transaction to record the failure
         from finance_sync.db.uow import UnitOfWork as _UnitOfWork
+        from finance_sync.models import SyncRun as _SyncRun
 
         try:
             async with _UnitOfWork(session) as uow:
-                # Reload the run in this session if needed
-                reloaded = await uow.sync_runs.get(run.id)  # type: ignore[union-attr]
+                # Reload the run in this session if it survived the rollback
+                run_id = getattr(run, "id", None)
+                reloaded = (
+                    await uow.sync_runs.get(run_id)
+                    if run_id is not None
+                    else None
+                )
                 if reloaded is not None:
                     await complete_sync_run(
                         uow,
                         reloaded,
                         status=SyncRunStatus.FAILED,
                         error_message=error_message[:2048],
+                    )
+                else:
+                    # The original row never made it to the DB — insert a
+                    # fresh FAILED record so the failure is observable.
+                    connector = getattr(run, "connector", None) or "unknown"
+                    uow.session.add(
+                        _SyncRun(
+                            connector=connector,
+                            status=SyncRunStatus.FAILED,
+                            completed_at=datetime.now(UTC),
+                            error_message=error_message[:2048],
+                        )
                     )
         except Exception as exc:
             log.error(
