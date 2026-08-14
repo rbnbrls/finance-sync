@@ -602,3 +602,132 @@ async def process_outbox_job(container: Container) -> dict[str, Any]:
         raise
     finally:
         await webhook_svc.close()
+
+
+# ── Wealthfolio delivery sweep ─────────────────────────────────────────
+
+
+async def export_wealthfolio_job(container: Container) -> dict[str, Any]:
+    """Wealthfolio delivery sweep: push pending transactions for all
+    tenants to the configured Wealthfolio instance.
+
+    Runs on a 5-minute cadence (ARCHITECTURE.md §5: exporter delivery is
+    event-driven plus a 5-minute sweep).  The sweep is idempotent across
+    worker restarts: ``WealthfolioExporter.push_to_wealthfolio`` resumes
+    from the per-account ``wealthfolio_deliveries`` delivery cursor
+    (G-14), so already-delivered transactions are never re-pushed.
+
+    Skips cleanly when the sweep is disabled (``WORKER_JOB_EXPORT_ENABLED``
+    false) or the Wealthfolio push target is not configured
+    (``WEALTHFOLIO_SERVER_URL`` / ``WEALTHFOLIO_PASSWORD`` unset) — no
+    crash, log + skip.  A per-tenant push failure is logged and recorded
+    in the result summary; the sweep continues with the remaining tenants
+    and the next tick retries the failed ones from their cursors.
+    """
+    settings: Settings = container.settings
+    log = logger.bind()
+
+    # ── Gating: flag + push target must both be present ────────────
+    if not settings.worker_job_export_enabled:
+        log.info("export_job_skipped_disabled")
+        return {
+            "status": "skipped",
+            "reason": "WORKER_JOB_EXPORT_ENABLED=false",
+        }
+
+    server_url = settings.wealthfolio_server_url
+    password = settings.wealthfolio_password
+    if not server_url or not password:
+        log.info(
+            "export_job_skipped_unconfigured",
+            has_server_url=bool(server_url),
+            has_password=bool(password),
+        )
+        return {
+            "status": "skipped",
+            "reason": "WEALTHFOLIO_SERVER_URL/WEALTHFOLIO_PASSWORD not set",
+        }
+
+    # ── Load configured tenants ─────────────────────────────────────
+    async with container.session_factory() as session:
+        uow = UnitOfWork(session)
+        session.info["settings"] = settings
+        tenants = await uow.tenants.list(limit=100)
+
+    if not tenants:
+        log.info("export_job_no_tenants")
+        return {"status": "completed", "tenants": 0, "results": []}
+
+    from finance_sync.exporter.wealthfolio.client import (
+        WealthfolioClient,
+        WealthfolioClientConfig,
+    )
+    from finance_sync.exporter.wealthfolio.config import WealthfolioConfig
+    from finance_sync.exporter.wealthfolio.exporter import WealthfolioExporter
+
+    wf_config = WealthfolioConfig.from_settings(settings)
+    wf_client = WealthfolioClient(
+        config=WealthfolioClientConfig(
+            base_url=server_url,
+            password=password,
+        ),
+    )
+
+    summary: list[dict[str, Any]] = []
+    try:
+        await wf_client.authenticate()
+        for tenant in tenants:
+            tenant_log = log.bind(tenant_id=tenant.id)
+            try:
+                exporter = WealthfolioExporter(
+                    session_factory=container.session_factory,
+                    wf_config=wf_config,
+                    tenant_id=tenant.id,
+                )
+                result = await exporter.push_to_wealthfolio(
+                    wf_client=wf_client,
+                )
+                tenant_log.info(
+                    "export_job_tenant_complete",
+                    imported=result.get("imported", 0),
+                    skipped=result.get("skipped", 0),
+                    failed=result.get("failed", 0),
+                    run_id=result.get("run_id"),
+                )
+                summary.append(
+                    {
+                        "tenant_id": tenant.id,
+                        "status": "completed",
+                        "imported": result.get("imported", 0),
+                        "skipped": result.get("skipped", 0),
+                        "failed": result.get("failed", 0),
+                        "run_id": result.get("run_id"),
+                    },
+                )
+            except Exception as exc:
+                tenant_log.error(
+                    "export_job_tenant_failed",
+                    error=str(exc)[:300],
+                )
+                summary.append(
+                    {
+                        "tenant_id": tenant.id,
+                        "status": "failed",
+                        "error": str(exc)[:500],
+                    },
+                )
+    finally:
+        await wf_client.close()
+
+    failed = [r for r in summary if r["status"] == "failed"]
+    log.info(
+        "export_job_complete",
+        tenants=len(summary),
+        failed=len(failed),
+    )
+    return {
+        "status": "completed",
+        "tenants": len(summary),
+        "failed": len(failed),
+        "results": summary,
+    }

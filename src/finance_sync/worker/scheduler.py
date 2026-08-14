@@ -19,6 +19,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 
 from finance_sync.worker.jobs import (
     enrich_prices_job,
+    export_wealthfolio_job,
     nightly_reconciliation_job,
     process_outbox_job,
     process_webhook_retries_job,
@@ -292,6 +293,25 @@ class WorkerScheduler:
                 ),
                 trigger=IntervalTrigger(
                     seconds=settings.worker_job_outbox_interval_seconds,
+                ),
+            )
+
+        # ── Wealthfolio delivery sweep job ────────────────────────
+        # ARCHITECTURE.md §5: exporter delivery is event-driven plus a
+        # 5-minute sweep.  The sweep resumes from the G-14 delivery
+        # cursor, so it is idempotent across worker restarts.  Gated on
+        # WORKER_JOB_EXPORT_ENABLED (default: enabled only when the
+        # Wealthfolio push target env vars are set) — the job itself
+        # also skips cleanly when the target is unconfigured.
+        if settings.worker_job_export_enabled:
+            self._add_job(
+                "export_wealthfolio",
+                self._make_monitored_job(
+                    "export_wealthfolio",
+                    export_wealthfolio_job,
+                ),
+                trigger=IntervalTrigger(
+                    minutes=settings.worker_job_export_interval_minutes,
                 ),
             )
 

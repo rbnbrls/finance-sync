@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import asyncio
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -408,6 +409,56 @@ class TestWorkerSettings:
         assert settings.worker_retry_max_attempts == 3
         assert settings.worker_retry_base_delay_s == 1.0
 
+    def test_export_job_default_off_without_push_target(
+        self, monkeypatch
+    ) -> None:
+        """WORKER_JOB_EXPORT_ENABLED unset → default follows the push env.
+
+        Exact default: enabled only when WEALTHFOLIO_SERVER_URL and
+        WEALTHFOLIO_PASSWORD are both set.  Here neither is set, so the
+        sweep defaults to disabled.
+        """
+        from finance_sync.config.settings import Settings
+
+        monkeypatch.delenv("WORKER_JOB_EXPORT_ENABLED", raising=False)
+        monkeypatch.delenv("WEALTHFOLIO_SERVER_URL", raising=False)
+        monkeypatch.delenv("WEALTHFOLIO_PASSWORD", raising=False)
+
+        settings = Settings()  # type: ignore[call-arg]
+        assert settings.worker_job_export_enabled is False
+        assert settings.worker_job_export_interval_minutes == 5
+
+    def test_export_job_default_on_when_push_target_configured(
+        self, monkeypatch
+    ) -> None:
+        """Both gating env vars set → sweep defaults to enabled."""
+        from finance_sync.config.settings import Settings
+
+        monkeypatch.delenv("WORKER_JOB_EXPORT_ENABLED", raising=False)
+        monkeypatch.setenv("WEALTHFOLIO_SERVER_URL", "http://192.168.3.50:8080")
+        monkeypatch.setenv("WEALTHFOLIO_PASSWORD", "s3cret")
+
+        settings = Settings()  # type: ignore[call-arg]
+        assert settings.worker_job_export_enabled is True
+
+    def test_export_job_explicit_flag_wins(self, monkeypatch) -> None:
+        """Explicit WORKER_JOB_EXPORT_ENABLED overrides the derived default."""
+        from finance_sync.config.settings import Settings
+
+        # Explicit false beats configured push target.
+        monkeypatch.setenv("WORKER_JOB_EXPORT_ENABLED", "false")
+        monkeypatch.setenv("WEALTHFOLIO_SERVER_URL", "http://192.168.3.50:8080")
+        monkeypatch.setenv("WEALTHFOLIO_PASSWORD", "s3cret")
+        settings = Settings()  # type: ignore[call-arg]
+        assert settings.worker_job_export_enabled is False
+
+        # Explicit true beats missing push target.
+        monkeypatch.setenv("WORKER_JOB_EXPORT_ENABLED", "true")
+        monkeypatch.delenv("WEALTHFOLIO_SERVER_URL", raising=False)
+        monkeypatch.delenv("WEALTHFOLIO_PASSWORD", raising=False)
+        settings = Settings()  # type: ignore[call-arg]
+        assert settings.worker_job_export_enabled is True
+
 
 # ── WorkerScheduler tests ───────────────────────────────────────────────
 
@@ -533,6 +584,81 @@ class TestWorkerScheduler:
         await scheduler_off.stop()
 
     @pytest.mark.asyncio
+    async def test_export_sweep_job_flag_gates_registration(self) -> None:
+        """The export_wealthfolio job registers with the 5-min interval
+        trigger when enabled, and not at all when disabled."""
+        from finance_sync.config.settings import Settings
+        from finance_sync.container import Container
+        from finance_sync.worker.monitoring import JobMonitor
+        from finance_sync.worker.scheduler import WorkerScheduler
+
+        # Flag ON → job registered with the default 5-minute trigger
+        settings_on = Settings(  # type: ignore[call-arg]
+            database_url=None,
+            worker_job_bunq_sync_enabled=False,
+            worker_job_bunq_cards_enabled=False,
+            worker_job_trading212_sync_enabled=False,
+            worker_job_price_enrichment_enabled=False,
+            worker_job_reconciliation_enabled=False,
+            worker_job_outbox_enabled=False,
+            worker_job_export_enabled=True,
+        )
+        container_on = Container.from_settings(settings_on)
+        scheduler_on = WorkerScheduler(settings_on, container_on, JobMonitor())
+        await scheduler_on.start()
+        jobs = {j["id"]: j for j in scheduler_on.job_summary()}
+        assert "export_wealthfolio" in jobs
+        assert "interval[0:05:00]" in jobs["export_wealthfolio"]["trigger"]
+        await scheduler_on.stop()
+
+        # Flag OFF → job not registered
+        settings_off = Settings(  # type: ignore[call-arg]
+            database_url=None,
+            worker_job_bunq_sync_enabled=False,
+            worker_job_bunq_cards_enabled=False,
+            worker_job_trading212_sync_enabled=False,
+            worker_job_price_enrichment_enabled=False,
+            worker_job_reconciliation_enabled=False,
+            worker_job_outbox_enabled=False,
+            worker_job_export_enabled=False,
+        )
+        container_off = Container.from_settings(settings_off)
+        scheduler_off = WorkerScheduler(
+            settings_off, container_off, JobMonitor()
+        )
+        await scheduler_off.start()
+        job_ids_off = {j["id"] for j in scheduler_off.job_summary()}
+        assert "export_wealthfolio" not in job_ids_off
+        await scheduler_off.stop()
+
+    @pytest.mark.asyncio
+    async def test_export_sweep_job_custom_interval(self) -> None:
+        """WORKER_JOB_EXPORT_INTERVAL_MINUTES changes the sweep cadence."""
+        from finance_sync.config.settings import Settings
+        from finance_sync.container import Container
+        from finance_sync.worker.monitoring import JobMonitor
+        from finance_sync.worker.scheduler import WorkerScheduler
+
+        settings = Settings(  # type: ignore[call-arg]
+            database_url=None,
+            worker_job_bunq_sync_enabled=False,
+            worker_job_bunq_cards_enabled=False,
+            worker_job_trading212_sync_enabled=False,
+            worker_job_price_enrichment_enabled=False,
+            worker_job_reconciliation_enabled=False,
+            worker_job_outbox_enabled=False,
+            worker_job_export_enabled=True,
+            worker_job_export_interval_minutes=15,
+        )
+        container = Container.from_settings(settings)
+        scheduler = WorkerScheduler(settings, container, JobMonitor())
+        await scheduler.start()
+        jobs = {j["id"]: j for j in scheduler.job_summary()}
+        assert "export_wealthfolio" in jobs
+        assert "interval[0:15:00]" in jobs["export_wealthfolio"]["trigger"]
+        await scheduler.stop()
+
+    @pytest.mark.asyncio
     async def test_pause_resume(self) -> None:
         """Pause and resume lifecycle."""
         from finance_sync.config.settings import Settings
@@ -566,3 +692,242 @@ class TestWorkerScheduler:
         assert scheduler.is_running()
 
         await scheduler.stop()
+
+
+# ── export_wealthfolio_job tests ───────────────────────────────────────
+
+
+class TestExportWealthfolioJob:
+    """Wealthfolio delivery sweep — gating, per-tenant push, cursor resume."""
+
+    @staticmethod
+    def _make_container(
+        *,
+        enabled: bool = True,
+        server_url: str = "http://192.168.3.50:8080",
+        password: str = "s3cret",
+        tenant_ids: list[str] | None = None,
+    ) -> tuple[MagicMock, MagicMock]:
+        """Build a container whose session exposes the given tenants."""
+        from types import SimpleNamespace
+
+        from finance_sync.config.settings import Settings
+
+        settings = Settings(  # type: ignore[call-arg]
+            database_url=None,
+            worker_job_export_enabled=enabled,
+            worker_job_export_interval_minutes=5,
+            wealthfolio_server_url=server_url,
+            wealthfolio_password=password,
+        )
+
+        tenants = [
+            SimpleNamespace(id=tid) for tid in (tenant_ids or ["tenant-1"])
+        ]
+
+        session = MagicMock()
+        session.info = {}
+        uow = MagicMock()
+        uow.tenants.list = AsyncMock(return_value=tenants)
+
+        cm = MagicMock()
+        cm.__aenter__ = AsyncMock(return_value=session)
+        cm.__aexit__ = AsyncMock(return_value=False)
+
+        container = MagicMock()
+        container.settings = settings
+        container.session_factory.return_value = cm
+        return container, uow
+
+    @pytest.mark.asyncio
+    async def test_skips_cleanly_when_disabled(self) -> None:
+        """Flag off → log + skip, no client/exporter is ever built."""
+        from finance_sync.worker.jobs import export_wealthfolio_job
+
+        container, _uow = self._make_container(enabled=False)
+        with patch(
+            "finance_sync.exporter.wealthfolio.client.WealthfolioClient"
+        ) as mock_client:
+            result = await export_wealthfolio_job(container)
+
+        assert result["status"] == "skipped"
+        assert "WORKER_JOB_EXPORT_ENABLED" in result["reason"]
+        mock_client.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_skips_cleanly_when_target_unconfigured(self) -> None:
+        """Push env vars missing → log + skip, no crash."""
+        from finance_sync.worker.jobs import export_wealthfolio_job
+
+        container, _uow = self._make_container(
+            enabled=True,
+            server_url="",
+            password="",
+        )
+        with patch(
+            "finance_sync.exporter.wealthfolio.client.WealthfolioClient"
+        ) as mock_client:
+            result = await export_wealthfolio_job(container)
+
+        assert result["status"] == "skipped"
+        assert "WEALTHFOLIO_SERVER_URL" in result["reason"]
+        mock_client.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_pushes_all_tenants(self) -> None:
+        """Configured → authenticates once and pushes per tenant."""
+        from finance_sync.worker.jobs import export_wealthfolio_job
+
+        container, uow = self._make_container(
+            tenant_ids=["tenant-1", "tenant-2"]
+        )
+
+        with (
+            patch(
+                "finance_sync.exporter.wealthfolio.client.WealthfolioClient"
+            ) as mock_client_cls,
+            patch(
+                "finance_sync.exporter.wealthfolio.exporter.WealthfolioExporter"
+            ) as mock_exporter_cls,
+            patch("finance_sync.worker.jobs.UnitOfWork", return_value=uow),
+        ):
+            client = mock_client_cls.return_value
+            client.authenticate = AsyncMock(return_value=True)
+            client.close = AsyncMock(return_value=None)
+
+            exporter = mock_exporter_cls.return_value
+            exporter.push_to_wealthfolio = AsyncMock(
+                return_value={
+                    "imported": 3,
+                    "skipped": 0,
+                    "failed": 0,
+                    "run_id": "run-1",
+                },
+            )
+
+            result = await export_wealthfolio_job(container)
+
+        assert result["status"] == "completed"
+        assert result["tenants"] == 2
+        assert result["failed"] == 0
+        assert [r["tenant_id"] for r in result["results"]] == [
+            "tenant-1",
+            "tenant-2",
+        ]
+        assert all(r["status"] == "completed" for r in result["results"])
+        # One shared authenticated client for the whole sweep
+        client.authenticate.assert_awaited_once()
+        client.close.assert_awaited_once()
+        assert exporter.push_to_wealthfolio.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_tenant_failure_does_not_abort_sweep(self) -> None:
+        """A failing tenant is recorded; the remaining tenants still push."""
+        from finance_sync.worker.jobs import export_wealthfolio_job
+
+        container, uow = self._make_container(
+            tenant_ids=["tenant-1", "tenant-2"]
+        )
+
+        with (
+            patch(
+                "finance_sync.exporter.wealthfolio.client.WealthfolioClient"
+            ) as mock_client_cls,
+            patch(
+                "finance_sync.exporter.wealthfolio.exporter.WealthfolioExporter"
+            ) as mock_exporter_cls,
+            patch("finance_sync.worker.jobs.UnitOfWork", return_value=uow),
+        ):
+            client = mock_client_cls.return_value
+            client.authenticate = AsyncMock(return_value=True)
+            client.close = AsyncMock(return_value=None)
+
+            exporter = mock_exporter_cls.return_value
+            exporter.push_to_wealthfolio = AsyncMock(
+                side_effect=[
+                    RuntimeError("Wealthfolio rejected batch"),
+                    {
+                        "imported": 1,
+                        "skipped": 0,
+                        "failed": 0,
+                        "run_id": "run-2",
+                    },
+                ],
+            )
+
+            result = await export_wealthfolio_job(container)
+
+        assert result["status"] == "completed"
+        assert result["failed"] == 1
+        statuses = {r["tenant_id"]: r["status"] for r in result["results"]}
+        assert statuses == {
+            "tenant-1": "failed",
+            "tenant-2": "completed",
+        }
+        failed = next(
+            r for r in result["results"] if r["tenant_id"] == "tenant-1"
+        )
+        assert "rejected" in failed["error"]
+
+    @pytest.mark.asyncio
+    async def test_cursor_makes_sweep_idempotent_across_runs(self) -> None:
+        """A second sweep resumes from the delivery cursor (G-14).
+
+        ``push_to_wealthfolio`` is cursor-driven: it only pushes
+        transactions newer than the last delivered ``(occurred_at, id)``
+        per account.  Simulating the exporter returning 0 imported on the
+        second run (cursor already at the latest transaction) must not
+        re-push anything — the sweep's own result reflects that.
+        """
+        from finance_sync.worker.jobs import export_wealthfolio_job
+
+        container, uow = self._make_container(tenant_ids=["tenant-1"])
+
+        push_calls = 0
+
+        async def fake_push(wf_client: object, **kwargs: object) -> dict:
+            nonlocal push_calls
+            push_calls += 1
+            if push_calls == 1:
+                return {
+                    "imported": 5,
+                    "skipped": 0,
+                    "failed": 0,
+                    "run_id": "run-1",
+                }
+            # Cursor advanced past all transactions → nothing to push.
+            return {
+                "imported": 0,
+                "skipped": 0,
+                "failed": 0,
+                "run_id": "run-2",
+            }
+
+        with (
+            patch(
+                "finance_sync.exporter.wealthfolio.client.WealthfolioClient"
+            ) as mock_client_cls,
+            patch(
+                "finance_sync.exporter.wealthfolio.exporter.WealthfolioExporter"
+            ) as mock_exporter_cls,
+            patch("finance_sync.worker.jobs.UnitOfWork", return_value=uow),
+        ):
+            client = mock_client_cls.return_value
+            client.authenticate = AsyncMock(return_value=True)
+            client.close = AsyncMock(return_value=None)
+
+            exporter = mock_exporter_cls.return_value
+            exporter.push_to_wealthfolio = AsyncMock(side_effect=fake_push)
+
+            first = await export_wealthfolio_job(container)
+            second = await export_wealthfolio_job(container)
+
+        # Sweep delegates to the cursor-driven push (no since override),
+        # so a warm cursor yields a no-op push instead of duplicates.
+        assert first["results"][0]["imported"] == 5
+        assert second["results"][0]["imported"] == 0
+        assert push_calls == 2
+        assert exporter.push_to_wealthfolio.await_count == 2
+        # Every call resumes from the cursor: no since/accounts overrides.
+        for call in exporter.push_to_wealthfolio.await_args_list:
+            assert call.kwargs == {"wf_client": client}
