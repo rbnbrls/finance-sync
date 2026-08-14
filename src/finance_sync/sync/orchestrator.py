@@ -48,6 +48,11 @@ from finance_sync.models.enums import (
     TransactionStatus,
     TransactionType,
 )
+from finance_sync.observability.metrics import (
+    sync_run_duration_seconds,
+    sync_runs_total,
+    transactions_ingested_total,
+)
 from finance_sync.sync.outbox import (
     outbox_entity_created,
     outbox_entity_updated,
@@ -129,6 +134,34 @@ class SyncOrchestrator:
 
     # ── Public API ───────────────────────────────────────────────────
 
+    @staticmethod
+    def _record_sync_metrics(
+        provider: str,
+        result: SyncResult | BunqCardsSyncResult,
+    ) -> None:
+        """Record Prometheus metrics for a completed sync run.
+
+        Increments ``sync_runs_total`` with the run status and records
+        the run duration plus ingested transaction count.  Both
+        ``SyncResult`` and ``BunqCardsSyncResult`` expose ``status``,
+        ``duration_s`` and ``transactions_synced``/``card_transactions_synced``.
+        """
+        status = (
+            result.status.value
+            if hasattr(result.status, "value")
+            else str(result.status)
+        )
+        sync_runs_total.labels(provider=provider, status=status).inc()
+        sync_run_duration_seconds.labels(provider=provider).set(
+            result.duration_s
+        )
+        ingested = getattr(
+            result,
+            "transactions_synced",
+            getattr(result, "card_transactions_synced", 0),
+        )
+        transactions_ingested_total.labels(provider=provider).inc(ingested or 0)
+
     async def run_sync(
         self,
         provider_type: str,
@@ -162,6 +195,8 @@ class SyncOrchestrator:
             result = await self._run_pipeline(
                 session, connector, provider_type, _since, log
             )
+
+        self._record_sync_metrics(provider_type, result)
 
         if result.status == SyncRunStatus.COMPLETED:
             log.info(
@@ -243,6 +278,8 @@ class SyncOrchestrator:
             result = await self._run_cards_pipeline(
                 session, connector, _since, log
             )
+
+        self._record_sync_metrics("bunq_cards", result)
 
         if result.status == SyncRunStatus.COMPLETED:
             log.info(

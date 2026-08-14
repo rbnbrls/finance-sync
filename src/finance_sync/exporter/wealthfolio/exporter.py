@@ -39,6 +39,7 @@ from finance_sync.exporter.wealthfolio.transaction_mapper import (
     map_transactions_to_csv,
 )
 from finance_sync.models import Account, Holding, Security, Transaction
+from finance_sync.observability.metrics import export_runs_total
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -139,6 +140,16 @@ class WealthfolioExporter:
 
     # ── Public API ───────────────────────────────────────────────────
 
+    @staticmethod
+    def _record_export_metrics(
+        result: WealthfolioExportResult,
+    ) -> None:
+        """Record the export run outcome as a Prometheus counter."""
+        export_runs_total.labels(
+            exporter="wealthfolio",
+            status=result.status,
+        ).inc()
+
     async def run_export(
         self,
         *,
@@ -204,10 +215,12 @@ class WealthfolioExporter:
                     exported=0,
                     failed=0,
                 )
-                return WealthfolioExportResult(
+                result = WealthfolioExportResult(
                     status="completed",
                     duration_s=(datetime.now(UTC) - start_ts).total_seconds(),
                 )
+                self._record_export_metrics(result)
+                return result
 
             # Pre-load securities for symbol resolution
             security_map = await self._load_securities()
@@ -324,7 +337,7 @@ class WealthfolioExporter:
                 csv_files=len(csv_files),
                 duration_s=(end_ts - start_ts).total_seconds(),
             )
-            return WealthfolioExportResult(
+            result = WealthfolioExportResult(
                 status="completed",
                 accounts_mapped=accts_mapped,
                 transactions_attempted=txns_attempted,
@@ -335,6 +348,8 @@ class WealthfolioExporter:
                 csv_files=csv_files,
                 duration_s=(end_ts - start_ts).total_seconds(),
             )
+            self._record_export_metrics(result)
+            return result
 
         except Exception:
             end_ts = datetime.now(UTC)
@@ -352,7 +367,7 @@ class WealthfolioExporter:
                 "wealthfolio_export_failed",
                 traceback=tb,
             )
-            return WealthfolioExportResult(
+            result = WealthfolioExportResult(
                 status="failed",
                 accounts_mapped=accts_mapped,
                 transactions_attempted=txns_attempted,
@@ -364,6 +379,8 @@ class WealthfolioExporter:
                 error_message=tb[:2048],
                 duration_s=(end_ts - start_ts).total_seconds(),
             )
+            self._record_export_metrics(result)
+            return result
 
     # ── Account resolution ──────────────────────────────────────────
 

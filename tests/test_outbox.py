@@ -246,6 +246,60 @@ class TestOutboxPublisherFetch:
         messages = await publisher._fetch_pending()
         assert messages == []
 
+    async def test_count_pending(self, session_factory) -> None:
+        """Counts only pending messages (G-06 outbox gauge source)."""
+        from finance_sync.sync.outbox_publisher import OutboxPublisher
+
+        publisher = OutboxPublisher(session_factory)
+
+        # No pending → 0
+        assert await publisher._count_pending() == 0
+
+        for i in range(3):
+            async with session_factory() as s:
+                s.add(_make_pending_message(f"test.event.{i}"))
+                await s.commit()
+
+        assert await publisher._count_pending() == 3
+
+        # Sent messages do not count
+        async with session_factory() as s:
+            s.add(
+                TestOutboxMessage(
+                    aggregate_id="sent",
+                    aggregate_type="test",
+                    event_type="test.event.sent",
+                    payload="{}",
+                    status=OutboxMessageStatus.SENT,
+                )
+            )
+            await s.commit()
+
+        assert await publisher._count_pending() == 3
+
+    async def test_run_once_updates_backlog_gauge(
+        self, session_factory
+    ) -> None:
+        """run_once publishes the true pending count to the gauge."""
+        from prometheus_client import REGISTRY
+
+        from finance_sync.sync.outbox_publisher import OutboxPublisher
+
+        publisher = OutboxPublisher(session_factory)
+
+        # No messages → gauge 0
+        await publisher.run_once()
+        assert REGISTRY.get_sample_value("outbox_messages_pending_total") == 0
+
+        # 2 pending messages → gauge 2
+        for i in range(2):
+            async with session_factory() as s:
+                s.add(_make_pending_message(f"backlog.event.{i}"))
+                await s.commit()
+
+        await publisher.run_once()
+        assert REGISTRY.get_sample_value("outbox_messages_pending_total") == 2
+
 
 class TestOutboxPublisherDispatch:
     """Test dispatching to registered handlers."""

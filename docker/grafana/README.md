@@ -44,8 +44,8 @@ Monitors data ingestion pipelines.
 | Transactions ingested | `increase(transactions_ingested_total[5m])` | Available now |
 | Sync runs over time | `increase(sync_runs_total[5m])` | Available now |
 | Scrape health | `up` job freshness | Available now |
-| Outbox queue depth | `outbox_messages_pending_total` | **Needs metric** |
-| Sync duration | `sync_run_duration_seconds` | **Needs metric** |
+| Outbox queue depth | `outbox_messages_pending_total` | Available now |
+| Sync duration | `sync_run_duration_seconds` | Available now |
 
 ### 2. Portfolio (`portfolio.json`)
 Uid: `finance-sync-portfolio`
@@ -84,8 +84,8 @@ Infrastructure and application performance monitoring.
 | DB pool utilisation | gauge ratio | Available now |
 | Redis cache hit ratio | `redis_hits_total` / `redis_misses_total` | **Needs metric** |
 | Redis ops rate | `redis_commands_total` | **Needs metric** |
-| Worker job durations | `worker_job_duration_seconds` | **Needs metric** |
-| Worker job success rate | `worker_job_success_rate` | **Needs metric** |
+| Worker job durations | `worker_job_duration_seconds` | Available now |
+| Worker job success rate | `worker_job_success_rate` | Available now |
 | Worker health | `up{job=~".*worker.*"}` | Available now |
 | Uptime | `process_start_time_seconds` | Available now |
 
@@ -206,8 +206,26 @@ All three dashboards ship with:
 
 ---
 
+## Alert rules
+
+Alert rules are **provisioned automatically** from
+`docker/grafana/provisioning/alerting/`:
+
+- `alerting.yaml` — contact points ("Finance Sync"), notification
+  policy, and the `maintenance-window` mute timing.
+- `finance-sync.rules.yaml` — the alert rules themselves (failed sync
+  runs, stale enrichment, outbox backlog, export failures, worker/app
+  down).
+
+See `docs/observability.md` for the full inventory, channel
+configuration (`GRAFANA_ALERT_WEBHOOK_URL`, `GRAFANA_ALERT_EMAILS`,
+SMTP), and silencing instructions.
+
+---
+
 ## Version history
 
 | Date | Change |
 |------|--------|
 | 2026-07-21 | Initial dashboards for Phase 5.3: sync-health, portfolio, system |
+| 2026-08-14 | Added provisioned alert rules + notification channels (G-06); all "Needs metric" rows now instrumented |

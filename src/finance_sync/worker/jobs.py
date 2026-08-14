@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 import traceback
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
@@ -20,6 +21,7 @@ from finance_sync.connectors.models import ConnectorConfig
 from finance_sync.connectors.registry import ConnectorRegistry
 from finance_sync.db.uow import UnitOfWork
 from finance_sync.models.credential import Credential
+from finance_sync.observability.metrics import enrichment_last_success_timestamp
 from finance_sync.sync.orchestrator import SyncOrchestrator
 from finance_sync.sync.outbox_publisher import OutboxPublisher
 
@@ -433,6 +435,9 @@ async def enrich_prices_job(container: Container) -> dict[str, Any]:
                 )
 
         await session.commit()
+
+    # Track enrichment freshness for the staleness alert (>24h).
+    enrichment_last_success_timestamp.set(time.time())
 
     log.info(
         "enrich_prices_job_complete",

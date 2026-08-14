@@ -71,6 +71,13 @@ class TestMetricsEndpoint:
         assert "http_request_duration_seconds" in body
         assert "sync_runs_total" in body
         assert "transactions_ingested_total" in body
+        # Alert-relevant metrics (G-06)
+        assert "outbox_messages_pending_total" in body
+        assert "sync_run_duration_seconds" in body
+        assert "enrichment_last_success_timestamp" in body
+        assert "export_runs_total" in body
+        assert "worker_job_duration_seconds" in body
+        assert "worker_job_success_rate" in body
 
     def test_metrics_db_pool_gauges(self, client: TestClient) -> None:
         """Database pool gauges are declared."""

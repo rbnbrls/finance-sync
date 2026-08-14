@@ -65,6 +65,44 @@ transactions_ingested_total = Counter(
     labelnames=["provider"],
 )
 
+sync_run_duration_seconds = Gauge(
+    "sync_run_duration_seconds",
+    "Duration of the most recent sync run in seconds",
+    labelnames=["provider"],
+)
+
+# ── Outbox / pipeline health ────────────────────────────────────────
+
+outbox_messages_pending_total = Gauge(
+    "outbox_messages_pending_total",
+    "Number of pending outbox messages awaiting publication",
+)
+
+enrichment_last_success_timestamp = Gauge(
+    "enrichment_last_success_timestamp",
+    "Unix timestamp of the last successful enrichment run",
+)
+
+export_runs_total = Counter(
+    "export_runs_total",
+    "Total number of export runs by exporter and status",
+    labelnames=["exporter", "status"],
+)
+
+# ── Worker job metrics (exposed on the worker's /metrics) ──────────
+
+worker_job_duration_seconds = Gauge(
+    "worker_job_duration_seconds",
+    "Duration of the most recent run for a scheduled worker job",
+    labelnames=["job_id"],
+)
+
+worker_job_success_rate = Gauge(
+    "worker_job_success_rate",
+    "Success rate (0-1) of a scheduled worker job",
+    labelnames=["job_id"],
+)
+
 # Paths to exclude from metrics recording
 _SKIP_PATHS = frozenset(
     {"/metrics", "/health", "/health/ready", "/health/live"}

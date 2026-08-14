@@ -11,6 +11,11 @@ import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
+from finance_sync.observability.metrics import (
+    worker_job_duration_seconds,
+    worker_job_success_rate,
+)
+
 if TYPE_CHECKING:
     from collections.abc import Callable
 
@@ -128,6 +133,17 @@ class JobMonitor:
         if result.job_id not in self._history:
             self._history[result.job_id] = JobHistory()
         self._history[result.job_id].record(result)
+        self._update_gauges(result)
+
+    def _update_gauges(self, result: JobRunResult) -> None:
+        """Update Prometheus gauges for the most recent job run."""
+        history = self._history[result.job_id]
+        worker_job_duration_seconds.labels(job_id=result.job_id).set(
+            result.duration_s
+        )
+        worker_job_success_rate.labels(job_id=result.job_id).set(
+            history.success_rate
+        )
 
     def get_history(self, job_id: str) -> JobHistory | None:
         """Return run history for a specific job."""

@@ -97,7 +97,7 @@ for direct Kanban task creation.
 |---|---|---|---|
 | ms.5.f.1 | AI summary endpoints | **DONE** | `api/v1/ai_summary.py` (`POST /ai/summary`, `POST /ai/summary/daily`), `services/ai_summary.py` (OpenAI/Anthropic prompt templates, 1h cache, rate limit), `api/middleware/ai_rate_limit.py`, gated by `ai_enabled`, covered in `tests/test_phase52.py`, MCP tool `tool_get_summary`/`tool_get_daily_briefing`. |
 | ms.5.f.2 | Home Assistant pull integration | **DONE** | `api/v1/ha_integration.py` (`GET /ha/sensors`, `GET /ha/config`), `services/ha_integration.py` (REST-sensor payloads: net worth, portfolio, last sync), gated by `ha_enabled`, covered in `tests/test_phase52.py`. |
-| ms.5.f.3 | Grafana dashboard/alerts | **PARTIAL** | Dashboards ✓: `docker/grafana/dashboards/{portfolio,system,sync-health}.json` + provisioning + `docker/prometheus.yml`, compose service. **No alert rules** — zero `alert` definitions across the three dashboards. → G-06 |
+| ms.5.f.3 | Grafana dashboard/alerts | **DONE** | Dashboards ✓: `docker/grafana/dashboards/{portfolio,system,sync-health}.json` + provisioning + `docker/prometheus.yml`, compose service. Alert rules ✓ (G-06): file-provisioned via `docker/grafana/provisioning/alerting/` (`finance-sync.rules.yaml` + `alerting.yaml`), covering failed sync runs, stale enrichment (>24h), outbox backlog, export failures, worker/app down; channels documented in `docs/observability.md`; missing metrics instrumented (outbox gauge, enrichment staleness, export counters, worker `/metrics`). |
 | ms.5.f.4 | performance analytics | **DONE** | `api/v1/performance.py` (summary, TWR, MWR, benchmark, attribution), `services/performance.py` (IRR iteration, Brinson attribution), `tests/test_performance.py`. |
 | ms.5.f.5 | subscription detection | **DONE** | `services/subscription_detector/` (merchant classifier, pattern detector, service with HYBRID cross-validation), `api/v1/subscriptions.py` (detect/analyze/confirm/ignore), docs `docs/subscription-detection.md`, 8 test files (incl. deep-coverage + edge cases). |
 | ms.5.ac.1 | Every aggregate declares as-of/freshness/coverage | **DONE** | Portfolio/net-worth carry `as_of` (`services/read_api.py`); `/enrichment/status` reports coverage/staleness. Allocation, cashflow, performance, and subscriptions responses now declare the `meta` envelope (`schemas/freshness.py` `AggregateMeta`/`CoverageInfo`, wired in `services/allocation.py`, `services/read_api.py`, `services/performance.py`, `api/v1/subscriptions.py`), documented in `docs/API.md`. → G-07 (resolved) |
@@ -240,6 +240,7 @@ Actions, or system cron inside the deployment).
 
 ### G-06 — Add Grafana alert rules
 - **Roadmap IDs:** ms.5.f.3, ms.5.ac.1
+- **Status:** DONE (merged PR #207, 2026-08-14)
 - **What's missing:** Dashboards exist but no alerts (sync health, stale
   enrichment, failed exports, outbox lag all unmonitored).
 - **Task outline:**
@@ -251,6 +252,14 @@ Actions, or system cron inside the deployment).
     export run failures; document alert channels.
   - Acceptance: alerts defined in provisioning config, referenced by
     dashboards, and documented; compose stack loads them.
+- **Resolution:** file-provisioned rules in
+  `docker/grafana/provisioning/alerting/finance-sync.rules.yaml` (6 rules)
+  + `alerting.yaml` (webhook/email contact points, policy, mute timing);
+  dashboard panels link to their rules; `docs/observability.md` documents
+  inventory/channels/silencing; instrumented the previously-missing
+  metrics (outbox gauge, enrichment staleness, export counters, worker
+  job gauges) and added the worker `/metrics` route; compose mounts the
+  alerting provisioning dir.
 
 ### G-07 — Enforce cache TTL and per-aggregate freshness/coverage
 - **Roadmap IDs:** ms.3.ac.1, ms.5.ac.1, rk.4
