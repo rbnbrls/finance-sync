@@ -32,7 +32,7 @@ The migration history is a **single linear chain** — every revision has
 exactly one parent and there is exactly one head:
 
 ```text
-<base> -> 0001 -> 0002 -> 0003 -> 0004 -> 0005 -> 0006 -> 0007 -> 0008 -> 0009 (head)
+<base> -> 0001 -> 0002 -> 0003 -> 0004 -> 0005 -> 0006 -> 0007 -> 0008 -> 0009 -> 0010 (head)
 ```
 
 | Revision | Contents |
@@ -46,6 +46,7 @@ exactly one parent and there is exactly one head:
 | 0007 | tax_lots + `transactions.quantity` |
 | 0008 | Exporter tables (export_runs, ab_account_mappings, export_deliveries) |
 | 0009 | Sync schema to ORM: create_all-only tables (`enrichment_freshness`, `security_prices`, `unresolved_securities`, `detected_subscriptions`, `resolution_audit_log`), `outbox_messages.idempotency_key`, column type/comment/index and tenant FK alignment with the models |
+| 0010 | `card_transactions.account_id` relaxed to nullable (bunq card payments carry no settling monetary account id) |
 
 > **History note:** revisions 0004–0007 were originally four files that all
 > declared `revision="0004"` (duplicate heads), and the export tables

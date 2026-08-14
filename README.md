@@ -88,6 +88,7 @@ Built images are published to GitHub Container Registry:
 - [API specification](docs/API.md)
 - [Data model](docs/DATABASE.md)
 - [Database migrations](docs/MIGRATIONS.md)
+- [Upgrade notes](docs/UPGRADE.md)
 - [Implementation roadmap](docs/ROADMAP.md)
 
 ## Health monitoring
