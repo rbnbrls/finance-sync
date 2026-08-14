@@ -1,0 +1,596 @@
+{
+  "schema_version": "1.0",
+  "generated_at": "2026-08-14T15:13:31Z",
+  "source": {
+    "repo": "rbnbrls/finance-sync",
+    "path": "docs/ROADMAP.md",
+    "url": "https://github.com/rbnbrls/finance-sync/blob/main/docs/ROADMAP.md",
+    "commit": "ccc08970b323a2bfff7c4f9fad156f76f256e5fe"
+  },
+  "id_scheme": "Hierarchical stable IDs: dr.N delivery rule, ms.N milestone, ms.N.f.M milestone feature, ms.N.ac.M milestone acceptance criterion, lb.N label/ordering rule, tc.N testing/CI item, rk.N risk. IDs are stable across edits to ROADMAP.md; new entries get the next free number.",
+  "sections": [
+    {
+      "id": "dr",
+      "title": "Delivery rules",
+      "kind": "checklist",
+      "grouping_decision": "Each sentence of the Delivery rules paragraph is a distinct cross-cutting rule (dr.*). Kept separate; none merged.",
+      "items": [
+        {
+          "id": "dr.1",
+          "title": "Every milestone ships migrations, typed configuration, structured logs, health signals, tests, documentation, and an upgrade note.",
+          "status": null,
+          "priority": null,
+          "links": [],
+          "raw": "Every milestone ships migrations, typed configuration, structured logs, health signals, tests, documentation, and an upgrade note."
+        },
+        {
+          "id": "dr.2",
+          "title": "Do not begin live connector work until mock/recorded contract fixtures and secret handling exist.",
+          "status": null,
+          "priority": null,
+          "links": [],
+          "raw": "Do not begin live connector work until mock/recorded contract fixtures and secret handling exist."
+        },
+        {
+          "id": "dr.3",
+          "title": "Feature flags protect unfinished providers/exporters.",
+          "status": null,
+          "priority": null,
+          "links": [],
+          "raw": "Feature flags protect unfinished providers/exporters."
+        }
+      ]
+    },
+    {
+      "id": "ms",
+      "title": "Milestones",
+      "kind": "table",
+      "grouping_decision": "Each table row is a milestone group (ms.N). Every semicolon-separated prioritized issue inside the 'Prioritized issues / acceptance criteria' cell is indexed as its own feature (ms.N.f.M) with its priority (P0/P1) preserved - no features merged. The trailing acceptance sentence of the cell is indexed as ms.N.ac.M. The ✅ marker on ms.6.f.1 is preserved as status=done.",
+      "items": [
+        {
+          "id": "ms.1",
+          "title": "Foundation",
+          "outcome": "Deployable, secure skeleton",
+          "status": null,
+          "priority": null,
+          "links": [],
+          "features": [
+            {
+              "id": "ms.1.f.1",
+              "title": "pyproject/lint/type/test tooling",
+              "status": null,
+              "priority": "P0",
+              "links": [],
+              "raw": "P0: pyproject/lint/type/test tooling"
+            },
+            {
+              "id": "ms.1.f.2",
+              "title": "FastAPI app/settings",
+              "status": null,
+              "priority": "P0",
+              "links": [],
+              "raw": "P0: FastAPI app/settings"
+            },
+            {
+              "id": "ms.1.f.3",
+              "title": "Postgres/Redis/Docker/Coolify",
+              "status": null,
+              "priority": "P0",
+              "links": [],
+              "raw": "P0: Postgres/Redis/Docker/Coolify"
+            },
+            {
+              "id": "ms.1.f.4",
+              "title": "Alembic core schema",
+              "status": null,
+              "priority": "P0",
+              "links": [],
+              "raw": "P0: Alembic core schema"
+            },
+            {
+              "id": "ms.1.f.5",
+              "title": "JWT/API keys/RBAC",
+              "status": null,
+              "priority": "P0",
+              "links": [],
+              "raw": "P0: JWT/API keys/RBAC"
+            },
+            {
+              "id": "ms.1.f.6",
+              "title": "health/metrics/logging",
+              "status": null,
+              "priority": "P0",
+              "links": [],
+              "raw": "P0: health/metrics/logging"
+            },
+            {
+              "id": "ms.1.f.7",
+              "title": "CI",
+              "status": null,
+              "priority": "P1",
+              "links": [],
+              "raw": "P1: CI"
+            }
+          ],
+          "acceptance_criteria": [
+            {
+              "id": "ms.1.ac.1",
+              "title": "A fresh deployment migrates, authenticates, and exposes readiness.",
+              "status": null,
+              "priority": null,
+              "links": [],
+              "raw": "A fresh deployment migrates, authenticates, and exposes readiness."
+            }
+          ]
+        },
+        {
+          "id": "ms.2",
+          "title": "Ingestion",
+          "outcome": "Reliable provider-neutral facts",
+          "status": null,
+          "priority": null,
+          "links": [],
+          "features": [
+            {
+              "id": "ms.2.f.1",
+              "title": "connector SDK/registry",
+              "status": null,
+              "priority": "P0",
+              "links": [],
+              "raw": "P0: connector SDK/registry"
+            },
+            {
+              "id": "ms.2.f.2",
+              "title": "sync-run/cursor/outbox",
+              "status": null,
+              "priority": "P0",
+              "links": [],
+              "raw": "P0: sync-run/cursor/outbox"
+            },
+            {
+              "id": "ms.2.f.3",
+              "title": "canonical accounts/transactions/portfolio schema",
+              "status": null,
+              "priority": "P0",
+              "links": [],
+              "raw": "P0: canonical accounts/transactions/portfolio schema"
+            },
+            {
+              "id": "ms.2.f.4",
+              "title": "bunq accounts/balances/transactions",
+              "status": null,
+              "priority": "P0",
+              "links": [],
+              "raw": "P0: bunq accounts/balances/transactions"
+            },
+            {
+              "id": "ms.2.f.5",
+              "title": "Trading212 portfolio/holdings/cash/orders/dividends",
+              "status": null,
+              "priority": "P0",
+              "links": [],
+              "raw": "P0: Trading212 portfolio/holdings/cash/orders/dividends"
+            },
+            {
+              "id": "ms.2.f.6",
+              "title": "scheduled payments/cards",
+              "status": null,
+              "priority": "P1",
+              "links": [],
+              "raw": "P1: scheduled payments/cards"
+            },
+            {
+              "id": "ms.2.f.7",
+              "title": "reconciliation",
+              "status": null,
+              "priority": "P1",
+              "links": [],
+              "raw": "P1: reconciliation"
+            }
+          ],
+          "acceptance_criteria": [
+            {
+              "id": "ms.2.ac.1",
+              "title": "Re-running a sync produces no duplicate facts/events.",
+              "status": null,
+              "priority": null,
+              "links": [],
+              "raw": "Re-running a sync produces no duplicate facts/events."
+            }
+          ]
+        },
+        {
+          "id": "ms.3",
+          "title": "Enrichment",
+          "outcome": "Market-data-backed security projections",
+          "status": null,
+          "priority": null,
+          "links": [],
+          "features": [
+            {
+              "id": "ms.3.f.1",
+              "title": "security/listing resolver",
+              "status": null,
+              "priority": "P0",
+              "links": [],
+              "raw": "P0: security/listing resolver"
+            },
+            {
+              "id": "ms.3.f.2",
+              "title": "OpenBB gateway and cache policy",
+              "status": null,
+              "priority": "P0",
+              "links": [],
+              "raw": "P0: OpenBB gateway and cache policy"
+            },
+            {
+              "id": "ms.3.f.3",
+              "title": "latest/historical prices",
+              "status": null,
+              "priority": "P0",
+              "links": [],
+              "raw": "P0: latest/historical prices"
+            },
+            {
+              "id": "ms.3.f.4",
+              "title": "fundamentals/ETF metadata",
+              "status": null,
+              "priority": "P1",
+              "links": [],
+              "raw": "P1: fundamentals/ETF metadata"
+            },
+            {
+              "id": "ms.3.f.5",
+              "title": "FX valuation",
+              "status": null,
+              "priority": "P1",
+              "links": [],
+              "raw": "P1: FX valuation"
+            }
+          ],
+          "acceptance_criteria": [
+            {
+              "id": "ms.3.ac.1",
+              "title": "Cached data honors TTL and records provenance/freshness.",
+              "status": null,
+              "priority": null,
+              "links": [],
+              "raw": "Cached data honors TTL and records provenance/freshness."
+            }
+          ]
+        },
+        {
+          "id": "ms.4",
+          "title": "Consumer API",
+          "outcome": "Stable downstream contracts",
+          "status": null,
+          "priority": null,
+          "links": [],
+          "features": [
+            {
+              "id": "ms.4.f.1",
+              "title": "read REST endpoints/OpenAPI",
+              "status": null,
+              "priority": "P0",
+              "links": [],
+              "raw": "P0: read REST endpoints/OpenAPI"
+            },
+            {
+              "id": "ms.4.f.2",
+              "title": "portfolio, allocation, cashflow/net-worth services",
+              "status": null,
+              "priority": "P0",
+              "links": [],
+              "raw": "P0: portfolio, allocation, cashflow/net-worth services"
+            },
+            {
+              "id": "ms.4.f.3",
+              "title": "Actual Budget exporter",
+              "status": null,
+              "priority": "P0",
+              "links": [],
+              "raw": "P0: Actual Budget exporter"
+            },
+            {
+              "id": "ms.4.f.4",
+              "title": "Wealthfolio exporter",
+              "status": null,
+              "priority": "P0",
+              "links": [],
+              "raw": "P0: Wealthfolio exporter"
+            },
+            {
+              "id": "ms.4.f.5",
+              "title": "exporter contract suites",
+              "status": null,
+              "priority": "P1",
+              "links": [],
+              "raw": "P1: exporter contract suites"
+            }
+          ],
+          "acceptance_criteria": [
+            {
+              "id": "ms.4.ac.1",
+              "title": "Consumer failure retries without source data loss.",
+              "status": null,
+              "priority": null,
+              "links": [],
+              "raw": "Consumer failure retries without source data loss."
+            }
+          ]
+        },
+        {
+          "id": "ms.5",
+          "title": "Automation/insights",
+          "outcome": "Operational integrations",
+          "status": null,
+          "priority": null,
+          "links": [],
+          "features": [
+            {
+              "id": "ms.5.f.1",
+              "title": "AI summary endpoints",
+              "status": null,
+              "priority": "P0",
+              "links": [],
+              "raw": "P0: AI summary endpoints"
+            },
+            {
+              "id": "ms.5.f.2",
+              "title": "Home Assistant pull integration",
+              "status": null,
+              "priority": "P0",
+              "links": [],
+              "raw": "P0: Home Assistant pull integration"
+            },
+            {
+              "id": "ms.5.f.3",
+              "title": "Grafana dashboard/alerts",
+              "status": null,
+              "priority": "P0",
+              "links": [],
+              "raw": "P0: Grafana dashboard/alerts"
+            },
+            {
+              "id": "ms.5.f.4",
+              "title": "performance analytics",
+              "status": null,
+              "priority": "P1",
+              "links": [],
+              "raw": "P1: performance analytics"
+            },
+            {
+              "id": "ms.5.f.5",
+              "title": "subscription detection",
+              "status": null,
+              "priority": "P1",
+              "links": [],
+              "raw": "P1: subscription detection"
+            }
+          ],
+          "acceptance_criteria": [
+            {
+              "id": "ms.5.ac.1",
+              "title": "Every aggregate declares as-of/freshness/coverage.",
+              "status": null,
+              "priority": null,
+              "links": [],
+              "raw": "Every aggregate declares as-of/freshness/coverage."
+            }
+          ]
+        },
+        {
+          "id": "ms.6",
+          "title": "Ecosystem",
+          "outcome": "Extensible platform",
+          "status": null,
+          "priority": null,
+          "links": [],
+          "features": [
+            {
+              "id": "ms.6.f.1",
+              "title": "versioned plugin SDK and compatibility policy",
+              "status": "done",
+              "priority": "P0",
+              "links": [],
+              "raw": "✅ P0: versioned plugin SDK and compatibility policy"
+            },
+            {
+              "id": "ms.6.f.2",
+              "title": "MCP server",
+              "status": null,
+              "priority": "P1",
+              "links": [],
+              "raw": "P1: MCP server"
+            },
+            {
+              "id": "ms.6.f.3",
+              "title": "additional connectors",
+              "status": null,
+              "priority": "P1",
+              "links": [],
+              "raw": "P1: additional connectors"
+            },
+            {
+              "id": "ms.6.f.4",
+              "title": "tax lots/calculations",
+              "status": null,
+              "priority": "P1",
+              "links": [],
+              "raw": "P1: tax lots/calculations"
+            }
+          ],
+          "acceptance_criteria": [
+            {
+              "id": "ms.6.ac.1",
+              "title": "Third-party plugin can be installed/configured without core source edits.",
+              "status": null,
+              "priority": null,
+              "links": [],
+              "raw": "Third-party plugin can be installed/configured without core source edits."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "lb",
+      "title": "GitHub labels and issue ordering",
+      "kind": "checklist",
+      "grouping_decision": "Each sentence of the labels/ordering paragraph is a distinct rule (lb.*); the label taxonomy list is one item (lb.1).",
+      "items": [
+        {
+          "id": "lb.1",
+          "title": "Use labels area:api, area:connector, area:data, area:enrichment, area:exporter, area:ops, security, good-first-issue, blocked:provider, plus priority:P0/P1/P2.",
+          "status": null,
+          "priority": null,
+          "links": [],
+          "raw": "Use labels `area:api`, `area:connector`, `area:data`, `area:enrichment`, `area:exporter`, `area:ops`, `security`, `good-first-issue`, `blocked:provider`, plus `priority:P0/P1/P2`."
+        },
+        {
+          "id": "lb.2",
+          "title": "Close milestones only after automated acceptance tests run against PostgreSQL/Redis and recorded provider fixtures.",
+          "status": null,
+          "priority": null,
+          "links": [],
+          "raw": "Close milestones only after automated acceptance tests run against PostgreSQL/Redis and recorded provider fixtures."
+        },
+        {
+          "id": "lb.3",
+          "title": "Provider secrets and real account data are never prerequisites for ordinary CI.",
+          "status": null,
+          "priority": null,
+          "links": [],
+          "raw": "Provider secrets and real account data are never prerequisites for ordinary CI."
+        }
+      ]
+    },
+    {
+      "id": "tc",
+      "title": "Testing and CI/CD",
+      "kind": "checklist",
+      "grouping_decision": "Each bullet is a distinct testing/CI item (tc.*). None merged.",
+      "items": [
+        {
+          "id": "tc.1",
+          "title": "Unit tests: domain policies/mappers with no I/O.",
+          "status": null,
+          "priority": null,
+          "links": [],
+          "raw": "Unit tests: domain policies/mappers with no I/O."
+        },
+        {
+          "id": "tc.2",
+          "title": "Integration tests: async SQLAlchemy repositories, migrations, Redis locks/rate limits, outbox, with ephemeral PostgreSQL/Redis containers.",
+          "status": null,
+          "priority": null,
+          "links": [],
+          "raw": "Integration tests: async SQLAlchemy repositories, migrations, Redis locks/rate limits, outbox, with ephemeral PostgreSQL/Redis containers."
+        },
+        {
+          "id": "tc.3",
+          "title": "Contract tests: connectors and exporters against provider/consumer fixtures; live tests are opt-in and secret-gated.",
+          "status": null,
+          "priority": null,
+          "links": [],
+          "raw": "Contract tests: connectors and exporters against provider/consumer fixtures; live tests are opt-in and secret-gated."
+        },
+        {
+          "id": "tc.4",
+          "title": "E2E tests: API-to-worker flow verifies exactly-once observable outcome after at-least-once delivery.",
+          "status": null,
+          "priority": null,
+          "links": [],
+          "raw": "E2E tests: API-to-worker flow verifies exactly-once observable outcome after at-least-once delivery."
+        },
+        {
+          "id": "tc.5",
+          "title": "Quality gates: Ruff format/lint, pyright (strict for app/), pytest + coverage threshold ratcheted to 85% minimum, dependency/SBOM/image scans, OpenAPI diff, migration upgrade test.",
+          "status": null,
+          "priority": null,
+          "links": [],
+          "raw": "Quality gates: Ruff format/lint, pyright (strict for `app/`), pytest + coverage threshold ratcheted to 85% minimum, dependency/SBOM/image scans, OpenAPI diff, migration upgrade test."
+        },
+        {
+          "id": "tc.6",
+          "title": "CI runs pull-request checks; a protected release pipeline builds immutable image tags, scans/signs them, runs migration job, deploys a staging stack, then promotes through Coolify. Production rollback is application-image rollback plus backward-compatible migration strategy—not blind schema downgrade.",
+          "status": null,
+          "priority": null,
+          "links": [],
+          "raw": "CI runs pull-request checks; a protected release pipeline builds immutable image tags, scans/signs them, runs migration job, deploys a staging stack, then promotes through Coolify. Production rollback is application-image rollback plus backward-compatible migration strategy—not blind schema downgrade."
+        }
+      ]
+    },
+    {
+      "id": "rk",
+      "title": "Risks and mitigations",
+      "kind": "table",
+      "grouping_decision": "Each table row is a distinct risk (rk.N) with its mitigation kept as a separate field; risk and mitigation are not merged into one title.",
+      "items": [
+        {
+          "id": "rk.1",
+          "title": "Provider APIs change, limit, or omit history",
+          "status": null,
+          "priority": null,
+          "links": [],
+          "mitigation": "Connector versioning, fixtures, capability declaration, backoff, manual sync/reconciliation.",
+          "raw": "Provider APIs change, limit, or omit history | Connector versioning, fixtures, capability declaration, backoff, manual sync/reconciliation."
+        },
+        {
+          "id": "rk.2",
+          "title": "Ambiguous ticker identity",
+          "status": null,
+          "priority": null,
+          "links": [],
+          "mitigation": "ISIN/FIGI-first resolver, listing model, confidence score and review queue.",
+          "raw": "Ambiguous ticker identity | ISIN/FIGI-first resolver, listing model, confidence score and review queue."
+        },
+        {
+          "id": "rk.3",
+          "title": "Duplicate/mutating transactions",
+          "status": null,
+          "priority": null,
+          "links": [],
+          "mitigation": "Provider identity + fingerprint uniqueness, status/revision handling, outbox idempotency.",
+          "raw": "Duplicate/mutating transactions | Provider identity + fingerprint uniqueness, status/revision handling, outbox idempotency."
+        },
+        {
+          "id": "rk.4",
+          "title": "Stale/incomplete valuation",
+          "status": null,
+          "priority": null,
+          "links": [],
+          "mitigation": "Per-field freshness, price provenance, coverage/caveats in every aggregate.",
+          "raw": "Stale/incomplete valuation | Per-field freshness, price provenance, coverage/caveats in every aggregate."
+        },
+        {
+          "id": "rk.5",
+          "title": "Credential/financial-data exposure",
+          "status": null,
+          "priority": null,
+          "links": [],
+          "mitigation": "Envelope encryption, scoped access, redaction, audit, backups, security scans.",
+          "raw": "Credential/financial-data exposure | Envelope encryption, scoped access, redaction, audit, backups, security scans."
+        },
+        {
+          "id": "rk.6",
+          "title": "Exporter API mismatch",
+          "status": null,
+          "priority": null,
+          "links": [],
+          "mitigation": "Isolated adapters, integration contract tests, delivery cursor and dead-letter visibility.",
+          "raw": "Exporter API mismatch | Isolated adapters, integration contract tests, delivery cursor and dead-letter visibility."
+        },
+        {
+          "id": "rk.7",
+          "title": "Premature distributed complexity",
+          "status": null,
+          "priority": null,
+          "links": [],
+          "mitigation": "Modular-monolith boundaries; extract only after measured operational need.",
+          "raw": "Premature distributed complexity | Modular-monolith boundaries; extract only after measured operational need."
+        }
+      ]
+    }
+  ]
+}
