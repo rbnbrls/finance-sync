@@ -16,6 +16,7 @@ Revision ID: 0011
 Revises: 0010
 Create Date: 2026-08-14
 """
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING

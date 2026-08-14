@@ -397,10 +397,14 @@ class TestSyncPipelinePg:
             assert cursors[0].tenant_id == tenant.id
 
             runs = (
-                await session.execute(
-                    select(SyncRun).order_by(SyncRun.started_at.asc())
+                (
+                    await session.execute(
+                        select(SyncRun).order_by(SyncRun.started_at.asc())
+                    )
                 )
-            ).scalars().all()
+                .scalars()
+                .all()
+            )
             assert len(runs) == 2
             # Each run records the watermark it advanced to; the cursor
             # row ends up at run 2's watermark.

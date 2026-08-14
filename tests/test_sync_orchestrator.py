@@ -760,9 +760,7 @@ class TestSyncCursorResume:
             acct.id = f"acct_{external_account_id}"
             return acct
 
-        mock_uow.accounts.get_by_external_id = AsyncMock(
-            side_effect=get_acct
-        )
+        mock_uow.accounts.get_by_external_id = AsyncMock(side_effect=get_acct)
 
         stored = datetime.now(UTC) - timedelta(days=2)
         mock_get_cursors.return_value = {"ext_acc_1": stored}
