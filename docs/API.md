@@ -50,8 +50,8 @@ Authentication is `Authorization: Bearer <JWT>` or `X-API-Key`. Mutations requir
 |---|---|---|
 | `GET /accounts` | `finance:read` | Accounts, latest balances, institution and connection health. Filters: type, institutionId. |
 | `GET /accounts/{id}` | `finance:read` | One account and current snapshot. |
-| `GET /transactions` | `finance:read` | Canonical cash transactions. Filters: accountId, status, type, from, to, currency. |
-| `GET /holdings` | `investments:read` | Latest or `asOf` holdings; filters portfolioId, securityId. |
+| `GET /transactions` | `finance:read` | Canonical cash transactions. Filters: accountId, provider, status, type, from, to, currency. |
+| `GET /holdings` | `investments:read` | Latest (or as-of) holdings; filters accountId, securityId, asOf. |
 | `GET /subscriptions` | `subscriptions:read` | List persisted detected subscriptions. Filters: status, confidence. Pagination: limit, offset. |
 | `GET /subscriptions/{id}` | `subscriptions:read` | Single detected subscription by ID. |
 | `GET /subscriptions/detected` | `subscriptions:read` | Run subscription detection (read-only, ephemeral). Query params: dateFrom, dateTo, minOccurrences. |
@@ -66,8 +66,8 @@ Authentication is `Authorization: Bearer <JWT>` or `X-API-Key`. Mutations requir
 | `GET /allocation` | `analytics:read` | Allocation by asset class, sector, country, currency, or security. |
 | `GET /net-worth` | `analytics:read` | Cash + investments net-worth series and coverage. |
 | `GET /cashflow` | `analytics:read` | Income/expense aggregates and transaction counts. |
-| `GET /prices` | `market:read` | Latest/historical prices. Requires securityId/listingId; granularity and date range. |
-| `GET /dividends` | `investments:read` | Dividend records and aggregate filters. |
+| `GET /prices` | `market:read` | Latest/historical prices. Filters: securityId, listingId, interval, from, to. Without a security filter returns the latest price per security. |
+| `GET /dividends` | `investments:read` | Dividend-type transactions. Filters: accountId, securityId, from, to. |
 | `POST /sync` | `sync:write` | Starts allowed connections; `{providers?, resources?, force?}`. Returns 202 sync-run links. |
 | `POST /sync/{provider}` | `sync:write` | Starts one configured provider; provider is registry key, not a URL. |
 | `GET /sync-runs/{id}` | `sync:read` | Status, cursors, counts, warnings, error code. |

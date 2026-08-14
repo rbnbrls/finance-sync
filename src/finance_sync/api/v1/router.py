@@ -15,13 +15,16 @@ from finance_sync.api.v1.cashflow import router as cashflow_router
 from finance_sync.api.v1.connectors_config import (
     router as connectors_config_router,
 )
+from finance_sync.api.v1.dividends import router as dividends_router
 from finance_sync.api.v1.enrichment import router as enrichment_router
 from finance_sync.api.v1.exporters import router as exporters_router
 from finance_sync.api.v1.feedback import router as feedback_router
 from finance_sync.api.v1.ha_integration import router as ha_integration_router
+from finance_sync.api.v1.holdings import router as holdings_router
 from finance_sync.api.v1.net_worth import router as net_worth_router
 from finance_sync.api.v1.performance import router as performance_router
 from finance_sync.api.v1.portfolio import router as portfolio_router
+from finance_sync.api.v1.prices import router as prices_router
 from finance_sync.api.v1.reconciliation import router as reconciliation_router
 from finance_sync.api.v1.root import router as root_router
 from finance_sync.api.v1.scheduled_payments import (
@@ -29,8 +32,10 @@ from finance_sync.api.v1.scheduled_payments import (
 )
 from finance_sync.api.v1.securities import router as securities_router
 from finance_sync.api.v1.subscriptions import router as subscriptions_router
+from finance_sync.api.v1.sync import router as sync_router
 from finance_sync.api.v1.sync_runs import router as sync_runs_router
 from finance_sync.api.v1.tax_lots import router as tax_lots_router
+from finance_sync.api.v1.transactions import router as transactions_router
 from finance_sync.api.v1.webhooks import router as webhooks_router
 
 router = APIRouter()
@@ -56,3 +61,8 @@ router.include_router(tax_lots_router)
 router.include_router(webhooks_router)
 router.include_router(scheduled_payments_router)
 router.include_router(card_transactions_router)
+router.include_router(transactions_router)
+router.include_router(holdings_router)
+router.include_router(dividends_router)
+router.include_router(prices_router)
+router.include_router(sync_router)

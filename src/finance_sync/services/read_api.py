@@ -16,16 +16,20 @@ from sqlalchemy import and_, desc, func, or_, select
 from finance_sync.models.account import Account
 from finance_sync.models.balance import Balance
 from finance_sync.models.card_transaction import CardTransaction
+from finance_sync.models.enums import TransactionType
 from finance_sync.models.holding import Holding
 from finance_sync.models.scheduled_payment import ScheduledPayment
 from finance_sync.models.security import Security
+from finance_sync.models.security_listing import SecurityListing
 from finance_sync.models.security_price import SecurityPrice
 from finance_sync.models.sync_run import SyncRun
 from finance_sync.models.transaction import Transaction
 from finance_sync.schemas.freshness import (
     AggregateMeta,
+    CollectionMeta,
     CoverageInfo,
     build_meta,
+    freshness_for,
 )
 
 if TYPE_CHECKING:
@@ -78,6 +82,46 @@ class TransactionListResponse(BaseModel):
     total: int
     limit: int
     offset: int
+
+
+class TopLevelTransactionListResponse(BaseModel):
+    """Top-level ``GET /transactions`` response.
+
+    Mirrors the account-scoped list but adds the ``meta`` envelope
+    promised by ``docs/API.md`` for collection endpoints.
+    """
+
+    items: list[TransactionResponse]
+    total: int
+    limit: int
+    offset: int
+    meta: CollectionMeta = Field(
+        default_factory=CollectionMeta,
+        description=(
+            "As-of / currency / cursor / freshness envelope "
+            "(docs/API.md ``meta`` contract)"
+        ),
+    )
+
+
+class DividendListResponse(BaseModel):
+    """Top-level ``GET /dividends`` response.
+
+    Dividend-type transactions across the tenant's accounts, with the
+    collection ``meta`` envelope.
+    """
+
+    items: list[TransactionResponse]
+    total: int
+    limit: int
+    offset: int
+    meta: CollectionMeta = Field(
+        default_factory=CollectionMeta,
+        description=(
+            "As-of / currency / cursor / freshness envelope "
+            "(docs/API.md ``meta`` contract)"
+        ),
+    )
 
 
 class ScheduledPaymentResponse(BaseModel):
@@ -202,6 +246,26 @@ class SecurityPriceListResponse(BaseModel):
     offset: int
 
 
+class TopLevelPriceListResponse(BaseModel):
+    """Top-level ``GET /prices`` response.
+
+    Either the price series for one security/listing or the latest
+    price per security, with the collection ``meta`` envelope.
+    """
+
+    items: list[SecurityPriceResponse]
+    total: int
+    limit: int
+    offset: int
+    meta: CollectionMeta = Field(
+        default_factory=CollectionMeta,
+        description=(
+            "As-of / currency / cursor / freshness envelope "
+            "(docs/API.md ``meta`` contract)"
+        ),
+    )
+
+
 class HoldingBreakdown(BaseModel):
     security_id: str
     ticker: str | None = None
@@ -232,6 +296,43 @@ class PortfolioResponse(BaseModel):
     total_value: E | None = None
     total_cost_basis: E | None = None
     currency_code: str = "EUR"
+
+
+class HoldingItemResponse(BaseModel):
+    """One aggregated current holding (latest snapshot per position)."""
+
+    account_id: str
+    account_name: str | None = None
+    security_id: str
+    ticker: str | None = None
+    security_name: str
+    security_type: str
+    quantity: E
+    cost_basis: E | None = None
+    cost_basis_currency: str | None = None
+    market_value: E | None = None
+    price: E | None = None
+    price_currency: str | None = None
+    currency_code: str
+    observed_at: datetime
+    unrealised_pl: E | None = None
+    unrealised_pl_pct: E | None = None
+
+
+class HoldingsListResponse(BaseModel):
+    """Top-level ``GET /holdings`` response with the collection ``meta``."""
+
+    items: list[HoldingItemResponse]
+    total: int
+    limit: int
+    offset: int
+    meta: CollectionMeta = Field(
+        default_factory=CollectionMeta,
+        description=(
+            "As-of / currency / cursor / freshness envelope "
+            "(docs/API.md ``meta`` contract)"
+        ),
+    )
 
 
 class PortfolioHistoryEntry(BaseModel):
@@ -569,6 +670,153 @@ class ReadService:
             provider_key=t.provider_key,
             created_at=t.created_at,
             updated_at=t.updated_at,
+        )
+
+    # ── Transactions (top-level) ────────────────────────────────────
+
+    async def list_transactions(
+        self,
+        tenant_id: str,
+        *,
+        account_id: str | None = None,
+        provider_key: str | None = None,
+        status: str | None = None,
+        transaction_type: str | None = None,
+        currency_code: str | None = None,
+        date_from: datetime | None = None,
+        date_to: datetime | None = None,
+        limit: int = 50,
+        offset: int = 0,
+        sort_by: str = "occurred_at",
+        sort_order: str = "desc",
+    ) -> TopLevelTransactionListResponse:
+        """List transactions across all of a tenant's accounts.
+
+        Supports the documented ``GET /transactions`` filters
+        (accountId, provider, status, type, from, to, currency).
+        """
+        conditions: list[Any] = [
+            Transaction.tenant_id == tenant_id,  # type: ignore[attr-defined]
+        ]
+
+        if account_id is not None:
+            conditions.append(Transaction.account_id == account_id)  # type: ignore[attr-defined]
+        if provider_key is not None:
+            conditions.append(  # type: ignore[attr-defined]
+                Transaction.provider_key == provider_key
+            )
+        if status is not None:
+            conditions.append(Transaction.status == status)  # type: ignore[attr-defined]
+        if transaction_type is not None:
+            conditions.append(  # type: ignore[attr-defined]
+                Transaction.transaction_type == transaction_type
+            )
+        if currency_code is not None:
+            conditions.append(  # type: ignore[attr-defined]
+                Transaction.currency_code == currency_code
+            )
+        if date_from is not None:
+            conditions.append(Transaction.occurred_at >= date_from)  # type: ignore[attr-defined]
+        if date_to is not None:
+            conditions.append(Transaction.occurred_at <= date_to)  # type: ignore[attr-defined]
+
+        # Count + latest observation in a single query
+        meta_row = (
+            await self._session.execute(
+                select(
+                    func.count().label("total"),
+                    func.max(Transaction.occurred_at).label("as_of"),  # type: ignore[attr-defined]
+                )
+                .select_from(Transaction)
+                .where(_expr(*conditions))
+            )
+        ).one()
+        total: int = meta_row.total or 0  # type: ignore[assignment]
+
+        order = _sort_field(_SORTABLE_TRANSACTION_FIELDS, sort_by, sort_order)
+        stmt = (
+            select(Transaction)
+            .where(_expr(*conditions))
+            .order_by(order)
+            .offset(offset)
+            .limit(limit)
+        )
+        result = await self._session.execute(stmt)
+        rows: list[Transaction] = list(result.scalars().all())  # type: ignore[assignment]
+
+        return TopLevelTransactionListResponse(
+            items=[self._tx_to_response(t) for t in rows],
+            total=total,
+            limit=limit,
+            offset=offset,
+            meta=CollectionMeta(
+                as_of=meta_row.as_of,
+                freshness=freshness_for(meta_row.as_of),
+            ),
+        )
+
+    # ── Dividends ───────────────────────────────────────────────────
+
+    async def list_dividends(
+        self,
+        tenant_id: str,
+        *,
+        account_id: str | None = None,
+        security_id: str | None = None,
+        date_from: datetime | None = None,
+        date_to: datetime | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> DividendListResponse:
+        """List dividend-type transactions across a tenant's accounts."""
+        conditions: list[Any] = [
+            Transaction.tenant_id == tenant_id,  # type: ignore[attr-defined]
+            Transaction.transaction_type == TransactionType.DIVIDEND,  # type: ignore[attr-defined]
+        ]
+
+        if account_id is not None:
+            conditions.append(Transaction.account_id == account_id)  # type: ignore[attr-defined]
+        if security_id is not None:
+            conditions.append(  # type: ignore[attr-defined]
+                Transaction.security_id == security_id
+            )
+        if date_from is not None:
+            conditions.append(Transaction.occurred_at >= date_from)  # type: ignore[attr-defined]
+        if date_to is not None:
+            conditions.append(Transaction.occurred_at <= date_to)  # type: ignore[attr-defined]
+
+        meta_row = (
+            await self._session.execute(
+                select(
+                    func.count().label("total"),
+                    func.max(Transaction.occurred_at).label("as_of"),  # type: ignore[attr-defined]
+                )
+                .select_from(Transaction)
+                .where(_expr(*conditions))
+            )
+        ).one()
+        total: int = meta_row.total or 0  # type: ignore[assignment]
+
+        order = _sort_field(_SORTABLE_TRANSACTION_FIELDS, "occurred_at", "desc")
+        stmt = (
+            select(Transaction)
+            .where(_expr(*conditions))
+            .order_by(order)
+            .offset(offset)
+            .limit(limit)
+        )
+        result = await self._session.execute(stmt)
+        rows: list[Transaction] = list(result.scalars().all())  # type: ignore[assignment]
+
+        return DividendListResponse(
+            items=[self._tx_to_response(t) for t in rows],
+            total=total,
+            limit=limit,
+            offset=offset,
+            meta=CollectionMeta(
+                as_of=meta_row.as_of,
+                freshness=freshness_for(meta_row.as_of),
+            ),
         )
 
     # ── Scheduled payments ────────────────────────────────────────────
@@ -967,6 +1215,154 @@ class ReadService:
             total_cost_basis=total_cost_basis,
         )
 
+    # ── Holdings (top-level) ─────────────────────────────────────────
+
+    async def get_holdings(
+        self,
+        tenant_id: str,
+        *,
+        account_id: str | None = None,
+        security_id: str | None = None,
+        as_of: datetime | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> HoldingsListResponse:
+        """Aggregated current holdings for a tenant.
+
+        Returns the latest snapshot per (account, security) — or, when
+        ``as_of`` is given, the latest snapshot observed on or before
+        that timestamp.  Each item is enriched with security metadata
+        and unrealised P&L (mirroring ``get_portfolio``).
+        """
+        subq_conditions: list[Any] = [
+            Holding.tenant_id == tenant_id,  # type: ignore[attr-defined]
+        ]
+        if as_of is not None:
+            subq_conditions.append(Holding.observed_at <= as_of)  # type: ignore[attr-defined]
+
+        latest_holding_subq = (
+            select(
+                Holding.account_id,
+                Holding.security_id,
+                func.max(Holding.observed_at).label("latest_ts"),  # type: ignore[attr-defined]
+            )
+            .where(_expr(*subq_conditions))
+            .group_by(Holding.account_id, Holding.security_id)  # type: ignore[attr-defined]
+        ).subquery()
+
+        conditions: list[Any] = [
+            Holding.tenant_id == tenant_id,  # type: ignore[attr-defined]
+            Holding.account_id == latest_holding_subq.c.account_id,  # type: ignore[attr-defined]
+            Holding.security_id == latest_holding_subq.c.security_id,  # type: ignore[attr-defined]
+            Holding.observed_at == latest_holding_subq.c.latest_ts,  # type: ignore[attr-defined]
+        ]
+        if account_id is not None:
+            conditions.append(Holding.account_id == account_id)  # type: ignore[attr-defined]
+        if security_id is not None:
+            conditions.append(Holding.security_id == security_id)  # type: ignore[attr-defined]
+
+        holdings_q = (
+            select(Holding)
+            .where(_expr(*conditions))
+            .order_by(Holding.account_id, Holding.security_id)  # type: ignore[attr-defined]
+            .offset(offset)
+            .limit(limit)
+        )
+        result = await self._session.execute(holdings_q)
+        holdings: list[Holding] = list(result.scalars().all())  # type: ignore[assignment]
+
+        # Total count of matching positions
+        count_q = (
+            select(func.count()).select_from(Holding).where(_expr(*conditions))
+        )
+        count_result = await self._session.execute(count_q)
+        total: int = count_result.scalar() or 0  # type: ignore[assignment]
+
+        if not holdings:
+            return HoldingsListResponse(
+                items=[],
+                total=total,
+                limit=limit,
+                offset=offset,
+                meta=CollectionMeta(as_of=None, freshness="unknown"),
+            )
+
+        security_ids = list({h.security_id for h in holdings})
+        account_ids = list({h.account_id for h in holdings})
+
+        acct_result = await self._session.execute(
+            select(Account).where(
+                Account.id.in_(account_ids),  # type: ignore[attr-defined]
+                Account.tenant_id == tenant_id,  # type: ignore[attr-defined]
+            )
+        )
+        account_map: dict[str, Account] = {
+            str(a.id): a
+            for a in acct_result.scalars().all()  # type: ignore[assignment]
+        }
+
+        sec_result = await self._session.execute(
+            select(Security).where(Security.id.in_(security_ids))  # type: ignore[attr-defined]
+        )
+        sec_map: dict[str, Security] = {
+            str(s.id): s
+            for s in sec_result.scalars().all()  # type: ignore[assignment]
+        }
+
+        items: list[HoldingItemResponse] = []
+        for h in holdings:
+            sec = sec_map.get(str(h.security_id))
+            price = h.price
+            market_value = h.market_value
+            if market_value is None and price is not None:
+                market_value = h.quantity * price
+
+            cost_basis = h.cost_basis
+            unrealised_pl: E | None = None
+            unrealised_pl_pct: E | None = None
+            if cost_basis is not None and market_value is not None:
+                unrealised_pl = market_value - cost_basis
+                if cost_basis != E("0"):
+                    unrealised_pl_pct = (unrealised_pl / cost_basis) * E("100")
+
+            items.append(
+                HoldingItemResponse(
+                    account_id=str(h.account_id),
+                    account_name=(
+                        account_map[str(h.account_id)].name
+                        if str(h.account_id) in account_map
+                        else None
+                    ),
+                    security_id=str(h.security_id),
+                    ticker=sec.ticker if sec else None,
+                    security_name=sec.name if sec else "Unknown",
+                    security_type=str(sec.security_type) if sec else "other",
+                    quantity=h.quantity,
+                    cost_basis=cost_basis,
+                    cost_basis_currency=h.cost_basis_currency,
+                    market_value=market_value,
+                    price=price,
+                    price_currency=h.price_currency,
+                    currency_code=h.currency_code,
+                    observed_at=h.observed_at,
+                    unrealised_pl=unrealised_pl,
+                    unrealised_pl_pct=unrealised_pl_pct,
+                )
+            )
+
+        as_of = max((h.observed_at for h in holdings), default=None)
+
+        return HoldingsListResponse(
+            items=items,
+            total=total,
+            limit=limit,
+            offset=offset,
+            meta=CollectionMeta(
+                as_of=as_of,
+                freshness=freshness_for(as_of),
+            ),
+        )
+
     async def get_portfolio_history(
         self,
         tenant_id: str,
@@ -1169,6 +1565,131 @@ class ReadService:
             total=total,
             limit=limit,
             offset=offset,
+        )
+
+    # ── Prices (top-level) ───────────────────────────────────────────
+
+    async def resolve_listing_security_id(self, listing_id: str) -> str | None:
+        """Resolve a ``SecurityListing`` id to its canonical security id."""
+        result = await self._session.execute(
+            select(SecurityListing.security_id).where(  # type: ignore[attr-defined]
+                SecurityListing.id == listing_id  # type: ignore[attr-defined]
+            )
+        )
+        return result.scalar_one_or_none()  # type: ignore[return-value]
+
+    async def get_prices(
+        self,
+        *,
+        security_id: str | None = None,
+        interval: str = "1d",
+        date_from: datetime | None = None,
+        date_to: datetime | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> TopLevelPriceListResponse:
+        """Top-level price endpoint.
+
+        With ``security_id`` returns that security's price series
+        (interval + date range).  Without it, returns the latest price
+        observation per security.
+        """
+        if security_id is not None:
+            conditions: list[Any] = [
+                SecurityPrice.security_id == security_id,  # type: ignore[attr-defined]
+                SecurityPrice.interval == interval,  # type: ignore[attr-defined]
+            ]
+            if date_from is not None:
+                conditions.append(SecurityPrice.timestamp >= date_from)  # type: ignore[attr-defined]
+            if date_to is not None:
+                conditions.append(SecurityPrice.timestamp <= date_to)  # type: ignore[attr-defined]
+
+            meta_row = (
+                await self._session.execute(
+                    select(
+                        func.count().label("total"),
+                        func.max(SecurityPrice.timestamp).label("as_of"),  # type: ignore[attr-defined]
+                    )
+                    .select_from(SecurityPrice)
+                    .where(_expr(*conditions))
+                )
+            ).one()
+            total: int = meta_row.total or 0  # type: ignore[assignment]
+
+            stmt = (
+                select(SecurityPrice)
+                .where(_expr(*conditions))
+                .order_by(SecurityPrice.timestamp.desc())  # type: ignore[attr-defined]
+                .offset(offset)
+                .limit(limit)
+            )
+            result = await self._session.execute(stmt)
+            rows: list[SecurityPrice] = list(result.scalars().all())  # type: ignore[assignment]
+            as_of = meta_row.as_of
+        else:
+            # Latest price per security (one row per security).
+            latest_ts_subq = (
+                select(
+                    SecurityPrice.security_id,
+                    func.max(SecurityPrice.timestamp).label("latest_ts"),  # type: ignore[attr-defined]
+                )
+                .where(SecurityPrice.interval == interval)  # type: ignore[attr-defined]
+                .group_by(SecurityPrice.security_id)  # type: ignore[attr-defined]
+            ).subquery()
+
+            conditions = [
+                SecurityPrice.interval == interval,  # type: ignore[attr-defined]
+                SecurityPrice.security_id == latest_ts_subq.c.security_id,  # type: ignore[attr-defined]
+                SecurityPrice.timestamp == latest_ts_subq.c.latest_ts,  # type: ignore[attr-defined]
+            ]
+            if date_from is not None:
+                conditions.append(SecurityPrice.timestamp >= date_from)  # type: ignore[attr-defined]
+            if date_to is not None:
+                conditions.append(SecurityPrice.timestamp <= date_to)  # type: ignore[attr-defined]
+
+            count_q = (
+                select(func.count(func.distinct(SecurityPrice.security_id)))  # type: ignore[attr-defined]
+                .select_from(SecurityPrice)
+                .where(_expr(*conditions))
+            )
+            count_result = await self._session.execute(count_q)
+            total = count_result.scalar() or 0  # type: ignore[assignment]
+
+            stmt = (
+                select(SecurityPrice)
+                .where(_expr(*conditions))
+                .order_by(SecurityPrice.timestamp.desc())  # type: ignore[attr-defined]
+                .offset(offset)
+                .limit(limit)
+            )
+            result = await self._session.execute(stmt)
+            rows = list(result.scalars().all())  # type: ignore[assignment]
+            as_of = max((sp.timestamp for sp in rows), default=None)
+
+        return TopLevelPriceListResponse(
+            items=[
+                SecurityPriceResponse(
+                    id=str(sp.id),
+                    security_id=str(sp.security_id),
+                    timestamp=sp.timestamp,
+                    price_open=sp.price_open,
+                    price_high=sp.price_high,
+                    price_low=sp.price_low,
+                    price_close=sp.price_close,
+                    volume=sp.volume,
+                    source=sp.source,
+                    interval=sp.interval,
+                    currency_code=sp.currency_code,
+                )
+                for sp in rows
+            ],
+            total=total,
+            limit=limit,
+            offset=offset,
+            meta=CollectionMeta(
+                as_of=as_of,
+                freshness=freshness_for(as_of),
+            ),
         )
 
     # ── Net Worth ─────────────────────────────────────────────────────
