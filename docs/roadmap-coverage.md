@@ -240,7 +240,7 @@ Actions, or system cron inside the deployment).
 
 ### G-06 — Add Grafana alert rules
 - **Roadmap IDs:** ms.5.f.3, ms.5.ac.1
-- **Status:** DONE (merged 2026-08-14)
+- **Status:** DONE (merged PR #207, 2026-08-14)
 - **What's missing:** Dashboards exist but no alerts (sync health, stale
   enrichment, failed exports, outbox lag all unmonitored).
 - **Task outline:**
