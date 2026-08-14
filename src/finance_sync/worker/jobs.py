@@ -11,7 +11,6 @@ import asyncio
 import json
 import time
 import traceback
-from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 import structlog
@@ -163,11 +162,14 @@ async def sync_connector_job(
     container: Container,
     provider_key: str,
     *,
-    since_days: int = 90,
     max_attempts: int | None = None,
     base_delay: float | None = None,
 ) -> dict[str, Any]:
     """Sync a specific connector for all configured tenants.
+
+    Each tenant resumes from its stored sync cursor when one exists
+    (per account); first syncs and accounts without a cursor fall back
+    to the orchestrator's 90-day default window.
 
     Returns a summary dict with per-tenant results.
     """
@@ -205,11 +207,9 @@ async def sync_connector_job(
                 tenant_id=_tenant.id,
                 settings=container.settings,
             )
-            since = datetime.now(UTC) - timedelta(days=since_days)
             result = await orchestrator.run_sync(
                 provider_type=_cfg.provider_type,
                 config=_cfg,
-                since=since,
             )
             return {
                 "tenant_id": _tenant.id,
@@ -316,10 +316,8 @@ async def sync_bunq_cards_job(container: Container) -> dict[str, Any]:
                 tenant_id=_tenant.id,
                 settings=settings,
             )
-            since = datetime.now(UTC) - timedelta(days=90)
             result = await orchestrator.run_bunq_cards_sync(
                 config=_cfg,
-                since=since,
             )
             return {
                 "tenant_id": _tenant.id,

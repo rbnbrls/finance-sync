@@ -61,7 +61,7 @@ for direct Kanban task creation.
 | ID | Feature | Status | Evidence |
 |---|---|---|---|
 | ms.2.f.1 | connector SDK/registry | **DONE** | `connectors/registry.py` (entry-point discovery `finance_sync.connectors`), `connectors/base.py` (abstract Connector, `sdk_version`, rate-limit policy), `connectors/rate_limiter.py`, `connectors/models.py` (raw + canonical DTOs), `connectors/exceptions.py` (Permanent/Transient), entry points in `pyproject.toml:57-64`. SDK package `sdks/finance-sync-sdk/`. |
-| ms.2.f.2 | sync-run/cursor/outbox | **PARTIAL** | SyncRun ✓ (`models/sync_run.py`, `sync/sync_run.py`, `api/v1/sync_runs.py`). Outbox ✓ (`models/outbox.py`, `sync/outbox.py`, `sync/outbox_publisher.py` with idempotency keys + polling worker job `process_outbox_job`). **Cursor: missing** — `SyncRun` has no cursor/watermark column; syncs use a `since` parameter (default 90 days, `sync/orchestrator.py:140`); `docs/DATABASE.md` documents a `sync_cursor` table that does not exist. → G-03 |
+| ms.2.f.2 | sync-run/cursor/outbox | **DONE** | SyncRun ✓ (`models/sync_run.py`, `sync/sync_run.py`, `api/v1/sync_runs.py`). Outbox ✓ (`models/outbox.py`, `sync/outbox.py`, `sync/outbox_publisher.py` with idempotency keys + polling worker job `process_outbox_job`). **Cursor ✓ (G-03)** — `sync_cursor` table (`models/sync_cursor.py`, migration 0011) keyed by `(tenant_id, connector, resource)`; orchestrator resumes per account from the stored cursor (`sync/orchestrator.py`, `sync/sync_cursor.py`) and only advances it on successful runs; `sync_runs.cursor` exposes the watermark via `GET /sync-runs`. |
 | ms.2.f.3 | canonical accounts/transactions/portfolio schema | **DONE** | `models/account.py`, `models/transaction.py` (unique `uq_transactions_provider` on tenant+provider+external id, `provider_fingerprint`), `models/holding.py`, `models/balance.py`, `migrations/versions/0001_initial_schema.py`. |
 | ms.2.f.4 | bunq accounts/balances/transactions | **DONE** | `connectors/bunq.py` (session-server auth, accounts, payments, balances), `tests/connectors/bunq/test_bunq_connector.py`, `tests/connectors/fixtures/bunq_api_fixtures.py`. |
 | ms.2.f.5 | Trading212 portfolio/holdings/cash/orders/dividends | **DONE** | `connectors/trading212.py` (`fetch_portfolio`, orders, transactions incl. DIVIDEND type, cursor pagination), `tests/connectors/trading212/test_trading212_connector.py`, fixtures. |
@@ -186,9 +186,19 @@ Actions, or system cron inside the deployment).
 
 ### G-03 — Persist sync cursor/watermark per connector
 - **Roadmap IDs:** ms.2.f.2, ms.2.ac.1 (incremental sync)
-- **What's missing:** No cursor storage; `SyncRun` lacks cursor fields and
-  `docs/DATABASE.md`'s `sync_cursor` table doesn't exist. Orchestrator
-  always defaults to `since = now - 90 days`.
+- **Status:** RESOLVED — `sync_cursor` table (migration 0011,
+  `models/sync_cursor.py`) keyed by `(tenant_id, connector, resource)`;
+  `SyncOrchestrator` reads the stored cursor per account at sync start
+  and only advances it (to the run start timestamp) on successful
+  runs, atomically with the `SyncRun` completion
+  (`sync/orchestrator.py`, `sync/sync_cursor.py`, `sync/sync_run.py`);
+  the cards pipeline resumes `card_transactions` from its own cursor;
+  `sync_runs.cursor` exposes the watermark in `GET /sync-runs`
+  (`services/read_api.py`); the 90-day default is kept for first sync
+  and for accounts without a stored cursor. Covered by
+  `tests/test_sync_orchestrator.py` (first-sync / resume / mixed /
+  failure paths) and `tests/integration/test_sync_orchestrator_pg.py`
+  (real-PG persistence + resume + idempotency).
 - **Task outline:**
   - Title: `Add sync cursor persistence to ingestion pipeline`
   - Scope: add cursor/watermark columns (or `sync_cursor` table:

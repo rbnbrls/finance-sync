@@ -41,11 +41,16 @@ async def complete_sync_run(
     status: SyncRunStatus = SyncRunStatus.COMPLETED,
     items_processed: int | None = None,
     error_message: str | None = None,
+    cursor: datetime | None = None,
 ) -> SyncRun:
     """Mark a ``SyncRun`` as completed / failed.
 
     Updates the run in-place and flushes so the changes are visible to
     subsequent reads within the same transaction.
+
+    ``cursor`` records the watermark the run advanced to — set only on
+    success so a failed run never claims to have advanced the
+    incremental sync position.
     """
     run.status = status
     run.completed_at = datetime.now(UTC)
@@ -53,5 +58,7 @@ async def complete_sync_run(
         run.items_processed = items_processed
     if error_message is not None:
         run.error_message = error_message
+    if cursor is not None:
+        run.cursor = cursor
     await uow.session.flush()  # type: ignore[union-attr]
     return run

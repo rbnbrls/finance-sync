@@ -424,6 +424,30 @@ class TestReadServiceSyncRuns:
         await svc.list_sync_runs(connector="bunq")
         _assert_sql_contains(mock_session, "bunq")
 
+    async def test_response_exposes_cursor(self) -> None:
+        """Sync-run items carry the cursor watermark (G-03)."""
+        from finance_sync.services.read_api import SyncRunResponse
+
+        cursor = datetime(2026, 8, 1, 12, 0, tzinfo=UTC)
+        run = SyncRunResponse(
+            id="r1",
+            connector="bunq",
+            status="completed",
+            started_at=datetime(2026, 8, 1, 10, 0, tzinfo=UTC),
+            cursor=cursor,
+        )
+        data = run.model_dump()
+        assert data["cursor"] == cursor
+
+        # NULL for runs that never advanced a cursor (e.g. failures)
+        failed = SyncRunResponse(
+            id="r2",
+            connector="bunq",
+            status="failed",
+            started_at=datetime(2026, 8, 1, 9, 0, tzinfo=UTC),
+        )
+        assert failed.model_dump()["cursor"] is None
+
 
 class TestReadServiceNetWorth:
     """ReadService.get_net_worth() behaviour."""

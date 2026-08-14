@@ -9,7 +9,7 @@ single committed UoW transaction.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from types import SimpleNamespace
 
@@ -28,6 +28,7 @@ from finance_sync.db.uow import UnitOfWork
 from finance_sync.models import (
     Account,
     OutboxMessage,
+    SyncCursor,
     SyncRun,
     Tenant,
     Transaction,
@@ -304,3 +305,117 @@ class TestSyncPipelinePg:
             assert accounts == []
             assert transactions == []
             assert outbox == []
+
+    async def test_cursor_persistence_resume_and_idempotency(
+        self,
+        session_factory,
+        tenant,
+        sample_raw_account,
+    ) -> None:
+        """Cursors persist on success; re-runs resume and never duplicate.
+
+        Run 1 (first sync) fetches the full default window.  Run 2
+        resumes from the stored cursor and only fetches transactions
+        dated after run 1's watermark; the total row count stays at the
+        distinct transaction set (idempotent upserts).
+        """
+        shared_txns: list[RawTransaction] = [
+            RawTransaction(
+                external_transaction_id="txn_old_1",
+                external_account_id="acc_12345",
+                amount=Decimal("-10.00"),
+                currency_code="EUR",
+                occurred_at=datetime(2026, 6, 1, 10, 0, tzinfo=UTC),
+                booked_at=datetime(2026, 6, 1, 12, 0, tzinfo=UTC),
+                description="Old June txn",
+                transaction_type="purchase",
+                status="booked",
+                provider_fingerprint="fp_old_1",
+            ),
+            RawTransaction(
+                external_transaction_id="txn_now_1",
+                external_account_id="acc_12345",
+                amount=Decimal("-12.00"),
+                currency_code="EUR",
+                occurred_at=datetime.now(UTC),
+                booked_at=datetime.now(UTC),
+                description="Current txn",
+                transaction_type="purchase",
+                status="booked",
+                provider_fingerprint="fp_now_1",
+            ),
+        ]
+
+        class MutableConnector(StaticMockConnector):
+            """Connector reading from the shared list so run 2 sees new data."""
+
+            def __init__(self, config: ConnectorConfig) -> None:
+                super().__init__(
+                    config,
+                    accounts=[sample_raw_account],
+                    transactions=shared_txns,
+                )
+
+        orchestrator = _make_orchestrator(
+            session_factory, tenant, MutableConnector
+        )
+
+        # Run 1 — first sync: no stored cursor → full default window
+        r1 = await orchestrator.run_sync("mock_provider", _config())
+        assert r1.status == SyncRunStatus.COMPLETED
+        assert r1.transactions_synced == 2
+
+        # A transaction dated after run 1's watermark (5 minutes ahead so
+        # slow CI can never race the comparison)
+        shared_txns.append(
+            RawTransaction(
+                external_transaction_id="txn_new_1",
+                external_account_id="acc_12345",
+                amount=Decimal("-14.00"),
+                currency_code="EUR",
+                occurred_at=datetime.now(UTC) + timedelta(minutes=5),
+                booked_at=datetime.now(UTC) + timedelta(minutes=5),
+                description="New txn after first run",
+                transaction_type="purchase",
+                status="booked",
+                provider_fingerprint="fp_new_1",
+            )
+        )
+
+        # Run 2 — resumes from the stored cursor: only the new txn
+        r2 = await orchestrator.run_sync("mock_provider", _config())
+        assert r2.status == SyncRunStatus.COMPLETED
+        assert r2.transactions_synced == 1
+
+        async with session_factory() as session:
+            cursors = (
+                (await session.execute(select(SyncCursor))).scalars().all()
+            )
+            assert len(cursors) == 1
+            assert cursors[0].connector == "mock_provider"
+            assert cursors[0].resource == "acc_12345"
+            assert cursors[0].tenant_id == tenant.id
+
+            runs = (
+                await session.execute(
+                    select(SyncRun).order_by(SyncRun.started_at.asc())
+                )
+            ).scalars().all()
+            assert len(runs) == 2
+            # Each run records the watermark it advanced to; the cursor
+            # row ends up at run 2's watermark.
+            assert runs[0].cursor is not None
+            assert runs[1].cursor is not None
+            assert runs[0].cursor <= runs[1].started_at
+            assert cursors[0].cursor == runs[1].cursor
+
+            # Idempotency: three distinct transactions, no duplicates
+            transactions = (
+                (await session.execute(select(Transaction))).scalars().all()
+            )
+            assert len(transactions) == 3
+            assert {t.external_transaction_id for t in transactions} == {
+                "txn_old_1",
+                "txn_now_1",
+                "txn_new_1",
+            }

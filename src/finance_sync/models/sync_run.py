@@ -47,6 +47,20 @@ class SyncRun(Base):
         DateTime(timezone=True), nullable=True
     )
 
+    # ── Watermark ────────────────────────────────────────────────────
+    # Set to the run's start timestamp when the run completes
+    # successfully — the same value the orchestrator persists to the
+    # ``sync_cursor`` table per resource.  NULL on failure: a failed
+    # run never advances the incremental sync position.
+    cursor: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        comment=(
+            "Watermark this run advanced the sync cursor to (set on "
+            "successful completion); NULL on failure"
+        ),
+    )
+
     # ── Outcome ──────────────────────────────────────────────────────
     items_processed: Mapped[int | None] = mapped_column(nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)

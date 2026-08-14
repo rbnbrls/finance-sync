@@ -430,6 +430,10 @@ class SyncRunResponse(BaseModel):
     status: str
     started_at: datetime
     completed_at: datetime | None = None
+    #: Watermark the run advanced the sync cursor to on success
+    #: (NULL for failed runs); see the ``sync_cursor`` table for the
+    #: per-resource resume positions.
+    cursor: datetime | None = None
     items_processed: int | None = None
     error_message: str | None = None
     created_at: datetime | None = None
@@ -2071,6 +2075,7 @@ class ReadService:
                     status=str(sr.status),
                     started_at=sr.started_at,
                     completed_at=sr.completed_at,
+                    cursor=sr.cursor,
                     items_processed=sr.items_processed,
                     error_message=sr.error_message,
                     created_at=sr.created_at,
