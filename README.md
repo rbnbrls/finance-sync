@@ -38,6 +38,43 @@ Built images are published to GitHub Container Registry:
 - [Database migrations](docs/MIGRATIONS.md)
 - [Implementation roadmap](docs/ROADMAP.md)
 
+## Health monitoring
+
+`finance-sync-monitor` (src/finance_sync/monitoring/health_monitor.py) is a
+standalone health monitor: it checks the app/worker health endpoints, polls
+the Coolify API for the application status and restart count, samples
+container CPU/memory via `docker stats`, and files GitHub issues on crashes
+and resource-threshold alerts (with daily dedup markers).
+
+It is fully decoupled from Hermes — all configuration comes from the
+environment and it is scheduled by systemd, not by Hermes cron.
+
+Install and schedule (see `deploy/systemd/` for the units):
+
+```bash
+uv tool install .                       # provides the finance-sync-monitor binary
+sudo install -m 644 deploy/systemd/finance-sync-monitor.{service,timer} /etc/systemd/system/
+sudo tee /etc/finance-sync/finance-sync-monitor.env >/dev/null <<'EOF'
+COOLIFY_API_TOKEN=your-coolify-token
+GITHUB_TOKEN=your-github-token
+EOF
+sudo chmod 600 /etc/finance-sync/finance-sync-monitor.env
+sudo systemctl daemon-reload
+sudo systemctl enable --now finance-sync-monitor.timer
+```
+
+Required environment (no `~/.hermes` fallbacks):
+
+| Variable | Purpose |
+|----------|---------|
+| `COOLIFY_API_TOKEN` | Coolify Bearer token for the app status / restart-count check |
+| `GITHUB_TOKEN` | GitHub token used to file issues on crashes / alerts |
+| `STATE_FILE` | State JSON path (default `/var/lib/finance-sync/finance-sync-monitor-state.json`, dir auto-created) |
+
+Optional overrides: `COOLIFY_API_URL` (default `http://192.168.3.110:8000/api/v1`),
+`COOLIFY_APP_UUID` (default `obcopz3142hxzs1zlie78amh`),
+`MONITOR_HEALTH_BASE_URL` (default `https://<app-uuid>.7rb.nl`).
+
 ## Project principles
 
 - Providers are plugins; application services and REST resources never depend on provider SDK models.
