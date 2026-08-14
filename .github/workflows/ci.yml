@@ -204,20 +204,27 @@ jobs:
           ASYNC_DB_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/finance_sync_test
 
       - name: Verify export tables exist after migration
-        run: >
-          uv run python -c
-          "import asyncio, os;
-          from sqlalchemy import text;
-          from sqlalchemy.ext.asyncio import create_async_engine;
-          async def main():
-              e = create_async_engine(os.environ['ASYNC_DB_URL']);
-              async with e.connect() as c:
-                  for t in ('export_runs','export_deliveries','ab_account_mappings'):
-                      r = await c.execute(text(f\"SELECT to_regclass('public.{t}')\"));
-                      assert r.scalar() == t, f'missing table {t}';
-                      print(f'{t}: OK');
-              await e.dispose();
-          asyncio.run(main())"
+        run: |
+          uv run python - <<'PY'
+          import asyncio
+          import os
+
+          from sqlalchemy import text
+          from sqlalchemy.ext.asyncio import create_async_engine
+
+          async def main() -> None:
+              engine = create_async_engine(os.environ["ASYNC_DB_URL"])
+              async with engine.connect() as conn:
+                  for table in ("export_runs", "export_deliveries", "ab_account_mappings"):
+                      result = await conn.execute(
+                          text(f"SELECT to_regclass('public.{table}')")
+                      )
+                      assert result.scalar() == table, f"missing table {table}"
+                      print(f"{table}: OK")
+              await engine.dispose()
+
+          asyncio.run(main())
+          PY
         env:
           ASYNC_DB_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/finance_sync_test
 
