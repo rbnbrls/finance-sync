@@ -1,0 +1,31 @@
+[Unit]
+Description=finance-sync health monitor (one-shot check)
+# Requires network (health endpoints, Coolify API, GitHub API) and docker
+# (container resource stats).  The unit is intentionally a one-shot; the
+# timer drives the cadence.
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# The monitor is installed as the `finance-sync-monitor` console script of
+# the finance-sync package (see pyproject.toml [project.scripts]).
+ExecStart=/usr/local/bin/finance-sync-monitor
+# Tokens come ONLY from the environment.  Create this file (chmod 600) with:
+#   COOLIFY_API_TOKEN=...
+#   GITHUB_TOKEN=...
+# Optional overrides:
+#   STATE_FILE=/var/lib/finance-sync/finance-sync-monitor-state.json
+#   COOLIFY_API_URL=http://192.168.3.110:8000/api/v1
+#   COOLIFY_APP_UUID=obcopz3142hxzs1zlie78amh
+#   MONITOR_HEALTH_BASE_URL=https://<app-uuid>.7rb.nl
+EnvironmentFile=/etc/finance-sync/finance-sync-monitor.env
+# State file default lives in /var/lib/finance-sync (created on first run).
+# If STATE_FILE is overridden, adjust StateDirectory accordingly.
+StateDirectory=finance-sync
+# Exit code 1 means GitHub issue creation failed; systemd records it in
+# the unit state but the timer keeps running.
+Restart=no
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,10 @@
+[Unit]
+Description=Run finance-sync health monitor every 15 minutes
+
+[Timer]
+# Same cadence the Hermes cron job used (*/15)
+OnCalendar=*:0/15
+Persistent=true
+
+[Install]
+WantedBy=timers.target
