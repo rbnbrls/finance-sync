@@ -101,18 +101,33 @@ The OpenBB gateway accepts canonical listing/identifier queries and returns sour
 
 ## 5. Scheduler policy
 
-| Job | Cadence | Notes |
-|---|---:|---|
-| bunq balances and transactions | 15 min | Incremental plus pending-to-booked reconciliation |
-| bunq cards/scheduled payments | hourly | Daily full reconciliation |
-| Trading212 portfolio/cash/orders/dividends | hourly | Respect provider limits and market status |
-| price refresh | 15 min in relevant market hours | Stale-while-revalidate cache |
-| security fundamentals/ETF metadata | weekly | Per-security freshness policy |
-| nightly reconciliation | daily | Re-fetch rolling history and validate balances |
-| exporter delivery | event-driven + 5 min sweep | Cursor-based and idempotent |
-| health checks | 5 min | Dependency and credential-health checks |
+All jobs below are registered by `WorkerScheduler._register_jobs` in
+`src/finance_sync/worker/scheduler.py`; implementations live in
+`src/finance_sync/worker/jobs.py`. Each job is gated by a `WORKER_JOB_*`
+enable flag and its cadence is env-configurable (settings in
+`src/finance_sync/config/settings.py`).
 
-APScheduler runs only in the worker deployment, not every API replica. PostgreSQL advisory locks ensure one scheduler leader.
+| Job (scheduler id) | Cadence (default) | Notes |
+|---|---:|---|
+| `sync_bunq` | every 15 min | bunq balances and transactions; incremental plus pending-to-booked reconciliation (`worker_job_bunq_sync_interval_minutes`) |
+| `sync_bunq_cards` | every 1 h | bunq card transactions and scheduled payments; independent of the main transaction sync (`worker_job_bunq_cards_interval_hours`) |
+| `sync_trading212` | every 1 h | Trading212 portfolio/cash/orders/dividends; respects provider limits and market status (`worker_job_trading212_sync_interval_hours`) |
+| `enrich_prices` | every 15 min in US market hours (Mon–Fri) | price refresh with stale-while-revalidate cache (`worker_job_price_enrichment_interval_minutes`, `_market_open`/`_market_close`) |
+| `nightly_reconciliation` | daily 02:00 UTC | re-fetch rolling history and validate balances (`worker_job_reconciliation_cron`) |
+| `process_outbox` | every 30 s | outbox consumer (`worker_job_outbox_interval_seconds`) |
+| `process_webhook_retries` | every 30 s | webhook retry dispatch (`worker_job_outbox_interval_seconds`) |
+| `export_wealthfolio` | every 5 min | Wealthfolio delivery sweep; resumes from the G-14 delivery cursor, idempotent across restarts (`worker_job_export_interval_minutes`) |
+
+**Planned — not yet implemented:** a weekly security fundamentals/ETF
+metadata refresh. Fundamentals/ETF metadata enrichment exists as on-demand
+enrichment (roadmap item `ms.3.f.4`, `src/finance_sync/enrichment/
+metadata_enricher.py`); the weekly scheduled job is future work.
+
+Worker health is served by a passive HTTP endpoint (`src/finance_sync/
+worker/health.py`, `WORKER_HEALTH_PORT` 9090) — liveness, readiness and
+job-status introspection — not a scheduled job. APScheduler runs only in
+the worker deployment, not every API replica. PostgreSQL advisory locks
+ensure one scheduler leader.
 
 ## 6. Deployment architecture
 

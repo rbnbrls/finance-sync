@@ -35,7 +35,7 @@ or workflow) that does **not** depend on Hermes cron jobs or the Hermes runtime.
 
 ---
 
-## A. Worker scheduled jobs — ✅ COMPLIANT (6/6)
+## A. Worker scheduled jobs — ✅ COMPLIANT (8/8)
 
 Entrypoint: `python -m finance_sync.worker`
 (`src/finance_sync/worker/__main__.py` → `WorkerProcess`), deployed as its own
@@ -48,15 +48,20 @@ container in `docker-compose.yml` / `docker-compose.coolify.yml`
 - Runs **only** in the worker process. Verified: `lifespan.py` / `app.py` never
   start a scheduler or background task; the FastAPI app is job-free.
 - All cadences are env-configurable (`WORKER_JOB_*`), defaults below.
+- Post-audit additions: `sync_bunq_cards` (G-04, PR #200) and
+  `export_wealthfolio` (R2, PR #217) — both registered in
+  `WorkerScheduler._register_jobs` and env-gated.
 
 | Job | Trigger (default) | Cadence | Hermes dep |
 |---|---|---|---|
 | `sync_bunq` | IntervalTrigger | every 15 min | none |
+| `sync_bunq_cards` | IntervalTrigger | every 1 h | none |
 | `sync_trading212` | IntervalTrigger | every 1 h | none |
 | `enrich_prices` | CronTrigger (US market hours, Mon–Fri) | every 15 min, 09:30–16:00 EST | none |
 | `nightly_reconciliation` | CronTrigger (`0 2 * * *` UTC) | daily | none |
 | `process_outbox` | IntervalTrigger | every 30 s | none |
 | `process_webhook_retries` | IntervalTrigger | every 30 s | none |
+| `export_wealthfolio` | IntervalTrigger | every 5 min | none |
 
 Implementation: `src/finance_sync/worker/jobs.py` (per-job async functions,
 retry-with-backoff, monitoring via `JobMonitor`; Prometheus-observable health
@@ -89,6 +94,12 @@ Missing / non-compliant pieces:
   `~/.hermes/scripts/wealthfolio-daily-sync.sh` (see §F2) is not referenced by
   any Hermes cron job today and its project path (`~/code/finance-sync`) does
   not exist. The "daily push" therefore does not happen at all right now.
+
+> **Resolved (R2, PR #217):** the 5-minute `export_wealthfolio` delivery
+> sweep is now registered in `worker/scheduler.py` (see §A, 8/8) and the
+> Hermes-side script was deleted (R4). ARCHITECTURE.md §5 no longer
+> promises "event-driven" delivery — it documents push-on-demand (REST
+> API / CLI) plus the sweep (R6, PR #219).
 
 ### B2. Actual Budget exporter — ❌ NON-COMPLIANT (no trigger)
 
@@ -225,8 +236,10 @@ Actions) — none reintroduce Hermes cron.
 | # | Status | Notes |
 |---|---|---|
 | R1 | ✅ DONE | `actual-budget export/push` CLI + console entry, PR #201. |
+| R2 | ✅ DONE | `export_wealthfolio` job in `worker/scheduler.py` (IntervalTrigger, default 5 min), env-gated on `WORKER_JOB_EXPORT_ENABLED` (default: enabled only when `WEALTHFOLIO_SERVER_URL` and `WEALTHFOLIO_PASSWORD` are set). Shipped in PR #217. |
 | R3 | ✅ DONE | Ported to `src/finance_sync/monitoring/health_monitor.py`; env-only tokens; `STATE_FILE` env; Coolify auth header fixed to use `COOLIFY_API_TOKEN`; systemd units in `deploy/systemd/`; tests in `tests/test_health_monitor.py` (incl. Coolify-auth path); `~/.hermes` script + test removed and Hermes cron `eac14957e1a0` deleted. Shipped in PR #206. |
 | R4 | ✅ DONE | R2 scope; daily Wealthfolio push covered by the in-repo worker sweep (PR #217). `~/.hermes/scripts/wealthfolio-daily-sync.sh` deleted in R4 follow-up (no Hermes cron job referenced it; verified against `cronjob list` and `~/.hermes/cron/jobs.json`). |
+| R6 | ✅ DONE | ARCHITECTURE.md §5 now lists exactly the 8 jobs registered in `worker/scheduler.py` (incl. `sync_bunq_cards` from G-04 and `export_wealthfolio` from R2), each with a code reference; "weekly fundamentals" explicitly marked planned/not-yet-implemented (roadmap `ms.3.f.4`); stale "event-driven" / "health checks 5 min" promises corrected. Shipped in PR #219. |
 
 The `~/.hermes` copies referenced in §F are removed where noted above;
 no finance-sync job runs via Hermes cron anymore.
@@ -235,7 +248,7 @@ no finance-sync job runs via Hermes cron anymore.
 
 ## Acceptance criteria check
 
-- **Every exporter/job in the repository is covered:** ✅ §A–§E inventory all 6
+- **Every exporter/job in the repository is covered:** ✅ §A–§E inventory all 8
   worker jobs, both exporters, MCP tools, CLI commands, and 4 workflows.
 - **All Hermes dependencies explicitly recorded with recommended fixes:** ✅
   §F identifies the 2 Hermes-side jobs (monitor, daily-sync script) and §R1–R6
