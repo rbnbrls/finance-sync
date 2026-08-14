@@ -9,13 +9,8 @@ from typing import TYPE_CHECKING
 import structlog
 from sqlalchemy import text
 
-# Import all models so they register on Base.metadata for create_all
 from finance_sync.config.settings import Settings
 from finance_sync.container import Container
-from finance_sync.db import Base
-from finance_sync.models import ensure_exporter_models_loaded
-
-ALEMBIC_HEAD: str = "0003"
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
@@ -31,7 +26,12 @@ _DB_RETRY_BACKOFF: float = 2.0
 
 
 async def _init_database(container: Container) -> None:
-    """Connect to the database and apply schema / seed data.
+    """Connect to the database and seed default tenant / admin user.
+
+    Schema is owned exclusively by Alembic — this function never creates
+    tables.  It only ensures the ``pgcrypto`` extension exists (needed for
+    ``gen_random_uuid()`` used by migrations and seed inserts) and seeds
+    the default tenant and admin user (idempotent).
 
     Retries with exponential backoff on transient failures so that a
     momentarily-unavailable database does not crash the whole app container.
@@ -44,23 +44,6 @@ async def _init_database(container: Container) -> None:
                 # Enable pgcrypto extension (needed for gen_random_uuid())
                 await conn.execute(
                     text("CREATE EXTENSION IF NOT EXISTS pgcrypto")
-                )
-                await conn.run_sync(Base.metadata.create_all)
-                # Stamp alembic version so future migrations see a known
-                # baseline
-                await conn.execute(
-                    text(
-                        "CREATE TABLE IF NOT EXISTS alembic_version "
-                        "(version_num VARCHAR(32) PRIMARY KEY)"
-                    )
-                )
-                await conn.execute(
-                    text(
-                        "INSERT INTO alembic_version (version_num) "
-                        "VALUES (:head) "
-                        "ON CONFLICT (version_num) DO NOTHING"
-                    ),
-                    {"head": ALEMBIC_HEAD},
                 )
                 # ── Seed default tenant and admin user (idempotent) ────
                 from datetime import UTC, datetime
@@ -161,9 +144,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     * Build the DI container (DB engine, Redis pool).
     * Store the container on ``app.state`` so route handlers can access
       it via ``request.app.state.container``.
-    * Auto-create all database tables defined by SQLAlchemy models
-      (``Base.metadata.create_all``).  This is a safety net — in
-      production, migrations are managed via Alembic.
+    * Ensure the database is reachable and seed default data.  The schema
+      itself is owned by Alembic: operators run ``alembic upgrade head``
+      (as part of the release pipeline) before the app starts — the
+      lifespan never creates tables.
 
     Shutdown
     --------
@@ -177,10 +161,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     # Store so route handlers can access via request.app.state.container
     app.state.container = container
 
-    # -- Auto-create database tables -----------------------------------
+    # -- Ensure database is migrated and seed default data --------------
     if settings.database_url is not None:
-        # Ensure lazy-loaded exporter models are registered on metadata
-        ensure_exporter_models_loaded()
         await _init_database(container)
 
     async with container.dispose():

@@ -35,6 +35,7 @@ Built images are published to GitHub Container Registry:
 - [Architecture decisions](docs/adr/)
 - [API specification](docs/API.md)
 - [Data model](docs/DATABASE.md)
+- [Database migrations](docs/MIGRATIONS.md)
 - [Implementation roadmap](docs/ROADMAP.md)
 
 ## Project principles

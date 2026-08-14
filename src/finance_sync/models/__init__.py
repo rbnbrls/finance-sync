@@ -28,6 +28,7 @@ from finance_sync.models.enums import (
     CardAuthorizationType,
     ConnectorProvider,
     CostBasisMethod,
+    DetectionMethod,
     HoldingSource,
     OutboxMessageStatus,
     ReconciliationResultKind,

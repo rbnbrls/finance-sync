@@ -45,6 +45,11 @@ if config.config_file_name is not None:
 
 from finance_sync.db import Base
 from finance_sync.models import *
+from finance_sync.models import ensure_exporter_models_loaded
+
+# Register lazy exporter models (ExportRun, ExportDelivery,
+# ActualBudgetAccountMapping) so autogenerate can detect their tables.
+ensure_exporter_models_loaded()
 
 target_metadata = Base.metadata
 
