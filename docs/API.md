@@ -230,3 +230,20 @@ so there is no unfinished exporter surface to protect by default. Toggling
 a flag enables/disables the exporter's API and CLI surface without a code
 change. `GET /exporters/runs` history is not gated — it remains readable as
 audit data regardless of the flags.
+
+## Exporters: run history, DLQ visibility and retry
+
+Export runs (both exporters) are recorded in `export_runs` and exposed for
+audit and dead-letter handling:
+
+| Method/path | Description |
+|---|---|
+| `GET /exporters/runs` | List export runs (newest first). Filters: `status` (`running`, `completed`, `failed`, `cancelled`; `error` is an alias for `failed`). Every run carries `exporter_type` and `error_message` (populated when the run failed). Pagination: `limit`, `offset`. |
+| `GET /exporters/runs/{id}` | One export run with its error detail. |
+| `POST /exporters/{type}/runs/{id}/retry` | Re-run a **failed** run for `type` ∈ `wealthfolio`, `actual-budget`. Creates a fresh `ExportRun` (returned as `run_id`); the original failed run is kept for audit. Resumes from the delivery cursor, so already-delivered transactions are not re-pushed or duplicated. Returns 404 for unknown run/type or disabled exporter, 409 when the run is not failed or belongs to a different exporter type. |
+
+The Wealthfolio push path (`finance-sync wealthfolio push` / the worker
+sweep) tracks each push as an `ExportRun` and maintains a per-account
+`wealthfolio_deliveries` cursor: after a partial failure the run is marked
+`failed` with per-account error detail, and the next push (or retry) only
+re-processes the accounts whose cursor did not advance.

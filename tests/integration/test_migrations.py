@@ -65,6 +65,8 @@ EXPECTED_TABLES = {
     "export_runs",
     "ab_account_mappings",
     "export_deliveries",
+    # wealthfolio delivery cursor (migration 0012)
+    "wealthfolio_deliveries",
 }
 
 
@@ -148,7 +150,7 @@ class TestMigrationUpgrade:
         )
 
         version = await _alembic_version(fresh_database_url)
-        assert version == "0011", f"expected head revision 0011, got {version}"
+        assert version == "0012", f"expected head revision 0012, got {version}"
 
     async def test_single_head_linear_chain(
         self, fresh_database_url: str
@@ -211,7 +213,7 @@ class TestMigrationUpgrade:
         assert not missing, (
             f"missing tables after re-upgrade: {sorted(missing)}"
         )
-        assert await _alembic_version(fresh_database_url) == "0011"
+        assert await _alembic_version(fresh_database_url) == "0012"
 
     async def test_upgrade_head_is_idempotent(
         self, fresh_database_url: str
@@ -222,4 +224,4 @@ class TestMigrationUpgrade:
 
         tables = await _public_tables(fresh_database_url)
         assert "accounts" in tables
-        assert await _alembic_version(fresh_database_url) == "0011"
+        assert await _alembic_version(fresh_database_url) == "0012"

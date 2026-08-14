@@ -33,6 +33,7 @@ import structlog
 from sqlalchemy import select
 
 from finance_sync.exporter.models import ExportRun
+from finance_sync.exporter.wealthfolio.models import WealthfolioDelivery
 from finance_sync.exporter.wealthfolio.transaction_mapper import (
     map_holdings_to_csv,
     map_transaction_to_wf_row,
@@ -193,6 +194,7 @@ class WealthfolioExporter:
             run = ExportRun(
                 status="running",
                 started_at=start_ts,
+                exporter_type="wealthfolio",
             )
             session.add(run)
             await session.flush()
@@ -518,6 +520,83 @@ class WealthfolioExporter:
         """
         _ = transaction_ids  # noqa: RUF100 (placeholder)
 
+    # ── Delivery cursor (idempotent push resume) ────────────────────
+
+    async def _delivery_since(
+        self,
+        *,
+        account_id: str,
+        fallback: datetime,
+    ) -> datetime:
+        """Return the resume timestamp for *account_id*.
+
+        Uses the per-account ``WealthfolioDelivery`` cursor when one
+        exists (the timestamp of the last successfully pushed
+        transaction); otherwise falls back to *fallback* (e.g. the
+        last completed run / 90-day default).
+        """
+        delivery = await self._get_wealthfolio_delivery(account_id=account_id)
+        if delivery is not None and delivery.last_exported_at is not None:
+            return delivery.last_exported_at
+        return fallback
+
+    async def _get_wealthfolio_delivery(
+        self,
+        *,
+        account_id: str,
+    ) -> WealthfolioDelivery | None:
+        """Retrieve the WealthfolioDelivery cursor for *account_id*."""
+        async with self._session_factory() as session:
+            stmt = select(WealthfolioDelivery).where(
+                WealthfolioDelivery.tenant_id == self._tenant_id,  # type: ignore[attr-defined]
+                WealthfolioDelivery.account_id == account_id,  # type: ignore[attr-defined]
+            )
+            result = await session.execute(stmt)
+            return result.scalar_one_or_none()
+
+    async def _update_wealthfolio_delivery(
+        self,
+        *,
+        account_id: str,
+        transactions: list[Transaction],
+        export_run_id: str | None = None,
+    ) -> None:
+        """Update the WealthfolioDelivery cursor for *account_id*.
+
+        Records the last pushed transaction (id + ``occurred_at``) so a
+        subsequent push resumes from that point.  Only called after the
+        push for the account succeeded — a failed account keeps its old
+        cursor and is re-processed on retry.
+        """
+        if not transactions:
+            return
+
+        last = transactions[-1]
+        async with self._session_factory() as session:
+            stmt = select(WealthfolioDelivery).where(
+                WealthfolioDelivery.tenant_id == self._tenant_id,  # type: ignore[attr-defined]
+                WealthfolioDelivery.account_id == account_id,  # type: ignore[attr-defined]
+            )
+            result = await session.execute(stmt)
+            delivery = result.scalar_one_or_none()
+
+            if delivery is None:
+                delivery = WealthfolioDelivery(
+                    tenant_id=self._tenant_id,
+                    account_id=account_id,
+                    last_exported_transaction_id=last.id,
+                    last_exported_at=last.occurred_at,
+                    export_run_id=export_run_id,
+                )
+                session.add(delivery)
+            else:
+                delivery.last_exported_transaction_id = last.id
+                delivery.last_exported_at = last.occurred_at
+                if export_run_id is not None:
+                    delivery.export_run_id = export_run_id
+
+            await session.flush()
+
     # ── File output ─────────────────────────────────────────────────
 
     def _write_csv_file(
@@ -611,80 +690,216 @@ class WealthfolioExporter:
         Authenticates, fetches pending transactions, maps them to
         Wealthfolio format, and imports them via the Wealthfolio API.
 
+        The push is **idempotent**: a per-account delivery cursor
+        (``WealthfolioDelivery``) records the last successfully pushed
+        transaction, so a subsequent push — or a retry after a partial
+        failure — resumes from the cursor instead of re-pushing
+        already-delivered transactions.  Failed accounts are recorded
+        (and the run marked failed) but do not abort the remaining
+        accounts, so a retry only re-processes the accounts that failed.
+
         Args:
             wf_client: Authenticated :class:`WealthfolioClient`.
             accounts: Optional list of accounts to push. If omitted,
                       loads all active accounts.
             since:    Only push transactions on or after this time.
+                      Per-account delivery cursors take precedence
+                      over this fallback.
             max_transactions: Hard limit on transactions to push.
 
         Returns:
-            The import result dict from Wealthfolio API.
+            Import result dict with ``imported`` / ``skipped`` /
+            ``failed`` counts, the ``run_id`` of the ExportRun that
+            tracked this push, and ``errors`` (per-account failure
+            details when any account failed).
 
         Raises:
             WealthfolioAuthError: If the client is not authenticated.
-            WealthfolioAPIError:  If the Wealthfolio API rejects data.
+            WealthfolioAPIError:  If the Wealthfolio API rejects data
+                                  for every account (fatal failures).
         """
-        _since = since or await self._last_export_time()
-        fs_accounts = accounts or await self._load_accounts(None)
-        security_map = await self._load_securities()
+        start_ts = datetime.now(UTC)
+        run: ExportRun | None = None
+        txns_attempted = 0
+        txns_imported = 0
+        txns_skipped = 0
+        txns_failed = 0
+        errors: list[dict[str, str]] = []
 
-        total_imported = 0
-        total_skipped = 0
-        total_failed = 0
-
-        for fs_acct in fs_accounts:
-            txns = await self._fetch_pending_transactions(
-                account_id=fs_acct.id,
-                since=_since,
+        # ── Create ExportRun ──────────────────────────────────────
+        async with self._session_factory() as session:
+            run = ExportRun(
+                status="running",
+                started_at=start_ts,
+                exporter_type="wealthfolio",
             )
-            if not txns:
-                continue
+            session.add(run)
+            await session.flush()
+            log = self._log.bind(export_run_id=str(run.id))
 
-            if max_transactions:
-                txns = txns[:max_transactions]
+        try:
+            _since = since or await self._last_export_time()
+            fs_accounts = accounts or await self._load_accounts(None)
+            security_map = await self._load_securities()
 
-            # Map to Wealthfolio API format
-            wf_activities = []
-            for txn in txns:
-                sec = (
-                    security_map.get(txn.security_id)
-                    if txn.security_id
-                    else None
-                )  # type: ignore[arg-type]
-                row = map_transaction_to_wf_row(
-                    txn,
-                    security=sec,
-                    instrument_type_map=self._wf_config.instrument_type_overrides,
-                    default_currency=self._wf_config.default_currency,
-                )
-                wf_activities.append(_wf_row_to_api_activity(row))
+            for fs_acct in fs_accounts:
+                txns: list[Transaction] = []
+                try:
+                    # Resume from the per-account delivery cursor when
+                    # one exists (idempotent resume after partial failure).
+                    effective_since = await self._delivery_since(
+                        account_id=fs_acct.id,
+                        fallback=_since,
+                    )
+                    txns = await self._fetch_pending_transactions(
+                        account_id=fs_acct.id,
+                        since=effective_since,
+                    )
+                    if not txns:
+                        continue
 
-            if not wf_activities:
-                continue
+                    if max_transactions:
+                        txns = txns[:max_transactions]
 
-            # Push via Wealthfolio API
-            result = await wf_client.push_activities(wf_activities)
-            total_imported += result.get("imported", 0)
-            total_skipped += result.get("skipped", 0)
-            total_failed += result.get("failed", 0)
+                    # Map to Wealthfolio API format
+                    wf_activities = []
+                    for txn in txns:
+                        sec = (
+                            security_map.get(txn.security_id)
+                            if txn.security_id
+                            else None
+                        )  # type: ignore[arg-type]
+                        row = map_transaction_to_wf_row(
+                            txn,
+                            security=sec,
+                            instrument_type_map=self._wf_config.instrument_type_overrides,
+                            default_currency=self._wf_config.default_currency,
+                        )
+                        wf_activities.append(_wf_row_to_api_activity(row))
 
-            self._log.info(
-                "pushed_to_wealthfolio",
-                account=fs_acct.name,
-                imported=result.get("imported", 0),
-                skipped=result.get("skipped", 0),
-                failed=result.get("failed", 0),
+                    if not wf_activities:
+                        continue
+
+                    txns_attempted += len(txns)
+
+                    # Push via Wealthfolio API
+                    result = await wf_client.push_activities(wf_activities)
+                    imported = result.get("imported", 0)
+                    skipped = result.get("skipped", 0)
+                    failed = result.get("failed", 0)
+                    txns_imported += imported
+                    txns_skipped += skipped
+                    txns_failed += failed
+
+                    if failed > 0:
+                        # The API rejected part of this account's batch —
+                        # do NOT advance the cursor so a retry re-pushes
+                        # the failed activities (no silent data loss).
+                        errors.append(
+                            {
+                                "account_id": fs_acct.id,
+                                "account_name": fs_acct.name,
+                                "error": (
+                                    f"Wealthfolio API rejected {failed} of "
+                                    f"{len(txns)} activities"
+                                ),
+                            }
+                        )
+                        log.warning(
+                            "wealthfolio_push_partial_rejected",
+                            account=fs_acct.name,
+                            imported=imported,
+                            skipped=skipped,
+                            failed=failed,
+                        )
+                        continue
+
+                    # Advance the delivery cursor only after the push
+                    # for this account succeeded (idempotent resume).
+                    await self._update_wealthfolio_delivery(
+                        account_id=fs_acct.id,
+                        transactions=txns,
+                        export_run_id=str(run.id),
+                    )
+
+                    log.info(
+                        "pushed_to_wealthfolio",
+                        account=fs_acct.name,
+                        imported=imported,
+                        skipped=skipped,
+                        failed=failed,
+                    )
+                except Exception as exc:
+                    # Record the failure and continue with the next
+                    # account so a retry only re-processes what failed.
+                    txns_failed += len(txns)
+                    errors.append(
+                        {
+                            "account_id": fs_acct.id,
+                            "account_name": fs_acct.name,
+                            "error": str(exc)[:512],
+                        }
+                    )
+                    log.warning(
+                        "wealthfolio_push_account_failed",
+                        account=fs_acct.name,
+                        error=str(exc),
+                    )
+
+            # ── Complete the run ──────────────────────────────────
+            if errors:
+                status = "failed"
+                error_message = (
+                    f"{len(errors)} account(s) failed to push: "
+                    + "; ".join(
+                        f"{e['account_name']}: {e['error']}" for e in errors[:5]
+                    )
+                )[:2048]
+            else:
+                status = "completed"
+                error_message = None
+
+            await self._complete_run(
+                run,
+                status=status,
+                attempted=txns_attempted,
+                exported=txns_imported,
+                _skipped=txns_skipped,
+                failed=txns_failed,
+                error_message=error_message,
             )
-
-            # Mark as exported
-            await self._mark_exported([t.id for t in txns])
-
-        return {
-            "imported": total_imported,
-            "skipped": total_skipped,
-            "failed": total_failed,
-        }
+            log.info(
+                "wealthfolio_push_completed",
+                status=status,
+                attempted=txns_attempted,
+                imported=txns_imported,
+                skipped=txns_skipped,
+                failed=txns_failed,
+                errors=len(errors),
+            )
+            return {
+                "imported": txns_imported,
+                "skipped": txns_skipped,
+                "failed": txns_failed,
+                "run_id": str(run.id),
+                "errors": errors,
+            }
+        except Exception:
+            tb = traceback.format_exc()
+            await self._complete_run(
+                run,
+                status="failed",
+                error_message=tb[:2048],
+                attempted=txns_attempted,
+                exported=txns_imported,
+                _skipped=txns_skipped,
+                failed=txns_failed,
+            )
+            self._log.error(
+                "wealthfolio_push_failed",
+                traceback=tb,
+            )
+            raise
 
 
 # ═══════════════════════════════════════════════════════════════════════

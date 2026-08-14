@@ -18,6 +18,8 @@ from sqlalchemy import select
 
 from finance_sync.api.deps.auth import AuthContext, get_auth_context
 from finance_sync.dependencies import get_container, get_db
+from finance_sync.exporter.actual_budget.config import ActualBudgetConfig
+from finance_sync.exporter.actual_budget.exporter import ActualBudgetExporter
 from finance_sync.exporter.models import ExportRun
 from finance_sync.exporter.wealthfolio.config import WealthfolioConfig
 from finance_sync.exporter.wealthfolio.exporter import (
@@ -73,6 +75,7 @@ class ExportRunResponse(BaseModel):
     """Summary of an export run."""
 
     id: str
+    exporter_type: str | None
     status: str
     started_at: datetime
     completed_at: datetime | None
@@ -80,6 +83,22 @@ class ExportRunResponse(BaseModel):
     transactions_exported: int | None
     transactions_failed: int | None
     error_message: str | None
+
+
+class RetryExportResponse(BaseModel):
+    """Result of retrying a failed export run.
+
+    ``run_id`` refers to the **new** run created by the retry; the
+    original failed run is left untouched for audit.
+    """
+
+    run_id: str
+    status: str
+    transactions_attempted: int | None
+    transactions_exported: int | None
+    transactions_failed: int | None
+    error_message: str | None
+    duration_s: float
 
 
 class TriggerExportResponse(BaseModel):
@@ -108,6 +127,20 @@ ExportRunsListResponse.model_rebuild()
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────
+
+
+def _parse_run_id(run_id: str) -> Any:
+    """Parse a run id path param into a UUID for ORM comparison.
+
+    Returns ``None`` when the value is not a valid UUID, so callers can
+    treat it as a not-found run.
+    """
+    from uuid import UUID
+
+    try:
+        return UUID(str(run_id))
+    except ValueError:
+        return None
 
 
 def _build_wealthfolio_config(container: Any) -> WealthfolioConfig:
@@ -299,10 +332,34 @@ async def list_export_runs(
     db: AsyncSession = Depends(get_db),
     limit: int = Query(default=25, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
+    status_filter: str | None = Query(
+        default=None,
+        alias="status",
+        description=(
+            "Filter runs by status. Use 'error' (alias for 'failed') to "
+            "list dead-lettered / retryable runs with their error detail."
+        ),
+    ),
 ) -> ExportRunsListResponse:
-    """List recent export runs."""
+    """List recent export runs.
+
+    Pass ``?status=error`` (or ``?status=failed``) to list failed runs
+    with their ``error_message`` so they can be inspected and retried
+    via ``POST /exporters/{type}/runs/{id}/retry``.
+    """
+    # 'error' is the DLQ alias for the stored 'failed' status.
+    if status_filter == "error":
+        status_filter = "failed"
+
+    filters = []
+    if status_filter:
+        filters.append(ExportRun.status == status_filter)  # type: ignore[arg-type]
+
     # Total count
-    count_result = await db.execute(select(ExportRun.id))
+    count_stmt = select(ExportRun.id)
+    if filters:
+        count_stmt = count_stmt.where(*filters)
+    count_result = await db.execute(count_stmt)
     total = len(count_result.all())
 
     # Fetch page
@@ -312,13 +369,16 @@ async def list_export_runs(
         .offset(offset)
         .limit(limit)
     )
+    if filters:
+        stmt = stmt.where(*filters)
     result = await db.execute(stmt)
     runs = list(result.scalars().all())
 
     return ExportRunsListResponse(
         runs=[
             ExportRunResponse(
-                id=r.id,
+                id=str(r.id),
+                exporter_type=r.exporter_type,
                 status=r.status,
                 started_at=r.started_at,
                 completed_at=r.completed_at,
@@ -340,7 +400,13 @@ async def get_export_run(
     db: AsyncSession = Depends(get_db),
 ) -> ExportRunResponse:
     """Get details of a specific export run."""
-    result = await db.execute(select(ExportRun).where(ExportRun.id == run_id))
+    run_uuid = _parse_run_id(run_id)
+    if run_uuid is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Export run not found",
+        )
+    result = await db.execute(select(ExportRun).where(ExportRun.id == run_uuid))
     run = result.scalar_one_or_none()
     if run is None:
         raise HTTPException(
@@ -349,7 +415,8 @@ async def get_export_run(
         )
 
     return ExportRunResponse(
-        id=run.id,
+        id=str(run.id),
+        exporter_type=run.exporter_type,
         status=run.status,
         started_at=run.started_at,
         completed_at=run.completed_at,
@@ -357,4 +424,119 @@ async def get_export_run(
         transactions_exported=run.transactions_exported,
         transactions_failed=run.transactions_failed,
         error_message=run.error_message,
+    )
+
+
+# ── Retry (dead-letter queue) ───────────────────────────────────────────
+
+
+@router.post(
+    "/{exporter_type}/runs/{run_id}/retry",
+    response_model=RetryExportResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def retry_export_run(
+    exporter_type: str,
+    run_id: str,
+    request: Request,
+    _auth: AuthContext = Depends(get_auth_context),
+    db: AsyncSession = Depends(get_db),
+) -> RetryExportResponse:
+    """Retry a failed export run.
+
+    Re-runs the export cycle for the given exporter type without data
+    loss: exporters resume from their delivery cursor, so already
+    delivered transactions are not re-exported or duplicated.  A new
+    ``ExportRun`` is created for the retry; the original failed run is
+    kept for audit.
+    """
+    # Resolve + validate the exporter type
+    container = get_container(request)
+    settings = container.settings
+
+    if exporter_type == "wealthfolio":
+        if not settings.exporter_wealthfolio_enabled:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=(
+                    "Wealthfolio exporter is disabled."
+                    " Set EXPORTER_WEALTHFOLIO_ENABLED=true to enable."
+                ),
+            )
+    elif exporter_type == "actual-budget":
+        if not settings.exporter_actual_budget_enabled:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=(
+                    "Actual Budget exporter is disabled."
+                    " Set EXPORTER_ACTUAL_BUDGET_ENABLED=true to enable."
+                ),
+            )
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Unknown exporter type: {exporter_type!r}",
+        )
+
+    # Load the failed run
+    run_uuid = _parse_run_id(run_id)
+    if run_uuid is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Export run not found",
+        )
+    result = await db.execute(select(ExportRun).where(ExportRun.id == run_uuid))
+    run = result.scalar_one_or_none()
+    if run is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Export run not found",
+        )
+    if run.status != "failed":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Only failed export runs can be retried (run is {run.status!r})",
+        )
+    if run.exporter_type is not None and run.exporter_type != exporter_type:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"Export run {run_id} belongs to exporter "
+                f"{run.exporter_type!r}, not {exporter_type!r}"
+            ),
+        )
+
+    # Re-run the export cycle for this exporter type
+    if exporter_type == "wealthfolio":
+        wf_config = _build_wealthfolio_config(container)
+        exporter = WealthfolioExporter(
+            session_factory=container.session_factory,
+            wf_config=wf_config,
+            tenant_id=_auth.tenant_id,
+        )
+        outcome: Any = await exporter.run_export()
+    else:
+        ab_config = ActualBudgetConfig.from_settings(settings)
+        exporter = ActualBudgetExporter(
+            session_factory=container.session_factory,
+            ab_config=ab_config,
+            tenant_id=_auth.tenant_id,
+        )
+        outcome = await exporter.run_export()
+
+    # The retry created a fresh ExportRun — report it (the newest run
+    # belongs to this retry; the original failed run is untouched).
+    newest_result = await db.execute(
+        select(ExportRun).order_by(ExportRun.started_at.desc()).limit(1)
+    )
+    newest_run = newest_result.scalar_one_or_none()
+
+    return RetryExportResponse(
+        run_id=str(newest_run.id) if newest_run is not None else run_id,
+        status=outcome.status,
+        transactions_attempted=outcome.transactions_attempted,
+        transactions_exported=outcome.transactions_exported,
+        transactions_failed=outcome.transactions_failed,
+        error_message=outcome.error_message,
+        duration_s=outcome.duration_s,
     )

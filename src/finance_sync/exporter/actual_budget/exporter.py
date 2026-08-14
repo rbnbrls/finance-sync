@@ -187,6 +187,7 @@ class ActualBudgetExporter:
             run = ExportRun(
                 status="running",
                 started_at=start_ts,
+                exporter_type="actual-budget",
             )
             session.add(run)
             await session.flush()
