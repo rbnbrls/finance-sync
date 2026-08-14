@@ -160,6 +160,16 @@ class Settings(BaseSettings):
     )
 
     # ── Actual Budget exporter ───────────────────────────────────────
+    # Feature flag (dr.3): defaults to enabled to match the historical
+    # unconditional behaviour — the R1 CLI triggers (PR #201) have landed,
+    # so there is no unfinished exporter surface to protect. Set to false
+    # to disable the exporter's API surface and CLI commands.
+    exporter_actual_budget_enabled: bool = Field(
+        default=True,
+        validation_alias="EXPORTER_ACTUAL_BUDGET_ENABLED",
+        description="Enable the Actual Budget exporter (API type listing "
+        "and CLI export/push commands).",
+    )
     actual_budget_server_url: str = Field(
         default="http://localhost:5006",
         validation_alias="ACTUAL_BUDGET_SERVER_URL",
@@ -204,6 +214,15 @@ class Settings(BaseSettings):
     )
 
     # ── Wealthfolio exporter ─────────────────────────────────────────
+    # Feature flag (dr.3): defaults to enabled to match the historical
+    # unconditional behaviour. Set to false to disable the exporter's
+    # API surface and CLI commands.
+    exporter_wealthfolio_enabled: bool = Field(
+        default=True,
+        validation_alias="EXPORTER_WEALTHFOLIO_ENABLED",
+        description="Enable the Wealthfolio exporter (API config/export "
+        "endpoints and CLI export/push commands).",
+    )
     wealthfolio_output_dir: str = Field(
         default="/tmp/finance_sync_wealthfolio_exports",
         validation_alias="WEALTHFOLIO_OUTPUT_DIR",

@@ -104,3 +104,41 @@ class TestSettings:
         """Keys >= 16 chars are accepted."""
         settings = Settings(secret_key="this-is-32-chars-key-ok!!")  # type: ignore[call-arg]
         assert settings.secret_key is not None
+
+
+class TestExporterSettings:
+    """Exporter feature flags (roadmap dr.3 / gap G-13)."""
+
+    def test_exporter_flags_default_enabled(self) -> None:
+        """Both exporters default to enabled (historical behaviour)."""
+        settings = Settings(_env_file=None)
+        assert settings.exporter_actual_budget_enabled is True
+        assert settings.exporter_wealthfolio_enabled is True
+
+    def test_exporter_flags_override(self) -> None:
+        """Flags can be flipped off without a code change."""
+        settings = Settings(
+            _env_file=None,
+            exporter_actual_budget_enabled=False,
+            exporter_wealthfolio_enabled=False,
+        )
+        assert settings.exporter_actual_budget_enabled is False
+        assert settings.exporter_wealthfolio_enabled is False
+
+    def test_exporter_flags_env_alias(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Env vars map to the settings fields (case-insensitive)."""
+        monkeypatch.setenv("EXPORTER_ACTUAL_BUDGET_ENABLED", "false")
+        monkeypatch.setenv("EXPORTER_WEALTHFOLIO_ENABLED", "false")
+        settings = Settings(_env_file=None)
+        assert settings.exporter_actual_budget_enabled is False
+        assert settings.exporter_wealthfolio_enabled is False
+
+    def test_exporter_flags_independent(self) -> None:
+        """Each exporter flag toggles independently."""
+        settings = Settings(
+            _env_file=None, exporter_actual_budget_enabled=False
+        )
+        assert settings.exporter_actual_budget_enabled is False
+        assert settings.exporter_wealthfolio_enabled is True

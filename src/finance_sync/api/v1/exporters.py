@@ -135,63 +135,107 @@ def _build_wealthfolio_config(container: Any) -> WealthfolioConfig:
     )
 
 
+def _require_wealthfolio_enabled(request: Request) -> None:
+    """FastAPI dependency: ensure the Wealthfolio exporter is enabled.
+
+    Place before the auth dependency so it runs first.
+    """
+    settings = get_container(request).settings
+    if not settings.exporter_wealthfolio_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=(
+                "Wealthfolio exporter is disabled."
+                " Set EXPORTER_WEALTHFOLIO_ENABLED=true to enable."
+            ),
+        )
+
+
 # ── Endpoints ───────────────────────────────────────────────────────────
 
 
 @router.get("/types", response_model=list[ExporterTypeInfo])
-async def list_exporter_types() -> list[ExporterTypeInfo]:
-    """List all available exporter types with their metadata."""
-    return [
-        ExporterTypeInfo(
-            name="wealthfolio",
-            display_name="Wealthfolio",
-            description=(
-                "Export holdings, trades, and investment transactions "
-                "to Wealthfolio CSV format for portfolio tracking."
-            ),
-            config_fields=[
-                {
-                    "key": "output_dir",
-                    "label": "Output Directory",
-                    "type": "text",
-                    "default": "/tmp/finance_sync_wealthfolio_exports",
-                    "description": "Directory for generated CSV export files",
-                },
-                {
-                    "key": "default_currency",
-                    "label": "Default Currency",
-                    "type": "text",
-                    "default": "EUR",
-                    "description": (
-                        "Default currency for accounts without "
-                        "explicit currency"
-                    ),
-                },
-                {
-                    "key": "export_holdings",
-                    "label": "Export Holdings",
-                    "type": "boolean",
-                    "default": True,
-                    "description": (
-                        "Generate holdings-mode CSV snapshot "
-                        "of current positions"
-                    ),
-                },
-                {
-                    "key": "include_pending",
-                    "label": "Include Pending",
-                    "type": "boolean",
-                    "default": False,
-                    "description": ("Include pending (unsettled) transactions"),
-                },
-            ],
-        ),
-    ]
+async def list_exporter_types(request: Request) -> list[ExporterTypeInfo]:
+    """List the available exporter types with their metadata.
+
+    Only exporters whose feature flag is enabled are listed.
+    """
+    settings = get_container(request).settings
+    types: list[ExporterTypeInfo] = []
+
+    if settings.exporter_wealthfolio_enabled:
+        types.append(
+            ExporterTypeInfo(
+                name="wealthfolio",
+                display_name="Wealthfolio",
+                description=(
+                    "Export holdings, trades, and investment transactions "
+                    "to Wealthfolio CSV format for portfolio tracking."
+                ),
+                config_fields=[
+                    {
+                        "key": "output_dir",
+                        "label": "Output Directory",
+                        "type": "text",
+                        "default": ("/tmp/finance_sync_wealthfolio_exports"),
+                        "description": (
+                            "Directory for generated CSV export files"
+                        ),
+                    },
+                    {
+                        "key": "default_currency",
+                        "label": "Default Currency",
+                        "type": "text",
+                        "default": "EUR",
+                        "description": (
+                            "Default currency for accounts without "
+                            "explicit currency"
+                        ),
+                    },
+                    {
+                        "key": "export_holdings",
+                        "label": "Export Holdings",
+                        "type": "boolean",
+                        "default": True,
+                        "description": (
+                            "Generate holdings-mode CSV snapshot "
+                            "of current positions"
+                        ),
+                    },
+                    {
+                        "key": "include_pending",
+                        "label": "Include Pending",
+                        "type": "boolean",
+                        "default": False,
+                        "description": (
+                            "Include pending (unsettled) transactions"
+                        ),
+                    },
+                ],
+            )
+        )
+
+    if settings.exporter_actual_budget_enabled:
+        types.append(
+            ExporterTypeInfo(
+                name="actual-budget",
+                display_name="Actual Budget",
+                description=(
+                    "Export finance-sync accounts and transactions to "
+                    "an Actual Budget server (or CSV summary for manual "
+                    "import)."
+                ),
+                config_fields=[],
+            )
+        )
+
+    return types
 
 
 @router.get("/config", response_model=ExporterConfigResponse)
 async def get_exporter_config(
     request: Request,
+    _flag: None = Depends(_require_wealthfolio_enabled),
     _auth: AuthContext = Depends(get_auth_context),
 ) -> ExporterConfigResponse:
     """Get the current exporter configuration."""
@@ -216,6 +260,7 @@ async def get_exporter_config(
 )
 async def trigger_export(
     request: Request,
+    _flag: None = Depends(_require_wealthfolio_enabled),
     auth: AuthContext = Depends(get_auth_context),
 ) -> TriggerExportResponse:
     """Trigger a Wealthfolio export run.
