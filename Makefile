@@ -1,4 +1,4 @@
-.PHONY: install lint format type test test-cov coverage clean test-integration integration-up integration-down
+.PHONY: install lint format type test test-cov coverage clean test-integration integration-up integration-down test-e2e e2e-up e2e-down
 
 # ── Setup ──────────────────────────────────────────────────────────
 install:                           ## Install all dependencies (prod + dev)
@@ -32,17 +32,17 @@ type-ci:                           ## Type-check with Pyright in CI mode
 	pyright src tests --verifytypes finance_sync
 
 # ── Testing ────────────────────────────────────────────────────────
-test:                              ## Run unit tests with pytest (excludes integration)
-	pytest -n auto -m "not integration"
+test:                              ## Run unit tests with pytest (excludes integration + e2e)
+	pytest -n auto -m "not integration and not e2e"
 
 test-cov:                          ## Run unit tests with coverage report
-	pytest -n auto -m "not integration" --cov=finance_sync --cov-report=term --cov-report=html
+	pytest -n auto -m "not integration and not e2e" --cov=finance_sync --cov-report=term --cov-report=html
 
 test-cov-xml:                      ## Run unit tests with XML coverage (CI)
-	pytest -m "not integration" --cov=finance_sync --cov-report=xml
+	pytest -m "not integration and not e2e" --cov=finance_sync --cov-report=xml
 
 test-ci:                           ## CI unit test run (sequential, coverage threshold)
-	pytest -m "not integration" --cov=finance_sync --cov-report=term --cov-report=xml --junitxml=junit.xml
+	pytest -m "not integration and not e2e" --cov=finance_sync --cov-report=term --cov-report=xml --junitxml=junit.xml
 
 # ── Integration tests (real PostgreSQL + Redis) ─────────────────────
 # Spins up ephemeral PG+Redis via docker compose and runs the
@@ -59,6 +59,20 @@ integration-down:                  ## Stop ephemeral integration services
 test-integration:                  ## Run the integration suite (requires Docker)
 	TEST_DATABASE_URL=$(TEST_DATABASE_URL) TEST_REDIS_URL=$(TEST_REDIS_URL) \
 		pytest -m integration -v
+
+# ── E2E tests (full app + worker + real PostgreSQL + Redis) ─────────
+# Same ephemeral stack as the integration suite; runs the `e2e`-marked
+# tests (tests/e2e/) that drive the API → outbox → worker pipeline and
+# assert the exactly-once observable outcome (see README 'E2E tests').
+e2e-up:                            ## Start ephemeral PG + Redis for e2e tests
+	docker compose -f docker-compose.test.yml up -d --wait
+
+e2e-down:                          ## Stop ephemeral e2e services
+	docker compose -f docker-compose.test.yml down
+
+test-e2e:                          ## Run the e2e suite (requires Docker)
+	TEST_DATABASE_URL=$(TEST_DATABASE_URL) TEST_REDIS_URL=$(TEST_REDIS_URL) \
+		pytest -m e2e -v
 
 coverage:                          ## Generate HTML coverage report
 	coverage html

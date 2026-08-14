@@ -168,7 +168,7 @@ python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*", "async_test_*"]
 markers = [
-    "e2e: End-to-end tests that require Playwright and a browser (run separately).",
+    "e2e: End-to-end API+worker tests against real PostgreSQL and Redis (run with -m e2e).",
     "integration: Integration tests that require real PostgreSQL and Redis (run with -m integration).",
 ]
 

@@ -93,15 +93,22 @@ class SyncTriggerResponse(BaseModel):
 
 
 async def _latest_run_id(db: AsyncSession, provider: str) -> str | None:
-    """Return the most recent sync-run id for a connector."""
+    """Return the most recent sync-run id for a connector.
+
+    ``SyncRun.id`` is a UUID column; on PostgreSQL the ORM returns a
+    ``uuid.UUID`` object, which pydantic refuses to coerce into the
+    ``str`` fields of ``SyncRunLink`` — stringify here so the 202
+    response carries a usable id (aiosqlite unit tests masked this
+    because SQLite stores UUIDs as text).
+    """
     result = await db.execute(
         select(SyncRun.id)  # type: ignore[attr-defined]
         .where(SyncRun.connector == provider)  # type: ignore[attr-defined]
         .order_by(SyncRun.started_at.desc())  # type: ignore[attr-defined]
         .limit(1)
     )
-    run_id: str | None = result.scalar_one_or_none()  # type: ignore[assignment]
-    return run_id
+    run_id = result.scalar_one_or_none()
+    return str(run_id) if run_id is not None else None
 
 
 def _decrypt_config(
