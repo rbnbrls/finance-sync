@@ -174,6 +174,9 @@ def _mock_export_outcome(**overrides: Any) -> MagicMock:
     outcome.transactions_failed = 0
     outcome.error_message = None
     outcome.duration_s = 0.75
+    # Real exporter results carry the new run's id; tests that exercise
+    # the retry response set it explicitly.
+    outcome.run_id = None
     for k, v in overrides.items():
         setattr(outcome, k, v)
     return outcome
@@ -282,6 +285,11 @@ class TestRetryExportRun:
         failed_run = _make_run(status="failed", error_message="disk full")
         _seed_runs(db_session_factory, [failed_run])
 
+        # The retried run is a NEW run created by the exporter — the
+        # response must report it from the result, not the failed run.
+        retried_run_id = str(uuid4())
+        outcome = _mock_export_outcome(run_id=retried_run_id)
+
         fake_container = _fake_container()
         with (
             patch(
@@ -290,16 +298,15 @@ class TestRetryExportRun:
             ),
             patch("finance_sync.api.v1.exporters.WealthfolioExporter") as m_cls,
         ):
-            m_cls.return_value.run_export = AsyncMock(
-                return_value=_mock_export_outcome()
-            )
+            m_cls.return_value.run_export = AsyncMock(return_value=outcome)
             resp: Response = client.post(
                 f"/api/v1/exporters/wealthfolio/runs/{failed_run.id}/retry"
             )
 
         assert resp.status_code == 202
         data = resp.json()
-        assert data["run_id"] == str(failed_run.id)
+        assert data["run_id"] == retried_run_id
+        assert data["run_id"] != str(failed_run.id)
         assert data["status"] == "completed"
         assert data["transactions_exported"] == 3
         assert data["error_message"] is None
@@ -317,6 +324,9 @@ class TestRetryExportRun:
         )
         _seed_runs(db_session_factory, [failed_run])
 
+        retried_run_id = str(uuid4())
+        outcome = _mock_export_outcome(run_id=retried_run_id)
+
         fake_container = _fake_container()
         with (
             patch(
@@ -327,16 +337,78 @@ class TestRetryExportRun:
                 "finance_sync.api.v1.exporters.ActualBudgetExporter"
             ) as m_cls,
         ):
-            m_cls.return_value.run_export = AsyncMock(
-                return_value=_mock_export_outcome()
-            )
+            m_cls.return_value.run_export = AsyncMock(return_value=outcome)
             resp: Response = client.post(
                 f"/api/v1/exporters/actual-budget/runs/{failed_run.id}/retry"
             )
 
         assert resp.status_code == 202
         assert resp.json()["status"] == "completed"
+        assert resp.json()["run_id"] == retried_run_id
         m_cls.return_value.run_export.assert_awaited_once()
+
+    def test_retry_run_id_comes_from_result_not_newest_run(
+        self,
+        client: TestClient,
+        db_session_factory: async_sessionmaker[AsyncSession],
+    ) -> None:
+        """A newer unrelated run must not shadow the retried run's id.
+
+        Regression for the review finding that the response used a
+        global ``ORDER BY started_at DESC LIMIT 1`` lookup, which picks
+        the wrong run under concurrency (worker sweep, parallel
+        retries, other tenants).
+        """
+        failed_run = _make_run(status="failed", error_message="boom")
+        newer_unrelated = _make_run(status="completed")
+        _seed_runs(db_session_factory, [failed_run, newer_unrelated])
+
+        retried_run_id = str(uuid4())
+        outcome = _mock_export_outcome(run_id=retried_run_id)
+
+        fake_container = _fake_container()
+        with (
+            patch(
+                "finance_sync.api.v1.exporters.get_container",
+                return_value=fake_container,
+            ),
+            patch("finance_sync.api.v1.exporters.WealthfolioExporter") as m_cls,
+        ):
+            m_cls.return_value.run_export = AsyncMock(return_value=outcome)
+            resp: Response = client.post(
+                f"/api/v1/exporters/wealthfolio/runs/{failed_run.id}/retry"
+            )
+
+        assert resp.status_code == 202
+        assert resp.json()["run_id"] == retried_run_id
+        assert resp.json()["run_id"] != str(newer_unrelated.id)
+
+    def test_retry_falls_back_to_newest_run_when_result_has_no_run_id(
+        self,
+        client: TestClient,
+        db_session_factory: async_sessionmaker[AsyncSession],
+    ) -> None:
+        """Defensive fallback when the exporter result lacks a run id."""
+        failed_run = _make_run(status="failed", error_message="boom")
+        _seed_runs(db_session_factory, [failed_run])
+
+        fake_container = _fake_container()
+        with (
+            patch(
+                "finance_sync.api.v1.exporters.get_container",
+                return_value=fake_container,
+            ),
+            patch("finance_sync.api.v1.exporters.WealthfolioExporter") as m_cls,
+        ):
+            m_cls.return_value.run_export = AsyncMock(
+                return_value=_mock_export_outcome(run_id=None)
+            )
+            resp: Response = client.post(
+                f"/api/v1/exporters/wealthfolio/runs/{failed_run.id}/retry"
+            )
+
+        assert resp.status_code == 202
+        assert resp.json()["run_id"] == str(failed_run.id)
 
     def test_retry_completed_run_conflict(
         self,
