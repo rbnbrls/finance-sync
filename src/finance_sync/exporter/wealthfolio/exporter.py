@@ -28,9 +28,10 @@ import contextlib
 import traceback
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
+from uuid import UUID
 
 import structlog
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 
 from finance_sync.exporter.models import ExportRun
 from finance_sync.exporter.wealthfolio.models import WealthfolioDelivery
@@ -75,6 +76,7 @@ class WealthfolioExportResult:
         "duration_s",
         "error_message",
         "holdings_exported",
+        "run_id",
         "status",
         "transactions_attempted",
         "transactions_exported",
@@ -95,6 +97,7 @@ class WealthfolioExportResult:
         csv_files: list[str] | None = None,
         error_message: str | None = None,
         duration_s: float = 0.0,
+        run_id: str | None = None,
     ) -> None:
         self.status = status
         self.accounts_mapped = accounts_mapped
@@ -106,6 +109,7 @@ class WealthfolioExportResult:
         self.csv_files = csv_files or []
         self.error_message = error_message
         self.duration_s = duration_s
+        self.run_id = run_id
 
     def __repr__(self) -> str:
         return (
@@ -220,6 +224,7 @@ class WealthfolioExporter:
                 result = WealthfolioExportResult(
                     status="completed",
                     duration_s=(datetime.now(UTC) - start_ts).total_seconds(),
+                    run_id=str(run.id) if run is not None else None,
                 )
                 self._record_export_metrics(result)
                 return result
@@ -349,6 +354,7 @@ class WealthfolioExporter:
                 holdings_exported=holdings_exported,
                 csv_files=csv_files,
                 duration_s=(end_ts - start_ts).total_seconds(),
+                run_id=str(run.id) if run is not None else None,
             )
             self._record_export_metrics(result)
             return result
@@ -380,6 +386,7 @@ class WealthfolioExporter:
                 csv_files=csv_files,
                 error_message=tb[:2048],
                 duration_s=(end_ts - start_ts).total_seconds(),
+                run_id=str(run.id) if run is not None else None,
             )
             self._record_export_metrics(result)
             return result
@@ -434,8 +441,23 @@ class WealthfolioExporter:
         *,
         account_id: str,
         since: datetime,
+        after: tuple[datetime, UUID] | None = None,
     ) -> list[Transaction]:
-        """Fetch transactions for *account_id* that haven't been exported."""
+        """Fetch transactions for *account_id* that haven't been exported.
+
+        Args:
+            account_id: Finance-sync account UUID.
+            since:      Lower bound on ``occurred_at`` (inclusive) used
+                        when no delivery cursor exists.
+            after:      Optional ``(occurred_at, transaction_id)`` resume
+                        point from a delivery cursor.  When provided, only
+                        transactions strictly after that point are fetched
+                        — the boundary transaction is excluded and any
+                        transactions sharing its exact timestamp but with a
+                        later id are included (timestamp-only cursors would
+                        either re-push the boundary or skip same-instant
+                        transactions).
+        """
         async with self._session_factory() as session:
             status_filter = ["booked"]
             if self._wf_config.include_pending:
@@ -446,11 +468,25 @@ class WealthfolioExporter:
                 .where(
                     Transaction.tenant_id == self._tenant_id,  # type: ignore[attr-defined]
                     Transaction.account_id == account_id,  # type: ignore[attr-defined]
-                    Transaction.occurred_at >= since,  # type: ignore[attr-defined]
                     Transaction.status.in_(status_filter),  # type: ignore[attr-defined]
                 )
                 .order_by(Transaction.occurred_at)  # type: ignore[attr-defined]
             )
+            if after is not None:
+                cursor_ts, cursor_id = after
+                stmt = stmt.where(
+                    or_(
+                        Transaction.occurred_at > cursor_ts,  # type: ignore[attr-defined]
+                        and_(
+                            Transaction.occurred_at == cursor_ts,  # type: ignore[attr-defined]
+                            Transaction.id > cursor_id,  # type: ignore[attr-defined]
+                        ),
+                    )
+                )
+            else:
+                stmt = stmt.where(
+                    Transaction.occurred_at >= since  # type: ignore[attr-defined]
+                )
             result = await session.execute(stmt)
             return list(result.scalars().all())
 
@@ -522,23 +558,32 @@ class WealthfolioExporter:
 
     # ── Delivery cursor (idempotent push resume) ────────────────────
 
-    async def _delivery_since(
+    async def _delivery_cursor(
         self,
         *,
         account_id: str,
-        fallback: datetime,
-    ) -> datetime:
-        """Return the resume timestamp for *account_id*.
+    ) -> tuple[datetime, UUID] | None:
+        """Return the ``(occurred_at, transaction_id)`` resume point.
 
-        Uses the per-account ``WealthfolioDelivery`` cursor when one
-        exists (the timestamp of the last successfully pushed
-        transaction); otherwise falls back to *fallback* (e.g. the
-        last completed run / 90-day default).
+        Reads the per-account ``WealthfolioDelivery`` cursor.  Returns
+        ``None`` when no cursor exists yet (first push for this account).
+        The tuple disambiguates transactions sharing the exact timestamp:
+        resuming strictly after ``(occurred_at, id)`` never re-pushes the
+        boundary transaction and never skips a same-instant sibling.  The
+        id is returned as a :class:`uuid.UUID` so the strict comparison
+        binds correctly on every dialect (SQLite included).
         """
         delivery = await self._get_wealthfolio_delivery(account_id=account_id)
-        if delivery is not None and delivery.last_exported_at is not None:
-            return delivery.last_exported_at
-        return fallback
+        if (
+            delivery is not None
+            and delivery.last_exported_at is not None
+            and delivery.last_exported_transaction_id
+        ):
+            return (
+                delivery.last_exported_at,
+                UUID(delivery.last_exported_transaction_id),
+            )
+        return None
 
     async def _get_wealthfolio_delivery(
         self,
@@ -747,14 +792,22 @@ class WealthfolioExporter:
                 try:
                     # Resume from the per-account delivery cursor when
                     # one exists (idempotent resume after partial failure).
-                    effective_since = await self._delivery_since(
+                    # The (occurred_at, id) tuple excludes the boundary
+                    # transaction so nothing already delivered is re-pushed.
+                    delivery_cursor = await self._delivery_cursor(
                         account_id=fs_acct.id,
-                        fallback=_since,
                     )
-                    txns = await self._fetch_pending_transactions(
-                        account_id=fs_acct.id,
-                        since=effective_since,
-                    )
+                    if delivery_cursor is not None:
+                        txns = await self._fetch_pending_transactions(
+                            account_id=fs_acct.id,
+                            since=_since,
+                            after=delivery_cursor,
+                        )
+                    else:
+                        txns = await self._fetch_pending_transactions(
+                            account_id=fs_acct.id,
+                            since=_since,
+                        )
                     if not txns:
                         continue
 

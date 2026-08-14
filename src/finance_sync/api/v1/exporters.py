@@ -11,6 +11,7 @@ from datetime import (
 )
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
@@ -129,14 +130,12 @@ ExportRunsListResponse.model_rebuild()
 # ── Helpers ──────────────────────────────────────────────────────────────
 
 
-def _parse_run_id(run_id: str) -> Any:
+def _parse_run_id(run_id: str) -> UUID | None:
     """Parse a run id path param into a UUID for ORM comparison.
 
     Returns ``None`` when the value is not a valid UUID, so callers can
     treat it as a not-found run.
     """
-    from uuid import UUID
-
     try:
         return UUID(str(run_id))
     except ValueError:
@@ -444,11 +443,13 @@ async def retry_export_run(
 ) -> RetryExportResponse:
     """Retry a failed export run.
 
-    Re-runs the export cycle for the given exporter type without data
-    loss: exporters resume from their delivery cursor, so already
-    delivered transactions are not re-exported or duplicated.  A new
-    ``ExportRun`` is created for the retry; the original failed run is
-    kept for audit.
+    Re-runs the exporter's export cycle (the same cycle
+    ``POST /exporters/export`` triggers) without data loss: Actual
+    Budget resumes from its per-account delivery cursor, and the
+    Wealthfolio push path resumes from its ``wealthfolio_deliveries``
+    cursor, so already-delivered transactions are not re-exported or
+    duplicated.  A new ``ExportRun`` is created for the retry (reported
+    as ``run_id``); the original failed run is kept for audit.
     """
     # Resolve + validate the exporter type
     container = get_container(request)
@@ -524,15 +525,23 @@ async def retry_export_run(
         )
         outcome = await exporter.run_export()
 
-    # The retry created a fresh ExportRun — report it (the newest run
-    # belongs to this retry; the original failed run is untouched).
-    newest_result = await db.execute(
-        select(ExportRun).order_by(ExportRun.started_at.desc()).limit(1)
-    )
-    newest_run = newest_result.scalar_one_or_none()
+    # The retry created a fresh ExportRun — report it from the result
+    # (both exporter result types carry ``run_id``) instead of guessing
+    # via a global "newest run" lookup, which can pick an unrelated run
+    # under concurrency (worker sweep, parallel retries, other tenants).
+    # Fall back only when the exporter had no run to report.
+    retried_run_id = getattr(outcome, "run_id", None)
+    if retried_run_id is None:
+        newest_result = await db.execute(
+            select(ExportRun).order_by(ExportRun.started_at.desc()).limit(1)
+        )
+        newest_run = newest_result.scalar_one_or_none()
+        retried_run_id = (
+            str(newest_run.id) if newest_run is not None else run_id
+        )
 
     return RetryExportResponse(
-        run_id=str(newest_run.id) if newest_run is not None else run_id,
+        run_id=str(retried_run_id),
         status=outcome.status,
         transactions_attempted=outcome.transactions_attempted,
         transactions_exported=outcome.transactions_exported,

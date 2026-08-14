@@ -5,14 +5,20 @@ Uses mock DB sessions and realistic fixture data.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+import asyncio
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, MagicMock, patch
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
+from sqlalchemy.ext.asyncio import (
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 
 from finance_sync.exporter.wealthfolio.config import WealthfolioConfig
 from finance_sync.exporter.wealthfolio.exporter import (
@@ -34,6 +40,10 @@ from finance_sync.exporter.wealthfolio.transaction_mapper import (
     map_transaction_to_wf_row,
     map_transactions_to_csv,
 )
+from finance_sync.models.transaction import Transaction
+
+if TYPE_CHECKING:
+    from collections.abc import Generator
 
 # ═══════════════════════════════════════════════════════════════════════
 # Test helpers
@@ -594,6 +604,7 @@ class TestWealthfolioExporter:
         assert result.transactions_attempted == 2
         assert result.transactions_exported == 2
         assert result.accounts_mapped >= 1
+        assert result.run_id == str(mock_run.id)
 
     @pytest.mark.asyncio
     async def test_run_export_with_holdings(self, exporter) -> None:
@@ -936,7 +947,12 @@ class TestWealthfolioPushCursor:
         """Patch push internals; return (wf_client, fetch_mock, complete_mock)."""
         wf_client = self._mock_wf_client()
 
-        async def _fake_fetch(*, account_id: str, since: datetime) -> list:
+        async def _fake_fetch(
+            *,
+            account_id: str,
+            since: datetime,
+            after: tuple[datetime, UUID] | None = None,
+        ) -> list:
             return txns_by_account.get(account_id, [])
 
         fetch_mock = AsyncMock(side_effect=_fake_fetch)
@@ -967,12 +983,16 @@ class TestWealthfolioPushCursor:
     async def test_push_resumes_from_delivery_cursor(
         self, exporter: WealthfolioExporter
     ) -> None:
-        """Cursor timestamp wins over the fallback ``since``."""
+        """Cursor ``(occurred_at, id)`` wins over the fallback ``since``."""
         acct = _make_mock_account()
         txn = _make_mock_transaction()
         cursor_ts = datetime(2025, 6, 1, 12, 0, tzinfo=UTC)
+        cursor_id = str(uuid4())
 
-        delivery = MagicMock(last_exported_at=cursor_ts)
+        delivery = MagicMock(
+            last_exported_at=cursor_ts,
+            last_exported_transaction_id=cursor_id,
+        )
         with patch.object(
             exporter, "_get_wealthfolio_delivery", return_value=delivery
         ):
@@ -986,13 +1006,18 @@ class TestWealthfolioPushCursor:
                 "skipped": 0,
                 "failed": 0,
             }
+            fallback = datetime(2020, 1, 1, tzinfo=UTC)
             result = await exporter.push_to_wealthfolio(
                 wf_client,
-                since=datetime(2020, 1, 1, tzinfo=UTC),
+                since=fallback,
             )
 
-        # Fetch used the cursor timestamp, not the fallback
-        assert fetch_mock.await_args.kwargs["since"] == cursor_ts
+        # Fetch resumed strictly after the (occurred_at, id) cursor, not
+        # from the fallback timestamp (and not from the cursor timestamp
+        # either — the boundary transaction must not be re-fetched).
+        kwargs = fetch_mock.await_args.kwargs
+        assert kwargs["after"] == (cursor_ts, UUID(cursor_id))
+        assert kwargs["since"] == fallback
         assert result["imported"] == 1
         assert result["errors"] == []
 
@@ -1193,3 +1218,210 @@ class TestWealthfolioPushCursor:
         complete_kwargs = complete_mock.await_args.kwargs
         assert complete_kwargs["status"] == "failed"
         assert complete_kwargs["error_message"] is not None
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Delivery-cursor resume boundary — real query semantics (G-14 follow-up)
+# ═══════════════════════════════════════════════════════════════════════
+
+# Review finding: the initial timestamp-only cursor resumed with
+# ``occurred_at >= cursor``, re-fetching (and re-pushing) the boundary
+# transaction on every run — and a timestamp-only cursor cannot
+# represent multiple transactions at one instant.  The fixed cursor is
+# a strict ``(occurred_at, id)`` tuple; these tests pin that behaviour
+# against the real query on a real (SQLite) session.
+
+
+class TestFetchPendingTransactionsCursor:
+    """Real-query tests for the delivery-cursor resume boundary."""
+
+    # tenant_id / account_id inherit the UUID type from their FK targets,
+    # so the real-query tests must use uuid objects (the SQLite bind
+    # processor for non-native UUID columns requires them).
+    _TENANT_ID = uuid4()
+    _ACCOUNT_ID = uuid4()
+
+    @pytest.fixture
+    def session_factory(
+        self,
+    ) -> Generator[async_sessionmaker[AsyncSession], None, None]:
+        engine = create_async_engine("sqlite+aiosqlite://", echo=False)
+        factory: async_sessionmaker[AsyncSession] = async_sessionmaker(
+            bind=engine, expire_on_commit=False
+        )
+
+        async def _setup() -> None:
+            async with engine.begin() as conn:
+                await conn.run_sync(Transaction.__table__.create)
+
+        asyncio.run(_setup())
+        yield factory
+        asyncio.run(engine.dispose())
+
+    @pytest.fixture
+    def db_exporter(
+        self,
+        wf_config: WealthfolioConfig,
+        session_factory: async_sessionmaker[AsyncSession],
+    ) -> WealthfolioExporter:
+        return WealthfolioExporter(
+            session_factory=session_factory,
+            wf_config=wf_config,
+            tenant_id=self._TENANT_ID,  # type: ignore[arg-type]
+        )
+
+    async def _seed(
+        self,
+        session_factory: async_sessionmaker[AsyncSession],
+        txns: list[Transaction],
+    ) -> None:
+        async with session_factory() as session:
+            session.add_all(txns)
+            await session.commit()
+
+    def _txn(
+        self,
+        *,
+        id: Any,
+        occurred_at: datetime,
+        account_id: UUID | None = None,
+    ) -> Transaction:
+        return Transaction(
+            id=id,
+            tenant_id=self._TENANT_ID,
+            provider_key="trading212",
+            external_transaction_id=f"ext_{id}",
+            account_id=account_id or self._ACCOUNT_ID,
+            amount=Decimal("-42.50"),
+            currency_code="EUR",
+            occurred_at=occurred_at,
+            transaction_type="payment",
+            status="booked",
+            revision=1,
+        )
+
+    @pytest.mark.asyncio
+    async def test_fetch_without_cursor_uses_since_inclusive(
+        self,
+        db_exporter: WealthfolioExporter,
+        session_factory: async_sessionmaker[AsyncSession],
+    ) -> None:
+        """No cursor yet → the fallback ``since`` bound is inclusive."""
+        ts = datetime(2025, 6, 15, 12, 0, tzinfo=UTC)
+        boundary = uuid4()
+        later = uuid4()
+        await self._seed(
+            session_factory,
+            [
+                self._txn(id=boundary, occurred_at=ts),
+                self._txn(id=later, occurred_at=ts + timedelta(minutes=5)),
+            ],
+        )
+
+        fetched = await db_exporter._fetch_pending_transactions(
+            account_id=self._ACCOUNT_ID,
+            since=ts,
+        )
+
+        assert {t.id for t in fetched} == {boundary, later}
+
+    @pytest.mark.asyncio
+    async def test_fetch_with_cursor_excludes_boundary_transaction(
+        self,
+        db_exporter: WealthfolioExporter,
+        session_factory: async_sessionmaker[AsyncSession],
+    ) -> None:
+        """Resume after a successful push must NOT re-fetch the boundary.
+
+        Regression for the off-by-one where ``occurred_at >= cursor``
+        re-pushed the last delivered transaction on every run.
+        """
+        ts = datetime(2025, 6, 15, 12, 0, tzinfo=UTC)
+        boundary = uuid4()
+        later = uuid4()
+        much_later = uuid4()
+        await self._seed(
+            session_factory,
+            [
+                self._txn(id=boundary, occurred_at=ts),
+                self._txn(id=later, occurred_at=ts + timedelta(minutes=5)),
+                self._txn(id=much_later, occurred_at=ts + timedelta(days=1)),
+            ],
+        )
+
+        # With a cursor at the boundary transaction, resume strictly
+        # after it: boundary excluded, everything later included.
+        fetched = await db_exporter._fetch_pending_transactions(
+            account_id=self._ACCOUNT_ID,
+            since=ts - timedelta(days=90),
+            after=(ts, boundary),
+        )
+
+        assert {t.id for t in fetched} == {later, much_later}
+
+    @pytest.mark.asyncio
+    async def test_fetch_with_cursor_includes_same_instant_siblings(
+        self,
+        db_exporter: WealthfolioExporter,
+        session_factory: async_sessionmaker[AsyncSession],
+    ) -> None:
+        """Same-instant transactions after the cursor id are included.
+
+        A timestamp-only cursor would skip them (or re-push the
+        boundary); the ``(occurred_at, id)`` tuple disambiguates.
+        """
+        ts = datetime(2025, 6, 15, 12, 0, tzinfo=UTC)
+        # Deterministic ordering: first < second in stored (hex) order.
+        first, second = uuid4(), uuid4()
+        while f"{first.hex}" > f"{second.hex}":
+            second = uuid4()
+        later = uuid4()
+        await self._seed(
+            session_factory,
+            [
+                self._txn(id=first, occurred_at=ts),
+                self._txn(id=second, occurred_at=ts),
+                self._txn(id=later, occurred_at=ts + timedelta(minutes=5)),
+            ],
+        )
+
+        fetched = await db_exporter._fetch_pending_transactions(
+            account_id=self._ACCOUNT_ID,
+            since=ts - timedelta(days=90),
+            after=(ts, first),
+        )
+
+        assert {t.id for t in fetched} == {second, later}
+
+    @pytest.mark.asyncio
+    async def test_fetch_with_cursor_ignores_since_for_later_instants(
+        self,
+        db_exporter: WealthfolioExporter,
+        session_factory: async_sessionmaker[AsyncSession],
+    ) -> None:
+        """Cursor wins over ``since`` even when ``since`` is earlier."""
+        ts = datetime(2025, 6, 15, 12, 0, tzinfo=UTC)
+        boundary = uuid4()
+        earlier_than_cursor = uuid4()
+        later = uuid4()
+        await self._seed(
+            session_factory,
+            [
+                self._txn(
+                    id=earlier_than_cursor,
+                    occurred_at=ts - timedelta(hours=1),
+                ),
+                self._txn(id=boundary, occurred_at=ts),
+                self._txn(id=later, occurred_at=ts + timedelta(minutes=5)),
+            ],
+        )
+
+        fetched = await db_exporter._fetch_pending_transactions(
+            account_id=self._ACCOUNT_ID,
+            since=ts - timedelta(days=90),
+            after=(ts, boundary),
+        )
+
+        # The transaction before the cursor (even though after ``since``)
+        # must not be re-fetched — it was already delivered.
+        assert {t.id for t in fetched} == {later}
