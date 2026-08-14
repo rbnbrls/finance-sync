@@ -1,4 +1,4 @@
-.PHONY: install lint format type test test-cov coverage clean
+.PHONY: install lint format type test test-cov coverage clean test-integration integration-up integration-down
 
 # ── Setup ──────────────────────────────────────────────────────────
 install:                           ## Install all dependencies (prod + dev)
@@ -32,17 +32,33 @@ type-ci:                           ## Type-check with Pyright in CI mode
 	pyright src tests --verifytypes finance_sync
 
 # ── Testing ────────────────────────────────────────────────────────
-test:                              ## Run tests with pytest
-	pytest -n auto
+test:                              ## Run unit tests with pytest (excludes integration)
+	pytest -n auto -m "not integration"
 
-test-cov:                          ## Run tests with coverage report
-	pytest -n auto --cov=finance_sync --cov-report=term --cov-report=html
+test-cov:                          ## Run unit tests with coverage report
+	pytest -n auto -m "not integration" --cov=finance_sync --cov-report=term --cov-report=html
 
-test-cov-xml:                      ## Run tests with XML coverage (CI)
-	pytest -n auto --cov=finance_sync --cov-report=xml
+test-cov-xml:                      ## Run unit tests with XML coverage (CI)
+	pytest -m "not integration" --cov=finance_sync --cov-report=xml
 
-test-ci:                           ## CI test run (sequential, coverage threshold)
-	pytest --cov=finance_sync --cov-report=term --cov-report=xml --junitxml=junit.xml
+test-ci:                           ## CI unit test run (sequential, coverage threshold)
+	pytest -m "not integration" --cov=finance_sync --cov-report=term --cov-report=xml --junitxml=junit.xml
+
+# ── Integration tests (real PostgreSQL + Redis) ─────────────────────
+# Spins up ephemeral PG+Redis via docker compose and runs the
+# `integration`-marked suite (tests/integration/) against them.
+TEST_DATABASE_URL ?= postgresql+asyncpg://postgres:postgres@localhost:5433/finance_sync_test
+TEST_REDIS_URL ?= redis://localhost:6380/15
+
+integration-up:                    ## Start ephemeral PG + Redis for integration tests
+	docker compose -f docker-compose.test.yml up -d --wait
+
+integration-down:                  ## Stop ephemeral integration services
+	docker compose -f docker-compose.test.yml down
+
+test-integration:                  ## Run the integration suite (requires Docker)
+	TEST_DATABASE_URL=$(TEST_DATABASE_URL) TEST_REDIS_URL=$(TEST_REDIS_URL) \
+		pytest -m integration -v
 
 coverage:                          ## Generate HTML coverage report
 	coverage html

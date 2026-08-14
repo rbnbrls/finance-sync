@@ -1,14 +1,15 @@
 # =============================================================================
 # CI Pipeline — finance-sync
 # =============================================================================
-# Runs on push/PR to main.  Six independent jobs:
+# Runs on push/PR to main.  Seven independent jobs:
 #
-#   lint       – Ruff check + format check
-#   types      – Pyright strict mode
-#   test       – Pytest with coverage threshold 85%
-#   migrations – Alembic upgrade head against an empty PostgreSQL
-#   security   – pip-audit vulnerability scan + CycloneDX SBOM
-#   build      – Docker image build (no push)
+#   lint        – Ruff check + format check
+#   types       – Pyright strict mode
+#   test        – Pytest unit suite (aiosqlite, no external services)
+#   migrations  – Alembic upgrade head against an empty PostgreSQL
+#   integration – Pytest `-m integration` against ephemeral PG + Redis
+#   security    – pip-audit vulnerability scan + CycloneDX SBOM
+#   build       – Docker image build (no push)
 #
 name: CI
 
@@ -127,9 +128,9 @@ jobs:
           restore-keys: |
             pytest-${{ runner.os }}-${{ matrix.python-version }}-
 
-      - name: Run tests with coverage (≥70%)
+      - name: Run unit tests with coverage (≥70%)
         run: >-
-          uv run pytest
+          uv run pytest -m "not integration"
           --cov=finance_sync
           --cov-report=term
           --cov-report=xml
@@ -227,6 +228,65 @@ jobs:
           PY
         env:
           ASYNC_DB_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/finance_sync_test
+
+  # ── Integration tests (real PG + Redis) ────────────────────────────
+  integration:
+    name: Integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: finance_sync_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.1.0
+        with:
+          enable-cache: true
+          cache-suffix: integration
+
+      - name: Install Python 3.12
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: uv sync --extra dev --frozen
+
+      - name: Run integration tests (real PostgreSQL + Redis)
+        run: uv run pytest -m integration -v --junitxml=junit-integration.xml
+        env:
+          TEST_DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/finance_sync_test
+          TEST_REDIS_URL: redis://localhost:6379/15
+
+      - name: Upload integration test results
+        uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: integration-junit
+          path: junit-integration.xml
+          retention-days: 14
 
   # ── Security + SBOM ───────────────────────────────────────────────────
   security:

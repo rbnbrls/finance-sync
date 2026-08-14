@@ -67,6 +67,8 @@ class Container:
 
         if settings.database_url:
             database_url = settings.database_url.unicode_string()
+            from finance_sync.db.json import default_json_serializer
+
             container._engine = create_async_engine(
                 database_url,
                 pool_size=settings.database_pool_min_size,
@@ -75,6 +77,7 @@ class Container:
                     - settings.database_pool_min_size
                 ),
                 echo=settings.is_debug,
+                json_serializer=default_json_serializer,
             )
             container._session_factory = async_sessionmaker(
                 bind=container._engine,

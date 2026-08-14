@@ -169,6 +169,7 @@ python_classes = ["Test*"]
 python_functions = ["test_*", "async_test_*"]
 markers = [
     "e2e: End-to-end tests that require Playwright and a browser (run separately).",
+    "integration: Integration tests that require real PostgreSQL and Redis (run with -m integration).",
 ]
 
 [tool.coverage.run]
