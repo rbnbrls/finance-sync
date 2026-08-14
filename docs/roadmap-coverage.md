@@ -84,7 +84,7 @@ for direct Kanban task creation.
 
 | ID | Feature | Status | Evidence |
 |---|---|---|---|
-| ms.4.f.1 | read REST endpoints/OpenAPI | **PARTIAL** | 72 routes implemented (`api/v1/`): accounts, portfolio, allocation, cashflow, net-worth, performance, subscriptions, securities, sync-runs, reconciliation, exporters, connectors, ai, webhooks; FastAPI auto OpenAPI at `/docs` + `/openapi.json`. **Docs/implementation mismatch**: `docs/API.md` documents top-level `GET /transactions`, `GET /holdings`, `GET /dividends`, `GET /prices`, `POST /sync` that do **not exist** in the router (only `GET /accounts/{id}/transactions` and `GET /securities/{id}/prices`). → G-05 |
+| ms.4.f.1 | read REST endpoints/OpenAPI | **DONE** | 83 operations implemented (`api/v1/`, 75 paths): accounts, transactions, holdings, dividends, prices, portfolio, allocation, cashflow, net-worth, performance, subscriptions, securities, sync-runs, sync, reconciliation, exporters, connectors, ai, webhooks; FastAPI auto OpenAPI at `/docs` + `/openapi.json`. Top-level `GET /transactions`, `GET /holdings`, `GET /dividends`, `GET /prices`, `POST /sync` (+ `POST /sync/{provider}`) implemented with the `meta:{asOf,currency,nextCursor,freshness}` envelope (`schemas/freshness.py` `CollectionMeta`), matching `docs/API.md`. → G-05 (resolved) |
 | ms.4.f.2 | portfolio, allocation, cashflow/net-worth services | **DONE** | `services/read_api.py` (portfolio + history, net-worth + history), `services/allocation.py`, `services/cashflow.py`, `api/v1/{portfolio,allocation,cashflow,net_worth}.py`, `tests/test_allocation.py`, `tests/test_cashflow.py`, `tests/test_read_api.py`. |
 | ms.4.f.3 | Actual Budget exporter | **DONE** | `exporter/actual_budget/` (client, config, exporter with ExportRun + ExportDelivery cursor, transaction_mapper, models), `api/v1/exporters.py` (types/config/runs), `tests/test_actual_budget_exporter.py`, `tests/exporter/test_actual_budget_contract.py`. |
 | ms.4.f.4 | Wealthfolio exporter | **DONE** | `exporter/wealthfolio/` (client, config, exporter, transaction_mapper, models), API wiring in `api/v1/exporters.py`, `tests/test_wealthfolio_exporter.py`, `tests/exporter/test_wealthfolio_client.py`, `tests/exporter/test_wealthfolio_contract.py`. |
@@ -218,6 +218,13 @@ Actions, or system cron inside the deployment).
 
 ### G-05 — Align API surface with docs/API.md
 - **Roadmap IDs:** ms.4.f.1
+- **Status:** RESOLVED — top-level `GET /transactions`, `GET /holdings`,
+  `GET /dividends`, `GET /prices`, `POST /sync` (and `POST /sync/{provider}`)
+  implemented in `api/v1/{transactions,holdings,dividends,prices,sync}.py`,
+  backed by `ReadService`/`SyncOrchestrator`, each returning the
+  `meta:{asOf,currency,nextCursor,freshness}` envelope; `docs/API.md` rows
+  updated to match the implemented filters; covered by
+  `tests/test_top_level_read_endpoints.py`.
 - **What's missing:** `docs/API.md` documents top-level `GET /transactions`,
   `GET /holdings`, `GET /dividends`, `GET /prices`, `POST /sync` that don't
   exist; implementation has account-scoped equivalents only.

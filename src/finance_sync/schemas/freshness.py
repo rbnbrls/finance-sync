@@ -82,6 +82,42 @@ class CoverageInfo(BaseModel):
     )
 
 
+class CollectionMeta(BaseModel):
+    """Pagination/freshness envelope for collection endpoints.
+
+    Fulfils the ``meta: {asOf, currency, nextCursor, freshness}``
+    envelope promised by ``docs/API.md`` for collection endpoints.
+    Fields may be null where not applicable (offset pagination has no
+    opaque cursor; mixed-currency collections have no single currency).
+    """
+
+    as_of: datetime | None = Field(
+        default=None,
+        description=(
+            "Timestamp of the underlying data (latest holding/"
+            "transaction/price observation); null when no data exists"
+        ),
+    )
+    currency: str | None = Field(
+        default=None,
+        description=(
+            "ISO-4217 currency when the collection is single-currency; "
+            "null when mixed or not applicable"
+        ),
+    )
+    next_cursor: str | None = Field(
+        default=None,
+        description=(
+            "Opaque pagination cursor for the next page; null with "
+            "offset-based pagination"
+        ),
+    )
+    freshness: str = Field(
+        default=FRESHNESS_UNKNOWN,
+        description="Data currency: fresh | stale | partial | unknown",
+    )
+
+
 class AggregateMeta(BaseModel):
     """As-of / freshness / coverage envelope for aggregate responses."""
 
@@ -134,6 +170,7 @@ __all__ = [
     "FRESHNESS_STALE",
     "FRESHNESS_UNKNOWN",
     "AggregateMeta",
+    "CollectionMeta",
     "CoverageInfo",
     "build_meta",
     "freshness_for",
