@@ -170,6 +170,9 @@ def _build_parser() -> ArgumentParser:
     # ── wealthfolio ──────────────────────────────────────────────────
     _build_wealthfolio_subparser(sub)
 
+    # ── actual-budget ────────────────────────────────────────────────
+    _build_actual_budget_subparser(sub)
+
     return parser
 
 
@@ -263,6 +266,106 @@ def _build_wealthfolio_subparser(
     )
 
     return wf
+
+
+def _build_actual_budget_subparser(sub: Any) -> ArgumentParser:
+    """Build the ``actual-budget`` subcommand parser."""
+    ab = sub.add_parser(
+        "actual-budget",
+        help="Export and push data to Actual Budget",
+        description=(
+            "Export finance-sync data to an Actual Budget server. By "
+            "default runs the full export cycle: resolves or creates "
+            "Actual Budget accounts and imports pending transactions "
+            "via the reconcile (dedup-aware) flow, writing a CSV "
+            "summary for manual import. Requires ACTUAL_BUDGET_SERVER_URL "
+            "and ACTUAL_BUDGET_PASSWORD to be configured."
+        ),
+    )
+    ab_sub = ab.add_subparsers(dest="ab_command", required=True)
+
+    # ── export ──────────────────────────────────────────────────────
+    export = ab_sub.add_parser(
+        "export",
+        help="Run the Actual Budget export cycle",
+        description=(
+            "Run a full Actual Budget export cycle: connect to the "
+            "server, resolve or create accounts, import pending "
+            "transactions and write a CSV summary. Requires "
+            "ACTUAL_BUDGET_SERVER_URL and ACTUAL_BUDGET_PASSWORD."
+        ),
+    )
+    export.add_argument(
+        "--output-dir",
+        default=None,
+        help=("Output directory for the CSV summary (default: /tmp)"),
+    )
+    export.add_argument(
+        "--account-ids",
+        default=None,
+        help="Comma-separated account IDs to export (default: all active)",
+    )
+    export.add_argument(
+        "--days-back",
+        type=int,
+        default=90,
+        help="Days of transaction history to export (default: 90)",
+    )
+    export.add_argument(
+        "--max-transactions",
+        type=int,
+        default=None,
+        help="Hard limit on transactions to export per run",
+    )
+
+    # ── push ─────────────────────────────────────────────────────────
+    push = ab_sub.add_parser(
+        "push",
+        help="Push transactions to a running Actual Budget instance",
+        description=(
+            "Export pending transactions from finance-sync and push them "
+            "directly to a running Actual Budget self-hosted instance. "
+            "Requires ACTUAL_BUDGET_SERVER_URL and ACTUAL_BUDGET_PASSWORD "
+            "to be configured."
+        ),
+    )
+    push.add_argument(
+        "--server-url",
+        default=None,
+        help=(
+            "Actual Budget server URL (overrides ACTUAL_BUDGET_SERVER_URL env)"
+        ),
+    )
+    push.add_argument(
+        "--password",
+        default=None,
+        help="Actual Budget password (overrides ACTUAL_BUDGET_PASSWORD env)",
+    )
+    push.add_argument(
+        "--account-ids",
+        default=None,
+        help="Comma-separated account IDs to push (default: all active)",
+    )
+    push.add_argument(
+        "--days-back",
+        type=int,
+        default=90,
+        help="Days of transaction history to push (default: 90)",
+    )
+    push.add_argument(
+        "--max-transactions",
+        type=int,
+        default=None,
+        help="Hard limit on transactions to push per run",
+    )
+    push.add_argument(
+        "--dry-run",
+        action="store_true",
+        default=False,
+        help="Print what would be pushed without actually pushing",
+    )
+
+    return ab
 
 
 def _run_async(coro) -> None:
@@ -739,6 +842,202 @@ async def _cmd_wealthfolio_push(
         await wf_client.close()
 
 
+# ═══════════════════════════════════════════════════════════════════════
+# Actual Budget commands
+# ═══════════════════════════════════════════════════════════════════════
+
+
+async def _cmd_actual_budget(args: Namespace) -> None:
+    """Execute the ``actual-budget`` subcommand."""
+    settings = Settings()
+    configure_logging(
+        json_output=settings.is_production,
+        log_level=settings.log_level,
+    )
+
+    container = Container.from_settings(settings)
+
+    async with container.dispose():
+        tenant_id = getattr(args, "tenant_id", None)
+        if not tenant_id:
+            async with container.session_factory() as session:
+                uow = UnitOfWork(session)
+                tenants = await uow.tenants.list(limit=1)
+                if not tenants:
+                    print(
+                        "ERROR: No tenants found in the database.",
+                        file=sys.stderr,
+                    )
+                    sys.exit(2)
+                tenant_id = tenants[0].id
+
+        if args.ab_command == "export":
+            await _cmd_actual_budget_export(args, container, tenant_id)
+        elif args.ab_command == "push":
+            await _cmd_actual_budget_push(args, container, tenant_id)
+        else:
+            print(f"Unknown actual-budget command: {args.ab_command}")
+            sys.exit(2)
+
+
+async def _cmd_actual_budget_export(
+    args: Namespace,
+    container: Container,
+    tenant_id: str,
+) -> None:
+    """Run the Actual Budget export cycle (CSV + server import)."""
+    import os
+    from pathlib import Path
+
+    from finance_sync.exporter.actual_budget.config import ActualBudgetConfig
+    from finance_sync.exporter.actual_budget.exporter import (
+        ActualBudgetExporter,
+    )
+
+    ab_config = ActualBudgetConfig.from_settings(container.settings)
+    output_dir = args.output_dir or str(
+        Path("/tmp") / "finance_sync_ab_exports"
+    )
+    os.makedirs(output_dir, exist_ok=True)
+
+    since = datetime.now(UTC) - timedelta(days=args.days_back)
+
+    account_ids: list[str] | None = None
+    if args.account_ids:
+        account_ids = [
+            a.strip() for a in args.account_ids.split(",") if a.strip()
+        ]
+
+    print("Actual Budget export starting …")
+    print(f"  Server URL:   {ab_config.server_url}")
+    print(f"  Output dir:   {output_dir}")
+    print(f"  Tenant:       {tenant_id[:16]}…")
+    print(f"  Days back:    {args.days_back}")
+
+    exporter = ActualBudgetExporter(
+        session_factory=container.session_factory,
+        ab_config=ab_config,
+        tenant_id=tenant_id,
+    )
+
+    result = await exporter.run_export(
+        since=since,
+        account_ids=account_ids,
+        max_transactions=args.max_transactions,
+        output_dir=output_dir,
+    )
+
+    print(f"\nResult: {result.status}")
+    if result.status == "completed":
+        print(
+            f"  Transactions: {result.transactions_exported}"
+            f"/{result.transactions_attempted}"
+        )
+        print(f"  Accounts:     {result.accounts_mapped}")
+        print(f"  CSV:          {output_dir}/ab_export_*.csv")
+        sys.exit(0)
+    else:
+        print(f"  ERROR: {result.error_message}", file=sys.stderr)
+        sys.exit(2)
+
+
+async def _cmd_actual_budget_push(
+    args: Namespace,
+    container: Container,
+    tenant_id: str,
+) -> None:
+    """Push transactions directly to a running Actual Budget instance."""
+    from finance_sync.exporter.actual_budget.config import ActualBudgetConfig
+    from finance_sync.exporter.actual_budget.exporter import (
+        ActualBudgetExporter,
+    )
+
+    # Resolve server URL and password
+    server_url = args.server_url or getattr(
+        container.settings, "actual_budget_server_url", ""
+    )
+    password = args.password or getattr(
+        container.settings, "actual_budget_password", ""
+    )
+
+    if not server_url:
+        print(
+            "ERROR: Actual Budget server URL not configured.\n"
+            "  Set ACTUAL_BUDGET_SERVER_URL env var or pass --server-url.",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+    if not password:
+        print(
+            "ERROR: Actual Budget password not configured.\n"
+            "  Set ACTUAL_BUDGET_PASSWORD env var or pass --password.",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+
+    ab_config = ActualBudgetConfig.from_settings(container.settings).model_copy(
+        update={"server_url": server_url, "password": password}
+    )
+    since = datetime.now(UTC) - timedelta(days=args.days_back)
+
+    print("Actual Budget push starting …")
+    print(f"  Server URL:   {server_url}")
+    print(f"  Tenant:       {tenant_id[:16]}…")
+    print(f"  Days back:    {args.days_back}")
+
+    exporter = ActualBudgetExporter(
+        session_factory=container.session_factory,
+        ab_config=ab_config,
+        tenant_id=tenant_id,
+    )
+
+    account_ids: list[str] | None = None
+    if args.account_ids:
+        account_ids = [
+            a.strip() for a in args.account_ids.split(",") if a.strip()
+        ]
+
+    if args.dry_run:
+        # Count transactions without pushing
+        accounts = await exporter._load_accounts(account_ids)  # noqa: SLF001
+        total = 0
+        for acct in accounts:
+            async with container.session_factory() as session:
+                txns = await exporter._fetch_pending_transactions(  # noqa: SLF001
+                    session,
+                    account_id=acct.id,
+                    since=since,
+                )
+            total += len(txns)
+            print(f"  [{acct.name}] {len(txns)} pending transactions")
+
+        print(f"\nDry run: {total} transaction(s) ready to push.")
+        print("Use --no-dry-run or omit --dry-run to push.")
+        sys.exit(0)
+
+    try:
+        result = await exporter.run_export(
+            since=since,
+            account_ids=account_ids,
+            max_transactions=args.max_transactions,
+        )
+        print("\nResult:")
+        print(f"  Status:       {result.status}")
+        print(
+            f"  Transactions: {result.transactions_exported}"
+            f"/{result.transactions_attempted}"
+        )
+        print(f"  Failed:       {result.transactions_failed}")
+        if result.status != "completed":
+            print(f"  ERROR: {result.error_message}", file=sys.stderr)
+            sys.exit(2)
+        sys.exit(0)
+
+    except Exception as exc:
+        print(f"FAILED: {exc}", file=sys.stderr)
+        sys.exit(2)
+
+
 def main(argv: list[str] | None = None) -> None:
     """CLI entry point.
 
@@ -760,6 +1059,8 @@ def main(argv: list[str] | None = None) -> None:
         _run_async(_cmd_compare(args))
     elif args.command == "wealthfolio":
         _run_async(_cmd_wealthfolio(args))
+    elif args.command == "actual-budget":
+        _run_async(_cmd_actual_budget(args))
     else:
         parser.print_help()
         sys.exit(2)

@@ -112,3 +112,62 @@ Exit codes match the `reconcile` command.
 
 Both commands create the same `ReconciliationService` used by the API endpoint,
 so findings are stored in the database and visible through API queries.
+
+## CLI: Actual Budget exporter
+
+The Actual Budget exporter is triggered from the CLI (the only supported
+trigger). The `finance-sync` console script (installed via pip) is equivalent
+to `python -m finance_sync`.
+
+### `actual-budget export` — Full export cycle
+
+```
+finance-sync actual-budget export [OPTIONS]
+```
+
+Runs a full export cycle against the configured Actual Budget server:
+resolves or creates AB accounts, imports pending transactions via the
+reconcile (dedup-aware) flow, and writes a CSV summary for manual import.
+
+Options:
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--output-dir` | `/tmp/finance_sync_ab_exports` | Directory for the CSV summary file. |
+| `--account-ids` | (all active) | Comma-separated list of account IDs to export. |
+| `--days-back` | 90 | Days of transaction history to export. |
+| `--max-transactions` | (unlimited) | Hard limit on transactions to export per run. |
+
+Configuration (env vars or settings):
+
+| Variable | Description |
+|----------|-------------|
+| `ACTUAL_BUDGET_SERVER_URL` | Actual Budget server URL (e.g. `http://localhost:5006`). |
+| `ACTUAL_BUDGET_PASSWORD` | Server password (Settings → Show advanced). |
+| `ACTUAL_BUDGET_BUDGET_NAME` | Budget file display name. |
+| `ACTUAL_BUDGET_SYNC_ID` | Budget sync ID (UUID); takes precedence over the name. |
+| `ACTUAL_BUDGET_ENCRYPTION_PASSWORD` | E2E encryption password, if the budget is encrypted. |
+
+Exit codes: **0** — completed, **2** — error (connection, config, DB).
+
+### `actual-budget push` — Push to a running server
+
+```
+finance-sync actual-budget push [OPTIONS]
+```
+
+Pushes pending transactions to a running Actual Budget instance. Requires a
+server URL and password (env vars or `--server-url`/`--password`).
+
+Options:
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--server-url` | `ACTUAL_BUDGET_SERVER_URL` | Actual Budget server URL. |
+| `--password` | `ACTUAL_BUDGET_PASSWORD` | Actual Budget server password. |
+| `--account-ids` | (all active) | Comma-separated list of account IDs to push. |
+| `--days-back` | 90 | Days of transaction history to push. |
+| `--max-transactions` | (unlimited) | Hard limit on transactions to push per run. |
+| `--dry-run` | off | Count pending transactions without pushing. |
+
+Exit codes: **0** — completed (or dry-run finished), **2** — error.

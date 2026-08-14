@@ -137,6 +137,7 @@ class ActualBudgetExporter:
         since: datetime | None = None,
         account_ids: list[str] | None = None,
         max_transactions: int | None = None,
+        output_dir: str | None = None,
     ) -> ExportResult:
         """Execute a full export cycle.
 
@@ -150,6 +151,8 @@ class ActualBudgetExporter:
                               exported.
             max_transactions: Hard limit on the number of transactions to
                               export in this run (for testing / throttling).
+            output_dir:       Directory for the CSV summary file.  Defaults
+                              to ``/tmp`` when not provided.
 
         Returns:
             An ``ExportResult`` named-tuple-like object.
@@ -257,6 +260,7 @@ class ActualBudgetExporter:
                     session,
                     account_ids=account_ids or [a.id for a in fs_accounts],
                     since=_since,
+                    output_dir=output_dir,
                 )
                 if csv_path:
                     log.info("csv_exported", path=str(csv_path))
@@ -520,10 +524,12 @@ class ActualBudgetExporter:
         *,
         account_ids: list[str],
         since: datetime,
+        output_dir: str | None = None,
     ) -> str | None:
         """Write a CSV file with pending transactions for manual import.
 
         Returns the file path or ``None`` if no transactions were found.
+        The file is written into *output_dir* (defaults to ``/tmp``).
         """
         import csv
         import io
@@ -549,8 +555,9 @@ class ActualBudgetExporter:
         if not content.strip():
             return None
 
+        csv_dir = output_dir or "/tmp"
         fd, path = tempfile.mkstemp(
-            prefix="ab_export_", suffix=".csv", dir="/tmp"
+            prefix="ab_export_", suffix=".csv", dir=csv_dir
         )
         try:
             with os.fdopen(fd, "w") as f:
