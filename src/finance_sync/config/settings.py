@@ -5,7 +5,14 @@ from __future__ import annotations
 from pathlib import Path
 from typing import ClassVar
 
-from pydantic import Field, PostgresDsn, RedisDsn, SecretStr, field_validator
+from pydantic import (
+    Field,
+    PostgresDsn,
+    RedisDsn,
+    SecretStr,
+    field_validator,
+    model_validator,
+)
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from finance_sync.config.environments import Environment
@@ -288,6 +295,31 @@ class Settings(BaseSettings):
         description="Password for Wealthfolio self-hosted authentication.",
     )
 
+    # ── Worker: Wealthfolio delivery sweep job ───────────────────────
+    # ARCHITECTURE.md §5 promises an event-driven exporter delivery plus
+    # a 5-minute sweep.  The sweep is gated on WORKER_JOB_EXPORT_ENABLED;
+    # its default (when the env var is unset) is derived: enabled only
+    # when the Wealthfolio push target is configured (both
+    # WEALTHFOLIO_SERVER_URL and WEALTHFOLIO_PASSWORD are set), so the
+    # job registers and runs on deployments that have the push target,
+    # and stays off (skipping cleanly) everywhere else.
+    worker_job_export_enabled: bool | None = Field(
+        default=None,
+        validation_alias="WORKER_JOB_EXPORT_ENABLED",
+        description=(
+            "Enable the Wealthfolio delivery sweep job (5-min cadence). "
+            "Default (env unset): enabled only when WEALTHFOLIO_SERVER_URL "
+            "and WEALTHFOLIO_PASSWORD are both set."
+        ),
+    )
+    worker_job_export_interval_minutes: int = Field(
+        default=5,
+        ge=1,
+        validation_alias="WORKER_JOB_EXPORT_INTERVAL_MINUTES",
+        description="Cadence of the Wealthfolio delivery sweep job in "
+        "minutes (ARCHITECTURE.md §5: 5-minute sweep).",
+    )
+
     # ── Worker / APScheduler ───────────────────────────────────────
     worker_enabled: bool = Field(
         default=True,
@@ -535,6 +567,21 @@ class Settings(BaseSettings):
             msg = "Secret key must be at least 16 characters long"
             raise ValueError(msg)
         return v
+
+    @model_validator(mode="after")
+    def _resolve_export_job_default(self) -> Settings:
+        """Resolve ``worker_job_export_enabled`` when the env var is unset.
+
+        Exact default: enabled only when the Wealthfolio push target is
+        configured (``WEALTHFOLIO_SERVER_URL`` and
+        ``WEALTHFOLIO_PASSWORD`` both non-empty).  An explicit
+        ``WORKER_JOB_EXPORT_ENABLED`` value always wins.
+        """
+        if self.worker_job_export_enabled is None:
+            self.worker_job_export_enabled = bool(
+                self.wealthfolio_server_url and self.wealthfolio_password
+            )
+        return self
 
     # ── Computed properties ──────────────────────────────────────────
 
