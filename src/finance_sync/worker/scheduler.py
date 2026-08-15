@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import traceback
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import structlog
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
@@ -147,7 +147,7 @@ class WorkerScheduler:
     def job_summary(self) -> list[dict[str, Any]]:
         """Return a summary of registered jobs."""
         summary: list[dict[str, Any]] = []
-        for job in self._scheduler.get_jobs():
+        for job in cast("Any", self._scheduler).get_jobs():
             trigger_desc = str(job.trigger)
             summary.append(
                 {
@@ -324,7 +324,7 @@ class WorkerScheduler:
         trigger: Any,
     ) -> None:
         """Register a job with APScheduler and track its ID."""
-        self._scheduler.add_job(
+        cast("Any", self._scheduler).add_job(
             func,
             trigger=trigger,
             id=job_id,

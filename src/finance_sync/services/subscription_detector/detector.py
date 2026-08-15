@@ -12,7 +12,7 @@ from collections import defaultdict
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from statistics import median
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import structlog
 
@@ -1401,7 +1401,9 @@ class SubscriptionDetector:
                 # Re-compute confidence with sector boost
                 sector_boost = cls.get("likelihood_score", 0.0)
                 if sector_boost > 0:
-                    details = result.get("details", {}) or {}
+                    details = cast(
+                        "dict[str, Any]", result.get("details", {}) or {}
+                    )
                     current_score = result.get("detection_score", 0.0) or 0.0
                     new_score = min(1.0, current_score + sector_boost)
                     # Update confidence if score crosses a threshold
@@ -1416,9 +1418,8 @@ class SubscriptionDetector:
                     result["detection_score"] = new_score
 
                     # Record the boost in details
-                    if details is not None:
-                        details["sector_boost"] = sector_boost
-                        details["sector"] = sector
+                    details["sector_boost"] = sector_boost
+                    details["sector"] = sector
                     result["details"] = details
 
         return cluster_results

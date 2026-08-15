@@ -303,7 +303,7 @@ class ActualBudgetExporter:
                 transactions_exported=txns_exported,
                 transactions_failed=txns_failed,
                 duration_s=(end_ts - start_ts).total_seconds(),
-                run_id=str(run.id) if run is not None else None,
+                run_id=str(run.id),
             )
             self._record_export_metrics(result)
             return result
@@ -327,7 +327,7 @@ class ActualBudgetExporter:
                 transactions_failed=txns_failed,
                 error_message=str(exc),
                 duration_s=(end_ts - start_ts).total_seconds(),
-                run_id=str(run.id) if run is not None else None,
+                run_id=str(run.id),
             )
             self._record_export_metrics(result)
             return result
@@ -351,7 +351,7 @@ class ActualBudgetExporter:
                 transactions_failed=txns_failed,
                 error_message=tb[:2048],
                 duration_s=(end_ts - start_ts).total_seconds(),
-                run_id=str(run.id) if run is not None else None,
+                run_id=str(run.id),
             )
             self._record_export_metrics(result)
             return result

@@ -403,14 +403,16 @@ class EnrichmentGateway:
         """Parse an OpenBB ETF composition response into an
         ETFComposition DTO.
         """
-        holdings_raw = data.get("holdings") or data.get("topHoldings") or []
-        sector_raw = (
+        holdings_raw: list[dict[str, Any]] = (
+            data.get("holdings") or data.get("topHoldings") or []
+        )
+        sector_raw: list[dict[str, Any]] = (
             data.get("sectorExposures")
             or data.get("sector_exposures")
             or data.get("sectorWeights")
             or []
         )
-        region_raw = (
+        region_raw: list[dict[str, Any]] = (
             data.get("regionExposures") or data.get("region_exposures") or []
         )
 

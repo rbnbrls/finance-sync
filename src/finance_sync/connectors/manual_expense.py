@@ -100,7 +100,7 @@ class ManualExpenseConnector(Connector):
         self,
         since: datetime,
         *,
-        _account_id: str | None = None,
+        account_id: str | None = None,
         limit: int | None = None,
     ) -> list[RawTransaction]:
         """Read expenses from the JSON data source.
@@ -123,6 +123,9 @@ class ManualExpenseConnector(Connector):
                 ]
             }
         """
+        # Manual connector exposes a single account; the account_id filter is
+        # accepted for interface compatibility and intentionally unused.
+        del account_id
         data_path = self._get_data_path()
         if not data_path or not os.path.exists(data_path):
             return []

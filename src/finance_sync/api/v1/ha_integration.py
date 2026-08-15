@@ -4,7 +4,7 @@ NOTE: ``from __future__ import annotations`` is intentionally omitted
 because FastAPI needs runtime type introspection for OpenAPI generation.
 """
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -49,7 +49,7 @@ async def get_ha_sensors(
     _: None = Depends(_require_ha_enabled),
     auth: AuthContext = Depends(require_permission("accounts", "read")),
     db: AsyncSession = Depends(get_db),
-) -> dict:
+) -> dict[str, Any]:
     """Expose financial sensors for Home Assistant REST sensor integration."""
     svc = _get_service(db, request)
     sensors = await svc.get_sensors(tenant_id=auth.tenant_id)
@@ -61,10 +61,10 @@ async def get_ha_config(
     request: Request,
     _: None = Depends(_require_ha_enabled),
     _auth: AuthContext = Depends(require_permission("accounts", "read")),
-) -> dict:
+) -> dict[str, Any]:
     """Return Home Assistant REST sensor integration configuration."""
     settings = get_settings(request)
-    svc = HomeAssistantService(session=None, settings=settings)  # type: ignore[arg-type]
+    svc = HomeAssistantService(session=None, settings=settings)
     base_url = str(request.base_url).rstrip("/") + "/api/v1/ha/sensors"
     result = svc.get_config(base_url=base_url)
     return result.to_dict()

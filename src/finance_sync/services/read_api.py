@@ -354,7 +354,7 @@ class NetWorthResponse(BaseModel):
     net_worth: E | None = None
     currency_code: str = "EUR"
     as_of: datetime | None = None
-    accounts: list[AccountSummary] = Field(default_factory=list)
+    accounts: list[AccountSummary] = Field(default_factory=list[AccountSummary])
 
 
 class NetWorthHistoryEntry(BaseModel):

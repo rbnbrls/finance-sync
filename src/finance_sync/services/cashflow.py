@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from pydantic import BaseModel, Field
 from sqlalchemy import and_, desc, func, select
@@ -97,8 +97,10 @@ class CashflowReport(BaseModel):
     """Full cashflow report combining summary, categories, and history."""
 
     summary: CashflowSummary
-    by_category: list[CategoryBreakdown] = Field(default_factory=list)
-    history: list[PeriodEntry] = Field(default_factory=list)
+    by_category: list[CategoryBreakdown] = Field(
+        default_factory=list[CategoryBreakdown]
+    )
+    history: list[PeriodEntry] = Field(default_factory=list[PeriodEntry])
 
 
 # ── Helpers ────────────────────────────────────────────────────────────
@@ -167,7 +169,7 @@ def _get_amount(obj: Any) -> E:
     Supports both model instances (``.amount``) and dicts (``obj["amount"]``).
     """
     if isinstance(obj, dict):
-        return E(str(obj.get("amount", _ZERO)))
+        return E(str(cast("dict[str, Any]", obj).get("amount", _ZERO)))
     return E(str(getattr(obj, "amount", _ZERO)))
 
 
@@ -175,7 +177,7 @@ def _get_date(obj: Any) -> datetime:
     """Extract datetime from a transaction-like object's
     occurred_at field."""
     if isinstance(obj, dict):
-        val = obj.get("occurred_at", datetime.now(UTC))
+        val = cast("dict[str, Any]", obj).get("occurred_at", datetime.now(UTC))
     else:
         val = getattr(obj, "occurred_at", datetime.now(UTC))
     if isinstance(val, str):
@@ -186,7 +188,7 @@ def _get_date(obj: Any) -> datetime:
 def _get_account_id(obj: Any) -> str:
     """Extract account id from a transaction-like object."""
     if isinstance(obj, dict):
-        return str(obj.get("account_id", ""))
+        return str(cast("dict[str, Any]", obj).get("account_id", ""))
     return str(getattr(obj, "account_id", ""))
 
 
@@ -292,7 +294,7 @@ def compute_cashflow(
 
         if not include_pending:
             status = (
-                txn.get("status")
+                cast("dict[str, Any]", txn).get("status")
                 if isinstance(txn, dict)
                 else getattr(txn, "status", None)
             )

@@ -26,7 +26,7 @@ from __future__ import annotations
 import math
 from collections import defaultdict
 from decimal import Decimal
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import structlog
 
@@ -1189,7 +1189,9 @@ class SubscriptionPatternEngine:
         all_dates: list[datetime] = []
         for g in match.source_groups:
             ids = g.get("transaction_ids", [])
-            all_ids.extend(ids if isinstance(ids, list) else [ids])
+            all_ids.extend(
+                cast("list[str]", ids) if isinstance(ids, list) else [ids]
+            )
             fd = g.get("first_detected_at")
             ld = g.get("last_detected_at")
             if fd:

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from decimal import Decimal
-from typing import ClassVar
+from typing import Any, ClassVar
 
 from sqlalchemy import DateTime, ForeignKey, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
@@ -126,7 +126,7 @@ class FundamentalObservation(TimestampMixin, Base):
         nullable=False,
         comment="Data source identifier (e.g. 'openbb', 'manual')",
     )
-    provider_metadata: Mapped[dict | None] = mapped_column(
+    provider_metadata: Mapped[dict[str, Any] | None] = mapped_column(
         JSONB,
         nullable=True,
         comment="Provider-specific additional metadata",

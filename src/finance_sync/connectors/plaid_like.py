@@ -44,7 +44,11 @@ from typing import TYPE_CHECKING, Any
 
 from finance_sync.connectors.base import Connector
 from finance_sync.connectors.exceptions import PermanentError
-from finance_sync.connectors.models import RawAccount, RawTransaction
+from finance_sync.connectors.models import (
+    CanonicalAccountData,
+    RawAccount,
+    RawTransaction,
+)
 from finance_sync.connectors.rate_limiter import RateLimitPolicy
 
 if TYPE_CHECKING:
@@ -309,13 +313,13 @@ class PlaidLikeConnector(Connector):
     def transform_accounts(
         self,
         raw: list[RawAccount],
-    ) -> list[RawAccount]:
+    ) -> list[CanonicalAccountData]:
         """Normalise Plaid account types to finance-sync canonical types.
 
         Plaid uses 'depository' — we map it to 'checking' or 'savings'
         based on subtype.
         """
-        result = []
+        result: list[CanonicalAccountData] = []
         for r in raw:
             acct_type = r.account_type
             if acct_type == "depository":
@@ -327,7 +331,8 @@ class PlaidLikeConnector(Connector):
                 acct_type = "credit"
 
             result.append(
-                RawAccount(
+                CanonicalAccountData(
+                    provider_key=self.name,
                     external_account_id=r.external_account_id,
                     name=r.name,
                     account_type=acct_type,

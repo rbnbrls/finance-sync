@@ -71,7 +71,7 @@ class AssetClassBreakdown(BaseModel):
     """Breakdown by asset class (security_type)."""
 
     items: list[AllocationBucket] = Field(
-        default_factory=list,
+        default_factory=list[AllocationBucket],
         description="Allocation by asset class",
     )
     total_value: E = Field(description="Sum of all asset-class values")
@@ -81,7 +81,7 @@ class SectorBreakdown(BaseModel):
     """Breakdown by sector."""
 
     items: list[AllocationBucket] = Field(
-        default_factory=list,
+        default_factory=list[AllocationBucket],
         description="Allocation by sector",
     )
     total_value: E = Field(description="Sum of all sector values")
@@ -91,7 +91,7 @@ class RegionBreakdown(BaseModel):
     """Breakdown by geographic region."""
 
     items: list[AllocationBucket] = Field(
-        default_factory=list,
+        default_factory=list[AllocationBucket],
         description="Allocation by region",
     )
     total_value: E = Field(description="Sum of all region values")
@@ -104,9 +104,15 @@ class AccountAllocationBreakdown(BaseModel):
     account_name: str
     account_type: str
     total_value: E = _ZERO
-    by_asset_class: list[AllocationBucket] = Field(default_factory=list)
-    by_sector: list[AllocationBucket] = Field(default_factory=list)
-    by_region: list[AllocationBucket] = Field(default_factory=list)
+    by_asset_class: list[AllocationBucket] = Field(
+        default_factory=list[AllocationBucket]
+    )
+    by_sector: list[AllocationBucket] = Field(
+        default_factory=list[AllocationBucket]
+    )
+    by_region: list[AllocationBucket] = Field(
+        default_factory=list[AllocationBucket]
+    )
 
 
 class AllocationResponse(BaseModel):
@@ -115,19 +121,19 @@ class AllocationResponse(BaseModel):
     total_value: E = _ZERO
     currency_code: str = "EUR"
     by_asset_class: list[AllocationBucket] = Field(
-        default_factory=list,
+        default_factory=list[AllocationBucket],
         description="Portfolio breakdown by asset class",
     )
     by_sector: list[AllocationBucket] = Field(
-        default_factory=list,
+        default_factory=list[AllocationBucket],
         description="Portfolio breakdown by sector",
     )
     by_region: list[AllocationBucket] = Field(
-        default_factory=list,
+        default_factory=list[AllocationBucket],
         description="Portfolio breakdown by region",
     )
     accounts: list[AccountAllocationBreakdown] = Field(
-        default_factory=list,
+        default_factory=list[AccountAllocationBreakdown],
         description="Per-account breakdowns",
     )
     as_of: datetime | None = Field(
@@ -312,8 +318,7 @@ class AllocationService:
         stale_holdings = sum(
             1
             for h in holdings_list
-            if h.observed_at is not None
-            and (now - h.observed_at) > AGGREGATE_STALE_AFTER
+            if (now - h.observed_at) > AGGREGATE_STALE_AFTER
         )
         caveats: list[str] = []
         if stale_holdings:
@@ -321,10 +326,7 @@ class AllocationService:
                 f"{stale_holdings} holding(s) have observations older "
                 f"than {AGGREGATE_STALE_AFTER.days * 24}h"
             )
-        if (
-            as_of is not None
-            and freshness_for(as_of, now=now) == FRESHNESS_STALE
-        ):
+        if freshness_for(as_of, now=now) == FRESHNESS_STALE:
             caveats.append(
                 "Latest holding observation is older than the 24h "
                 "freshness horizon"
@@ -409,9 +411,7 @@ class AllocationService:
             return None
 
         # Determine the "as of" timestamp (most recent observation)
-        observed_times = [
-            h.observed_at for h in holdings if h.observed_at is not None
-        ]
+        observed_times = [h.observed_at for h in holdings]
         as_of = max(observed_times) if observed_times else datetime.now(UTC)
 
         # Resolve security IDs

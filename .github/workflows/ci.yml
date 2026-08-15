@@ -92,7 +92,12 @@ jobs:
             pyright-${{ runner.os }}-${{ matrix.python-version }}-
 
       - name: Run Pyright (strict)
-        run: uv run pyright src tests
+        # G-11: src/ checked strict (pyproject.toml [tool.pyright]); tests/
+        # checked at basic via its own config. Two invocations so each uses
+        # its declared typeCheckingMode.
+        run: |
+          uv run pyright -p pyproject.toml src
+          uv run pyright -p pyrightconfig.tests.json tests
 
   # ── Test + coverage ───────────────────────────────────────────────────
   test:

@@ -45,7 +45,7 @@ class ExporterTypeInfo(BaseModel):
     display_name: str = Field(description="Human-readable name")
     description: str = Field(description="Brief description of the exporter")
     config_fields: list[dict[str, object]] = Field(
-        default_factory=list,
+        default_factory=list[dict[str, object]],
         description="Configuration fields exposed in Settings",
     )
 
@@ -350,9 +350,9 @@ async def list_export_runs(
     if status_filter == "error":
         status_filter = "failed"
 
-    filters = []
+    filters: list[Any] = []
     if status_filter:
-        filters.append(ExportRun.status == status_filter)  # type: ignore[arg-type]
+        filters.append(ExportRun.status == status_filter)
 
     # Total count
     count_stmt = select(ExportRun.id)

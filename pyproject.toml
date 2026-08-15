@@ -145,9 +145,13 @@ line-ending = "auto"
 "src/finance_sync/services/subscription_detector/service.py" = ["E501"]
 
 [tool.pyright]
-typeCheckingMode = "basic"
-include = ["src", "tests"]
-exclude = ["**/node_modules", "**/__pycache__", "tests/test_plugin_integration.py"]
+# G-11: src/ is checked under strict mode. tests/ run at basic via
+# tests/pyrightconfig.json — CI invokes each with its own config:
+#   uv run pyright -p pyproject.toml src
+#   uv run pyright -p tests/pyrightconfig.json tests
+typeCheckingMode = "strict"
+include = ["src"]
+exclude = ["**/node_modules", "**/__pycache__"]
 pythonVersion = "3.12"
 pythonPlatform = "Linux"
 reportMissingTypeStubs = "warning"

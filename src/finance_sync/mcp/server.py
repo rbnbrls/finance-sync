@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 from mcp.server.fastmcp import Context, FastMCP
+from mcp.server.session import ServerSession
 from pydantic import BaseModel, Field
 
 from finance_sync.config.settings import Settings
@@ -71,14 +72,18 @@ mcp = FastMCP(
 
 # ── Helpers ──────────────────────────────────────────────────────────────
 
+# FastMCP is typed as FastMCP[LifespanResultT]; our lifespan yields
+# dict[str, Any], so tool/resource Context carries that lifespan payload.
+ServerContext = Context[ServerSession, dict[str, Any]]
 
-def _get_container(ctx: Context) -> Container:
+
+def _get_container(ctx: ServerContext) -> Container:
     """Extract the DI container from FastMCP lifespan context."""
     lifespan_data: dict[str, Any] = ctx.request_context.lifespan_context
     return lifespan_data["container"]
 
 
-def _get_read_service(ctx: Context) -> Any:
+def _get_read_service(ctx: ServerContext) -> Any:
     """Create a ``ReadService`` scoped to the current request's session."""
     from finance_sync.services.read_api import ReadService
 
@@ -87,7 +92,7 @@ def _get_read_service(ctx: Context) -> Any:
     return ReadService(session)
 
 
-def _get_tenant_id(_ctx: Context) -> str:
+def _get_tenant_id(_ctx: ServerContext) -> str:
     """Extract tenant ID from the authenticated request.
 
     Reads the auth context from the ``ContextVar`` set by
@@ -118,7 +123,7 @@ def _serialise(obj: Any) -> str:
     description="List of all financial accounts with current balances.",
     mime_type="application/json",
 )
-async def resource_accounts(ctx: Context) -> str:
+async def resource_accounts(ctx: ServerContext) -> str:
     """Return all accounts for the authenticated tenant.
 
     URI: ``finance://accounts``
@@ -142,7 +147,7 @@ async def resource_accounts(ctx: Context) -> str:
     description="Current investment portfolio with holdings per account.",
     mime_type="application/json",
 )
-async def resource_portfolio(ctx: Context) -> str:
+async def resource_portfolio(ctx: ServerContext) -> str:
     """Return the current portfolio breakdown.
 
     URI: ``finance://portfolio``
@@ -166,7 +171,7 @@ async def resource_portfolio(ctx: Context) -> str:
     description="Recent financial transactions across all accounts.",
     mime_type="application/json",
 )
-async def resource_transactions(ctx: Context) -> str:
+async def resource_transactions(ctx: ServerContext) -> str:
     """Return recent transactions.
 
     URI: ``finance://transactions``
@@ -201,7 +206,7 @@ async def resource_transactions(ctx: Context) -> str:
     description="Current net worth (total assets minus liabilities).",
     mime_type="application/json",
 )
-async def resource_net_worth(ctx: Context) -> str:
+async def resource_net_worth(ctx: ServerContext) -> str:
     """Return the current net worth.
 
     URI: ``finance://net-worth``
@@ -240,7 +245,7 @@ class RunSyncInput(BaseModel):
         "and transactions from the financial provider."
     ),
 )
-async def tool_run_sync(ctx: Context, connector_type: str) -> str:
+async def tool_run_sync(ctx: ServerContext, connector_type: str) -> str:
     """Trigger a manual sync for a connector."""
     tenant_id = _get_tenant_id(ctx)
     container = _get_container(ctx)
@@ -333,7 +338,7 @@ class GetSummaryInput(BaseModel):
         "(AI_ENABLED=true, AI_API_KEY set)."
     ),
 )
-async def tool_get_summary(ctx: Context, timeframe: str = "30d") -> str:
+async def tool_get_summary(ctx: ServerContext, timeframe: str = "30d") -> str:
     """Generate an AI-powered summary of recent financial activity."""
     tenant_id = _get_tenant_id(ctx)
     container = _get_container(ctx)
@@ -380,7 +385,7 @@ class ResolveSecurityInput(BaseModel):
         "with identifiers and latest price."
     ),
 )
-async def tool_resolve_security(ctx: Context, query: str) -> str:
+async def tool_resolve_security(ctx: ServerContext, query: str) -> str:
     """Search/lookup a security by ISIN, ticker, or name."""
     container = _get_container(ctx)
 
@@ -421,7 +426,7 @@ class GetDailyBriefingInput(BaseModel):
     ),
 )
 async def tool_get_daily_briefing(
-    ctx: Context,
+    ctx: ServerContext,
     timeframe: str = "today",
 ) -> str:
     """Generate an AI-powered daily financial briefing."""
@@ -463,7 +468,9 @@ class GetSubscriptionsInput(BaseModel):
         "and pattern recognition."
     ),
 )
-async def tool_get_subscriptions(ctx: Context, active_only: bool = True) -> str:
+async def tool_get_subscriptions(
+    ctx: ServerContext, active_only: bool = True
+) -> str:
     """Detect recurring subscriptions from transaction history."""
     tenant_id = _get_tenant_id(ctx)
     container = _get_container(ctx)
@@ -479,7 +486,31 @@ async def tool_get_subscriptions(ctx: Context, active_only: bool = True) -> str:
     subscriptions = await detector.list_subscriptions(
         status="active" if active_only else None,
     )
-    return _serialise([s.model_dump() for s in subscriptions])
+    return _serialise(
+        [
+            {
+                "id": s.id,
+                "merchant_name": s.merchant_name,
+                "raw_description": s.raw_description,
+                "amount": str(s.amount),
+                "currency_code": s.currency_code,
+                "frequency_days": s.frequency_days,
+                "frequency_label": s.frequency_label,
+                "confidence": s.confidence,
+                "status": s.status,
+                "sector": s.sector,
+                "category": s.category,
+                "first_detected_at": s.first_detected_at.isoformat()
+                if s.first_detected_at
+                else None,
+                "last_detected_at": s.last_detected_at.isoformat()
+                if s.last_detected_at
+                else None,
+                "occurrence_count": s.occurrence_count,
+            }
+            for s in subscriptions
+        ]
+    )
 
 
 class GetPerformanceInput(BaseModel):
@@ -510,7 +541,7 @@ class GetPerformanceInput(BaseModel):
     ),
 )
 async def tool_get_performance(
-    ctx: Context,
+    ctx: ServerContext,
     subject: str = "portfolio",
     period: str = "1y",
 ) -> str:
@@ -571,7 +602,7 @@ class GetAllocationInput(BaseModel):
     ),
 )
 async def tool_get_allocation(
-    ctx: Context,
+    ctx: ServerContext,
     by: str = "asset_class",
     target_currency: str | None = None,
 ) -> str:
@@ -586,7 +617,7 @@ async def tool_get_allocation(
             session=session,
             fx_service=(
                 container.fx_service
-                if container.settings.openbb_enabled
+                if container.settings.openbb_api_key is not None
                 else None
             ),
         )
@@ -617,7 +648,7 @@ class GetCashflowInput(BaseModel):
         "a given period across all accounts."
     ),
 )
-async def tool_get_cashflow(ctx: Context, period: str = "30d") -> str:
+async def tool_get_cashflow(ctx: ServerContext, period: str = "30d") -> str:
     """Return aggregate cashflow for a given period."""
     tenant_id = _get_tenant_id(ctx)
     read_service = _get_read_service(ctx)
@@ -662,7 +693,7 @@ class ListSyncRunsInput(BaseModel):
     ),
 )
 async def tool_list_sync_runs(
-    ctx: Context,
+    ctx: ServerContext,
     limit: int = 10,
     connector: str | None = None,
     status: str | None = None,

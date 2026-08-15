@@ -9,7 +9,7 @@ JSONB column keyed by metadata_type.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import ClassVar
+from typing import Any, ClassVar
 
 from sqlalchemy import DateTime, ForeignKey, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
@@ -66,7 +66,7 @@ class SecurityMetadataObservation(TimestampMixin, Base):
     )
 
     # ── Payload ─────────────────────────────────────────────────────
-    metadata_json: Mapped[dict] = mapped_column(
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(
         JSONB,
         nullable=False,
         default=dict,

@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from decimal import (
     Decimal,
 )
-from typing import Any
+from typing import Any, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
@@ -199,10 +199,15 @@ ReconciliationRunResponse.model_rebuild()
 
 def _run_to_response(run: object) -> ReconciliationRunResponse:
     """Convert an ORM ReconciliationRun to its response DTO."""
-    s = getattr(run, "summary", None) or {}
+    summary_raw = getattr(run, "summary", None)
+    summary_data: dict[str, Any] = (
+        cast(dict[str, Any], summary_raw)
+        if isinstance(summary_raw, dict)
+        else {}
+    )
     summary = ReconciliationSummary(
-        by_kind=s.get("by_kind", {}) if isinstance(s, dict) else {},
-        by_severity=s.get("by_severity", {}) if isinstance(s, dict) else {},
+        by_kind=summary_data.get("by_kind", {}),
+        by_severity=summary_data.get("by_severity", {}),
     )
     return ReconciliationRunResponse(
         id=str(getattr(run, "id", "")),

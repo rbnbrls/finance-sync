@@ -10,7 +10,7 @@ because FastAPI needs runtime type introspection for OpenAPI generation.
 import contextlib
 import json
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
@@ -65,7 +65,7 @@ class ConnectorInfo(BaseModel):
         ],
     )
     option_fields: list[dict[str, object]] = Field(
-        default_factory=list,
+        default_factory=list[dict[str, object]],
         description="Optional configuration fields",
     )
     capabilities: list[str] = Field(
@@ -143,7 +143,7 @@ class InlineTestResult(BaseModel):
     success: bool
     message: str
     accounts: list[InlineTestAccount] = Field(
-        default_factory=list,
+        default_factory=list[InlineTestAccount],
         description="Accounts accessible via this connection",
     )
 
@@ -272,12 +272,13 @@ async def list_connector_configs(
     rows = result.scalars().all()
     configs: list[ConnectorConfigResponse] = []
     for row in rows:
-        options: dict[str, Any] = {}
+        options: Any = {}
         is_configured = bool(row.encrypted_payload)
         label = row.description
         with contextlib.suppress(json.JSONDecodeError, TypeError):
-            options = json.loads(row.description or "{}")
-            if isinstance(options, dict):
+            parsed = json.loads(row.description or "{}")
+            if isinstance(parsed, dict):
+                options = cast(dict[str, Any], parsed)
                 label = options.pop("_label", label) or label
         configs.append(
             ConnectorConfigResponse(
@@ -446,17 +447,18 @@ async def update_connector_config(
                 if body.description:
                     existing["_label"] = body.description
                 else:
-                    existing.pop("_label", None)
+                    cast(dict[str, Any], existing).pop("_label", None)
                 cred.description = json.dumps(existing, separators=(",", ":"))
 
     cred.updated_at = datetime.now(UTC)
     await db.flush()
 
-    options: dict[str, Any] = {}
+    options: Any = {}
     label = cred.description
     with contextlib.suppress(json.JSONDecodeError, TypeError):
-        options = json.loads(cred.description or "{}")
-        if isinstance(options, dict):
+        parsed = json.loads(cred.description or "{}")
+        if isinstance(parsed, dict):
+            options = cast(dict[str, Any], parsed)
             label = options.pop("_label", label) or label
 
     return ConnectorConfigResponse(

@@ -114,7 +114,7 @@ class CSVImportConnector(Connector):
         self,
         since: datetime,
         *,
-        _account_id: str | None = None,
+        account_id: str | None = None,
         limit: int | None = None,
     ) -> list[RawTransaction]:
         """Parse CSV file(s) and return transactions.
@@ -125,8 +125,11 @@ class CSVImportConnector(Connector):
         - Column mapping via ``column_mapping``
         - Date format via ``date_format``
         """
-        csv_path = self.config.options.get("csv_path")
-        csv_directory = self.config.options.get("csv_directory")
+        # CSV connector exposes a single account; the account_id filter is
+        # accepted for interface compatibility and intentionally unused.
+        del account_id
+        csv_path: str | None = self.config.options.get("csv_path")
+        csv_directory: str | None = self.config.options.get("csv_directory")
 
         if csv_path:
             files = [csv_path]

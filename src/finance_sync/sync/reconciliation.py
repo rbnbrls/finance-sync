@@ -129,10 +129,14 @@ class MissingTransaction:
 class MissingResult:
     """Summary of a cross-connector gap analysis."""
 
-    in_a_not_b: list[MissingTransaction] = field(default_factory=list)
+    in_a_not_b: list[MissingTransaction] = field(
+        default_factory=list[MissingTransaction]
+    )
     """Transactions found in connector A but missing from B."""
 
-    in_b_not_a: list[MissingTransaction] = field(default_factory=list)
+    in_b_not_a: list[MissingTransaction] = field(
+        default_factory=list[MissingTransaction]
+    )
     """Transactions found in connector B but missing from A."""
 
     matched_count: int = 0

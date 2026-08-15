@@ -24,7 +24,7 @@ from __future__ import annotations
 import traceback
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Protocol, cast
 
 import structlog
 
@@ -81,9 +81,31 @@ if TYPE_CHECKING:
         CanonicalScheduledPaymentData,
         CanonicalTransactionData,
         ConnectorConfig,
+        RawCardTransaction,
+        RawScheduledPayment,
     )
     from finance_sync.connectors.registry import ConnectorRegistry
     from finance_sync.db.uow import UnitOfWork
+
+
+class _CardsConnector(Protocol):
+    """Connector capability for scheduled-payments and card-transactions sync.
+
+    Only the bunq connector implements these methods today; the protocol
+    lets the orchestrator call them without widening the base ``Connector``
+    interface.
+    """
+
+    async def fetch_scheduled_payments(
+        self,
+    ) -> list[RawScheduledPayment]: ...
+
+    async def fetch_card_transactions(
+        self,
+        since: dt_type,
+        *,
+        limit: int | None = None,
+    ) -> list[RawCardTransaction]: ...
 
 
 logger = structlog.get_logger("finance_sync.sync.orchestrator")
@@ -585,6 +607,7 @@ class SyncOrchestrator:
         from finance_sync.db.uow import UnitOfWork as _UnitOfWork
 
         uow = _UnitOfWork(session)
+        cards_connector = cast(_CardsConnector, connector)
         run = None
         schedules_synced = 0
         card_txns_synced = 0
@@ -609,7 +632,7 @@ class SyncOrchestrator:
 
                 # 4. Scheduled payments (full fetch — templates, not a
                 #    since-filtered stream).
-                raw_schedules = await connector.fetch_scheduled_payments()
+                raw_schedules = await cards_connector.fetch_scheduled_payments()
                 canonical_schedules = connector.transform_scheduled_payments(
                     raw_schedules
                 )
@@ -630,7 +653,9 @@ class SyncOrchestrator:
                 log.debug("schedules_fetched", count=schedules_synced)
 
                 # 5. Card transactions (since-filtered)
-                raw_card_txns = await connector.fetch_card_transactions(since)
+                raw_card_txns = await cards_connector.fetch_card_transactions(
+                    since
+                )
                 canonical_card_txns = connector.transform_card_transactions(
                     raw_card_txns
                 )

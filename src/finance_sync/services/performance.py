@@ -17,7 +17,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from math import isnan
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 
 from pydantic import BaseModel, Field
 from sqlalchemy import and_, func, or_, select
@@ -64,7 +64,9 @@ class TWRResponse(BaseModel):
 
     total_return_pct: E
     annualized_return_pct: E | None = None
-    periods: list[PerformancePeriod] = Field(default_factory=list)
+    periods: list[PerformancePeriod] = Field(
+        default_factory=list[PerformancePeriod]
+    )
     years: E | None = None
     currency_code: str = "EUR"
 
@@ -115,7 +117,9 @@ class AttributionResponse(BaseModel):
     total_selection_effect_pct: E
     total_interaction_effect_pct: E
     total_excess_return_pct: E
-    components: list[AttributionComponent] = Field(default_factory=list)
+    components: list[AttributionComponent] = Field(
+        default_factory=list[AttributionComponent]
+    )
     currency_code: str = "EUR"
 
 
@@ -503,12 +507,8 @@ class PerformanceService:
         return BenchmarkComparisonResponse(
             portfolio_return_pct=twr_result.total_return_pct,
             benchmark_return_pct=benchmark_return_pct.quantize(E("0.0001")),
-            alpha_pct=(
-                alpha.quantize(E("0.0001")) if alpha is not None else None
-            ),
-            beta=beta_val.quantize(E("0.0001"))
-            if beta_val is not None
-            else None,
+            alpha_pct=alpha.quantize(E("0.0001")),
+            beta=beta_val.quantize(E("0.0001")),
             tracking_error_pct=(
                 (te * _HUNDRED).quantize(E("0.0001"))
                 if te is not None
@@ -795,11 +795,11 @@ class PerformanceService:
             .order_by(Transaction.occurred_at)
         )
         result = await self._session.execute(stmt)
-        rows = []
+        rows: list[tuple[datetime, Decimal]] = []
         for row in result.all():
-            amount = row.amount_in_base or _ZERO
+            amount = cast("Any", row).amount_in_base or _ZERO
             if amount != _ZERO:
-                rows.append((row.occurred_at, amount))
+                rows.append((cast("Any", row).occurred_at, amount))
         return rows
 
     async def _resolve_benchmark(

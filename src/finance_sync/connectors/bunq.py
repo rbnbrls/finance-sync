@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import httpx
 
@@ -329,7 +329,7 @@ class BunqConnector(Connector):
     ) -> RawTransaction:
         """Map a bunq Payment JSON object to a RawTransaction."""
         payment_id = str(data["id"])
-        amount_data = data.get("amount", {})
+        amount_data: dict[str, Any] = data.get("amount", {})
         amount = Decimal(amount_data.get("value", "0"))
         currency = amount_data.get("currency", "EUR")
 
@@ -340,7 +340,7 @@ class BunqConnector(Connector):
         payment_type = data.get("type", "")
         status_raw = data.get("status", "")
 
-        counterparty = data.get("counterparty_alias") or {}
+        counterparty: dict[str, Any] = data.get("counterparty_alias") or {}
         counterparty_iban = counterparty.get("value", "")
 
         attachments = data.get("attachment", [])
@@ -426,27 +426,29 @@ class BunqConnector(Connector):
         schedule_id = str(data.get("id", ""))
 
         # The payment template inside the schedule
-        payment_data = data.get("payment", {})
+        payment_data: dict[str, Any] = data.get("payment", {})
         amount_data = payment_data.get("amount", {})
         amount = Decimal(amount_data.get("value", "0"))
         currency = amount_data.get("currency", "EUR")
         description = payment_data.get("description", "") or None
 
         # Counterparty info
-        counterparty = payment_data.get("counterparty_alias") or {}
+        counterparty: dict[str, Any] = (
+            payment_data.get("counterparty_alias") or {}
+        )
         counterparty_iban = counterparty.get("value", "")
         counterparty_name = counterparty.get("name", "")
 
         # Schedule recurrence info
-        schedule_data = data.get("schedule", {})
+        schedule_data: dict[str, Any] = data.get("schedule", {})
         schedule_time_unit = schedule_data.get("time_unit", "")
         raw_frequency = schedule_data.get("interval", 1)
+        schedule_start_raw: dict[str, Any] = schedule_data.get("start") or {}
+        schedule_end_raw: dict[str, Any] = schedule_data.get("end") or {}
         schedule_start = _parse_bunq_datetime(
-            (schedule_data.get("start") or {}).get("value", "")
+            schedule_start_raw.get("value", "")
         )
-        schedule_end = _parse_bunq_datetime(
-            (schedule_data.get("end") or {}).get("value", "")
-        )
+        schedule_end = _parse_bunq_datetime(schedule_end_raw.get("value", ""))
         schedule_status = schedule_data.get("status", "")
 
         # Count executions from the schedule
@@ -462,7 +464,10 @@ class BunqConnector(Connector):
             interval=raw_frequency,
             next_execution_date=(
                 _parse_bunq_datetime(
-                    (schedule_data.get("next_execution") or {}).get("value", "")
+                    cast(
+                        "dict[str, Any]",
+                        schedule_data.get("next_execution") or {},
+                    ).get("value", "")
                 )
                 or schedule_start
             ),
@@ -584,7 +589,7 @@ class BunqConnector(Connector):
     ) -> RawCardTransaction:
         """Map a bunq CardPayment JSON object to a RawCardTransaction."""
         payment_id = str(data.get("id", ""))
-        amount_data = data.get("amount", {})
+        amount_data: dict[str, Any] = data.get("amount", {})
         amount = Decimal(amount_data.get("value", "0"))
         currency = amount_data.get("currency", "EUR")
 
@@ -602,7 +607,7 @@ class BunqConnector(Connector):
         ).get("country")
         mcc = data.get("mcc")
 
-        card_data = data.get("card", {}) or {}
+        card_data: dict[str, Any] = data.get("card", {}) or {}
         card_uuid = str(card_data.get("id", "")) or str(data.get("card_id", ""))
         card_type = data.get("card_type") or card_data.get("type", "")
 
