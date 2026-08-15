@@ -1,16 +1,17 @@
 # =============================================================================
 # CI Pipeline — finance-sync
 # =============================================================================
-# Runs on push/PR to main.  Eight independent jobs:
+# Runs on push/PR to main.  Nine independent jobs:
 #
-#   lint        – Ruff check + format check
-#   types       – Pyright strict mode
-#   test        – Pytest unit suite (aiosqlite, no external services)
-#   migrations  – Alembic upgrade head against an empty PostgreSQL
-#   integration – Pytest `-m integration` against ephemeral PG + Redis
-#   e2e         – Pytest `-m e2e` (API→worker exactly-once) against ephemeral PG + Redis
-#   security    – pip-audit vulnerability scan + CycloneDX SBOM
-#   build       – Docker image build, Trivy image scan (fail on HIGH/CRITICAL), push on main
+#   lint         – Ruff check + format check
+#   types        – Pyright strict mode
+#   test         – Pytest unit suite (aiosqlite, no external services)
+#   migrations   – Alembic upgrade head against an empty PostgreSQL
+#   integration  – Pytest `-m integration` against ephemeral PG + Redis
+#   e2e          – Pytest `-m e2e` (API→worker exactly-once) against ephemeral PG + Redis
+#   security     – pip-audit vulnerability scan + CycloneDX SBOM
+#   openapi-diff – OpenAPI public-surface diff (PRs only, no secrets)
+#   build        – Docker image build, Trivy image scan (fail on HIGH/CRITICAL), push on main
 #
 name: CI
 
@@ -400,6 +401,70 @@ jobs:
           name: sbom
           path: sbom.cyclonedx.json
           retention-days: 30
+
+  # ── OpenAPI public-surface diff (PRs only) ─────────────────────────
+  # G-11: every pull request must keep the API's public surface backward
+  # compatible.  Generates /openapi.json (FastAPI app.openapi()) for both
+  # the PR head and the merge base, then fails on prohibited changes
+  # (removed paths/operations, changed operationIds, removed required
+  # fields, ...).  Additive-only changes are allowed — policy documented
+  # in README ("API contract (OpenAPI) diff gate").  Requires no secrets:
+  # schema generation imports the app without starting the lifespan.
+  openapi-diff:
+    name: OpenAPI diff
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.1.0
+        with:
+          enable-cache: true
+          cache-suffix: openapi-diff
+
+      - name: Install Python 3.12
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies (head)
+        run: uv sync --extra dev --frozen
+
+      - name: Generate OpenAPI document (PR head)
+        run: uv run python scripts/generate_openapi.py --output openapi-head.json
+
+      - name: Checkout merge base
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: base
+
+      - name: Install dependencies (merge base)
+        working-directory: base
+        run: uv sync --extra dev --frozen
+
+      - name: Generate OpenAPI document (merge base)
+        working-directory: base
+        run: uv run python ../scripts/generate_openapi.py --output ../openapi-base.json
+
+      - name: Diff OpenAPI public surface (base vs head)
+        run: >-
+          uv run python scripts/check_openapi_diff.py
+          --base openapi-base.json
+          --head openapi-head.json
+          --allowlist scripts/openapi_diff_allowlist.json
+
+      - name: Upload OpenAPI documents
+        uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: openapi-docs
+          path: |
+            openapi-head.json
+            openapi-base.json
+          retention-days: 14
 
   # ── Docker build, image scan & push ─────────────────────────────────
   build:
