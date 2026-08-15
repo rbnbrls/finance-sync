@@ -20,6 +20,22 @@ The project uses GitHub Actions for CI/CD (`.github/workflows/ci.yml`):
 | **OpenAPI diff** | PR-only gate: OpenAPI document generated for the PR head and merge base; breaking/non-additive changes fail (see below) |
 | **Build & Push** | Docker image built with Buildx, scanned with Trivy (fails on HIGH/CRITICAL findings not in the accepted-risk baseline), pushed to `ghcr.io/rbnbrls/finance-sync` on `main` |
 | **Deploy** | Triggers Coolify deployment on push to `main` |
+| **Release** | Tag-triggered (`v*`) protected release pipeline: build immutable image (sha tag), scan, cosign-sign, migration job, deploy staging stack, smoke tests that **gate** production promotion (see [Releases](#releases) / `docs/RELEASING.md`) |
+
+### Releases
+
+Releases are **tag-driven** (`.github/workflows/release.yml`).  Pushing a
+`v*` tag runs: build (immutable `ghcr.io/rbnbrls/finance-sync:<sha>` +
+semver tag) → Trivy scan → cosign keyless sign/verify → migration job
+(`alembic upgrade head` on a staging database) → staging stack deploy
+(Coolify) → acceptance smoke tests (health + auth + sync-read) → **promote
+to production** via the Coolify API.  The staging smoke tests are the
+promotion gate: any failure stops the pipeline before production is
+touched.  Manual runs via *Actions → Release → Run workflow*.
+
+Rollback is **image rollback + backward-compatible migrations** — full
+runbook in `docs/RELEASING.md`; migration policy in `docs/MIGRATIONS.md` /
+`docs/UPGRADE.md`.
 
 ### API contract (OpenAPI) diff gate
 
@@ -188,6 +204,8 @@ unset and are excluded from the default `pytest` run and the CI unit job.
 Built images are published to GitHub Container Registry:
 - `ghcr.io/rbnbrls/finance-sync:latest` — latest `main` build
 - `ghcr.io/rbnbrls/finance-sync:<sha>` — per-commit tagged image
+- `ghcr.io/rbnbrls/finance-sync:<version>` + `<sha>` — release images
+  (tag-triggered), **cosign-signed** (keyless, GitHub OIDC)
 
 ## Documentation
 
@@ -197,6 +215,7 @@ Built images are published to GitHub Container Registry:
 - [Data model](docs/DATABASE.md)
 - [Database migrations](docs/MIGRATIONS.md)
 - [Upgrade notes](docs/UPGRADE.md)
+- [Releases & rollback](docs/RELEASING.md)
 - [Implementation roadmap](docs/ROADMAP.md)
 
 ## Health monitoring

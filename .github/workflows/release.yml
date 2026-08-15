@@ -1,0 +1,358 @@
+# =============================================================================
+# Release Pipeline — finance-sync (G-12 / tc.6)
+# =============================================================================
+# Protected, tag-triggered release pipeline.  A version tag push (v*) runs:
+#
+#   build          – build the immutable image (sha + semver tags), scan it
+#                    with Trivy (fail on HIGH/CRITICAL, same gate as CI),
+#                    sign it with cosign (keyless, GitHub OIDC), push to GHCR
+#   migrate        – `alembic upgrade head` against an ephemeral PostgreSQL
+#                    ("staging DB") to validate the released migration chain
+#   deploy-staging – deploy the staging stack via the Coolify API (the
+#                    staging app also runs `alembic upgrade head` as a
+#                    pre-deployment command against its own database)
+#   smoke          – acceptance smoke tests against the deployed staging
+#                    stack: /health/live, /health/ready, auth login and a
+#                    DB-backed read (GET /transactions).  **This job GATES
+#                    promotion** — if it fails, production is never touched.
+#   promote        – promote to production via the Coolify API (only runs
+#                    when every earlier job, incl. smoke, succeeded)
+#
+# Rollback / release docs: docs/RELEASING.md
+# Migration policy:       docs/MIGRATIONS.md, docs/UPGRADE.md
+#
+# PR CI (ci.yml) is intentionally unchanged — this workflow is additive and
+# only ever fires on version tags (or an explicit manual dispatch).
+# =============================================================================
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: >-
+          Git ref to release (a version tag like v1.2.3, or a branch).
+          Tag pushes always use the pushed tag; this input only applies
+          to manual runs.
+        required: false
+        default: "main"
+
+concurrency:
+  # Releases serialize: two concurrent releases must never both touch the
+  # production stack.  A stuck run is capped by job timeouts.
+  group: release
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE: ghcr.io/rbnbrls/finance-sync
+  COOLIFY_BASE_URL: https://dev.7rb.nl
+  # Staging stack (see scripts/provision-staging.sh and docs/RELEASING.md).
+  # finance-sync project -> development environment.
+  STAGING_APP_UUID: 4tavgkdyybkzzfgtkqtdxir9
+  # Production application (same resource ci.yml's Deploy job triggers).
+  PROD_APP_UUID: obcopz3142hxzs1zlie78amh
+
+jobs:
+  # ── Build, scan, sign & push the immutable image ──────────────────────
+  build:
+    name: Build, scan, sign & push
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write   # push to ghcr.io
+      id-token: write   # cosign keyless signing (GitHub OIDC)
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      image: ${{ steps.meta.outputs.tags }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+          fetch-depth: 0   # full history so semver tags resolve
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Generate image metadata
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            # Immutable sha tag (the rollback/provenance artifact) plus the
+            # semver tag from the release tag (e.g. v1.2.3 -> 1.2.3).
+            type=semver,pattern={{version}}
+            type=sha,format=short
+
+      - name: Build and load Docker image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: false
+          load: true
+          tags: |
+            ${{ steps.meta.outputs.tags }}
+            finance-sync:scan
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Scan image with Trivy (fail on HIGH/CRITICAL)
+        # Same gate as the CI Build & Push job (G-11) — reuses the
+        # accepted-risk baseline so both pipelines agree on what ships.
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: finance-sync:scan
+          severity: HIGH,CRITICAL
+          exit-code: 1
+          ignore-unfixed: false
+          trivyignores: .trivyignore
+          version: v0.70.0
+
+      - name: Push Docker image
+        run: |
+          while IFS= read -r tag; do
+            [ -n "$tag" ] && docker push "$tag"
+          done <<< "${{ steps.meta.outputs.tags }}"
+
+      - name: Sign the image with cosign (keyless)
+        # Keyless signing via GitHub OIDC — the signature is bound to this
+        # workflow run, no long-lived key material required.
+        uses: sigstore/cosign-installer@v3.10.0
+
+      - name: Sign image digest
+        run: |
+          IMG=$(echo "${{ steps.meta.outputs.tags }}" | head -1)
+          DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "$IMG")
+          echo "Signing ${DIGEST}"
+          cosign sign --yes "${DIGEST}"
+
+      - name: Verify signature
+        run: |
+          IMG=$(echo "${{ steps.meta.outputs.tags }}" | head -1)
+          DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "$IMG")
+          cosign verify \
+            --certificate-identity-regexp \
+            "https://github.com/${{ github.repository }}/.github/workflows/release.yml@refs/(tags|heads)/.*" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            "${DIGEST}"
+
+  # ── Migration job against a staging database ──────────────────────────
+  # Validates `alembic upgrade head` on the *released* code against a real
+  # PostgreSQL standing in for staging.  The staging app itself re-runs the
+  # same command (pre-deployment) against its own database on deploy.
+  migrate:
+    name: Migrations (staging DB)
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: finance_sync_staging
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.1.0
+        with:
+          enable-cache: true
+          cache-suffix: release-migrate
+
+      - name: Install Python 3.12
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: uv sync --extra dev --frozen
+
+      - name: Check migration chain is linear
+        run: >-
+          uv run alembic history
+          | uv run python -c
+          "import sys; lines=[l for l in sys.stdin if l.strip()];
+          assert len([l for l in lines if '(head)' in l]) == 1, 'expected exactly one head';
+          print(f'linear chain OK: {len(lines)} revisions, single head')"
+        env:
+          ASYNC_DB_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/finance_sync_staging
+
+      - name: Run alembic upgrade head on the staging database
+        run: uv run alembic upgrade head
+        env:
+          ASYNC_DB_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/finance_sync_staging
+
+      - name: Verify export tables exist after migration
+        run: |
+          uv run python - <<'PY'
+          import asyncio
+          import os
+
+          from sqlalchemy import text
+          from sqlalchemy.ext.asyncio import create_async_engine
+
+          async def main() -> None:
+              engine = create_async_engine(os.environ["ASYNC_DB_URL"])
+              async with engine.connect() as conn:
+                  for table in (
+                      "export_runs",
+                      "export_deliveries",
+                      "ab_account_mappings",
+                      "wealthfolio_deliveries",
+                  ):
+                      result = await conn.execute(
+                          text(f"SELECT to_regclass('public.{table}')")
+                      )
+                      assert result.scalar() == table, f"missing table {table}"
+                      print(f"{table}: OK")
+              await engine.dispose()
+
+          asyncio.run(main())
+          PY
+        env:
+          ASYNC_DB_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/finance_sync_staging
+
+  # ── Deploy the staging stack via Coolify ──────────────────────────────
+  deploy-staging:
+    name: Deploy staging stack
+    needs: [build, migrate]
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    environment: staging
+    steps:
+      - name: Trigger staging deployment
+        id: deploy
+        env:
+          COOLIFY_TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}
+        run: |
+          echo "📦 Deploying finance-sync staging stack (${{ needs.build.outputs.version || github.ref }})..."
+          RESPONSE=$(curl -s -w "\n%{http_code}" \
+            -X POST "${COOLIFY_BASE_URL}/api/v1/deploy" \
+            -H "Authorization: Bearer ${COOLIFY_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "{\"uuid\": \"${STAGING_APP_UUID}\", \"force\": true}")
+          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | sed '$d')
+          echo "Status: ${HTTP_CODE}"
+          echo "Response: ${BODY}"
+          DEPLOY_UUID=$(echo "$BODY" | python3 -c \
+            "import sys,json;d=json.load(sys.stdin);deploys=d.get('deployments',[]);print(deploys[0].get('deployment_uuid','') if deploys else '')" 2>/dev/null || true)
+          if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ] || [ -z "$DEPLOY_UUID" ]; then
+            echo "❌ Staging deploy not queued (HTTP ${HTTP_CODE})"
+            exit 1
+          fi
+          echo "deployment_uuid=${DEPLOY_UUID}" >> "$GITHUB_OUTPUT"
+          echo "✅ Staging deploy queued (uuid: ${DEPLOY_UUID})"
+
+      - name: Wait for staging deployment to finish
+        env:
+          COOLIFY_TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}
+          DEPLOYMENT_UUID: ${{ steps.deploy.outputs.deployment_uuid }}
+        run: |
+          for i in $(seq 1 60); do
+            STATUS=$(curl -s -H "Authorization: Bearer ${COOLIFY_TOKEN}" \
+              "${COOLIFY_BASE_URL}/api/v1/deployments/${DEPLOYMENT_UUID}" \
+              | python3 -c "import sys,json; print(json.load(sys.stdin).get('status','?'))" 2>/dev/null || true)
+            echo "[$i] deployment status: ${STATUS}"
+            case "${STATUS}" in
+              finished) echo "✅ Staging deployment finished"; exit 0 ;;
+              failed|error|cancelled) echo "❌ Staging deployment ${STATUS}"; exit 1 ;;
+            esac
+            sleep 15
+          done
+          echo "❌ Timed out waiting for staging deployment"
+          exit 1
+
+  # ── Acceptance smoke tests (GATE) ─────────────────────────────────────
+  # Runs against the deployed staging stack.  Failure here stops the
+  # pipeline — production is never promoted.
+  smoke:
+    name: Staging smoke tests (gate)
+    needs: deploy-staging
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - name: Run acceptance smoke tests
+        run: |
+          export SMOKE_BASE_URL="https://${STAGING_APP_UUID}.7rb.nl"
+          python3 scripts/release_smoke.py
+
+  # ── Promote to production via Coolify ─────────────────────────────────
+  # Only reached when build → migrate → staging deploy → smoke all passed.
+  promote:
+    name: Promote to production
+    needs: [build, smoke]
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    environment: production
+    steps:
+      - name: Trigger production deployment
+        id: deploy
+        env:
+          COOLIFY_TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}
+        run: |
+          echo "🚀 Promoting finance-sync (${{ needs.build.outputs.version || github.ref }}) to production..."
+          RESPONSE=$(curl -s -w "\n%{http_code}" \
+            -X POST "${COOLIFY_BASE_URL}/api/v1/deploy" \
+            -H "Authorization: Bearer ${COOLIFY_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "{\"uuid\": \"${PROD_APP_UUID}\", \"force\": true}")
+          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | sed '$d')
+          echo "Status: ${HTTP_CODE}"
+          echo "Response: ${BODY}"
+          DEPLOY_UUID=$(echo "$BODY" | python3 -c \
+            "import sys,json;d=json.load(sys.stdin);deploys=d.get('deployments',[]);print(deploys[0].get('deployment_uuid','') if deploys else '')" 2>/dev/null || true)
+          if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ] || [ -z "$DEPLOY_UUID" ]; then
+            echo "❌ Production deploy not queued (HTTP ${HTTP_CODE})"
+            exit 1
+          fi
+          echo "deployment_uuid=${DEPLOY_UUID}" >> "$GITHUB_OUTPUT"
+          echo "✅ Production deploy queued (uuid: ${DEPLOY_UUID})"
+
+      - name: Wait for production deployment to finish
+        env:
+          COOLIFY_TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}
+          DEPLOYMENT_UUID: ${{ steps.deploy.outputs.deployment_uuid }}
+        run: |
+          for i in $(seq 1 60); do
+            STATUS=$(curl -s -H "Authorization: Bearer ${COOLIFY_TOKEN}" \
+              "${COOLIFY_BASE_URL}/api/v1/deployments/${DEPLOYMENT_UUID}" \
+              | python3 -c "import sys,json; print(json.load(sys.stdin).get('status','?'))" 2>/dev/null || true)
+            echo "[$i] deployment status: ${STATUS}"
+            case "${STATUS}" in
+              finished) echo "✅ Production deployment finished"; exit 0 ;;
+              failed|error|cancelled) echo "❌ Production deployment ${STATUS}"; exit 1 ;;
+            esac
+            sleep 15
+          done
+          echo "❌ Timed out waiting for production deployment"
+          exit 1

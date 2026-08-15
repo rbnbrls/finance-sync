@@ -358,6 +358,21 @@ Actions, or system cron inside the deployment).
     migrations).
   - Acceptance: tag push runs the full pipeline; staging smoke tests gate
     promotion; rollback procedure documented.
+- **Status: IMPLEMENTED** (PR #229). `.github/workflows/release.yml`
+  (tag `v*` + `workflow_dispatch`): build immutable image (sha + semver
+  tags), Trivy scan (same gate/baseline as CI), cosign keyless sign +
+  verify (GitHub OIDC), migration job (`alembic upgrade head` on a staging
+  PostgreSQL), staging stack deploy via Coolify API, acceptance smoke tests
+  (`scripts/release_smoke.py`: `/health/live`, `/health/ready`, auth login,
+  `GET /transactions`) that **gate** the production promotion (Coolify API
+  deploy; both apps run `alembic upgrade head` as a pre-deployment
+  command). Staging stack provisioned in Coolify (finance-sync project →
+  development environment: `finance-sync-staging` app + own PostgreSQL +
+  Redis; provisioning runbook `scripts/provision-staging.sh`). Rollback
+  runbook documented in `docs/RELEASING.md` (image rollback via Coolify
+  `/rollback` or GHCR image redeploy + backward-compatible migration
+  policy). Dockerfile now ships `migrations/` + `alembic.ini` in the image
+  so pre-deployment migrations run. CI unchanged and green.
 
 ### G-13 — Feature-flag exporters
 - **Roadmap IDs:** dr.3
