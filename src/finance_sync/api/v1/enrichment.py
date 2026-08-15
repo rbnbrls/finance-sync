@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends
 from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from finance_sync.dependencies import get_db
 from finance_sync.enrichment.models import EnrichmentStatusSummary
@@ -17,7 +18,7 @@ router = APIRouter(tags=["enrichment"])
 
 @router.get("/enrichment/status")
 async def get_enrichment_status(
-    session=Depends(get_db),
+    session: AsyncSession = Depends(get_db),
 ) -> EnrichmentStatusSummary:
     """Return enrichment coverage and freshness statistics.
 

@@ -26,7 +26,7 @@ import subprocess
 import sys
 import urllib.parse
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -193,7 +193,7 @@ def check_container_resources() -> dict[str, Any]:
             text=True,
             timeout=15,
         )
-        containers = {}
+        containers: dict[str, Any] = {}
         for line in (result.stdout or "").strip().split("\n"):
             if not line or "finance-sync" not in line:
                 continue
@@ -226,23 +226,24 @@ def check_resource_thresholds(resources: dict[str, Any]) -> list[str]:
 
     Returns a list of alert messages.
     """
-    alerts = []
+    alerts: list[str] = []
     for name, data in resources.items():
         if name.startswith("_") or not isinstance(data, dict):
             continue
-        if data.get("cpu_percent", 0) > CPU_WARN_THRESHOLD:
+        container = cast("dict[str, Any]", data)
+        if container.get("cpu_percent", 0) > CPU_WARN_THRESHOLD:
             alerts.append(
-                f"  ⚠ {name}: CPU {data['cpu_percent']:.1f}% "
+                f"  ⚠ {name}: CPU {container['cpu_percent']:.1f}% "
                 f"(threshold: {CPU_WARN_THRESHOLD}%)"
             )
-        if data.get("mem_percent", 0) > MEM_CRIT_THRESHOLD:
+        if container.get("mem_percent", 0) > MEM_CRIT_THRESHOLD:
             alerts.append(
-                f"  🚨 {name}: Memory {data['mem_percent']:.1f}% "
+                f"  🚨 {name}: Memory {container['mem_percent']:.1f}% "
                 f"(CRITICAL threshold: {MEM_CRIT_THRESHOLD}%)"
             )
-        elif data.get("mem_percent", 0) > MEM_WARN_THRESHOLD:
+        elif container.get("mem_percent", 0) > MEM_WARN_THRESHOLD:
             alerts.append(
-                f"  ⚠ {name}: Memory {data['mem_percent']:.1f}% "
+                f"  ⚠ {name}: Memory {container['mem_percent']:.1f}% "
                 f"(warn threshold: {MEM_WARN_THRESHOLD}%)"
             )
     return alerts
@@ -646,7 +647,7 @@ def main() -> None:
                 github_ok = False
 
     # Print resource status
-    resource_line_parts = []
+    resource_line_parts: list[str] = []
     for name, data in resources.items():
         if "_error" not in name:
             resource_line_parts.append(

@@ -18,7 +18,10 @@ from argparse import (
     RawDescriptionHelpFormatter,
 )
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from collections.abc import Coroutine
 
 from finance_sync.config.settings import Settings
 from finance_sync.container import Container
@@ -368,7 +371,7 @@ def _build_actual_budget_subparser(sub: Any) -> ArgumentParser:
     return ab
 
 
-def _run_async(coro) -> None:
+def _run_async(coro: Coroutine[Any, Any, Any]) -> None:
     """Run a coroutine synchronously with proper event loop handling."""
     try:
         asyncio.run(coro)

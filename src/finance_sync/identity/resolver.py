@@ -72,14 +72,14 @@ def cleanse_ticker(raw: str | None) -> str | None:
     return cleaned or None
 
 
-def cleanse_metadata(raw: dict[str, Any] | str | None) -> str | None:
+def cleanse_metadata(raw: Any) -> str | None:
     """Normalise provider metadata to a JSON string."""
     if raw is None:
         return None
-    if isinstance(raw, dict):
-        return json.dumps(raw, sort_keys=True, default=str)
     if isinstance(raw, str):
         return raw
+    if isinstance(raw, dict):
+        return json.dumps(raw, sort_keys=True, default=str)
     return str(raw)
 
 
@@ -606,7 +606,7 @@ class IdentityResolutionService:
         offset: int = 0,
     ) -> Sequence[UnresolvedSecurity]:
         """List unresolved securities, optionally filtered."""
-        filters = []
+        filters: list[Any] = []
         if only_unmapped:
             filters.append(
                 UnresolvedSecurity.resolved_security_id.is_(None)  # type: ignore[attr-defined]
@@ -632,7 +632,7 @@ class IdentityResolutionService:
         limit: int = 100,
     ) -> Sequence[ResolutionAuditLog]:
         """List resolution audit log entries."""
-        filters = []
+        filters: list[Any] = []
         if target_security_id:
             filters.append(
                 ResolutionAuditLog.target_security_id == target_security_id  # type: ignore[attr-defined]

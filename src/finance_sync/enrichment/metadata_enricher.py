@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from finance_sync.enrichment.models import (
     ETFComposition,
@@ -373,8 +373,10 @@ class MetadataEnricher:
         """Classify sector exposure from fundamentals or gateway data."""
         # Try to get sector info from fundamentals
         fund_data = await self._get_latest_fundamental(security_id)
-        if fund_data is not None and fund_data.provider_metadata:
-            raw_sector = fund_data.provider_metadata.get("sector")
+        if fund_data is not None and (
+            provider_metadata := cast("Any", fund_data).provider_metadata
+        ):
+            raw_sector = provider_metadata.get("sector")
             if raw_sector:
                 sector_name = self.classify_sector(raw_sector) or raw_sector
                 metadata_json: dict[str, Any] = {
@@ -650,7 +652,7 @@ def _fund_obs_to_dto(
         high_52w=_to_decimal(obs.high_52w),
         low_52w=_to_decimal(obs.low_52w),
         source=obs.source,
-        provider_metadata=obs.provider_metadata,
+        provider_metadata=cast("Any", obs).provider_metadata,
     )
 
 

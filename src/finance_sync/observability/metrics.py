@@ -8,7 +8,7 @@ a ready-to-mount ASGI app for the ``/metrics`` scrape endpoint.
 from __future__ import annotations
 
 import time
-from typing import Any
+from typing import Any, cast
 
 from prometheus_client import (
     Counter,
@@ -181,4 +181,4 @@ class PrometheusMiddleware:
 
 # ── ASGI app to expose metrics for scraping ─────────────────────────
 
-metrics_app = make_asgi_app()  # type: ignore[reportUnknownVariableType]
+metrics_app: Any = cast("Any", make_asgi_app())

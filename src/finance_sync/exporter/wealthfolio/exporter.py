@@ -224,7 +224,7 @@ class WealthfolioExporter:
                 result = WealthfolioExportResult(
                     status="completed",
                     duration_s=(datetime.now(UTC) - start_ts).total_seconds(),
-                    run_id=str(run.id) if run is not None else None,
+                    run_id=str(run.id),
                 )
                 self._record_export_metrics(result)
                 return result
@@ -354,7 +354,7 @@ class WealthfolioExporter:
                 holdings_exported=holdings_exported,
                 csv_files=csv_files,
                 duration_s=(end_ts - start_ts).total_seconds(),
-                run_id=str(run.id) if run is not None else None,
+                run_id=str(run.id),
             )
             self._record_export_metrics(result)
             return result
@@ -386,7 +386,7 @@ class WealthfolioExporter:
                 csv_files=csv_files,
                 error_message=tb[:2048],
                 duration_s=(end_ts - start_ts).total_seconds(),
-                run_id=str(run.id) if run is not None else None,
+                run_id=str(run.id),
             )
             self._record_export_metrics(result)
             return result
@@ -815,7 +815,7 @@ class WealthfolioExporter:
                         txns = txns[:max_transactions]
 
                     # Map to Wealthfolio API format
-                    wf_activities = []
+                    wf_activities: list[dict[str, Any]] = []
                     for txn in txns:
                         sec = (
                             security_map.get(txn.security_id)

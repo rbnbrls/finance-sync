@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from finance_sync.observability.metrics import (
     worker_job_duration_seconds,
@@ -41,7 +41,7 @@ class JobHistory:
     total_failures: int = 0
     last_run: JobRunResult | None = None
     last_error: JobRunResult | None = None
-    recent_runs: list[JobRunResult] = field(default_factory=list)
+    recent_runs: list[JobRunResult] = field(default_factory=list[JobRunResult])
 
     @property
     def last_duration_s(self) -> float | None:
@@ -200,8 +200,9 @@ def monitored_job(
             ) as ctx:
                 result = await func(*args, **kwargs)
                 if isinstance(result, dict):
-                    ctx.set_details(result)
-                return result
+                    details = cast("dict[str, Any]", result)
+                    ctx.set_details(details)
+                return cast("Any", result)
 
         return wrapper
 

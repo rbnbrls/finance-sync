@@ -82,7 +82,7 @@ class PriceHistoryResult(BaseModel):
     """
 
     observations: list[PriceObservation] = Field(
-        default_factory=list,
+        default_factory=list["PriceObservation"],
         description="Historical price observations (newest first)",
     )
     stale: bool = Field(
@@ -360,13 +360,14 @@ class ETFComposition(BaseModel):
         default=None, description="Number of holdings"
     )
     holdings: list[ETFHolding] = Field(
-        default_factory=list, description="Top holdings"
+        default_factory=list[ETFHolding], description="Top holdings"
     )
     sector_exposures: list[SectorExposure] = Field(
-        default_factory=list, description="Sector allocation"
+        default_factory=list[SectorExposure], description="Sector allocation"
     )
     region_exposures: list[RegionExposure] = Field(
-        default_factory=list, description="Geographic allocation"
+        default_factory=list[RegionExposure],
+        description="Geographic allocation",
     )
     expense_ratio: Decimal | None = Field(
         default=None, description="Expense ratio (e.g. 0.002 = 0.2%)"

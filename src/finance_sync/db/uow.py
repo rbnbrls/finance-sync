@@ -6,7 +6,7 @@ and rolls back on error.  Repositories are accessed as attributes.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Self
+from typing import TYPE_CHECKING, Any, Self, TypeVar, cast
 
 from finance_sync.db.repositories import (
     AccountRepository,
@@ -41,6 +41,8 @@ if TYPE_CHECKING:
 
     from finance_sync.db.repository import Repository
 
+R = TypeVar("R", bound="Repository[Any]")
+
 
 class UnitOfWork:
     """Async context manager that provides a transactional boundary.
@@ -56,7 +58,7 @@ class UnitOfWork:
 
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
-        self._repositories: dict[str, Repository] = {}
+        self._repositories: dict[str, Repository[Any]] = {}
         self._committed = False
 
     @property
@@ -193,8 +195,8 @@ class UnitOfWork:
 
     # ── Internal ─────────────────────────────────────────────────────
 
-    def _repo(self, key: str, repo_cls: type[Repository]) -> Repository:
+    def _repo(self, key: str, repo_cls: type[R]) -> R:
         """Lazy-load a repository instance, caching it on first access."""
         if key not in self._repositories:
             self._repositories[key] = repo_cls(self._session)
-        return self._repositories[key]
+        return cast("R", self._repositories[key])

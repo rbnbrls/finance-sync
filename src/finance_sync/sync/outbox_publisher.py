@@ -176,7 +176,7 @@ class OutboxPublisher:
                 .order_by(OutboxMessage.created_at)  # type: ignore[attr-defined]
                 .limit(self._batch_size)
             )
-            result: Result = await session.execute(stmt)
+            result: Result[tuple[OutboxMessage]] = await session.execute(stmt)
             return list(result.scalars().all())
 
     async def _dispatch(

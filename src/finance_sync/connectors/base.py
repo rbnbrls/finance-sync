@@ -15,7 +15,7 @@ decrypted secrets in ``self.config.credentials``.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from finance_sync.connectors.exceptions import ConnectorError
 from finance_sync.connectors.models import (
@@ -266,7 +266,7 @@ class Connector(ABC):
         if self._rate_limiter is not None:
             result = await self._rate_limiter.retry(self.fetch_accounts)
             assert isinstance(result, list)
-            return result
+            return cast("list[RawAccount]", result)
         return await self.fetch_accounts()
 
     async def _rate_limited_fetch_transactions(
@@ -286,7 +286,7 @@ class Connector(ABC):
         if self._rate_limiter is not None:
             result = await self._rate_limiter.retry(_fetch)
             assert isinstance(result, list)
-            return result
+            return cast("list[RawTransaction]", result)
         return await self.fetch_transactions(
             since, account_id=account_id, limit=limit
         )

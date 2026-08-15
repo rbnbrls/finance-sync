@@ -150,7 +150,7 @@ class ReconciliationService:
 
             try:
                 # Phase 1: Duplicate detection
-                provider_kw = {}
+                provider_kw: dict[str, Any] = {}
                 if provider_keys:
                     provider_kw["provider_keys"] = provider_keys
 

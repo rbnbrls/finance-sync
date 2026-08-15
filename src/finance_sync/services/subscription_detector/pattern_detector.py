@@ -29,7 +29,7 @@ from __future__ import annotations
 from collections import defaultdict
 from dataclasses import dataclass, field
 from decimal import Decimal
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from finance_sync.models.enums import (
     DetectionMethod,
@@ -110,7 +110,7 @@ class PatternResult:
     first_detected_at: datetime | None = None
     last_detected_at: datetime | None = None
     occurrence_count: int = 0
-    details: dict[str, Any] = field(default_factory=dict)
+    details: dict[str, Any] = field(default_factory=dict[str, Any])
 
 
 # ── PatternDetector ─────────────────────────────────────────────────────
@@ -169,7 +169,7 @@ class PatternDetector:
 
     def detect(
         self,
-        transactions: list[dict[str, Any]],
+        transactions: list[dict[str, Any]] | None,
         *,
         classifications: dict[str, Any] | None = None,
     ) -> list[PatternResult]:
@@ -328,10 +328,15 @@ class PatternDetector:
                     getattr(classification, "likelihood_score", 0.0) or 0.0
                 )
             elif isinstance(classification, dict):
-                sector = classification.get("sector")
-                security_id = classification.get("security_id")
+                sector = cast("dict[str, Any]", classification).get("sector")
+                security_id = cast("dict[str, Any]", classification).get(
+                    "security_id"
+                )
                 sector_boost = (
-                    classification.get("likelihood_score", 0.0) or 0.0
+                    cast("dict[str, Any]", classification).get(
+                        "likelihood_score", 0.0
+                    )
+                    or 0.0
                 )
 
         # Amount consistency

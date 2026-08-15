@@ -43,7 +43,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import structlog
 
@@ -62,7 +62,7 @@ from finance_sync.services.subscription_detector.detector import (  # type: igno
 )
 
 if TYPE_CHECKING:
-    from sqlalchemy.ext.asyncio import async_sessionmaker
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
     from finance_sync.services.subscription_detector.merchant_classifier import (
         MerchantClass,
@@ -162,7 +162,7 @@ class Subscription:
     first_detected_at: datetime | None = None
     last_detected_at: datetime | None = None
     occurrence_count: int = 0
-    details: dict[str, Any] = field(default_factory=dict)
+    details: dict[str, Any] = field(default_factory=dict[str, Any])
 
 
 # ── Service ────────────────────────────────────────────────────────────
@@ -199,7 +199,7 @@ class SubscriptionDetectionService:
     def __init__(
         self,
         *,
-        session_factory: async_sessionmaker | None = None,
+        session_factory: async_sessionmaker[AsyncSession] | None = None,
         merchant_classifier: Any | None = None,
         min_occurrences: int = _MIN_OCCURRENCES,
         merchant_only_threshold: float = _DEFAULT_MERCHANT_ONLY_THRESHOLD,
@@ -616,6 +616,7 @@ class SubscriptionDetectionService:
                     classification, "fundamentals_available", False
                 )
             elif isinstance(classification, dict):
+                classification = cast("dict[str, Any]", classification)
                 sector = classification.get("sector")
                 sector_boost = (
                     classification.get("likelihood_score", 0.0) or 0.0

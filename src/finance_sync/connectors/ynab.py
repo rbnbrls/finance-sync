@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NoReturn
 
 import httpx
 
@@ -430,7 +430,7 @@ def _auth_headers(access_token: str) -> dict[str, str]:
     }
 
 
-def _raise_for_status(response: httpx.Response) -> None:
+def _raise_for_status(response: httpx.Response) -> NoReturn:
     """Raise appropriate connector error from an HTTP error response."""
     status = response.status_code
     if status == 429:
