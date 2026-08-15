@@ -16,6 +16,11 @@ WORKDIR /app
 COPY pyproject.toml uv.lock ./
 COPY src/ ./src/
 
+# Alembic migration files (needed at runtime: the release pipeline runs
+# `alembic upgrade head` as a pre-deployment command in this image)
+COPY alembic.ini ./
+COPY migrations/ ./migrations/
+
 # Synchronise dependencies (no dev extras)
 RUN uv sync --no-dev --frozen
 
