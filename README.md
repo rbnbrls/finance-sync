@@ -20,6 +20,48 @@ The project uses GitHub Actions for CI/CD (`.github/workflows/ci.yml`):
 | **Build & Push** | Docker image built with Buildx and pushed to `ghcr.io/rbnbrls/finance-sync` |
 | **Deploy** | Triggers Coolify deployment on push to `main` |
 
+### API contract (OpenAPI) diff gate
+
+Every pull request is checked by an **OpenAPI diff** job.  The job generates
+the API's OpenAPI document (`app.openapi()`, served live at `/openapi.json`)
+from both the PR head and the merge base, then compares the public surface
+with `scripts/check_openapi_diff.py`.  Generation imports the app without
+starting the lifespan, so the job needs **no secrets** (no database, no
+external services).
+
+The **additive-only policy**: PRs may only extend the API surface.  Anything
+additive (new path, new operation, new optional parameter, new optional
+property, new schema, new response code/media type, new enum value) is
+reported but allowed.  Prohibited changes **fail the job**:
+
+- removed path or removed HTTP method on an existing path
+- changed or removed `operationId`
+- removed parameter; parameter becoming required; changed parameter
+  `in`, type or `$ref`; removed enum value
+- removed request body; request body becoming required; removed media type
+- removed response status code; removed response media type; changed
+  response schema
+- removed schema; removed property; property becoming required; newly added
+  required property; changed property type
+- removed component (security scheme, parameter, request body, response,
+  header); added security requirement on an operation
+
+Documentation-only changes (summaries, descriptions, `format`/`default`/
+`example`, `info.version`) are informational and never fail.
+
+**Allowlist** — intentional, documented exceptions live in
+`scripts/openapi_diff_allowlist.json` as a mapping of finding signature to
+reason (signatures are printed by the checker, e.g.
+`removed_path:DELETE /api/v1/legacy-endpoint`).  Stale allowlist entries
+that no longer match any finding fail the job, so the allowlist cannot rot.
+
+Run locally:
+
+```bash
+uv run python scripts/generate_openapi.py --output /tmp/openapi-head.json
+uv run python scripts/check_openapi_diff.py --base /tmp/openapi-base.json --head /tmp/openapi-head.json
+```
+
 ## Testing
 
 There are three test suites, split by the `integration` and `e2e` pytest
