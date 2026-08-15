@@ -124,7 +124,7 @@
 # Stack (finance-sync project → development environment, homelab server):
 #   App:         finance-sync-staging  (dockerfile build pack, repo
 #                rbnbrls/finance-sync@main, port 8000, health /health/live,
-#                FQDN https://4tavgkdyybkzzfgtkqtdxir9.7rb.nl)
+#                FQDN https://mdeal4aqq9ycnozn3mg83zix.7rb.nl)
 #   PostgreSQL:  finance-sync-staging-pg   (postgres:16-alpine, internal)
 #   Redis:       finance-sync-staging-redis (redis:7-alpine, internal)
 #

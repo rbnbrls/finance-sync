@@ -52,7 +52,7 @@ env:
   COOLIFY_BASE_URL: https://dev.7rb.nl
   # Staging stack (see scripts/provision-staging.sh and docs/RELEASING.md).
   # finance-sync project -> development environment.
-  STAGING_APP_UUID: 4tavgkdyybkzzfgtkqtdxir9
+  STAGING_APP_UUID: mdeal4aqq9ycnozn3mg83zix
   # Production application (same resource ci.yml's Deploy job triggers).
   PROD_APP_UUID: obcopz3142hxzs1zlie78amh
 
