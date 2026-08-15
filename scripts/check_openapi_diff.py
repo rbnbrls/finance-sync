@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # pyright: basic
-# ruff: noqa: T201, PERF401, E501
+# ruff: noqa: T201, PERF401
 """Compare two OpenAPI documents and fail on breaking public-surface changes.
 
 This is the enforcement script behind the CI *OpenAPI diff* gate.  It
