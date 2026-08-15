@@ -11,13 +11,14 @@ The project uses GitHub Actions for CI/CD (`.github/workflows/ci.yml`):
 | Stage | Description |
 |-------|-------------|
 | **Lint** | Ruff check + format check |
-| **Type check** | Pyright in strict mode |
-| **Test** | Pytest unit suite (aiosqlite, no external services) with coverage threshold |
+| **Type check** | Pyright strict for `src/`, basic for `tests/` (two configs: `pyproject.toml`, `pyrightconfig.tests.json`) |
+| **Test** | Pytest unit suite (aiosqlite, no external services) with coverage gate ≥ 70% |
 | **Migrations** | Alembic linear-chain check + `upgrade head` on an empty PostgreSQL |
 | **Integration** | `pytest -m integration` against ephemeral PostgreSQL + Redis (repositories, outbox, sync orchestrator, Redis locks/rate-limits, migration upgrade/downgrade) |
 | **E2E** | `pytest -m e2e` — full API → worker → outbox pipeline against ephemeral PostgreSQL + Redis, proving the exactly-once observable outcome under at-least-once delivery |
 | **Security** | pip-audit vulnerability scan + CycloneDX SBOM |
-| **Build & Push** | Docker image built with Buildx and pushed to `ghcr.io/rbnbrls/finance-sync` |
+| **OpenAPI diff** | PR-only gate: OpenAPI document generated for the PR head and merge base; breaking/non-additive changes fail (see below) |
+| **Build & Push** | Docker image built with Buildx, scanned with Trivy (fails on HIGH/CRITICAL findings not in the accepted-risk baseline), pushed to `ghcr.io/rbnbrls/finance-sync` on `main` |
 | **Deploy** | Triggers Coolify deployment on push to `main` |
 
 ### API contract (OpenAPI) diff gate
@@ -61,6 +62,16 @@ Run locally:
 uv run python scripts/generate_openapi.py --output /tmp/openapi-head.json
 uv run python scripts/check_openapi_diff.py --base /tmp/openapi-base.json --head /tmp/openapi-head.json
 ```
+
+### Image vulnerability scan
+
+Every build is scanned with **Trivy** before anything is pushed.  The
+`Build & Push` job builds the image locally (`finance-sync:scan`), scans it
+at severity **HIGH/CRITICAL**, and fails the job (exit code 1) on any
+finding that is not recorded in the accepted-risk baseline
+(`.trivyignore`).  Baseline entries carry an expiry so the allowlist cannot
+rot.  The push to `ghcr.io/rbnbrls/finance-sync` runs only on `main`, after
+the scan passes.
 
 ## Testing
 
