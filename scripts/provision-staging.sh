@@ -80,9 +80,11 @@ RD_UUID="$(echo "${RD_RESP}" | python3 -c "import sys,json; print(json.load(sys.
 [ -n "${RD_UUID}" ] || { echo "✗ redis creation failed: ${RD_RESP}"; exit 1; }
 echo "  ✓ ${RD_UUID}"
 
-echo "→ Creating staging application (dockerfile build pack)..."
-DF_B64="$(base64 -w0 Dockerfile)"
-APP_RESP="$(curl -sS -X POST "${BASE}/api/v1/applications/dockerfile" \
+echo "→ Creating staging application (dockerfile build pack, public repo)..."
+# NOTE: use the /applications/public route (git URL form) — the
+# /applications/dockerfile route requires inline base64 Dockerfile content,
+# which makes Coolify skip the git clone (empty build context, builds fail).
+APP_RESP="$(curl -sS -X POST "${BASE}/api/v1/applications/public" \
   -H "Authorization: Bearer ${TOKEN}" \
   -H "Content-Type: application/json" \
   -d "{
@@ -91,10 +93,9 @@ APP_RESP="$(curl -sS -X POST "${BASE}/api/v1/applications/dockerfile" \
     \"environment_uuid\": \"${ENV_UUID}\",
     \"name\": \"finance-sync-staging\",
     \"description\": \"Staging stack for the protected release pipeline (G-12)\",
-    \"git_repository\": \"${REPO}\",
+    \"git_repository\": \"https://github.com/${REPO}\",
     \"git_branch\": \"main\",
     \"build_pack\": \"dockerfile\",
-    \"dockerfile\": \"${DF_B64}\",
     \"ports_exposes\": \"8000\",
     \"health_check_enabled\": true,
     \"health_check_path\": \"/health/live\",
