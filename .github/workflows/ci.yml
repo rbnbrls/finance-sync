@@ -10,7 +10,7 @@
 #   integration – Pytest `-m integration` against ephemeral PG + Redis
 #   e2e         – Pytest `-m e2e` (API→worker exactly-once) against ephemeral PG + Redis
 #   security    – pip-audit vulnerability scan + CycloneDX SBOM
-#   build       – Docker image build (no push)
+#   build       – Docker image build, Trivy image scan (fail on HIGH/CRITICAL), push on main
 #
 name: CI
 
@@ -401,11 +401,11 @@ jobs:
           path: sbom.cyclonedx.json
           retention-days: 30
 
-  # ── Docker build & push ─────────────────────────────────────────────
+  # ── Docker build, image scan & push ─────────────────────────────────
   build:
     name: Build & Push
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 20
     permissions:
       contents: read
       packages: write    # needed to push to ghcr.io
@@ -433,15 +433,38 @@ jobs:
             type=sha,prefix=,suffix=,format=short
             type=raw,value=latest,enable={{is_default_branch}}
 
-      - name: Build and push Docker image
+      - name: Build and load Docker image
         uses: docker/build-push-action@v7
         with:
           context: .
-          push: ${{ github.ref == 'refs/heads/main' }}
-          tags: ${{ steps.meta.outputs.tags }}
+          push: false
+          load: true
+          tags: |
+            ${{ steps.meta.outputs.tags }}
+            finance-sync:scan
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Scan image with Trivy (fail on HIGH/CRITICAL)
+        # G-11: image vulnerability gate. Scans the locally built image
+        # (loaded above) and fails the job on HIGH/CRITICAL findings that
+        # are not recorded in the accepted-risk baseline (.trivyignore).
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: finance-sync:scan
+          severity: HIGH,CRITICAL
+          exit-code: 1
+          ignore-unfixed: false
+          trivyignores: .trivyignore
+          version: v0.70.0
+
+      - name: Push Docker image
+        if: github.ref == 'refs/heads/main'
+        run: |
+          while IFS= read -r tag; do
+            [ -n "$tag" ] && docker push "$tag"
+          done <<< "${{ steps.meta.outputs.tags }}"
 
   # ── Deploy to Coolify ──────────────────────────────────────────────────
   deploy:
