@@ -612,8 +612,8 @@ async def export_wealthfolio_job(container: Container) -> dict[str, Any]:
     tenants to the configured Wealthfolio instance.
 
     Runs on a 5-minute cadence (ARCHITECTURE.md §5: exporter delivery is
-    event-driven plus a 5-minute sweep).  The sweep is idempotent across
-    worker restarts: ``WealthfolioExporter.push_to_wealthfolio`` resumes
+    on-demand — REST API / CLI — plus a 5-minute sweep).  The sweep is
+    idempotent across worker restarts: ``push_to_wealthfolio`` resumes
     from the per-account ``wealthfolio_deliveries`` delivery cursor
     (G-14), so already-delivered transactions are never re-pushed.
 

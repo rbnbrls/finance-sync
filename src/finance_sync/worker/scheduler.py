@@ -297,10 +297,11 @@ class WorkerScheduler:
             )
 
         # ── Wealthfolio delivery sweep job ────────────────────────
-        # ARCHITECTURE.md §5: exporter delivery is event-driven plus a
-        # 5-minute sweep.  The sweep resumes from the G-14 delivery
-        # cursor, so it is idempotent across worker restarts.  Gated on
-        # WORKER_JOB_EXPORT_ENABLED (default: enabled only when the
+        # ARCHITECTURE.md §5: exporter delivery is on-demand (REST API /
+        # CLI) plus a 5-minute sweep.  The sweep resumes from the G-14
+        # delivery cursor, so it is idempotent across worker restarts.
+        # Gated on WORKER_JOB_EXPORT_ENABLED (default: enabled only when
+        # the
         # Wealthfolio push target env vars are set) — the job itself
         # also skips cleanly when the target is unconfigured.
         if settings.worker_job_export_enabled:
