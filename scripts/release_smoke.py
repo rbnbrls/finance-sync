@@ -52,7 +52,13 @@ if not BASE_URL:
 def request(method: str, path: str, body: dict | None = None,
             token: str | None = None, timeout: float = 30.0) -> tuple[int, dict | str]:
     """Return (http_status, parsed_body)."""
-    headers = {"Accept": "application/json"}
+    headers = {
+        "Accept": "application/json",
+        # Cloudflare's browser-integrity check blocks the default
+        # "Python-urllib/..." user agent (HTTP 403 / error 1010), so send a
+        # curl-style UA like the rest of the release pipeline.
+        "User-Agent": "curl/8.5.0",
+    }
     if token:
         headers["Authorization"] = f"Bearer {token}"
     data = None
