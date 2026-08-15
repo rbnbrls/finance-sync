@@ -1,7 +1,7 @@
 # =============================================================================
 # CI Pipeline — finance-sync
 # =============================================================================
-# Runs on push/PR to main.  Eight independent jobs:
+# Runs on push/PR to main.  Nine independent jobs:
 #
 #   lint        – Ruff check + format check
 #   types       – Pyright strict mode
