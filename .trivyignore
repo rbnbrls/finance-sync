@@ -1,0 +1,94 @@
+# Trivy accepted-risk baseline — finance-sync container image
+# =====================================================================
+# Baseline recorded 2026-08-15 while adding the CI image-scan gate
+# (task t_8675d5a3). All 23 entries are HIGH/CRITICAL findings present
+# in the current image (python:3.12-slim-bookworm, Debian 12.15) that
+# have NO fixed version available upstream yet (FixedVersion=N/A in the
+# Trivy DB as of 2026-08-15) — mostly distro packages, plus one stale
+# python-ecdsa advisory (CVE-2024-23342) already at the latest release.
+#
+# POLICY:
+#  - The CI gate (Build & Push job) FAILS on any HIGH/CRITICAL finding
+#    NOT listed here (exit-code: 1, severity HIGH,CRITICAL).
+#  - Each entry carries an expiry so the baseline is re-reviewed when
+#    it lapses; re-extend only if the finding still has no fix.
+#  - Never add a NEW CVE here — new findings must be fixed, not ignored.
+#
+# Expiry format: "# expiry=\"YYYY-MM-DD\"" on the line above the ID.
+
+# ── CRITICAL ─────────────────────────────────────────────────────────
+# zlib1g: integer overflow / heap buffer overflow (no bookworm fix yet)
+# expiry="2026-12-31"
+CVE-2023-45853
+# perl-base: heap buffer overflow in regexp compilation (no fix yet)
+# expiry="2026-12-31"
+CVE-2026-8376
+# perl-base: Storable signed integer overflow (no fix yet)
+# expiry="2026-12-31"
+CVE-2026-57433
+# perl-base: Archive::Tar path traversal (no fix yet)
+# expiry="2026-12-31"
+CVE-2026-42496
+# perl-base: silently incorrect regexp results through 5.43.9 (no fix yet)
+# expiry="2026-12-31"
+CVE-2026-13221
+# libsqlite3-0: SQLite integer overflow (no fix yet)
+# expiry="2026-12-31"
+CVE-2025-7458
+
+# ── HIGH ─────────────────────────────────────────────────────────────
+# util-linux family (util-linux, libblkid1, libmount1, libsmartcols1,
+# libuuid1, bsdutils, mount, util-linux-extra): libblkid partition-table
+# integer overflow (no bookworm fix yet)
+# expiry="2026-12-31"
+CVE-2026-53615
+# perl-base: Archive::Tar DoS (no fix yet)
+# expiry="2026-12-31"
+CVE-2026-9538
+# perl-base: info disclosure via integer overflow (no fix yet)
+# expiry="2026-12-31"
+CVE-2026-57432
+# perl-base: IO-Compress arbitrary code execution (no fix yet)
+# expiry="2026-12-31"
+CVE-2026-48962
+# perl-base: Archive::Tar arbitrary file modification (no fix yet)
+# expiry="2026-12-31"
+CVE-2026-42497
+# ncurses family (libncursesw6, libtinfo6, ncurses-bin, ncurses-base):
+# buffer overflow (no fix yet)
+# expiry="2026-12-31"
+CVE-2025-69720
+# libssh2-1: integer overflow via large username/password (no fix yet)
+# expiry="2026-12-31"
+CVE-2026-7598
+# libssh2-1: heap buffer overflow via integer overflow (no fix yet)
+# expiry="2026-12-31"
+CVE-2026-58050
+# libldap-2.5-0: null-pointer dereference in ber_memalloc_x (no fix yet)
+# expiry="2026-12-31"
+CVE-2023-2953
+# curl/libcurl4: proxy-auth info disclosure (no fix yet)
+# expiry="2026-12-31"
+CVE-2026-8927
+# curl/libcurl4: unauthorized connection reuse (no fix yet)
+# expiry="2026-12-31"
+CVE-2026-8458
+# curl/libcurl4: insecure TLS connection establishment (no fix yet)
+# expiry="2026-12-31"
+CVE-2026-8286
+# curl/libcurl4: cookie leak (no fix yet)
+# expiry="2026-12-31"
+CVE-2026-6276
+# curl/libcurl4: SSH host verification bypass (no fix yet)
+# expiry="2026-12-31"
+CVE-2026-12064
+# libacl1: symlink traversal privilege escalation (no fix yet)
+# expiry="2026-12-31"
+CVE-2026-54369
+# gzip: global buffer overflow (no fix yet)
+# expiry="2026-12-31"
+CVE-2026-41992
+# python-ecdsa (Minerva side-channel): installed 0.19.2 is the latest
+# release; advisory remains flagged with no fixed version.
+# expiry="2026-12-31"
+CVE-2024-23342
