@@ -239,7 +239,6 @@ Actions) — none reintroduce Hermes cron.
 | R2 | ✅ DONE | `export_wealthfolio` job in `worker/scheduler.py` (IntervalTrigger, default 5 min), env-gated on `WORKER_JOB_EXPORT_ENABLED` (default: enabled only when `WEALTHFOLIO_SERVER_URL` and `WEALTHFOLIO_PASSWORD` are set). Shipped in PR #217. |
 | R3 | ✅ DONE | Ported to `src/finance_sync/monitoring/health_monitor.py`; env-only tokens; `STATE_FILE` env; Coolify auth header fixed to use `COOLIFY_API_TOKEN`; systemd units in `deploy/systemd/`; tests in `tests/test_health_monitor.py` (incl. Coolify-auth path); `~/.hermes` script + test removed and Hermes cron `eac14957e1a0` deleted. Shipped in PR #206. |
 | R4 | ✅ DONE | R2 scope; daily Wealthfolio push covered by the in-repo worker sweep (PR #217). `~/.hermes/scripts/wealthfolio-daily-sync.sh` deleted in R4 follow-up (no Hermes cron job referenced it; verified against `cronjob list` and `~/.hermes/cron/jobs.json`). |
-| R6 | ✅ DONE | ARCHITECTURE.md §5 now lists exactly the 8 jobs registered in `worker/scheduler.py` (incl. `sync_bunq_cards` from G-04 and `export_wealthfolio` from R2), each with a code reference; "weekly fundamentals" explicitly marked planned/not-yet-implemented (roadmap `ms.3.f.4`); stale "event-driven" / "health checks 5 min" promises corrected. Shipped in PR #219. |
 
 The `~/.hermes` copies referenced in §F are removed where noted above;
 no finance-sync job runs via Hermes cron anymore.
