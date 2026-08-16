@@ -1173,6 +1173,17 @@ def _wf_row_to_api_activity(
         if val:
             activity[str_key] = val
 
+    # Price currency — required by the import endpoint.  The check
+    # endpoint auto-resolves it from the symbol, but the import call
+    # rejects activities without an explicit ``quoteCcy`` (recorded
+    # 2026-08-16 against the live instance).  For a transaction
+    # denominated in its own currency the price currency equals the
+    # transaction currency; for FX-converted trades the mapper carries
+    # the quote currency in ``currency`` and the base in ``fxRate``.
+    quote_ccy = row.get("currency") or activity.get("currency")
+    if quote_ccy:
+        activity["quoteCcy"] = quote_ccy
+
     return activity
 
 

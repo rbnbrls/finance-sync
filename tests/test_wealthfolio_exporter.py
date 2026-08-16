@@ -24,6 +24,7 @@ from finance_sync.exporter.wealthfolio.config import WealthfolioConfig
 from finance_sync.exporter.wealthfolio.exporter import (
     WealthfolioExporter,
     WealthfolioExportResult,
+    _wf_row_to_api_activity,
 )
 from finance_sync.exporter.wealthfolio.transaction_mapper import (
     WF_ACTIVITY_BUY,
@@ -350,6 +351,26 @@ class TestTransactionMapper:
         row = map_transaction_to_wf_row(txn)
         assert "Buy AAPL" in row["comment"]
         assert "ID: txn_ext_001" in row["comment"]
+
+    def test_api_activity_includes_quote_ccy(self) -> None:
+        """The import endpoint requires price currency (quoteCcy).
+
+        The live Wealthfolio instance rejects activities without
+        ``quoteCcy`` even though the check endpoint auto-resolves it
+        (recorded 2026-08-16: import returns
+        ``{"quoteCcy": ["Price currency (quoteCcy) is required to
+        import this activity."]}``).  The API activity payload must
+        carry the transaction currency as the price currency.
+        """
+        txn = _make_mock_transaction(
+            description="Buy AAPL",
+            external_transaction_id="txn_ext_001",
+        )
+        row = map_transaction_to_wf_row(txn)
+        activity = _wf_row_to_api_activity(
+            row, account_id="00000000-0000-0000-0000-000000000000"
+        )
+        assert activity["quoteCcy"] == row["currency"] == "EUR"
 
     def test_map_holding_with_security(self) -> None:
         sec = _make_mock_security()
