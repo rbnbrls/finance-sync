@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import asyncio
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -693,6 +694,70 @@ class TestWorkerScheduler:
         assert scheduler.is_running()
 
         await scheduler.stop()
+
+
+class TestJobstoreSyncDriver:
+    """The APScheduler SQLAlchemyJobStore is synchronous.
+
+    Regression test for the production worker crash (MissingGreenlet):
+    ``WorkerScheduler`` must never hand the asyncpg DSN from
+    ``DATABASE_URL`` to the sync job store.
+    """
+
+    @staticmethod
+    def _settings_with_db() -> Any:
+        from pydantic import PostgresDsn
+
+        from finance_sync.config.settings import Settings
+
+        return Settings(  # type: ignore[call-arg]
+            database_url=PostgresDsn(
+                "postgresql+asyncpg://finance:pass@db.example:5432/finance_sync"
+            ),
+            worker_job_bunq_sync_enabled=False,
+            worker_job_bunq_cards_enabled=False,
+            worker_job_trading212_sync_enabled=False,
+            worker_job_price_enrichment_enabled=False,
+            worker_job_reconciliation_enabled=False,
+            worker_job_outbox_enabled=False,
+            worker_job_degiro_watch_enabled=False,
+        )
+
+    def test_sync_jobstore_url_converts_asyncpg_to_psycopg(self) -> None:
+        from finance_sync.worker.scheduler import sync_jobstore_url
+
+        converted = sync_jobstore_url(
+            "postgresql+asyncpg://finance:pass@db.example:5432/finance_sync"
+        )
+        assert converted == (
+            "postgresql+psycopg://finance:pass@db.example:5432/finance_sync"
+        )
+
+    def test_sync_jobstore_url_passes_through_sync_urls(self) -> None:
+        from finance_sync.worker.scheduler import sync_jobstore_url
+
+        sync_url = "postgresql://finance:pass@db.example:5432/finance_sync"
+        assert sync_jobstore_url(sync_url) == sync_url
+        assert sync_jobstore_url(None) is None
+        assert sync_jobstore_url("") is None
+
+    def test_built_jobstore_uses_sync_driver_for_asyncpg_dsn(self) -> None:
+        """The scheduler's job store engine must be psycopg, not asyncpg."""
+        from finance_sync.container import Container
+        from finance_sync.worker.monitoring import JobMonitor
+        from finance_sync.worker.scheduler import WorkerScheduler
+
+        settings = self._settings_with_db()
+        container = Container.from_settings(settings)  # type: ignore[arg-type]
+        scheduler = WorkerScheduler(
+            settings,
+            container,
+            JobMonitor(),  # type: ignore[arg-type]
+        )
+
+        built = scheduler._build_scheduler()
+        store = built._jobstores["default"]
+        assert store.engine.url.drivername == "postgresql+psycopg"
 
 
 # ── export_wealthfolio_job tests ───────────────────────────────────────

@@ -73,6 +73,28 @@ def _market_hours_cron(
     )
 
 
+# ── Job-store URL helper ───────────────────────────────────────────────
+
+
+def sync_jobstore_url(engine_url: str | None) -> str | None:
+    """Return a synchronous-driver URL for the APScheduler job store.
+
+    The application's ``DATABASE_URL`` uses the asyncpg driver
+    (``postgresql+asyncpg://``) because the FastAPI app is async.  APScheduler's
+    ``SQLAlchemyJobStore`` is synchronous and cannot use an async-only driver —
+    with the asyncpg DSN it crashes at scheduler start with
+    ``MissingGreenlet`` (verified on the production worker, 2026-08-16).  Map
+    the async driver to the sync psycopg (v3) driver; any other URL (or None)
+    passes through unchanged.
+    """
+    if not engine_url:
+        return None
+    async_driver = "postgresql+asyncpg://"
+    if engine_url.startswith(async_driver):
+        return "postgresql+psycopg://" + engine_url[len(async_driver) :]
+    return engine_url
+
+
 # ── Scheduler wrapper ─────────────────────────────────────────────────
 
 
@@ -176,8 +198,10 @@ class WorkerScheduler:
 
         jobstores: dict[str, Any] = {}
         if engine_url:
+            # SQLAlchemyJobStore is synchronous; never feed it the asyncpg
+            # DSN (MissingGreenlet at scheduler start — see sync_jobstore_url).
             jobstores["default"] = SQLAlchemyJobStore(
-                url=engine_url,
+                url=sync_jobstore_url(engine_url),
                 engine_options={
                     "pool_size": 2,
                     "max_overflow": 2,
