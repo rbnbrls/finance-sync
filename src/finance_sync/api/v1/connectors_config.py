@@ -207,6 +207,27 @@ def _get_connector_credential_schema(
                     "placeholder": "https://api.bunq.com/v1 (default)",
                     "default": "https://api.bunq.com/v1",
                 },
+                {
+                    "key": "full_auth",
+                    "label": "Full installation flow",
+                    "type": "boolean",
+                    "default": True,
+                    "description": (
+                        "Register an installation/device (required for new "
+                        "bunq API keys). Disable only for an already-registered "
+                        "installation or static fixtures."
+                    ),
+                },
+                {
+                    "key": "permitted_ips",
+                    "label": "Permitted IPs (comma-separated)",
+                    "type": "text",
+                    "placeholder": "e.g. 203.0.113.1, 203.0.113.2",
+                    "description": (
+                        "IPs allowed to use the device registration. Leave "
+                        "blank for keys already restricted server-side."
+                    ),
+                },
             ],
         ),
         "trading212": (

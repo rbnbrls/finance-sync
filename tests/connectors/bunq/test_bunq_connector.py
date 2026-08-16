@@ -348,33 +348,64 @@ class TestBunqConnectorPagination:
 class TestBunqConnectorPaginationHelpers:
     """Pagination helper methods (sync, no mock transport needed)."""
 
-    def test_next_page_url_with_future(self) -> None:
-        """_next_page_url should extract the future_url."""
+    @staticmethod
+    def _connector(base_url: str = "https://api.bunq.com/v1") -> BunqConnector:
         from finance_sync.connectors.bunq import BunqConnector
 
+        return BunqConnector(
+            ConnectorConfig(
+                provider_type="bunq",
+                credentials={"api_key": "test"},
+                options={"base_url": base_url, "full_auth": False},
+            )
+        )
+
+    def test_next_page_url_with_future(self) -> None:
+        """_next_page_url should extract the future_url on the base URL."""
         data = {
             "Pagination": {
                 "future_url": "/v1/user/54321/monetary-account?newer_id=1000001"
             }
         }
-        url = BunqConnector._next_page_url(data)
+        url = self._connector()._next_page_url(data)
         assert url is not None
+        assert url.startswith("https://api.bunq.com/v1/")
         assert "newer_id=1000001" in url
+
+    def test_next_page_url_respects_custom_base_url(self) -> None:
+        """Pagination must stay on the configured base (sandbox/staging)."""
+        data = {
+            "Pagination": {
+                "future_url": "/v1/user/54321/monetary-account?newer_id=1000001"
+            }
+        }
+        url = self._connector(
+            "https://public-api.sandbox.bunq.com/v1"
+        )._next_page_url(data)
+        assert url is not None
+        assert url.startswith("https://public-api.sandbox.bunq.com/v1/")
+        assert url.endswith("newer_id=1000001")
+
+    def test_next_page_url_absolute(self) -> None:
+        """Absolute future_urls are returned verbatim."""
+        data = {
+            "Pagination": {
+                "future_url": "https://api.bunq.com/v1/user/1/foo?x=1"
+            }
+        }
+        url = self._connector()._next_page_url(data)
+        assert url == "https://api.bunq.com/v1/user/1/foo?x=1"
 
     def test_next_page_url_none(self) -> None:
         """_next_page_url should return None when there are no more pages."""
-        from finance_sync.connectors.bunq import BunqConnector
-
         data = {"Pagination": {"future_url": None}}
-        url = BunqConnector._next_page_url(data)
+        url = self._connector()._next_page_url(data)
         assert url is None
 
     def test_next_page_url_missing_pagination(self) -> None:
         """_next_page_url should return None when Pagination key is missing."""
-        from finance_sync.connectors.bunq import BunqConnector
-
         data: dict = {}
-        url = BunqConnector._next_page_url(data)
+        url = self._connector()._next_page_url(data)
         assert url is None
 
 

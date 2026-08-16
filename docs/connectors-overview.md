@@ -34,10 +34,21 @@ via the ``finance_sync.connectors`` entry point group in ``pyproject.toml``.
 - **Auth:** API key in ``credentials["api_key"]``
 - **API:** bunq v1 REST API
 - **Rate limit:** 60 req/min
-- **Features:** Session-server auth, paginated accounts and payments,
-  signed installation/device/session bootstrap for bunq Sandbox,
-  account type mapping (MonetaryAccountBank → checking,
-  MonetaryAccountSavings → savings)
+- **Features:** Full installation flow by default (signed RSA
+  installation/device/session bootstrap — required for every new API key),
+  paginated accounts and payments, account type mapping
+  (MonetaryAccountBank → checking, MonetaryAccountSavings → savings)
+- **Persistent state:** The installation material (client RSA keypair +
+  installation token) is stored per tenant in the ``connector_state`` table,
+  so repeated syncs reuse the same device instead of registering a new one
+  per 15-minute tick (bunq limits devices per API key). Clear the row to
+  force a fresh registration.
+- **Options:**
+  - ``base_url``: Custom API base URL (sandbox/testing)
+  - ``full_auth``: Full installation flow (default ``true``); set ``false``
+    only for an already-registered installation or static fixtures
+  - ``permitted_ips``: IPs for device registration (list, or comma-separated
+    string)
 - **Docs:** See module docstring and ``docs/connector-development.md``
 
 ## Trading212
