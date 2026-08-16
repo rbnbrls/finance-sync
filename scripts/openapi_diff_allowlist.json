@@ -1,3 +1,1 @@
-{
-  "added_security_requirement:/api/v1/connectors/{provider_type}/test POST": "Inline connector test endpoint now requires authentication (connectors:write via JWT bearer or x-api-key) since PR #252 'make connectors environment-aware' hardened it: previously any unauthenticated caller could probe connector credentials and trigger staging-managed test configuration. Intentional breaking change."
-}
+{}
