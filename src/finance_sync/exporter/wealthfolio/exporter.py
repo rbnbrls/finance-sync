@@ -637,13 +637,13 @@ class WealthfolioExporter:
                 delivery = WealthfolioDelivery(
                     tenant_id=self._tenant_id,
                     account_id=account_id,
-                    last_exported_transaction_id=last.id,
+                    last_exported_transaction_id=str(last.id),
                     last_exported_at=last.occurred_at,
                     export_run_id=export_run_id,
                 )
                 session.add(delivery)
             else:
-                delivery.last_exported_transaction_id = last.id
+                delivery.last_exported_transaction_id = str(last.id)
                 delivery.last_exported_at = last.occurred_at
                 if export_run_id is not None:
                     delivery.export_run_id = export_run_id
