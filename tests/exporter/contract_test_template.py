@@ -103,6 +103,9 @@ class _SettingsMock:
                     f"{prefix}max_transactions_per_file": 10000,
                     f"{prefix}include_pending": False,
                     f"{prefix}instrument_type_overrides": {},
+                    f"{prefix}holdings_strategy": "reconcile",
+                    f"{prefix}reconciliation_absolute_tolerance": "1.00",
+                    f"{prefix}reconciliation_percentage_tolerance": "0.005",
                 }
             )
         return settings

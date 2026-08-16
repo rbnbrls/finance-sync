@@ -129,6 +129,7 @@ class ConnectorProvider(StrEnum):
     OPENBB = "openbb"
     BUNQ = "bunq"
     TRADING212 = "trading212"
+    DEGIRO_PENSION = "degiro_pension"
     YODLEE = "yodlee"
     MANUAL = "manual"
 

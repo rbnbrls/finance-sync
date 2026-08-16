@@ -184,6 +184,57 @@ class WealthfolioClient:
         response.raise_for_status()
         return response.json()
 
+    async def create_account(
+        self,
+        *,
+        name: str,
+        currency: str,
+        provider_account_id: str,
+    ) -> dict[str, Any]:
+        """Create a transaction-tracked securities account."""
+        self._ensure_authenticated()
+        response = await self._client.post(
+            f"{self.API_PREFIX}/accounts",
+            json={
+                "name": name,
+                "accountType": "SECURITIES",
+                "group": "Investments",
+                "currency": currency,
+                "isDefault": False,
+                "isActive": True,
+                "isArchived": False,
+                "trackingMode": "TRANSACTIONS",
+                "platformId": None,
+                "accountNumber": None,
+                "meta": '{"managedBy":"finance-sync"}',
+                "provider": "FINANCE_SYNC",
+                "providerAccountId": provider_account_id,
+            },
+        )
+        response.raise_for_status()
+        return response.json()
+
+    async def ensure_account(
+        self,
+        *,
+        name: str,
+        currency: str,
+        provider_account_id: str,
+    ) -> dict[str, Any]:
+        """Return the stable finance-sync account mapping, creating it once."""
+        accounts = await self.get_accounts()
+        for account in accounts:
+            if (
+                str(account.get("provider") or "").upper() == "FINANCE_SYNC"
+                and account.get("providerAccountId") == provider_account_id
+            ):
+                return account
+        return await self.create_account(
+            name=name,
+            currency=currency,
+            provider_account_id=provider_account_id,
+        )
+
     # ── Public API: Activities ──────────────────────────────────────
 
     async def check_activities_import(
@@ -233,7 +284,22 @@ class WealthfolioClient:
             json={"activities": activities},
         )
         response.raise_for_status()
-        return response.json()
+        payload = response.json()
+        # Wealthfolio 2.x returns counts in ``summary``; older compatible
+        # servers returned them at the top level. Expose one stable contract.
+        summary = payload.get("summary", payload)
+        return {
+            "imported": int(summary.get("imported", 0)),
+            "skipped": int(
+                summary.get("skipped", 0) + summary.get("duplicates", 0)
+            ),
+            "failed": int(
+                0
+                if summary.get("success", True)
+                else summary.get("total", len(activities))
+            ),
+            "raw": payload,
+        }
 
     async def push_activities(
         self,
@@ -276,6 +342,46 @@ class WealthfolioClient:
             json={
                 "accountId": account_id,
                 "snapshots": holdings,
+            },
+        )
+        response.raise_for_status()
+        return response.json()
+
+    async def check_holdings_import(
+        self,
+        holdings: list[dict[str, Any]],
+        account_id: str,
+    ) -> dict[str, Any]:
+        """Validate holdings snapshots without writing them."""
+        self._ensure_authenticated()
+        response = await self._client.post(
+            f"{self.API_PREFIX}/snapshots/import/check",
+            json={"accountId": account_id, "snapshots": holdings},
+        )
+        response.raise_for_status()
+        return response.json()
+
+    async def get_holdings(self, account_id: str) -> list[dict[str, Any]]:
+        """Read Wealthfolio's current holdings for reconciliation."""
+        self._ensure_authenticated()
+        response = await self._client.get(
+            f"{self.API_PREFIX}/holdings/list",
+            params={"accountId": account_id},
+        )
+        response.raise_for_status()
+        return response.json()
+
+    async def search_activities(
+        self, account_id: str, *, page_size: int = 1000
+    ) -> dict[str, Any]:
+        """Read activity counts for a production-safe smoke check."""
+        self._ensure_authenticated()
+        response = await self._client.post(
+            f"{self.API_PREFIX}/activities/search",
+            json={
+                "page": 0,
+                "pageSize": page_size,
+                "accountIdFilter": account_id,
             },
         )
         response.raise_for_status()

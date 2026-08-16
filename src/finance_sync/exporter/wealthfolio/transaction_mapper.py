@@ -70,6 +70,10 @@ TRANSACTION_TYPE_MAP: dict[str, str] = {
 }
 
 
+class UnresolvedSecurityExportError(ValueError):
+    """Raised when an investment row lacks a safely resolved security."""
+
+
 # ── Public API ──────────────────────────────────────────────────────────
 
 
@@ -322,11 +326,17 @@ def _resolve_security_info(
 
     # Activities that require an asset (BUY, SELL, DIVIDEND)
     if security is not None:
-        symbol = security.ticker or security.isin or ""
+        # ISIN is venue-independent and therefore safer than a coincidentally
+        # matching ticker. Wealthfolio can resolve ISIN during import.
+        symbol = security.isin or security.ticker or ""
+        if not symbol:
+            message = "Security heeft geen opgeloste ISIN of ticker."
+            raise UnresolvedSecurityExportError(message)
         instr_type = instr_map.get(security.security_type, "OTHER")
         return symbol, instr_type
 
-    return "", ""
+    message = "Beleggingstransactie wacht op security-resolutie."
+    raise UnresolvedSecurityExportError(message)
 
 
 def _resolve_quantity_price(
@@ -336,8 +346,8 @@ def _resolve_quantity_price(
 ) -> tuple[Decimal, Decimal]:
     """Return (quantity, unit_price) for the transaction row.
 
-    Trades: quantity from the security lot (defaults to 1),
-    unit_price from the transaction amount / quantity.
+    Trades require their exact canonical quantity and use the provider unit
+    price, falling back to principal amount / quantity for older rows.
 
     Cash activities: quantity=1, unit_price=1.
     """
@@ -365,19 +375,22 @@ def _resolve_quantity_price(
     ):
         return Decimal(1), Decimal(1)
 
-    # Trade activities with asset (BUY, SELL, DIVIDEND, etc.)
-    # We use absolute quantity of 1 for the line item and put
-    # the full cash impact in amount.  Wealthfolio's CSV import
-    # can calculate the cash impact from quantity x unitPrice.
-    # For accuracy, we set quantity=abs(txn.amount / unit_price)
-    # when we have a security.
-    qty = Decimal(1)
-    price = abs(txn.amount)
+    if activity_type in (WF_ACTIVITY_BUY, WF_ACTIVITY_SELL):
+        quantity = abs(txn.quantity) if txn.quantity is not None else None
+        if quantity is None or quantity == 0:
+            message = "Trade heeft geen geldige quantity."
+            raise ValueError(message)
+        unit_price = txn.unit_price
+        if unit_price is None:
+            unit_price = abs(txn.amount) / quantity
+        return quantity, abs(unit_price)
 
+    # Wealthfolio represents dividends against the security with their cash
+    # amount; quantity is optional but retaining it helps reconciliation.
     if activity_type == WF_ACTIVITY_DIVIDEND:
-        price = abs(txn.amount)
+        return abs(txn.quantity or Decimal(1)), abs(txn.amount)
 
-    return qty, price
+    return Decimal(1), abs(txn.amount)
 
 
 def _resolve_amount(
@@ -420,10 +433,21 @@ def _resolve_fee(
     transactions.  We cannot separate them unless the provider
     reports them separately, so we default to 0.
     """
-    # If the transaction itself is a fee, the whole amount is the fee
-    if txn.transaction_type == "fee":
-        return abs(txn.amount)
-
+    # Standalone FEE activities carry their value in ``amount``. The fee field
+    # is reserved for a fee attached to BUY/SELL so cash is never counted twice.
+    if txn.transaction_type in ("purchase", "sale") and txn.fee_amount:
+        fee = abs(txn.fee_amount)
+        if (
+            txn.fee_currency_code
+            and txn.fee_currency_code != txn.currency_code
+            and txn.fee_currency_code == txn.base_currency_code
+            and txn.fx_rate is not None
+        ):
+            # DEGIRO reports fees in EUR while a trade may be denominated in
+            # USD. Wealthfolio's fee shares the activity currency, so convert
+            # the fee using the exact provider rate before export.
+            fee *= txn.fx_rate
+        return fee
     return Decimal(0)
 
 
@@ -454,12 +478,15 @@ def _resolve_holding_symbol(
 ) -> str:
     """Resolve symbol for a holding row.
 
-    Uses ``$CASH-<CCY>`` convention for cash-like holdings,
-    or the security ticker/ISIN.
+    Uses the resolved security ISIN (preferred) or ticker. Cash is represented
+    separately in the holdings snapshot payload, not as an unresolved holding.
     """
     if security is not None:
-        return security.ticker or security.isin or "UNKNOWN"
-    return "UNKNOWN"
+        symbol = security.isin or security.ticker
+        if symbol:
+            return symbol
+    message = "Holding wacht op security-resolutie."
+    raise UnresolvedSecurityExportError(message)
 
 
 def _fmt_decimal(value: Decimal | None) -> str:

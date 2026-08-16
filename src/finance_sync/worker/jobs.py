@@ -8,19 +8,32 @@ Jobs accept the DI container and optionally a job monitor.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
+import shutil
 import time
 import traceback
+from datetime import UTC, datetime
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
+from uuid import uuid4
 
 import structlog
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from finance_sync.connectors.models import ConnectorConfig
 from finance_sync.connectors.registry import ConnectorRegistry
 from finance_sync.db.uow import UnitOfWork
 from finance_sync.models.credential import Credential
+from finance_sync.models.import_run import ImportRun
 from finance_sync.observability.metrics import enrichment_last_success_timestamp
+from finance_sync.services.degiro_import import (
+    batch_hash,
+    build_preview,
+    connector_options,
+    execute_run,
+    validate_local_files,
+)
 from finance_sync.sync.orchestrator import SyncOrchestrator
 from finance_sync.sync.outbox_publisher import OutboxPublisher
 
@@ -128,27 +141,28 @@ async def _get_tenant_credentials(
         if cred is None:
             continue
 
-        # Decrypt the credential payload
-        from finance_sync.services.auth import decrypt_credential
+        credentials: dict[str, str] = {}
+        if cred.encrypted_payload:
+            from finance_sync.services.auth import decrypt_credential
 
-        try:
-            decrypted = decrypt_credential(
-                cred.encrypted_payload,
-                cred.nonce,
-                uow.session.info.get("settings"),
-            )
-        except Exception:
-            logger.error(
-                "credential_decrypt_failed",
-                tenant_id=tenant.id,
-                provider_key=provider_key,
-            )
-            continue
-
-        credentials: dict[str, str] = json.loads(decrypted)
+            try:
+                decrypted = decrypt_credential(
+                    cred.encrypted_payload,
+                    cred.nonce,
+                    uow.session.info.get("settings"),
+                )
+                credentials = json.loads(decrypted)
+            except Exception:
+                logger.error(
+                    "credential_decrypt_failed",
+                    tenant_id=tenant.id,
+                    provider_key=provider_key,
+                )
+                continue
         config = ConnectorConfig(
             provider_type=provider_key,
             credentials=credentials,
+            options=connector_options(cred),
         )
         result.append((tenant, config))
 
@@ -387,6 +401,286 @@ async def sync_bunq_cards_job(container: Container) -> dict[str, Any]:
 async def sync_trading212_job(container: Container) -> dict[str, Any]:
     """Sync all Trading212 connectors."""
     return await sync_connector_job(container, "trading212")
+
+
+async def process_degiro_watchfolders_job(
+    container: Container,
+) -> dict[str, Any]:
+    """Claim and atomically import stable files from configured watchfolders."""
+    settings: Settings = container.settings
+    async with container.session_factory() as session:
+        uow = UnitOfWork(session)
+        session.info["settings"] = settings
+        configs = await _get_tenant_credentials(uow, "degiro_pension")
+
+    processed = 0
+    quarantined = 0
+    duplicates = 0
+    for tenant, config in configs:
+        watch = config.options.get("watchfolder")
+        if not watch:
+            continue
+        incoming = Path(str(watch)).expanduser().resolve()  # noqa: ASYNC240
+        incoming.mkdir(parents=True, exist_ok=True)
+        now = time.time()
+        candidates = [
+            path
+            for path in sorted(incoming.iterdir())
+            if path.is_file()
+            and path.suffix.lower() in {".csv", ".xlsx", ".xls"}
+            and now - path.stat().st_mtime
+            >= settings.degiro_watch_stable_seconds
+        ]
+        if not candidates:
+            continue
+        run_id = str(uuid4())
+        claim_dir = incoming / ".processing" / run_id
+        claim_dir.mkdir(parents=True, mode=0o700)
+        claimed: list[Path] = []
+        for candidate in candidates:
+            try:
+                target = claim_dir / candidate.name
+                candidate.rename(target)
+                claimed.append(target)
+            except FileNotFoundError:
+                continue
+        if not claimed:
+            shutil.rmtree(claim_dir, ignore_errors=True)
+            continue
+
+        archive = (
+            Path(  # noqa: ASYNC240
+                str(
+                    config.options.get("archive_directory")
+                    or incoming / "archive"
+                )
+            )
+            .expanduser()
+            .resolve()
+        )
+        quarantine = (
+            Path(  # noqa: ASYNC240
+                str(
+                    config.options.get("quarantine_directory")
+                    or incoming / "quarantine"
+                )
+            )
+            .expanduser()
+            .resolve()
+        )
+        hashes = [_file_sha256(path) for path in claimed]
+        digest = batch_hash(hashes)
+        async with container.session_factory() as session:
+            connection = (
+                await session.execute(
+                    select(Credential).where(
+                        Credential.tenant_id == tenant.id,
+                        Credential.provider_key == "degiro_pension",
+                    )
+                )
+            ).scalar_one()
+            connection_id = str(connection.id)
+            prior = (
+                await session.execute(
+                    select(ImportRun).where(
+                        ImportRun.tenant_id == tenant.id,
+                        ImportRun.connection_id == connection.id,
+                        ImportRun.batch_hash == digest,
+                        ImportRun.status == "completed",
+                    )
+                )
+            ).scalar_one_or_none()
+            attempt = (
+                int(
+                    (
+                        await session.execute(
+                            select(func.max(ImportRun.attempt)).where(
+                                ImportRun.tenant_id == tenant.id,
+                                ImportRun.connection_id == connection.id,
+                                ImportRun.batch_hash == digest,
+                            )
+                        )
+                    ).scalar_one_or_none()
+                    or 0
+                )
+                + 1
+            )
+            if prior is not None:
+                duplicates += 1
+                _move_batch(claimed, archive / run_id)
+                session.add(
+                    ImportRun(
+                        id=run_id,
+                        tenant_id=tenant.id,
+                        connection_id=connection.id,
+                        source="watchfolder",
+                        status="duplicate",
+                        batch_hash=digest,
+                        attempt=attempt,
+                        report_types=[],
+                        content_hashes=hashes,
+                        file_names=[path.name for path in claimed],
+                        storage_names=[],
+                        rows_total=0,
+                        skipped_count=0,
+                        warnings=["Identieke bestandsinhoud was al verwerkt."],
+                        error_details=[],
+                        preview={},
+                        audit_events=[
+                            {
+                                "action": "duplicate_archived",
+                                "at": datetime.now(UTC).isoformat(),
+                            }
+                        ],
+                        completed_at=datetime.now(UTC),
+                    )
+                )
+                await session.commit()
+                shutil.rmtree(claim_dir, ignore_errors=True)
+                continue
+            try:
+                validate_local_files(claimed, settings)
+                preview = await build_preview(
+                    claimed,
+                    options=config.options,
+                    settings=settings,
+                    session=session,
+                    tenant_id=str(tenant.id),
+                )
+                run = ImportRun(
+                    id=run_id,
+                    tenant_id=tenant.id,
+                    connection_id=connection.id,
+                    source="watchfolder",
+                    status="previewed",
+                    batch_hash=digest,
+                    attempt=attempt,
+                    report_types=preview["report_types"],
+                    content_hashes=hashes,
+                    file_names=[path.name for path in claimed],
+                    storage_names=[path.name for path in claimed],
+                    period_start=datetime.fromisoformat(preview["period_start"])
+                    if preview.get("period_start")
+                    else None,
+                    period_end=datetime.fromisoformat(preview["period_end"])
+                    if preview.get("period_end")
+                    else None,
+                    rows_total=preview["rows"],
+                    skipped_count=preview["skipped"],
+                    warnings=preview["warnings"],
+                    error_details=[],
+                    preview=preview,
+                    audit_events=[
+                        {
+                            "action": "watchfolder_claimed",
+                            "at": datetime.now(UTC).isoformat(),
+                        }
+                    ],
+                )
+                session.add(run)
+                await session.flush()
+                await execute_run(
+                    run,
+                    paths=claimed,
+                    options=config.options,
+                    container=container,
+                    session=session,
+                    cleanup=False,
+                )
+                try:
+                    _move_batch(claimed, archive / run_id)
+                except OSError:
+                    run.warnings = [
+                        *run.warnings,
+                        "Import voltooid; archivering vereist beheeractie.",
+                    ]
+                processed += 1
+            except Exception as exc:
+                await session.rollback()
+                await _record_watch_failure(
+                    session,
+                    run_id=run_id,
+                    tenant_id=str(tenant.id),
+                    connection_id=connection_id,
+                    digest=digest,
+                    hashes=hashes,
+                    files=claimed,
+                    attempt=attempt,
+                )
+                _move_batch(claimed, quarantine / run_id)
+                quarantined += 1
+                logger.warning(
+                    "degiro_watch_batch_quarantined",
+                    tenant_id=str(tenant.id),
+                    file_count=len(claimed),
+                    error_type=type(exc).__name__,
+                )
+            await session.commit()
+        shutil.rmtree(claim_dir, ignore_errors=True)
+    return {
+        "processed": processed,
+        "quarantined": quarantined,
+        "duplicates": duplicates,
+    }
+
+
+def _move_batch(paths: list[Path], destination: Path) -> None:
+    destination.mkdir(parents=True, mode=0o700, exist_ok=True)
+    for index, path in enumerate(paths):
+        if not path.exists():
+            continue
+        target = (
+            destination / f"{index:02d}-{uuid4().hex[:8]}{path.suffix.lower()}"
+        )
+        path.rename(target)
+
+
+def _file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        while chunk := source.read(64 * 1024):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+async def _record_watch_failure(
+    session: Any,
+    *,
+    run_id: str,
+    tenant_id: str,
+    connection_id: str,
+    digest: str,
+    hashes: list[str],
+    files: list[Path],
+    attempt: int,
+) -> None:
+    session.add(
+        ImportRun(
+            id=run_id,
+            tenant_id=tenant_id,
+            connection_id=connection_id,
+            source="watchfolder",
+            status="quarantined",
+            batch_hash=digest,
+            attempt=attempt,
+            report_types=[],
+            content_hashes=hashes,
+            file_names=[path.name for path in files],
+            storage_names=[],
+            rows_total=0,
+            rejected_count=0,
+            warnings=[],
+            error_details=[
+                "Bestandsvalidatie mislukt; batch is in quarantine geplaatst."
+            ],
+            preview={},
+            audit_events=[
+                {"action": "quarantined", "at": datetime.now(UTC).isoformat()}
+            ],
+            completed_at=datetime.now(UTC),
+        )
+    )
+    await session.flush()
 
 
 async def enrich_prices_job(container: Container) -> dict[str, Any]:
@@ -697,8 +991,12 @@ async def export_wealthfolio_job(container: Container) -> dict[str, Any]:
                 result = await exporter.push_to_wealthfolio(
                     wf_client=wf_client,
                 )
+                tenant_status = (
+                    "failed" if result.get("errors") else "completed"
+                )
                 tenant_log.info(
                     "export_job_tenant_complete",
+                    status=tenant_status,
                     imported=result.get("imported", 0),
                     skipped=result.get("skipped", 0),
                     failed=result.get("failed", 0),
@@ -707,7 +1005,7 @@ async def export_wealthfolio_job(container: Container) -> dict[str, Any]:
                 summary.append(
                     {
                         "tenant_id": tenant.id,
-                        "status": "completed",
+                        "status": tenant_status,
                         "imported": result.get("imported", 0),
                         "skipped": result.get("skipped", 0),
                         "failed": result.get("failed", 0),

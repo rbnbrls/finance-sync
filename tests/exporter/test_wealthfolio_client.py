@@ -234,6 +234,50 @@ class TestWealthfolioClientImport:
         assert accounts[0]["name"] == "Brokerage"
         mock_get.assert_called_once_with("/api/v1/accounts")
 
+    async def test_ensure_account_uses_stable_provider_identity(
+        self, client: WealthfolioClient
+    ) -> None:
+        client._is_authenticated = True
+        existing = {
+            "id": "wf-pension",
+            "name": "DEGIRO Pensioen",
+            "provider": "FINANCE_SYNC",
+            "providerAccountId": "finance-sync:t:a",
+        }
+        with (
+            patch.object(client, "get_accounts", return_value=[existing]),
+            patch.object(client, "create_account") as create,
+        ):
+            result = await client.ensure_account(
+                name="DEGIRO Pensioen",
+                currency="EUR",
+                provider_account_id="finance-sync:t:a",
+            )
+        assert result == existing
+        create.assert_not_awaited()
+
+    async def test_current_import_response_is_normalized(
+        self, client: WealthfolioClient
+    ) -> None:
+        client._is_authenticated = True
+        response = MagicMock()
+        response.json.return_value = {
+            "importRunId": "run-1",
+            "activities": [],
+            "summary": {
+                "total": 5,
+                "imported": 3,
+                "skipped": 1,
+                "duplicates": 1,
+                "success": True,
+            },
+        }
+        with patch.object(client._client, "post", return_value=response):
+            result = await client.import_activities([{"date": "2026-01-01"}])
+        assert result["imported"] == 3
+        assert result["skipped"] == 2
+        assert result["failed"] == 0
+
 
 # ═══════════════════════════════════════════════════════════════════════
 # Integration with exporter

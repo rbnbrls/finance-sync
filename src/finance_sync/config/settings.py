@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from decimal import Decimal
 from pathlib import Path
 from typing import ClassVar
 
@@ -281,6 +282,27 @@ class Settings(BaseSettings):
         validation_alias="WEALTHFOLIO_INSTRUMENT_TYPE_OVERRIDES",
         description="Override instrument type mapping.",
     )
+    wealthfolio_holdings_strategy: str = Field(
+        default="reconcile",
+        pattern="^(reconcile|bootstrap)$",
+        validation_alias="WEALTHFOLIO_HOLDINGS_STRATEGY",
+        description=(
+            "reconcile compares activity-derived positions; bootstrap also "
+            "imports the latest provider snapshot when Wealthfolio is empty."
+        ),
+    )
+    wealthfolio_reconciliation_absolute_tolerance: Decimal = Field(
+        default=Decimal("1.00"),
+        ge=0,
+        validation_alias="WEALTHFOLIO_RECONCILIATION_ABSOLUTE_TOLERANCE",
+        description="Allowed absolute portfolio-value difference.",
+    )
+    wealthfolio_reconciliation_percentage_tolerance: Decimal = Field(
+        default=Decimal("0.005"),
+        ge=0,
+        validation_alias="WEALTHFOLIO_RECONCILIATION_PERCENTAGE_TOLERANCE",
+        description="Allowed relative portfolio-value difference (0.005=0.5%).",
+    )
 
     # ── Wealthfolio push API ─────────────────────────────────────────
     wealthfolio_server_url: str = Field(
@@ -371,6 +393,47 @@ class Settings(BaseSettings):
         default=1,
         ge=1,
         validation_alias="WORKER_JOB_TRADING212_SYNC_INTERVAL_HOURS",
+    )
+
+    # ── DEGIRO file imports ────────────────────────────────────────
+    degiro_import_staging_directory: Path = Field(
+        default=Path("/tmp/finance-sync-imports"),
+        validation_alias="DEGIRO_IMPORT_STAGING_DIRECTORY",
+    )
+    degiro_import_max_file_bytes: int = Field(
+        default=20 * 1024 * 1024,
+        ge=1024,
+        validation_alias="DEGIRO_IMPORT_MAX_FILE_BYTES",
+    )
+    degiro_import_max_rows: int = Field(
+        default=100_000,
+        ge=1,
+        validation_alias="DEGIRO_IMPORT_MAX_ROWS",
+    )
+    degiro_import_max_files: int = Field(
+        default=12,
+        ge=1,
+        le=50,
+        validation_alias="DEGIRO_IMPORT_MAX_FILES",
+    )
+    degiro_import_preview_ttl_minutes: int = Field(
+        default=30,
+        ge=1,
+        validation_alias="DEGIRO_IMPORT_PREVIEW_TTL_MINUTES",
+    )
+    worker_job_degiro_watch_enabled: bool = Field(
+        default=True,
+        validation_alias="WORKER_JOB_DEGIRO_WATCH_ENABLED",
+    )
+    worker_job_degiro_watch_interval_seconds: int = Field(
+        default=60,
+        ge=5,
+        validation_alias="WORKER_JOB_DEGIRO_WATCH_INTERVAL_SECONDS",
+    )
+    degiro_watch_stable_seconds: int = Field(
+        default=10,
+        ge=1,
+        validation_alias="DEGIRO_WATCH_STABLE_SECONDS",
     )
 
     # ── Worker: Price enrichment job ───────────────────────────────

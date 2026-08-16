@@ -1,0 +1,4 @@
+﻿Datum;Tijd;Product;ISIN;Referentiebeurs;Uitvoeringsplaats;Aantal;Koers;Valuta;Waarde;Valuta;Wisselkoers;Transactiekosten;Valuta;Totaal;Valuta;Order ID
+15-01-2026;10:15:02;"Wereldfonds, duurzaam";IE00B4L5Y983;EAM;XAMS;1,5;100,00;EUR;-150,00;EUR;;-2,00;EUR;-152,00;EUR;ORDER-1
+15-01-2026;10:15:03;"Wereldfonds, duurzaam";IE00B4L5Y983;EAM;XAMS;0,5;100,10;EUR;-50,05;EUR;;-1,00;EUR;-51,05;EUR;ORDER-1
+20-02-2026;14:30:00;US Equity Fund;US0378331005;NDQ;XNAS;-2;210,00;USD;420,00;USD;1,05;-1,50;EUR;398,50;EUR;ORDER-2

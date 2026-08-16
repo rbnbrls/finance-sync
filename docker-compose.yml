@@ -65,8 +65,10 @@ services:
       CORS_ORIGINS: ${CORS_ORIGINS:-[*]}
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
       GITHUB_REPO: ${GITHUB_REPO:-rbnbrls/finance-sync}
+      DEGIRO_IMPORT_STAGING_DIRECTORY: /var/lib/finance-sync/import-staging
     volumes:
       - encryption_keys:/app/keys  # Mount for encryption key files if needed
+      - degiro_import_staging:/var/lib/finance-sync/import-staging
     depends_on:
       postgres:
         condition: service_healthy
@@ -99,8 +101,10 @@ services:
       SECRET_KEY: ${SECRET_KEY:?SECRET_KEY is required}
       MASTER_ENCRYPTION_KEY: ${MASTER_ENCRYPTION_KEY:-}
       WORKER_HEALTH_PORT: 9090
+      WORKER_JOB_DEGIRO_WATCH_ENABLED: ${WORKER_JOB_DEGIRO_WATCH_ENABLED:-true}
     volumes:
       - encryption_keys:/app/keys:ro
+      - ${DEGIRO_WATCH_HOST_PATH:-./imports/degiro}:/imports/degiro
     depends_on:
       postgres:
         condition: service_healthy
@@ -183,4 +187,6 @@ volumes:
   prometheus_data:
     driver: local
   grafana_data:
+    driver: local
+  degiro_import_staging:
     driver: local

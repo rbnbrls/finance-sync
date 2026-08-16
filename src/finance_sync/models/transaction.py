@@ -74,6 +74,19 @@ class Transaction(TimestampMixin, Base):
         nullable=True,
         comment="Number of units / shares transacted (for purchase/sale)",
     )
+    unit_price: Mapped[Decimal | None] = mapped_column(
+        Numeric(24, 8),
+        nullable=True,
+        comment="Provider-reported unit price in instrument currency",
+    )
+    fee_amount: Mapped[Decimal | None] = mapped_column(
+        Numeric(24, 8),
+        nullable=True,
+        comment="Provider-reported fee as a positive amount",
+    )
+    fee_currency_code: Mapped[str | None] = mapped_column(
+        String(3), nullable=True, comment="ISO-4217 for fee_amount"
+    )
 
     occurred_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

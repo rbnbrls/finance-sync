@@ -96,6 +96,14 @@ def make_wf_transaction(
     txn.amount_in_base = Decimal(amount_in_base) if amount_in_base else None
     txn.base_currency_code = base_currency
     txn.fx_rate = Decimal(fx_rate) if fx_rate else None
+    if txn_type in {"purchase", "sale"}:
+        txn.quantity = Decimal(10)
+        txn.unit_price = abs(txn.amount) / txn.quantity
+    else:
+        txn.quantity = None
+        txn.unit_price = None
+    txn.fee_amount = None
+    txn.fee_currency_code = None
     return txn
 
 

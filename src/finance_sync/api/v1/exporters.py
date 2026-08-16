@@ -9,6 +9,7 @@ from __future__ import annotations
 from datetime import (
     datetime,
 )
+from decimal import Decimal
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
@@ -163,6 +164,19 @@ def _build_wealthfolio_config(container: Any) -> WealthfolioConfig:
         ),
         instrument_type_overrides=getattr(
             settings, "wealthfolio_instrument_type_overrides", {}
+        ),
+        holdings_strategy=getattr(
+            settings, "wealthfolio_holdings_strategy", "reconcile"
+        ),
+        reconciliation_absolute_tolerance=getattr(
+            settings,
+            "wealthfolio_reconciliation_absolute_tolerance",
+            Decimal("1.00"),
+        ),
+        reconciliation_percentage_tolerance=getattr(
+            settings,
+            "wealthfolio_reconciliation_percentage_tolerance",
+            Decimal("0.005"),
         ),
     )
 

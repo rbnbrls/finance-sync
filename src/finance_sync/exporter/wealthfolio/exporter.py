@@ -27,15 +27,21 @@ from __future__ import annotations
 import contextlib
 import traceback
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any
+from decimal import Decimal
+from typing import TYPE_CHECKING, Any, cast
 from uuid import UUID
 
 import structlog
 from sqlalchemy import and_, or_, select
 
 from finance_sync.exporter.models import ExportRun
-from finance_sync.exporter.wealthfolio.models import WealthfolioDelivery
+from finance_sync.exporter.wealthfolio.models import (
+    WealthfolioAccountMapping,
+    WealthfolioDelivery,
+)
 from finance_sync.exporter.wealthfolio.transaction_mapper import (
+    UnresolvedSecurityExportError,
+    map_holding_to_wf_row,
     map_holdings_to_csv,
     map_transaction_to_wf_row,
     map_transactions_to_csv,
@@ -202,6 +208,7 @@ class WealthfolioExporter:
             )
             session.add(run)
             await session.flush()
+            await session.commit()
             log = log.bind(export_run_id=str(run.id))
 
         try:
@@ -419,6 +426,7 @@ class WealthfolioExporter:
             stmt = select(Account).where(
                 Account.tenant_id == self._tenant_id,  # type: ignore[attr-defined]
                 Account.is_active.is_(True),  # type: ignore[attr-defined]
+                Account.account_type.in_(["investment", "brokerage"]),  # type: ignore[attr-defined]
             )
             if account_ids:
                 stmt = stmt.where(
@@ -641,6 +649,7 @@ class WealthfolioExporter:
                     delivery.export_run_id = export_run_id
 
             await session.flush()
+            await session.commit()
 
     # ── File output ─────────────────────────────────────────────────
 
@@ -719,6 +728,7 @@ class WealthfolioExporter:
             if error_message is not None:
                 run.error_message = error_message
             await session.flush()
+            await session.commit()
 
     # ── Push to Wealthfolio instance ───────────────────────────────
 
@@ -780,6 +790,7 @@ class WealthfolioExporter:
             )
             session.add(run)
             await session.flush()
+            await session.commit()
             log = self._log.bind(export_run_id=str(run.id))
 
         try:
@@ -790,6 +801,10 @@ class WealthfolioExporter:
             for fs_acct in fs_accounts:
                 txns: list[Transaction] = []
                 try:
+                    wf_account = await self._ensure_wf_account(
+                        wf_client, fs_acct
+                    )
+                    wf_account_id = str(wf_account["id"])
                     # Resume from the per-account delivery cursor when
                     # one exists (idempotent resume after partial failure).
                     # The (occurred_at, id) tuple excludes the boundary
@@ -809,6 +824,14 @@ class WealthfolioExporter:
                             since=_since,
                         )
                     if not txns:
+                        errors.extend(
+                            await self._sync_and_reconcile_holdings(
+                                wf_client=wf_client,
+                                fs_account=fs_acct,
+                                wf_account_id=wf_account_id,
+                                security_map=security_map,
+                            )
+                        )
                         continue
 
                     if max_transactions:
@@ -816,24 +839,54 @@ class WealthfolioExporter:
 
                     # Map to Wealthfolio API format
                     wf_activities: list[dict[str, Any]] = []
+                    mapped_txns: list[Transaction] = []
                     for txn in txns:
                         sec = (
                             security_map.get(txn.security_id)
                             if txn.security_id
                             else None
                         )  # type: ignore[arg-type]
-                        row = map_transaction_to_wf_row(
-                            txn,
-                            security=sec,
-                            instrument_type_map=self._wf_config.instrument_type_overrides,
-                            default_currency=self._wf_config.default_currency,
+                        try:
+                            row = map_transaction_to_wf_row(
+                                txn,
+                                security=sec,
+                                instrument_type_map=self._wf_config.instrument_type_overrides,
+                                default_currency=self._wf_config.default_currency,
+                            )
+                        except UnresolvedSecurityExportError:
+                            errors.append(
+                                {
+                                    "account_id": fs_acct.id,
+                                    "account_name": fs_acct.name,
+                                    "error": (
+                                        "Security-resolutie vereist voor "
+                                        f"transactie {txn.id}."
+                                    ),
+                                }
+                            )
+                            # Preserve cursor ordering: later events wait until
+                            # this review item is resolved.
+                            break
+                        wf_activities.append(
+                            _wf_row_to_api_activity(
+                                row,
+                                account_id=wf_account_id,
+                            )
                         )
-                        wf_activities.append(_wf_row_to_api_activity(row))
+                        mapped_txns.append(txn)
 
                     if not wf_activities:
+                        errors.extend(
+                            await self._sync_and_reconcile_holdings(
+                                wf_client=wf_client,
+                                fs_account=fs_acct,
+                                wf_account_id=wf_account_id,
+                                security_map=security_map,
+                            )
+                        )
                         continue
 
-                    txns_attempted += len(txns)
+                    txns_attempted += len(mapped_txns)
 
                     # Push via Wealthfolio API
                     result = await wf_client.push_activities(wf_activities)
@@ -854,7 +907,7 @@ class WealthfolioExporter:
                                 "account_name": fs_acct.name,
                                 "error": (
                                     f"Wealthfolio API rejected {failed} of "
-                                    f"{len(txns)} activities"
+                                    f"{len(mapped_txns)} activities"
                                 ),
                             }
                         )
@@ -871,9 +924,17 @@ class WealthfolioExporter:
                     # for this account succeeded (idempotent resume).
                     await self._update_wealthfolio_delivery(
                         account_id=fs_acct.id,
-                        transactions=txns,
+                        transactions=mapped_txns,
                         export_run_id=str(run.id),
                     )
+
+                    findings = await self._sync_and_reconcile_holdings(
+                        wf_client=wf_client,
+                        fs_account=fs_acct,
+                        wf_account_id=wf_account_id,
+                        security_map=security_map,
+                    )
+                    errors.extend(findings)
 
                     log.info(
                         "pushed_to_wealthfolio",
@@ -954,6 +1015,115 @@ class WealthfolioExporter:
             )
             raise
 
+    async def _ensure_wf_account(
+        self,
+        wf_client: WealthfolioClient,
+        account: Account,
+    ) -> dict[str, Any]:
+        """Resolve one remote account using a stable provider identity."""
+        provider_identity = f"finance-sync:{self._tenant_id}:{account.id}"
+        name = await self._resolve_wf_account_name(account.id, account.name)
+        if account.provider_key == "degiro_pension" and not name.strip():
+            name = "DEGIRO Pensioen"
+        remote = await wf_client.ensure_account(
+            name=name,
+            currency=account.currency_code or self._wf_config.default_currency,
+            provider_account_id=provider_identity,
+        )
+        async with self._session_factory() as session:
+            result = await session.execute(
+                select(WealthfolioAccountMapping).where(
+                    WealthfolioAccountMapping.tenant_id == self._tenant_id,
+                    WealthfolioAccountMapping.account_id == account.id,
+                )
+            )
+            mapping = result.scalar_one_or_none()
+            if mapping is None:
+                mapping = WealthfolioAccountMapping(
+                    tenant_id=self._tenant_id,
+                    account_id=account.id,
+                    wf_account_name=str(remote.get("name") or name),
+                    wf_account_id=str(remote["id"]),
+                    provider_account_id=provider_identity,
+                )
+                session.add(mapping)
+            else:
+                mapping.wf_account_name = str(remote.get("name") or name)
+                mapping.wf_account_id = str(remote["id"])
+                mapping.provider_account_id = provider_identity
+            await session.flush()
+            await session.commit()
+        return remote
+
+    async def _sync_and_reconcile_holdings(
+        self,
+        *,
+        wf_client: WealthfolioClient,
+        fs_account: Account,
+        wf_account_id: str,
+        security_map: dict[str, Security],
+    ) -> list[dict[str, str]]:
+        """Bootstrap optionally, then compare current positions and value."""
+        if not self._wf_config.export_holdings:
+            return []
+        holdings = await self._fetch_current_holdings(account_id=fs_account.id)
+        source_rows: list[dict[str, Any]] = []
+        findings: list[dict[str, str]] = []
+        for holding in holdings:
+            security = security_map.get(holding.security_id)
+            try:
+                source_rows.append(
+                    map_holding_to_wf_row(holding, security=security)
+                )
+            except UnresolvedSecurityExportError:
+                findings.append(
+                    {
+                        "account_id": fs_account.id,
+                        "account_name": fs_account.name,
+                        "error": (
+                            "Holding wacht op handmatige security-resolutie: "
+                            f"{holding.security_id}."
+                        ),
+                    }
+                )
+
+        remote_rows = await wf_client.get_holdings(wf_account_id)
+        if (
+            self._wf_config.holdings_strategy == "bootstrap"
+            and not remote_rows
+            and source_rows
+        ):
+            snapshot = _holdings_snapshot_payload(
+                source_rows,
+                cash_balance=fs_account.available_balance,
+                cash_currency=fs_account.currency_code,
+            )
+            check = await wf_client.check_holdings_import(
+                [snapshot], wf_account_id
+            )
+            if check.get("validationErrors"):
+                findings.append(
+                    {
+                        "account_id": fs_account.id,
+                        "account_name": fs_account.name,
+                        "error": "Wealthfolio wees de holdings-preview af.",
+                    }
+                )
+            else:
+                await wf_client.import_holdings([snapshot], wf_account_id)
+                remote_rows = await wf_client.get_holdings(wf_account_id)
+
+        findings.extend(
+            _reconcile_holdings(
+                account=fs_account,
+                source_rows=source_rows,
+                remote_rows=remote_rows,
+                absolute_tolerance=self._wf_config.reconciliation_absolute_tolerance,
+                percentage_tolerance=self._wf_config.reconciliation_percentage_tolerance,
+            )
+        )
+        return findings
+
 
 # ═══════════════════════════════════════════════════════════════════════
 # Helpers
@@ -967,7 +1137,9 @@ def _default_since() -> datetime:
     return datetime.now(UTC) - timedelta(days=90)
 
 
-def _wf_row_to_api_activity(row: dict[str, Any]) -> dict[str, Any]:
+def _wf_row_to_api_activity(
+    row: dict[str, Any], *, account_id: str | None = None
+) -> dict[str, Any]:
     """Convert a Wealthfolio CSV row dict to API activity format.
 
     The transaction mapper produces CSV-row dicts with string-formatted
@@ -977,12 +1149,16 @@ def _wf_row_to_api_activity(row: dict[str, Any]) -> dict[str, Any]:
     activity: dict[str, Any] = {
         "activityType": row.get("activityType", ""),
         "date": row.get("date", ""),
+        "symbol": row.get("symbol", ""),
+        "accountId": account_id,
+        "isDraft": False,
+        "isValid": True,
     }
 
     # Symbol — blank for cash activities
     symbol = row.get("symbol", "")
-    if symbol:
-        activity["symbol"] = symbol
+    if symbol and _looks_like_isin(str(symbol)):
+        activity["isin"] = symbol
 
     # Numeric fields
     for numeric_key in ("quantity", "unitPrice", "amount", "fee", "fxRate"):
@@ -998,3 +1174,105 @@ def _wf_row_to_api_activity(row: dict[str, Any]) -> dict[str, Any]:
             activity[str_key] = val
 
     return activity
+
+
+def _looks_like_isin(value: str) -> bool:
+    return len(value) == 12 and value[:2].isalpha() and value[2:].isalnum()
+
+
+def _holdings_snapshot_payload(
+    rows: list[dict[str, Any]],
+    *,
+    cash_balance: Decimal | None,
+    cash_currency: str,
+) -> dict[str, Any]:
+    """Build Wealthfolio's holdings snapshot contract without double value."""
+    snapshot_date = max(str(row["date"]) for row in rows)
+    positions = [
+        {
+            "symbol": row["symbol"],
+            "quantity": row["quantity"],
+            "avgCost": row["avgCost"] or None,
+            "currency": row["currency"],
+            "quoteMode": "MARKET",
+        }
+        for row in rows
+    ]
+    cash = (
+        {cash_currency: str(cash_balance)}
+        if cash_balance is not None and cash_balance != 0
+        else {}
+    )
+    return {"date": snapshot_date, "positions": positions, "cashBalances": cash}
+
+
+def _reconcile_holdings(
+    *,
+    account: Account,
+    source_rows: list[dict[str, Any]],
+    remote_rows: list[dict[str, Any]],
+    absolute_tolerance: Decimal,
+    percentage_tolerance: Decimal,
+) -> list[dict[str, str]]:
+    """Return visible, path-free reconciliation findings."""
+    findings: list[dict[str, str]] = []
+    source_quantities = {
+        str(row["symbol"]): Decimal(str(row["quantity"])) for row in source_rows
+    }
+    remote_quantities: dict[str, Decimal] = {}
+    remote_value = Decimal(0)
+    for row in remote_rows:
+        raw_instrument = row.get("instrument")
+        instrument: dict[str, Any] = (
+            cast("dict[str, Any]", raw_instrument)
+            if isinstance(raw_instrument, dict)
+            else {}
+        )
+        symbol = str(instrument.get("isin") or instrument.get("symbol") or "")
+        if symbol:
+            remote_quantities[symbol] = Decimal(str(row.get("quantity") or 0))
+        raw_market_value = row.get("marketValue")
+        market_value: dict[str, Any] = (
+            cast("dict[str, Any]", raw_market_value)
+            if isinstance(raw_market_value, dict)
+            else {}
+        )
+        remote_value += Decimal(str(market_value.get("base") or 0))
+
+    for symbol, quantity in source_quantities.items():
+        if remote_quantities.get(symbol) != quantity:
+            findings.append(
+                {
+                    "account_id": account.id,
+                    "account_name": account.name,
+                    "error": (
+                        f"Positie-afwijking voor opgeloste security {symbol}."
+                    ),
+                }
+            )
+    extra = set(remote_quantities) - set(source_quantities)
+    if extra:
+        findings.append(
+            {
+                "account_id": account.id,
+                "account_name": account.name,
+                "error": "Wealthfolio bevat posities buiten de bronsnapshot.",
+            }
+        )
+
+    if account.current_balance is not None and remote_rows:
+        source_value = Decimal(str(account.current_balance))
+        difference = abs(source_value - remote_value)
+        tolerance = max(
+            absolute_tolerance,
+            abs(source_value) * percentage_tolerance,
+        )
+        if difference > tolerance:
+            findings.append(
+                {
+                    "account_id": account.id,
+                    "account_name": account.name,
+                    "error": "Portefeuillewaarde buiten ingestelde tolerantie.",
+                }
+            )
+    return findings

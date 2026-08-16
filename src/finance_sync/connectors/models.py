@@ -112,6 +112,15 @@ class RawTransaction(BaseModel):
         default=None,
         description="Number of units / shares transacted (for purchase/sale)",
     )
+    unit_price: Decimal | None = Field(
+        default=None,
+        description="Provider-reported unit price in the instrument currency",
+    )
+    fee_amount: Decimal | None = Field(
+        default=None,
+        description="Provider-reported fee, stored as a positive amount",
+    )
+    fee_currency_code: str | None = Field(default=None, max_length=3)
     security_reference: SecurityReference | None = Field(
         default=None,
         description="Provider-neutral identity of the traded instrument",
@@ -223,6 +232,9 @@ class CanonicalTransactionData(BaseModel):
         default=None,
         description="Number of units / shares transacted (for purchase/sale)",
     )
+    unit_price: Decimal | None = Field(default=None)
+    fee_amount: Decimal | None = Field(default=None)
+    fee_currency_code: str | None = Field(default=None, max_length=3)
     status: str = Field(
         default="pending",
         description="pending/booked/reversed/cancelled",

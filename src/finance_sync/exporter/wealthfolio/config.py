@@ -6,6 +6,7 @@ be passed directly to ``WealthfolioConfig``.
 
 from __future__ import annotations
 
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
@@ -81,6 +82,17 @@ class WealthfolioConfig(BaseModel):
         "mutual_fund→MUTUAL_FUND, bond→BOND, crypto→CRYPTO, "
         "other→OTHER.",
     )
+    holdings_strategy: str = Field(
+        default="reconcile",
+        pattern="^(reconcile|bootstrap)$",
+        description="Activity-first reconciliation or one-time bootstrap.",
+    )
+    reconciliation_absolute_tolerance: Decimal = Field(
+        default=Decimal("1.00"), ge=0
+    )
+    reconciliation_percentage_tolerance: Decimal = Field(
+        default=Decimal("0.005"), ge=0
+    )
 
     model_config = {"extra": "forbid"}
 
@@ -112,5 +124,18 @@ class WealthfolioConfig(BaseModel):
             ),
             instrument_type_overrides=getattr(
                 settings, "wealthfolio_instrument_type_overrides", {}
+            ),
+            holdings_strategy=getattr(
+                settings, "wealthfolio_holdings_strategy", "reconcile"
+            ),
+            reconciliation_absolute_tolerance=getattr(
+                settings,
+                "wealthfolio_reconciliation_absolute_tolerance",
+                Decimal("1.00"),
+            ),
+            reconciliation_percentage_tolerance=getattr(
+                settings,
+                "wealthfolio_reconciliation_percentage_tolerance",
+                Decimal("0.005"),
             ),
         )

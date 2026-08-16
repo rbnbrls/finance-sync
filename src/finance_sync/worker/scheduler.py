@@ -21,6 +21,7 @@ from finance_sync.worker.jobs import (
     enrich_prices_job,
     export_wealthfolio_job,
     nightly_reconciliation_job,
+    process_degiro_watchfolders_job,
     process_outbox_job,
     process_webhook_retries_job,
     sync_bunq_cards_job,
@@ -232,6 +233,18 @@ class WorkerScheduler:
                 ),
                 trigger=IntervalTrigger(
                     hours=settings.worker_job_trading212_sync_interval_hours,
+                ),
+            )
+
+        if settings.worker_job_degiro_watch_enabled:
+            self._add_job(
+                "process_degiro_watchfolders",
+                self._make_monitored_job(
+                    "process_degiro_watchfolders",
+                    process_degiro_watchfolders_job,
+                ),
+                trigger=IntervalTrigger(
+                    seconds=settings.worker_job_degiro_watch_interval_seconds,
                 ),
             )
 

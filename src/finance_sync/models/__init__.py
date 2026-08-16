@@ -50,6 +50,7 @@ from finance_sync.models.enums import (
 from finance_sync.models.fundamental_observation import FundamentalObservation
 from finance_sync.models.fx_rate import FxRate
 from finance_sync.models.holding import Holding
+from finance_sync.models.import_run import ImportRun
 from finance_sync.models.mixins import TenantAwareMixin, TimestampMixin
 from finance_sync.models.outbox import OutboxMessage
 from finance_sync.models.reconciliation import (
@@ -157,6 +158,7 @@ __all__ = [
     "FxRate",
     "Holding",
     "HoldingSource",
+    "ImportRun",
     "OutboxMessage",
     "OutboxMessageStatus",
     "ReconciliationResult",
