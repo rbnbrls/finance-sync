@@ -104,11 +104,12 @@ APP_RESP="$(curl -sS -X POST "${BASE}/api/v1/applications/public" \
     \"health_check_method\": \"GET\",
     \"health_check_return_code\": 200,
     \"health_check_scheme\": \"http\",
-    \"health_check_interval\": 5,
-    \"health_check_timeout\": 5,
-    \"health_check_retries\": 10,
-    \"health_check_start_period\": 15,
-    \"pre_deployment_command\": \"alembic upgrade head\",
+    \\\"health_check_interval\\\": 5,
+    \\\"health_check_timeout\\\": 5,
+    \\\"health_check_retries\\\": 10,
+    \\\"health_check_start_period\\\": 15,
+    \\\"health_check_command\\\": \\\"curl -sf http://localhost:8000/health/live\\\",
+    \\\"pre_deployment_command\\\": \\\"alembic upgrade head\\\",
     \"instant_deploy\": false,
     \"is_auto_deploy_enabled\": false
   }")"

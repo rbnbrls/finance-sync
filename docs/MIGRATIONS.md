@@ -26,6 +26,39 @@ dedicated migration job **before** the new application version starts
 CI runs the same command against an empty PostgreSQL service container in
 the `migrations` job, so a broken chain fails the build.
 
+### Pre-deployment commands are *not* a guaranteed migration path
+
+Coolify's `pre_deployment_command` (`alembic upgrade head` on the staging
+and production apps) only runs while a **previous container is still
+running**. In a crash loop — e.g. the database is unreachable at startup
+and the app exits before becoming healthy (see issue #233) — there is no
+running container, Coolify logs *"No running containers found. Skipping."*,
+and the migration silently never runs. The app's lifespan deliberately
+does **not** create tables, so an unmigrated database fails the very next
+startup (`SELECT ... FROM tenants`), perpetuating the loop.
+
+The **guaranteed** paths are:
+
+1. The release pipeline's dedicated `migrate` job (validates the chain on
+   a scratch PostgreSQL before anything deploys), and
+2. An explicit, operator-driven run against the target database before
+   (re)deploying — e.g. Coolify's "Execute command" on the app container:
+
+   ```bash
+   cd /app && alembic upgrade head
+   ```
+
+   or a one-off container on the app's network:
+
+   ```bash
+   docker run --rm --network <net> \
+     -e DATABASE_URL="postgresql+asyncpg://finance_sync:<pw>@<pg-host>:5432/finance_sync" \
+     finance-sync:latest alembic upgrade head
+   ```
+
+Treat `pre_deployment_command` as best-effort convenience, never as the
+sole migration trigger.
+
 ## The revision chain
 
 The migration history is a **single linear chain** — every revision has

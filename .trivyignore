@@ -92,3 +92,24 @@ CVE-2026-41992
 # release; advisory remains flagged with no fixed version.
 # expiry="2026-12-31"
 CVE-2024-23342
+
+# ── wget (added 2026-08-16, issue #233 healthcheck hardening) ─────────
+# wget was added to the production image (issue #233): Coolify's own
+# healthcheck probe injects `wget` when Coolify manages the healthcheck
+# (custom_healthcheck_found=false), and the curl-only image made every
+# probe fail with "wget: not found" (rc 1) → rollback of every deploy.
+# The wget advisories below are HIGH findings present in the bookworm
+# package (1.21.3-1+deb12u1) with NO fixed version available upstream yet
+# (FixedVersion=N/A in the OSV/Trivy DB as of 2026-08-16).  The image only
+# runs wget as a localhost healthcheck probe (unauthenticated DoS /
+# user-interaction vectors are not reachable from outside the container),
+# so these are accepted risk in the same category as the curl entries
+# above.  Re-review at expiry; if a fixed wget lands in bookworm, remove.
+# expiry="2026-12-31"
+CVE-2026-58469
+# wget: unauthenticated availability DoS via crafted response (no fix yet)
+# expiry="2026-12-31"
+CVE-2026-58471
+# wget: unauthenticated availability DoS via crafted response (no fix yet)
+# expiry="2026-12-31"
+CVE-2026-58472

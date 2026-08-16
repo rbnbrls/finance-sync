@@ -98,9 +98,14 @@ alembic upgrade head
 ```
 
 as a **pre-deployment command**, so each environment migrates its own
-database before the new image starts.  The release pipeline's `migrate` job
-additionally validates the full chain on a scratch PostgreSQL before
-anything deploys.
+database before the new image starts.  ⚠️ **This is best-effort only**:
+Coolify runs pre-deployment commands against the *currently running*
+container, so in a crash loop (e.g. dependencies down — see issue #233)
+there is none and the command is skipped.  The guaranteed migration path
+is the release pipeline's `migrate` job (validates the full chain on a
+scratch PostgreSQL before anything deploys) plus an explicit
+`alembic upgrade head` against the target database before (re)deploying —
+see `docs/MIGRATIONS.md`.
 
 ### Staging app environment (env reference)
 

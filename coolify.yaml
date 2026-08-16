@@ -56,11 +56,20 @@
 #    - postgres: internal 5432 (should NOT be exposed externally)
 #    - redis: internal 6379 (should NOT be exposed externally)
 #
-# 7. Health Checks (configured in docker-compose.yml):
+# 7. Health Checks (configured in docker-compose.yml / Coolify app):
 #
 #    - app:      GET /health/live (port 8000)
 #    - postgres: pg_isready
 #    - redis:    redis-cli ping
+#
+#    NOTE (issue #233): when Coolify manages the app-level healthcheck
+#    itself (custom_healthcheck_found=false) it injects a **wget**-based
+#    probe.  The production image ships BOTH curl and wget (see Dockerfile)
+#    so the default probe works; an explicit curl-based
+#    `health_check_command` (curl -sf http://localhost:8000/health/live)
+#    is also set on the staging app as a belt-and-braces measure.  Coolify's
+#    validation regex rejects `||`, so omit it — curl's return code alone
+#    signals failure.
 #
 # 8. Replicas / Scaling:
 #
@@ -90,6 +99,13 @@
 # to run:
 #
 #   cd /app && alembic upgrade head
+#
+# ⚠️ Pre-deployment commands only run while a previous container is still
+# running — in a crash loop (e.g. dependencies down, issue #233) Coolify
+# skips them ("No running containers found").  Treat them as best-effort;
+# the guaranteed path is an explicit `alembic upgrade head` against the
+# target database (one-off container / Coolify "Execute command") plus the
+# release pipeline's `migrate` job.  See docs/MIGRATIONS.md.
 #
 # ── Encryption Keys Volume ─────────────────────────────────────────────────────────
 #
