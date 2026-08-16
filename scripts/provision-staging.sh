@@ -126,6 +126,7 @@ set_env() {
 }
 set_env APP_ENVIRONMENT "staging"
 set_env APP_NAME "finance-sync-staging"
+set_env STAGING_CONNECTOR_BASE_URL "https://${APP_UUID}.7rb.nl/api/v1/staging-providers"
 set_env DATABASE_URL "postgresql+asyncpg://finance_sync:${PG_PW}@${PG_UUID}:5432/finance_sync"
 set_env REDIS_URL "redis://default:${REDIS_PW}@${RD_UUID}:6379/0"
 set_env SECRET_KEY "${SECRET}"

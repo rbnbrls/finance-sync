@@ -25,6 +25,11 @@ class TestEnvironment:
         assert Environment.DEVELOPMENT.is_production is False
         assert Environment.PRODUCTION.is_production is True
 
+    def test_is_staging(self) -> None:
+        assert Environment.STAGING.is_staging is True
+        assert Environment.DEVELOPMENT.is_staging is False
+        assert Environment.PRODUCTION.is_staging is False
+
     @pytest.mark.parametrize(
         ("input_str", "expected"),
         [
@@ -80,6 +85,14 @@ class TestSettings:
 
         settings_prod = Settings(environment="prod")  # type: ignore[call-arg]
         assert settings_prod.is_production is True
+
+    def test_app_environment_alias(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("APP_ENVIRONMENT", "staging")
+        settings = Settings(_env_file=None)
+        assert settings.environment == Environment.STAGING
+        assert settings.is_staging is True
 
     def test_database_url(self) -> None:
         url = "postgresql+asyncpg://user:pass@localhost:5432/db"

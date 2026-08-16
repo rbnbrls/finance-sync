@@ -32,6 +32,9 @@ from finance_sync.api.v1.scheduled_payments import (
     router as scheduled_payments_router,
 )
 from finance_sync.api.v1.securities import router as securities_router
+from finance_sync.api.v1.staging_providers import (
+    router as staging_providers_router,
+)
 from finance_sync.api.v1.subscriptions import router as subscriptions_router
 from finance_sync.api.v1.sync import router as sync_router
 from finance_sync.api.v1.sync_runs import router as sync_runs_router
@@ -68,3 +71,4 @@ router.include_router(holdings_router)
 router.include_router(dividends_router)
 router.include_router(prices_router)
 router.include_router(sync_router)
+router.include_router(staging_providers_router)

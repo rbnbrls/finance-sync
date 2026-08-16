@@ -40,6 +40,7 @@ class Settings(BaseSettings):
     # ── Environment ──────────────────────────────────────────────────
     environment: Environment = Field(
         default=Environment.DEVELOPMENT,
+        validation_alias="APP_ENVIRONMENT",
         description="Runtime environment (dev/staging/prod).",
     )
 
@@ -47,6 +48,14 @@ class Settings(BaseSettings):
     app_name: str = Field(default="finance-sync", validation_alias="APP_NAME")
     app_version: str = Field(default="0.1.0", validation_alias="APP_VERSION")
     debug: bool = Field(default=False, validation_alias="DEBUG")
+    staging_connector_base_url: str = Field(
+        default="http://127.0.0.1:8000/api/v1/staging-providers",
+        validation_alias="STAGING_CONNECTOR_BASE_URL",
+        description=(
+            "Internal base URL for the synthetic bunq and Trading212 "
+            "provider endpoints used only in staging."
+        ),
+    )
 
     # ── Logging ──────────────────────────────────────────────────────
     log_level: str = Field(
@@ -657,3 +666,8 @@ class Settings(BaseSettings):
     def is_production(self) -> bool:
         """True in production."""
         return self.environment.is_production
+
+    @property
+    def is_staging(self) -> bool:
+        """True in staging."""
+        return self.environment.is_staging

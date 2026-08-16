@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING
 
@@ -101,6 +102,56 @@ async def _init_database(container: Container) -> None:
                     logger.info(
                         "admin_user_exists",
                         email="admin@finance-sync.local",
+                    )
+
+                # Staging starts with safe static connector configs. Users
+                # may later switch each one to the endpoint-locked official
+                # sandbox/demo API from the dashboard.
+                if container.settings.is_staging:
+                    from finance_sync.connectors.environment import (
+                        STAGING_MANAGED_PROVIDERS,
+                        staging_connector_config,
+                    )
+                    from finance_sync.services.auth import encrypt_credential
+
+                    for provider in sorted(STAGING_MANAGED_PROVIDERS):
+                        credentials, options = staging_connector_config(
+                            provider, container.settings
+                        )
+                        encrypted, nonce = encrypt_credential(
+                            json.dumps(credentials, separators=(",", ":")),
+                            container.settings,
+                        )
+                        description = json.dumps(
+                            {
+                                **options,
+                                "_label": "Staging connector",
+                            },
+                            separators=(",", ":"),
+                        )
+                        await conn.execute(
+                            text(
+                                "INSERT INTO credentials "
+                                "(id, tenant_id, provider_key, "
+                                "encrypted_payload, nonce, description, "
+                                "created_at, updated_at) "
+                                "VALUES (gen_random_uuid(), :tid, :provider, "
+                                ":encrypted, :nonce, :description, :now, :now) "
+                                "ON CONFLICT (tenant_id, provider_key) "
+                                "WHERE tenant_id IS NOT NULL DO NOTHING"
+                            ),
+                            {
+                                "tid": tid,
+                                "provider": provider,
+                                "encrypted": encrypted,
+                                "nonce": nonce,
+                                "description": description,
+                                "now": now,
+                            },
+                        )
+                    logger.info(
+                        "seeded_staging_connectors",
+                        providers=sorted(STAGING_MANAGED_PROVIDERS),
                     )
                 await conn.commit()
 

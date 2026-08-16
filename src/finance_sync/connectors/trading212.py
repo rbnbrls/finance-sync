@@ -64,6 +64,8 @@ class Trading212Connector(Connector):
 
     Credentials
         ``config.credentials["api_key"]`` — Trading212 API key (required).
+        ``config.credentials["api_secret"]`` — API secret for current
+        key-pair authentication (legacy single-key auth remains supported).
         ``config.options["demo"]`` — If ``True``, use the demo API base
         URL (default: ``False``).
         ``config.options["base_url"]`` — Custom API base URL (optional,
@@ -141,7 +143,9 @@ class Trading212Connector(Connector):
             msg = "Trading212 api_key is required in credentials"
             raise PermanentError(msg)
 
-        headers = _auth_headers(api_key)
+        headers = _auth_headers(
+            api_key, self.config.credentials.get("api_secret")
+        )
 
         try:
             resp = await self._http.get(
@@ -163,7 +167,9 @@ class Trading212Connector(Connector):
 
     async def _load_account_info(self, api_key: str) -> None:
         """Fetch account info to populate account ID and currency."""
-        headers = _auth_headers(api_key)
+        headers = _auth_headers(
+            api_key, self.config.credentials.get("api_secret")
+        )
         try:
             resp = await self._http.get(
                 "/api/v0/equity/account/info", headers=headers
@@ -199,7 +205,9 @@ class Trading212Connector(Connector):
             raise PermanentError(msg)
 
         api_key = self.config.credentials.get("api_key", "")
-        headers = _auth_headers(api_key)
+        headers = _auth_headers(
+            api_key, self.config.credentials.get("api_secret")
+        )
 
         try:
             resp = await self._http.get(
@@ -306,7 +314,9 @@ class Trading212Connector(Connector):
 
     async def _fetch_cash(self, api_key: str) -> dict[str, Any]:
         """Fetch cash balance from the account/cash endpoint."""
-        headers = _auth_headers(api_key)
+        headers = _auth_headers(
+            api_key, self.config.credentials.get("api_secret")
+        )
         try:
             resp = await self._http.get(
                 "/api/v0/equity/account/cash", headers=headers
@@ -392,7 +402,9 @@ class Trading212Connector(Connector):
         since_str = since.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
         path += f"&from={since_str}"
 
-        headers = _auth_headers(api_key)
+        headers = _auth_headers(
+            api_key, self.config.credentials.get("api_secret")
+        )
 
         while path:
             url = path
@@ -436,7 +448,9 @@ class Trading212Connector(Connector):
         since_str = since.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
         path += f"&from={since_str}"
 
-        headers = _auth_headers(api_key)
+        headers = _auth_headers(
+            api_key, self.config.credentials.get("api_secret")
+        )
 
         while path:
             url = path
@@ -472,12 +486,21 @@ class Trading212Connector(Connector):
 # ── Module-level helpers ────────────────────────────────────────────────
 
 
-def _auth_headers(api_key: str) -> dict[str, str]:
+def _auth_headers(
+    api_key: str, api_secret: str | None = None
+) -> dict[str, str]:
     """Return headers for Trading212 API requests.
 
-    Trading212 expects the API key directly as the Authorization header
-    value (no ``Bearer`` prefix).
+    Current Trading212 keys use HTTP Basic with an API key/secret pair.
+    Legacy single-part keys remain supported for existing configurations.
     """
+    if api_secret:
+        import base64
+
+        token = base64.b64encode(f"{api_key}:{api_secret}".encode()).decode(
+            "ascii"
+        )
+        return {"Authorization": f"Basic {token}"}
     return {
         "Authorization": api_key,
     }
