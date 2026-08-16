@@ -14,6 +14,20 @@ via the ``finance_sync.connectors`` entry point group in ``pyproject.toml``.
 | Manual Expense | ``manual_expense`` | Manual expense tracking via JSON | None (file-based) |
 | Plaid-like | ``plaid_like`` | Open banking template (Plaid/TrueLayer/Teller) | Client ID + access token |
 
+## Environment behavior
+
+- **Staging (`APP_ENVIRONMENT=staging`)** — each bunq and Trading212 card lets
+  the user choose between the checked-in synthetic July 2026 dataset and the
+  provider's official test environment. bunq Sandbox requires a sandbox API
+  key; Trading212 Paper Trading requires its demo API key and API secret. The
+  server locks test-API configurations to the official provider hostname, so a
+  custom endpoint cannot be injected. `STAGING_CONNECTOR_BASE_URL` identifies
+  the internal API used only by the static option.
+- **Production (`APP_ENVIRONMENT=prod`)** — bunq and Trading212 are
+  user-managed. A user with `connectors:write` supplies the API credentials
+  and options in the Connectors dashboard; secrets are stored with the
+  existing envelope encryption flow and are never returned by the API.
+
 ## bunq
 
 - **Module:** ``finance_sync.connectors.bunq``
@@ -21,6 +35,7 @@ via the ``finance_sync.connectors`` entry point group in ``pyproject.toml``.
 - **API:** bunq v1 REST API
 - **Rate limit:** 60 req/min
 - **Features:** Session-server auth, paginated accounts and payments,
+  signed installation/device/session bootstrap for bunq Sandbox,
   account type mapping (MonetaryAccountBank → checking,
   MonetaryAccountSavings → savings)
 - **Docs:** See module docstring and ``docs/connector-development.md``
@@ -28,7 +43,8 @@ via the ``finance_sync.connectors`` entry point group in ``pyproject.toml``.
 ## Trading212
 
 - **Module:** ``finance_sync.connectors.trading212``
-- **Auth:** API key in ``credentials["api_key"]``
+- **Auth:** API key and API secret (HTTP Basic); legacy single-key
+  authentication remains supported
 - **API:** Trading212 v0 REST API
 - **Rate limit:** 10 req/min (free tier)
 - **Capabilities:** `accounts`, `transactions`, `holdings`

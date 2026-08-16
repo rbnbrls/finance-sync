@@ -19,7 +19,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from finance_sync.api.deps.auth import (
     AuthContext,
-    require_role,
+    require_permission,
+)
+from finance_sync.connectors.environment import (
+    STAGING_STATIC,
+    STAGING_TEST_API,
+    is_staging_managed,
+    staging_connector_config,
 )
 from finance_sync.connectors.models import (
     ConnectorConfig as ConnectorConfigModel,
@@ -71,6 +77,10 @@ class ConnectorInfo(BaseModel):
     capabilities: list[str] = Field(
         default_factory=list,
         description="Resources this connector can fetch",
+    )
+    configuration_mode: str = Field(
+        default="user",
+        description="Whether configuration is user-managed or staging-selectable.",
     )
 
 
@@ -208,6 +218,14 @@ def _get_connector_credential_schema(
                     "placeholder": "Enter your Trading212 API key",
                     "required": True,
                 },
+                {
+                    "key": "api_secret",
+                    "label": "API Secret",
+                    "type": "password",
+                    "placeholder": "Enter your Trading212 API secret",
+                    "required": False,
+                    "description": "Required for current Trading212 API keys",
+                },
             ],
             [
                 {
@@ -277,17 +295,55 @@ def _get_connector_credential_schema(
     return schemas.get(connector_type, ([], []))
 
 
+def _staging_connector_schema(
+    connector_type: str,
+) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
+    """Fields for choosing static fixtures or an official test API."""
+    credentials, _ = _get_connector_credential_schema(connector_type)
+    for field in credentials:
+        field["required"] = False
+    return credentials, [
+        {
+            "key": "data_source",
+            "label": "Staging data source",
+            "type": "select",
+            "default": STAGING_STATIC,
+            "choices": [
+                {"value": STAGING_STATIC, "label": "Static test dataset"},
+                {
+                    "value": STAGING_TEST_API,
+                    "label": (
+                        "bunq Sandbox"
+                        if connector_type == "bunq"
+                        else "Trading212 Paper Trading"
+                    ),
+                },
+            ],
+            "description": (
+                "Test API credentials are required only when that option "
+                "is selected."
+            ),
+        }
+    ]
+
+
 # ── Endpoints ───────────────────────────────────────────────────────────
 
 
 @router.get("", response_model=list[ConnectorInfo])
-async def list_available_connectors() -> list[ConnectorInfo]:
+async def list_available_connectors(
+    request: Request,
+) -> list[ConnectorInfo]:
     """List all available connector types with their credential schemas."""
     registry = _get_registry()
+    settings = get_container(request).settings
     connectors_meta = registry.list_connectors()
     result: list[ConnectorInfo] = []
     for name, meta in connectors_meta.items():
+        managed = is_staging_managed(name, settings)
         cred_fields, opt_fields = _get_connector_credential_schema(name)
+        if managed:
+            cred_fields, opt_fields = _staging_connector_schema(name)
         capabilities: list[str] = []
         try:
             cls = registry._classes.get(name)  # type: ignore[attr-defined]
@@ -303,6 +359,7 @@ async def list_available_connectors() -> list[ConnectorInfo]:
                 credential_fields=cred_fields,
                 option_fields=opt_fields,
                 capabilities=capabilities,
+                configuration_mode="staging_choice" if managed else "user",
             )
         )
     return result
@@ -310,7 +367,7 @@ async def list_available_connectors() -> list[ConnectorInfo]:
 
 @router.get("/configs", response_model=list[ConnectorConfigResponse])
 async def list_connector_configs(
-    auth: AuthContext = Depends(require_role("admin")),
+    auth: AuthContext = Depends(require_permission("connectors", "read")),
     db: AsyncSession = Depends(get_db),
 ) -> list[ConnectorConfigResponse]:
     """List all saved connector configurations for the current tenant."""
@@ -354,12 +411,30 @@ async def list_connector_configs(
 async def create_connector_config(
     body: ConnectorConfigCreate,
     request: Request,
-    auth: AuthContext = Depends(require_role("admin")),
+    auth: AuthContext = Depends(require_permission("connectors", "write")),
     db: AsyncSession = Depends(get_db),
 ) -> ConnectorConfigResponse:
     """Create a new connector configuration (encrypts credentials)."""
     container = get_container(request)
     settings = container.settings
+
+    credentials = body.credentials
+    options = body.options
+    if is_staging_managed(body.provider_type, settings):
+        try:
+            credentials, options = staging_connector_config(
+                body.provider_type,
+                settings,
+                data_source=str(
+                    body.options.get("data_source", STAGING_STATIC)
+                ),
+                credentials=body.credentials,
+            )
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=str(exc),
+            ) from exc
 
     # Validate provider_type exists
     registry = _get_registry()
@@ -393,12 +468,12 @@ async def create_connector_config(
     # Encrypt credentials if provided
     encrypted_payload: bytes = b""
     nonce: bytes = b""
-    if body.credentials:
-        plaintext = json.dumps(body.credentials, separators=(",", ":"))
+    if credentials:
+        plaintext = json.dumps(credentials, separators=(",", ":"))
         encrypted_payload, nonce = encrypt_credential(plaintext, settings)
 
     # Merge human-readable label into options so it survives updates
-    merged_options = dict(body.options)
+    merged_options = dict(options)
     if body.description:
         merged_options["_label"] = body.description
     elif "_label" in merged_options:
@@ -431,8 +506,8 @@ async def create_connector_config(
         id=cred.id,
         provider_type=cred.provider_key,
         description=label,
-        options=body.options,
-        is_configured=bool(body.credentials)
+        options=options,
+        is_configured=bool(credentials)
         or body.provider_type
         in {"degiro_pension", "csv_import", "manual_expense"},
         created_at=cred.created_at,
@@ -445,7 +520,7 @@ async def update_connector_config(
     config_id: str,
     body: ConnectorConfigUpdate,
     request: Request,
-    auth: AuthContext = Depends(require_role("admin")),
+    auth: AuthContext = Depends(require_permission("connectors", "write")),
     db: AsyncSession = Depends(get_db),
 ) -> ConnectorConfigResponse:
     """Update an existing connector configuration."""
@@ -465,10 +540,48 @@ async def update_connector_config(
             detail="Connector configuration not found",
         )
 
+    credentials_update = body.credentials
+    options_update = body.options
+    if is_staging_managed(cred.provider_key, settings):
+        existing_options: dict[str, Any] = {}
+        with contextlib.suppress(json.JSONDecodeError, TypeError):
+            parsed_existing = json.loads(cred.description or "{}")
+            if isinstance(parsed_existing, dict):
+                existing_options = cast(dict[str, Any], parsed_existing)
+        previous_source = str(
+            existing_options.get("data_source", STAGING_STATIC)
+        )
+        requested_source = str(
+            (body.options or {}).get("data_source", previous_source)
+        )
+        supplied_credentials = body.credentials or {}
+        if requested_source == STAGING_TEST_API and not supplied_credentials:
+            if previous_source != STAGING_TEST_API:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                    detail="Test API credentials are required",
+                )
+            plaintext = decrypt_credential(
+                cred.encrypted_payload, cred.nonce, settings
+            )
+            supplied_credentials = json.loads(plaintext)
+        try:
+            credentials_update, options_update = staging_connector_config(
+                cred.provider_key,
+                settings,
+                data_source=requested_source,
+                credentials=supplied_credentials,
+            )
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=str(exc),
+            ) from exc
+
     # Update credentials if provided
-    if body.credentials is not None:
-        if body.credentials:
-            plaintext = json.dumps(body.credentials, separators=(",", ":"))
+    if credentials_update is not None:
+        if credentials_update:
+            plaintext = json.dumps(credentials_update, separators=(",", ":"))
             cred.encrypted_payload, cred.nonce = encrypt_credential(
                 plaintext, settings
             )
@@ -478,8 +591,8 @@ async def update_connector_config(
             cred.nonce = b""
 
     # Update options if provided (preserve _label from existing)
-    if body.options is not None:
-        merged_options = dict(body.options)
+    if options_update is not None:
+        merged_options = dict(options_update)
         if body.description is not None:
             if body.description:
                 merged_options["_label"] = body.description
@@ -494,7 +607,7 @@ async def update_connector_config(
         cred.description = json.dumps(merged_options, separators=(",", ":"))
 
     # Update description label (standalone, when options unchanged)
-    if body.description is not None and body.options is None:
+    if body.description is not None and options_update is None:
         with contextlib.suppress(json.JSONDecodeError, TypeError):
             existing = json.loads(cred.description or "{}")
             if isinstance(existing, dict):
@@ -531,7 +644,8 @@ async def update_connector_config(
 @router.delete("/configs/{config_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_connector_config(
     config_id: str,
-    auth: AuthContext = Depends(require_role("admin")),
+    request: Request,
+    auth: AuthContext = Depends(require_permission("connectors", "write")),
     db: AsyncSession = Depends(get_db),
 ) -> None:
     """Delete a connector configuration."""
@@ -547,6 +661,15 @@ async def delete_connector_config(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Connector configuration not found",
         )
+    settings = get_container(request).settings
+    if is_staging_managed(cred.provider_key, settings):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"{cred.provider_key} is staging-managed and cannot be "
+                "removed; edit it to switch data source"
+            ),
+        )
     await db.delete(cred)
     await db.flush()
 
@@ -555,7 +678,7 @@ async def delete_connector_config(
 async def test_connector_connection(
     config_id: str,
     request: Request,
-    auth: AuthContext = Depends(require_role("admin")),
+    auth: AuthContext = Depends(require_permission("connectors", "write")),
     db: AsyncSession = Depends(get_db),
 ) -> ConnectorTestResult:
     """Test a connector configuration by calling its ``health`` method."""
@@ -622,6 +745,8 @@ async def test_connector_connection(
 async def test_connector_inline(
     provider_type: str,
     body: InlineTestRequest,
+    request: Request,
+    _auth: AuthContext = Depends(require_permission("connectors", "write")),
 ) -> InlineTestResult:
     """Test a connector connection with inline (not yet saved) credentials.
 
@@ -641,11 +766,31 @@ async def test_connector_inline(
             ),
         )
 
-    # Instantiate connector with inline credentials
+    settings = get_container(request).settings
+    credentials = body.credentials
+    options = body.options
+    if is_staging_managed(provider_type, settings):
+        try:
+            credentials, options = staging_connector_config(
+                provider_type,
+                settings,
+                data_source=str(
+                    body.options.get("data_source", STAGING_STATIC)
+                ),
+                credentials=body.credentials,
+            )
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=str(exc),
+            ) from exc
+
+    # Instantiate connector with inline credentials in user-managed
+    # environments, or the synthetic config enforced by staging.
     connector_config = ConnectorConfigModel(
         provider_type=provider_type,
-        credentials=body.credentials,
-        options=body.options,
+        credentials=credentials,
+        options=options,
     )
 
     try:

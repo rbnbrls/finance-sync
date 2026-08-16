@@ -591,7 +591,7 @@
     <main class="main" id="main-content">
         <div id="section-connectors">
             <h1 class="page-title">Connectors</h1>
-            <p class="page-subtitle">Configure data source connections for syncing financial data.</p>
+            <p class="page-subtitle" id="connectors-subtitle">Configure data source connections for syncing financial data.</p>
             <div id="connector-list"></div>
         </div>
         <div id="section-exporters" class="hidden">
@@ -776,9 +776,13 @@
             let html = '<div class="connector-grid">';
             for (const c of connectors) {
                 const cfg = configs.find(x => x.provider_type === c.name);
+                const isStagingChoice = c.configuration_mode === 'staging_choice';
+                const dataSource = cfg && cfg.options ? (cfg.options.data_source || 'static') : 'static';
+                const usesTestData = isStagingChoice && dataSource === 'static';
+                const usesTestApi = isStagingChoice && dataSource === 'test_api';
                 const isConfigured = cfg && cfg.is_configured;
                 const badgeClass = isConfigured ? 'connected' : 'unconfigured';
-                const badgeText = isConfigured ? 'Connected' : 'Not Configured';
+                const badgeText = usesTestData ? 'Static Test Data' : (usesTestApi ? 'Test API' : (isConfigured ? 'Connected' : 'Not Configured'));
                 const caps = c.capabilities || [];
                 const lastImport = c.name === 'degiro_pension' ? degiroRuns.find(r => r.status === 'completed') : null;
                 const latestAttempt = c.name === 'degiro_pension' ? degiroRuns[0] : null;
@@ -789,7 +793,7 @@
                             <div class="name">${c.display_name}</div>
                             <span class="badge ${badgeClass}" id="badge-${c.name}">${badgeText}</span>
                         </div>
-                        <div class="desc">${c.name === 'degiro_pension' ? 'Import official DEGIRO CSV/Excel exports.' : `${c.display_name} API connector.`} SDK v${c.sdk_version}.</div>
+                        <div class="desc">${usesTestData ? `${c.display_name} uses the synthetic July 2026 staging dataset.` : (usesTestApi ? `${c.display_name} uses the provider's official ${c.name === 'bunq' ? 'sandbox' : 'paper-trading'} API.` : (c.name === 'degiro_pension' ? 'Import official DEGIRO CSV/Excel exports.' : `${c.display_name} API connector.`))} SDK v${c.sdk_version}.</div>
                         <div class="capabilities">
                             ${caps.map(cap => `<span class="cap">${cap}</span>`).join('')}
                         </div>
@@ -798,9 +802,9 @@
                             <button class="btn btn-primary btn-sm" onclick="openConfigModal('${c.name}')">
                                 ${isConfigured ? '&#9998; Edit' : '&#43; Configure'}
                             </button>
-                            ${isConfigured ? `<button class="btn btn-success btn-sm" onclick="testConnection('${cfg.id}', '${c.name}')">&#10003; Test</button>` : ''}
+                            ${isConfigured && cfg ? `<button class="btn btn-success btn-sm" onclick="testConnection('${cfg.id}', '${c.name}')">&#10003; Test</button>` : ''}
                             ${c.name === 'degiro_pension' && cfg ? `<button class="btn btn-success btn-sm" onclick="openDegiroImport('${cfg.id}')">&#8679; Import</button>` : ''}
-                            ${cfg ? `<button class="btn btn-danger btn-sm" onclick="deleteConfig('${cfg.id}', '${c.name}')">&#10005; Remove</button>` : ''}
+                            ${cfg && !isStagingChoice ? `<button class="btn btn-danger btn-sm" onclick="deleteConfig('${cfg.id}', '${c.name}')">&#10005; Remove</button>` : ''}
                         </div>
                         <div id="test-result-${c.name}" style="margin-top: 12px;"></div>
                     </div>
@@ -906,20 +910,30 @@
 
             let optsHtml = '';
             for (const f of c.option_fields || []) {
+                const configuredValue = cfg && cfg.options && cfg.options[f.key] !== undefined ? cfg.options[f.key] : f.default;
                 if (f.type === 'boolean') {
                     optsHtml += `
                         <div class="form-group">
                             <div class="checkbox-wrap">
-                                <input type="checkbox" id="opt-${f.key}" ${f.default ? 'checked' : ''}>
+                                <input type="checkbox" id="opt-${f.key}" ${configuredValue ? 'checked' : ''}>
                                 <label for="opt-${f.key}" style="margin:0;">${f.label}</label>
                                 ${f.description ? `<span style="font-size:0.75rem;color:var(--text-muted);margin-left:6px;">— ${f.description}</span>` : ''}
                             </div>
+                        </div>`;
+                } else if (f.type === 'select') {
+                    optsHtml += `
+                        <div class="form-group">
+                            <label for="opt-${f.key}">${f.label}</label>
+                            <select id="opt-${f.key}">
+                                ${(f.choices || []).map(choice => `<option value="${choice.value}" ${choice.value === configuredValue ? 'selected' : ''}>${choice.label}</option>`).join('')}
+                            </select>
+                            ${f.description ? `<div style="font-size:0.75rem;color:var(--text-muted);margin-top:6px;">${f.description}</div>` : ''}
                         </div>`;
                 } else {
                     optsHtml += `
                         <div class="form-group">
                             <label for="opt-${f.key}">${f.label}</label>
-                            <input type="${f.type}" id="opt-${f.key}" placeholder="${f.placeholder || ''}">
+                            <input type="${f.type}" id="opt-${f.key}" placeholder="${f.placeholder || ''}" value="${configuredValue || ''}">
                         </div>`;
                 }
             }
