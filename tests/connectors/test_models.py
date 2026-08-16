@@ -128,6 +128,7 @@ class TestInvestmentModels:
         assert canonical.security_reference.isin == "IE00BK5BQT80"
         assert canonical.quantity == Decimal("2.5")
         assert txn.amount_in_base == Decimal(-92)
+        assert txn.security_reference is not None
         assert txn.security_reference.provider_identifier() == "instrument-1"
 
 
