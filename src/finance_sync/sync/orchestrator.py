@@ -26,7 +26,7 @@ from __future__ import annotations
 import json
 import traceback
 from datetime import UTC, datetime
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import TYPE_CHECKING, Any, Protocol, cast
 
 import structlog
@@ -122,6 +122,24 @@ class _CardsConnector(Protocol):
 
 
 logger = structlog.get_logger("finance_sync.sync.orchestrator")
+
+
+def _values_differ(new_val: Any, old_val: Any) -> bool:
+    """Compare a connector value against the stored value for change detection.
+
+    Scale-insensitive for Decimals: a ``Numeric(24,8)`` column reads back as
+    e.g. ``Decimal('-13.80000000')``, which must compare equal to the raw
+    ``Decimal('-13.80')``.  Comparing via ``str()`` instead makes every
+    re-sync look "changed", re-emitting ``{entity}.updated`` with the same
+    deterministic outbox idempotency key until the unique constraint aborts
+    the whole sync run.
+    """
+    if isinstance(new_val, Decimal) or isinstance(old_val, Decimal):
+        try:
+            return Decimal(str(new_val)) != Decimal(str(old_val))
+        except (InvalidOperation, TypeError, ValueError):
+            pass
+    return str(new_val) != str(old_val)
 
 
 class SyncOrchestrator:
@@ -919,7 +937,7 @@ class SyncOrchestrator:
             ):
                 new_val = getattr(ct, field, None)
                 old_val = getattr(existing, field, None)
-                if new_val is not None and str(new_val) != str(old_val):
+                if new_val is not None and _values_differ(new_val, old_val):
                     setattr(existing, field, new_val)
                     changed[field] = new_val
 
@@ -1039,7 +1057,7 @@ class SyncOrchestrator:
         if existing is not None:
             changed: dict[str, Any] = {}
             for field, new_value in values.items():
-                if str(getattr(existing, field)) != str(new_value):
+                if _values_differ(new_value, getattr(existing, field)):
                     setattr(existing, field, new_value)
                     changed[field] = new_value
             if changed:
@@ -1300,7 +1318,7 @@ class SyncOrchestrator:
             ):
                 new_val = getattr(csp, field, None)
                 old_val = getattr(existing, field, None)
-                if new_val is not None and str(new_val) != str(old_val):
+                if new_val is not None and _values_differ(new_val, old_val):
                     setattr(existing, field, new_val)
                     changed[field] = new_val
 
@@ -1386,7 +1404,7 @@ class SyncOrchestrator:
             ):
                 new_val = getattr(cct, field, None)
                 old_val = getattr(existing, field, None)
-                if new_val is not None and str(new_val) != str(old_val):
+                if new_val is not None and _values_differ(new_val, old_val):
                     setattr(existing, field, new_val)
                     changed[field] = new_val
 
