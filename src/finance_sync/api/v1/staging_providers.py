@@ -29,7 +29,9 @@ def _fixture(relative_path: str) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-@router.post("/bunq/v1/session-server", dependencies=[Depends(_require_staging)])
+@router.post(
+    "/bunq/v1/session-server", dependencies=[Depends(_require_staging)]
+)
 async def bunq_session() -> Any:
     return _fixture("bunq/session-server.json")
 

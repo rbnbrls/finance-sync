@@ -46,8 +46,7 @@ def test_staging_exposes_managed_bunq_and_trading212_test_data() -> None:
 
         for provider in ("bunq", "trading212"):
             assert (
-                connectors[provider]["configuration_mode"]
-                == "staging_choice"
+                connectors[provider]["configuration_mode"] == "staging_choice"
             )
             source = connectors[provider]["option_fields"][0]
             assert source["key"] == "data_source"
@@ -57,21 +56,21 @@ def test_staging_exposes_managed_bunq_and_trading212_test_data() -> None:
             ]
 
         cash = client.get(
-            "/api/v1/staging-providers/trading212/"
-            "api/v0/equity/account/cash"
+            "/api/v1/staging-providers/trading212/api/v0/equity/account/cash"
         )
         assert cash.status_code == 200
         assert cash.json()["currencyCode"] == "EUR"
 
         payments = client.get(
-            "/api/v1/staging-providers/bunq/v1/"
-            "monetary-account/9100001/payment"
+            "/api/v1/staging-providers/bunq/v1/monetary-account/9100001/payment"
         )
         assert payments.status_code == 200
         assert len(payments.json()["Response"]) == 31
 
 
-def test_production_exposes_user_managed_api_fields_and_hides_fixtures() -> None:
+def test_production_exposes_user_managed_api_fields_and_hides_fixtures() -> (
+    None
+):
     with TestClient(create_app(_settings("prod"))) as client:
         response = client.get("/api/v1/connectors")
         assert response.status_code == 200
@@ -81,8 +80,7 @@ def test_production_exposes_user_managed_api_fields_and_hides_fixtures() -> None
             assert connectors[provider]["configuration_mode"] == "user"
 
         assert [
-            field["key"]
-            for field in connectors["bunq"]["credential_fields"]
+            field["key"] for field in connectors["bunq"]["credential_fields"]
         ] == ["api_key"]
 
         assert [
@@ -91,8 +89,7 @@ def test_production_exposes_user_managed_api_fields_and_hides_fixtures() -> None
         ] == ["api_key", "api_secret"]
 
         fixture = client.get(
-            "/api/v1/staging-providers/trading212/"
-            "api/v0/equity/account/cash"
+            "/api/v1/staging-providers/trading212/api/v0/equity/account/cash"
         )
         assert fixture.status_code == 404
 

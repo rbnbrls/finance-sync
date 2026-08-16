@@ -86,7 +86,9 @@ class TestSettings:
         settings_prod = Settings(environment="prod")  # type: ignore[call-arg]
         assert settings_prod.is_production is True
 
-    def test_app_environment_alias(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_app_environment_alias(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         monkeypatch.setenv("APP_ENVIRONMENT", "staging")
         settings = Settings(_env_file=None)
         assert settings.environment == Environment.STAGING

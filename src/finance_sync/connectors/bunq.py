@@ -219,9 +219,7 @@ class BunqConnector(Connector):
             {
                 "description": "finance-sync",
                 "secret": api_key,
-                "permitted_ips": self.config.options.get(
-                    "permitted_ips", []
-                ),
+                "permitted_ips": self.config.options.get("permitted_ips", []),
             },
         )
         session = await signed_post("/session-server", {"secret": api_key})

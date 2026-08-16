@@ -581,9 +581,7 @@ async def update_connector_config(
     # Update credentials if provided
     if credentials_update is not None:
         if credentials_update:
-            plaintext = json.dumps(
-                credentials_update, separators=(",", ":")
-            )
+            plaintext = json.dumps(credentials_update, separators=(",", ":"))
             cred.encrypted_payload, cred.nonce = encrypt_credential(
                 plaintext, settings
             )

@@ -497,9 +497,9 @@ def _auth_headers(
     if api_secret:
         import base64
 
-        token = base64.b64encode(
-            f"{api_key}:{api_secret}".encode()
-        ).decode("ascii")
+        token = base64.b64encode(f"{api_key}:{api_secret}".encode()).decode(
+            "ascii"
+        )
         return {"Authorization": f"Basic {token}"}
     return {
         "Authorization": api_key,
