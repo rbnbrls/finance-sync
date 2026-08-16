@@ -2365,3 +2365,133 @@ class TestRecordSyncMetrics:
             )
             == 4.0
         )
+
+
+class TestConnectorStatePersistence:
+    """Stateful connector state (e.g. bunq installation) round trip."""
+
+    class _FakeRow:
+        def __init__(self, state: dict) -> None:
+            self.state = dict(state)
+
+    class _FakeSession:
+        """Minimal AsyncSession stand-in storing one connector_state row."""
+
+        def __init__(self) -> None:
+            self.row: object | None = None
+            self.added: list[object] = []
+
+        async def scalar(self, _stmt: object) -> object | None:
+            return self.row
+
+        def add(self, obj: object) -> None:
+            self.added.append(obj)
+            self.row = obj
+
+        async def commit(self) -> None:
+            pass
+
+    class _Ctx:
+        def __init__(self, fake: object) -> None:
+            self._fake = fake
+
+        async def __aenter__(self) -> object:
+            return self._fake
+
+        async def __aexit__(self, *exc: object) -> None:
+            return None
+
+    class _FakeFactory:
+        def __init__(self, fake: object) -> None:
+            self._fake = fake
+
+        def __call__(self) -> TestConnectorStatePersistence._Ctx:
+            return TestConnectorStatePersistence._Ctx(self._fake)
+
+    class _StatefulConnector:
+        def __init__(self, state: dict | None = None) -> None:
+            self._state = dict(state or {})
+
+        def set_state(self, state: dict) -> None:
+            self._state = dict(state)
+
+        def get_state(self) -> dict:
+            return dict(self._state)
+
+    @pytest.mark.asyncio
+    async def test_persist_then_load_roundtrip(self) -> None:
+        fake = self._FakeSession()
+        orchestrator = SyncOrchestrator(
+            session_factory=self._FakeFactory(fake),  # type: ignore[arg-type]
+            registry=MagicMock(),
+            tenant_id="tenant_1",
+        )
+        conn = self._StatefulConnector(
+            {
+                "installation_token": "install-tok-1",
+                "client_private_key_pem": "-----BEGIN PRIVATE KEY-----",
+            }
+        )
+
+        await orchestrator._persist_connector_state("bunq", conn)  # type: ignore[arg-type]
+
+        assert len(fake.added) == 1
+        loaded = await orchestrator._load_connector_state("bunq")
+        assert loaded == {
+            "installation_token": "install-tok-1",
+            "client_private_key_pem": "-----BEGIN PRIVATE KEY-----",
+        }
+
+    @pytest.mark.asyncio
+    async def test_persist_updates_existing_row(self) -> None:
+        fake = self._FakeSession()
+        fake.row = self._FakeRow({"installation_token": "old"})
+        orchestrator = SyncOrchestrator(
+            session_factory=self._FakeFactory(fake),  # type: ignore[arg-type]
+            registry=MagicMock(),
+            tenant_id="tenant_1",
+        )
+
+        await orchestrator._persist_connector_state(
+            "bunq",
+            self._StatefulConnector(  # type: ignore[arg-type]
+                {"installation_token": "new"}
+            ),
+        )
+
+        assert fake.added == []
+        row = fake.row
+        assert isinstance(row, self._FakeRow)
+        assert row.state == {"installation_token": "new"}
+
+    @pytest.mark.asyncio
+    async def test_empty_state_not_persisted(self) -> None:
+        fake = self._FakeSession()
+        orchestrator = SyncOrchestrator(
+            session_factory=self._FakeFactory(fake),  # type: ignore[arg-type]
+            registry=MagicMock(),
+            tenant_id="tenant_1",
+        )
+
+        await orchestrator._persist_connector_state(
+            "bunq",
+            self._StatefulConnector(),  # type: ignore[arg-type]
+        )
+
+        assert fake.added == []
+
+    @pytest.mark.asyncio
+    async def test_non_stateful_connector_not_persisted(self) -> None:
+        fake = self._FakeSession()
+        orchestrator = SyncOrchestrator(
+            session_factory=self._FakeFactory(fake),  # type: ignore[arg-type]
+            registry=MagicMock(),
+            tenant_id="tenant_1",
+        )
+
+        class PlainConnector:
+            pass
+
+        await orchestrator._persist_connector_state("bunq", PlainConnector())  # type: ignore[arg-type]
+
+        assert fake.added == []

@@ -27,9 +27,10 @@ import json
 import traceback
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
-from typing import TYPE_CHECKING, Any, Protocol, cast
+from typing import TYPE_CHECKING, Any, Protocol, cast, runtime_checkable
 
 import structlog
+from sqlalchemy import select
 
 from finance_sync.connectors.exceptions import (
     ConnectorError,
@@ -39,6 +40,7 @@ from finance_sync.connectors.exceptions import (
 from finance_sync.models import (
     Account,
     CardTransaction,
+    ConnectorState,
     Holding,
     ScheduledPayment,
     Security,
@@ -119,6 +121,21 @@ class _CardsConnector(Protocol):
         *,
         limit: int | None = None,
     ) -> list[RawCardTransaction]: ...
+
+
+@runtime_checkable
+class _StatefulConnector(Protocol):
+    """Connector that can persist opaque runtime state between runs.
+
+    ``bunq`` implements this to keep its installation material (client RSA
+    keypair + installation token) stable across sync ticks so a fresh device
+    is not registered on every run.  The orchestrator injects the stored
+    state before a run and persists the connector's state after it.
+    """
+
+    def set_state(self, state: dict[str, Any]) -> None: ...
+
+    def get_state(self) -> dict[str, Any]: ...
 
 
 logger = structlog.get_logger("finance_sync.sync.orchestrator")
@@ -257,6 +274,14 @@ class SyncOrchestrator:
 
         connector = self._registry.get_connector(config)
 
+        # Inject persisted connector state (e.g. bunq installation material)
+        # before the run so stateful connectors reuse their device identity.
+        if isinstance(connector, _StatefulConnector):
+            stored = await self._load_connector_state(provider_type)
+            if stored:
+                connector.set_state(stored)
+                log.debug("connector_state_injected", provider=provider_type)
+
         # ── Run the pipeline ──────────────────────────────────────
         async with self._session_factory() as session:
             result = await self._run_pipeline(
@@ -270,6 +295,12 @@ class SyncOrchestrator:
                 # account from its stored cursor.
                 resume=since is None,
             )
+
+        # Persist new connector state (a freshly created bunq installation)
+        # regardless of run outcome — authenticate() runs first, so any
+        # returned result means the installation exists server-side.
+        if isinstance(connector, _StatefulConnector):
+            await self._persist_connector_state(provider_type, connector)
 
         self._record_sync_metrics(provider_type, result)
 
@@ -314,6 +345,59 @@ class SyncOrchestrator:
             )
 
         return result
+
+    # ── Connector state persistence ────────────────────────────────────
+
+    async def _load_connector_state(self, provider_key: str) -> dict[str, Any]:
+        """Return the stored state blob for ``(tenant, provider)``.
+
+        Used to inject persistent connector state (e.g. the bunq
+        installation material) into stateful connectors before a run.
+        """
+        async with self._session_factory() as session:
+            row = await session.scalar(
+                select(ConnectorState).where(
+                    ConnectorState.tenant_id == self._tenant_id,
+                    ConnectorState.provider_key == provider_key,
+                )
+            )
+        state = getattr(row, "state", None) if row is not None else None
+        if not isinstance(state, dict) or not state:
+            return {}
+        return dict(cast("dict[str, Any]", state))
+
+    async def _persist_connector_state(
+        self,
+        provider_key: str,
+        connector: Connector,
+    ) -> None:
+        """Persist connector state (e.g. a fresh bunq installation).
+
+        Only stateful connectors expose state; non-empty dicts are upserted
+        into ``connector_state`` so the next run reuses the installation.
+        """
+        getter = getattr(connector, "get_state", None)
+        state = getter() if callable(getter) else None
+        if not isinstance(state, dict) or not state:
+            return
+        async with self._session_factory() as session:
+            row = await session.scalar(
+                select(ConnectorState).where(
+                    ConnectorState.tenant_id == self._tenant_id,
+                    ConnectorState.provider_key == provider_key,
+                )
+            )
+            if row is None:
+                session.add(
+                    ConnectorState(
+                        tenant_id=self._tenant_id,
+                        provider_key=provider_key,
+                        state=state,
+                    )
+                )
+            else:
+                row.state = state
+            await session.commit()
 
     # ── Bunq cards / scheduled payments sync ──────────────────────────
 
@@ -363,10 +447,19 @@ class SyncOrchestrator:
 
         connector = self._registry.get_connector(config)
 
+        # Reuse the persisted bunq installation across cards syncs too.
+        if isinstance(connector, _StatefulConnector):
+            stored = await self._load_connector_state("bunq")
+            if stored:
+                connector.set_state(stored)
+
         async with self._session_factory() as session:
             result = await self._run_cards_pipeline(
                 session, connector, _since, log
             )
+
+        if isinstance(connector, _StatefulConnector):
+            await self._persist_connector_state("bunq", connector)
 
         self._record_sync_metrics("bunq_cards", result)
 

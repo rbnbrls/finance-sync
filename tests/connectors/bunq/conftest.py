@@ -155,11 +155,19 @@ class BunqApiMockTransport(httpx.MockTransport):
 
 @pytest.fixture
 def bunq_connector_config() -> ConnectorConfig:
-    """Return a bunq ``ConnectorConfig`` with test credentials."""
+    """Return a bunq ``ConnectorConfig`` with test credentials.
+
+    Uses the legacy session-only auth mode (``full_auth: False``), which is
+    how static fixtures and already-registered installations authenticate;
+    the full installation flow is covered by ``test_bunq_install_flow.py``.
+    """
     return ConnectorConfig(
         provider_type="bunq",
         credentials={"api_key": "test_bunq_api_key_abc123"},
-        options={"sandbox": True},
+        options={
+            "sandbox": True,
+            "full_auth": False,
+        },
     )
 
 

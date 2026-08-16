@@ -95,17 +95,36 @@ class BunqConnector(Connector):
         base_url = _BUNQ_API_BASE
         if "base_url" in config.options:
             base_url = config.options["base_url"]
+        self._base_url = base_url
         self._http = http_client or httpx.AsyncClient(
             base_url=base_url,
             timeout=httpx.Timeout(30.0),
         )
         self._session_token: str | None = None
         self._user_id: int | None = None
-        self._full_auth = bool(config.options.get("full_auth", False))
+        #: Opaque persisted connector state (bunq installation material).
+        #: Injected by the orchestrator before a run and read back after.
+        self._state: dict[str, Any] = {}
+        # bunq requires the full installation flow (RSA key exchange →
+        # /installation → /device-server → signed /session-server) for
+        # every new API key; the legacy session-only path only works for
+        # already-registered installations / static fixtures.  Default to
+        # the full flow and make session-only an explicit opt-out.
+        self._full_auth = bool(config.options.get("full_auth", True))
 
     @property
     def name(self) -> str:
         return "bunq"
+
+    # ── Persistent state (bunq installation material) ─────────────────
+
+    def set_state(self, state: dict[str, Any]) -> None:
+        """Replace the persisted connector state (e.g. from a prior run)."""
+        self._state = dict(state or {})
+
+    def get_state(self) -> dict[str, Any]:
+        """Return the connector state that should be persisted after a run."""
+        return dict(self._state)
 
     # ── Authentication ──────────────────────────────────────────────────
 
@@ -172,58 +191,108 @@ class BunqConnector(Connector):
         return {"token": session_token, "user_id": user_id}
 
     async def _bootstrap_session(self, api_key: str) -> dict[str, Any]:
-        """Register an installation/device and create a signed session."""
+        """Register an installation/device (once) and create a signed session.
+
+        The installation material (client RSA private key + installation
+        token) is persisted via :meth:`get_state` so subsequent syncs reuse
+        the same device identity instead of registering a new device on every
+        tick — bunq limits the number of devices per API key.  The state is
+        only committed into ``self._state`` after the *entire* bootstrap
+        succeeds, so a partially-failed install is retried from scratch.
+        """
         from cryptography.hazmat.primitives import hashes, serialization
         from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
-        private_key = rsa.generate_private_key(
-            public_exponent=65537, key_size=2048
-        )
-        public_key = private_key.public_key().public_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PublicFormat.SubjectPublicKeyInfo,
-        )
-        installation = await self._http.post(
-            "/installation",
-            json={"client_public_key": public_key.decode("ascii")},
-            headers=_base_headers(),
-        )
-        installation.raise_for_status()
-        installation_token = _bunq_token(installation.json())
+        try:
+            private_key_pem = self._state.get("client_private_key_pem")
+            installation_token = self._state.get("installation_token")
+            if private_key_pem and installation_token:
+                # Reuse the persisted installation — the device is already
+                # registered under it, so only the signed session is needed.
+                from cryptography.hazmat.primitives.asymmetric.rsa import (
+                    RSAPrivateKey,
+                )
 
-        async def signed_post(path: str, body: dict[str, object]) -> Any:
-            payload = json.dumps(body, separators=(",", ":")).encode()
-            signature = private_key.sign(
-                payload,
-                padding.PKCS1v15(),
-                hashes.SHA256(),
-            )
-            headers = _base_headers()
-            headers.update(
-                {
-                    "Content-Type": "application/json",
-                    "X-Bunq-Client-Authentication": installation_token,
-                    "X-Bunq-Client-Signature": base64.b64encode(
-                        signature
-                    ).decode("ascii"),
-                }
-            )
-            response = await self._http.post(
-                path, content=payload, headers=headers
-            )
-            response.raise_for_status()
-            return response.json()
+                private_key = cast(
+                    RSAPrivateKey,
+                    serialization.load_pem_private_key(
+                        private_key_pem.encode("ascii"),
+                        password=None,
+                    ),
+                )
+                fresh_installation = False
+            else:
+                private_key = rsa.generate_private_key(
+                    public_exponent=65537, key_size=2048
+                )
+                public_key = private_key.public_key().public_bytes(
+                    encoding=serialization.Encoding.PEM,
+                    format=serialization.PublicFormat.SubjectPublicKeyInfo,
+                )
+                installation = await self._http.post(
+                    "/installation",
+                    json={"client_public_key": public_key.decode("ascii")},
+                    headers=_base_headers(),
+                )
+                installation.raise_for_status()
+                installation_token = _bunq_token(installation.json())
+                fresh_installation = True
 
-        await signed_post(
-            "/device-server",
-            {
-                "description": "finance-sync",
-                "secret": api_key,
-                "permitted_ips": self.config.options.get("permitted_ips", []),
-            },
-        )
-        session = await signed_post("/session-server", {"secret": api_key})
-        return _bunq_session(session)
+            async def signed_post(path: str, body: dict[str, object]) -> Any:
+                payload = json.dumps(body, separators=(",", ":")).encode()
+                signature = private_key.sign(
+                    payload,
+                    padding.PKCS1v15(),
+                    hashes.SHA256(),
+                )
+                headers = _base_headers()
+                headers.update(
+                    {
+                        "Content-Type": "application/json",
+                        "X-Bunq-Client-Authentication": installation_token,
+                        "X-Bunq-Client-Signature": base64.b64encode(
+                            signature
+                        ).decode("ascii"),
+                    }
+                )
+                response = await self._http.post(
+                    path, content=payload, headers=headers
+                )
+                response.raise_for_status()
+                return response.json()
+
+            if fresh_installation:
+                await signed_post(
+                    "/device-server",
+                    {
+                        "description": "finance-sync",
+                        "secret": api_key,
+                        "permitted_ips": _normalise_permitted_ips(
+                            self.config.options.get("permitted_ips", [])
+                        ),
+                    },
+                )
+            session = await signed_post("/session-server", {"secret": api_key})
+
+            if fresh_installation:
+                # Commit the installation material only after the whole
+                # bootstrap succeeded (device registered, session created).
+                self._state["client_private_key_pem"] = (
+                    private_key.private_bytes(
+                        encoding=serialization.Encoding.PEM,
+                        format=serialization.PrivateFormat.PKCS8,
+                        encryption_algorithm=serialization.NoEncryption(),
+                    ).decode("ascii")
+                )
+                self._state["installation_token"] = installation_token
+            return _bunq_session(session)
+        except (PermanentError, httpx.HTTPStatusError):
+            # A rejected installation is not worth retrying: clear any
+            # stale state so the next run registers a fresh one.  (The
+            # HTTPStatusError is converted to PermanentError by
+            # ``authenticate()``.)
+            self._state = {}
+            raise
 
     def _auth_headers(self) -> dict[str, str]:
         """Return request headers with the session token."""
@@ -725,22 +794,25 @@ class BunqConnector(Connector):
             msg = f"bunq HTTP error: {exc}"
             raise TransientError(msg) from exc
 
-    @staticmethod
-    def _next_page_url(data: dict[str, Any]) -> str | None:
+    def _next_page_url(self, data: dict[str, Any]) -> str | None:
         """Extract the next-page URL from a paginated response.
 
-        Returns ``None`` when there are no more pages.
+        Uses the connector's configured base URL so custom endpoints
+        (bunq sandbox, staging mocks) page against themselves instead of
+        jumping back to the production API.
         """
         pagination = data.get("Pagination") or data.get("PaginatedResponse")
         if not pagination:
             return None
         future_url = pagination.get("future_url")
-        if future_url:
-            # bunq returns future_url as an absolute path (/v1/...).
-            # Strip leading /v1 since _BUNQ_API_BASE already includes it.
-            future_url = future_url.removeprefix("/v1")
-            return f"{_BUNQ_API_BASE}{future_url}"
-        return None
+        if not future_url:
+            return None
+        future_url = str(future_url)
+        if future_url.startswith(("http://", "https://")):
+            return future_url
+        # bunq returns future_url as an absolute path (/v1/...).
+        # Strip the leading /v1 since the base URL already includes it.
+        return f"{self._base_url}{future_url.removeprefix('/v1')}"
 
 
 # ── Module-level helpers ────────────────────────────────────────────────
@@ -756,6 +828,23 @@ def _base_headers() -> dict[str, str]:
         "Cache-Control": "no-cache",
         "User-Agent": "finance-sync/0.1",
     }
+
+
+def _normalise_permitted_ips(raw: object) -> list[str]:
+    """Normalise the ``permitted_ips`` option to a list of IP strings.
+
+    Accepts a list (API / programmatic config) or a comma-separated
+    string (dashboard text input).
+    """
+    if isinstance(raw, str):
+        return [ip.strip() for ip in raw.split(",") if ip.strip()]
+    if isinstance(raw, (list, tuple)):
+        return [
+            str(ip).strip()
+            for ip in cast("Sequence[str]", raw)
+            if str(ip).strip()
+        ]
+    return []
 
 
 def _bunq_token(data: dict[str, Any]) -> str:
