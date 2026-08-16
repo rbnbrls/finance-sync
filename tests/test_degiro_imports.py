@@ -10,6 +10,7 @@ import os
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
+from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -18,6 +19,11 @@ from fastapi import UploadFile
 from finance_sync.config.settings import Settings
 from finance_sync.models.credential import Credential
 from finance_sync.models.import_run import ImportRun
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    from finance_sync.db.uow import UnitOfWork
 from finance_sync.services.degiro_import import (
     ImportValidationError,
     build_preview,
@@ -30,7 +36,7 @@ from finance_sync.services.degiro_import import (
 FIXTURES = Path(__file__).parent / "connectors/degiro_pension/fixtures"
 
 
-def _settings(tmp_path: Path, **changes: object) -> Settings:
+def _settings(tmp_path: Path, **changes: Any) -> Settings:
     return Settings(
         debug=False,
         database_url=None,
@@ -61,7 +67,10 @@ async def test_streams_valid_upload_and_builds_preview(tmp_path: Path) -> None:
 
     result = MagicMock()
     result.scalar_one.return_value = 0
-    session = SimpleNamespace(execute=AsyncMock(return_value=result))
+    session = cast(
+        "AsyncSession",
+        SimpleNamespace(execute=AsyncMock(return_value=result)),
+    )
     preview = await build_preview(
         paths,
         options={"account_key": "preview-test"},
@@ -197,11 +206,14 @@ async def test_worker_loads_options_for_secretless_connector() -> None:
     )
     scalar_result = MagicMock()
     scalar_result.scalar_one_or_none.return_value = credential
-    uow = SimpleNamespace(
-        tenants=SimpleNamespace(list=AsyncMock(return_value=[tenant])),
-        session=SimpleNamespace(
-            execute=AsyncMock(return_value=scalar_result),
-            info={"settings": _settings(Path("/tmp/test-imports"))},
+    uow = cast(
+        "UnitOfWork",
+        SimpleNamespace(
+            tenants=SimpleNamespace(list=AsyncMock(return_value=[tenant])),
+            session=SimpleNamespace(
+                execute=AsyncMock(return_value=scalar_result),
+                info={"settings": _settings(Path("/tmp/test-imports"))},
+            ),
         ),
     )
     configs = await _get_tenant_credentials(uow, "degiro_pension")
