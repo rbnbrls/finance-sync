@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
+from unittest.mock import MagicMock
 from uuid import uuid4
 
 import pytest
@@ -194,3 +195,39 @@ async def test_degiro_exports_reach_exact_wealthfolio_payload() -> None:
         absolute_tolerance=Decimal("0.01"),
         percentage_tolerance=Decimal("0.0001"),
     )
+
+
+def test_reconcile_ignores_remote_cash_row() -> None:
+    """Remote cash holdings must not count as positions outside source.
+
+    The live Wealthfolio instance returns a ``holdingType: "cash"`` row
+    (instrument symbol = currency code, e.g. ``EUR``) alongside the
+    security positions.  finance-sync tracks cash as the account balance
+    (``current_balance`` / ``available_balance``), not as a holdings
+    row, so the reconcile must ignore remote cash rows — otherwise every
+    export reports ``Wealthfolio bevat posities buiten de bronsnapshot``.
+    Recorded live on 2026-08-16: cash row with
+    ``{"holdingType": "cash", "instrument": {"symbol": "EUR"}, ...}``.
+    """
+    account = MagicMock()
+    account.id = "acct_001"
+    account.name = "Brokerage"
+    account.current_balance = Decimal("525.00")
+
+    source_rows: list[dict[str, object]] = []
+    remote_rows = [
+        {
+            "holdingType": "cash",
+            "instrument": {"id": "cash:EUR", "symbol": "EUR"},
+            "quantity": "525.00",
+            "marketValue": {"base": "525.00"},
+        }
+    ]
+    findings = _reconcile_holdings(
+        account=account,
+        source_rows=source_rows,
+        remote_rows=remote_rows,
+        absolute_tolerance=Decimal("1.00"),
+        percentage_tolerance=Decimal("0.005"),
+    )
+    assert findings == []
