@@ -1239,10 +1239,9 @@ def _reconcile_holdings(
             if isinstance(raw_instrument, dict)
             else {}
         )
-        is_cash = (
-            str(row.get("holdingType") or "").lower() == "cash"
-            or str(instrument.get("id") or "").startswith("cash:")
-        )
+        is_cash = str(row.get("holdingType") or "").lower() == "cash" or str(
+            instrument.get("id") or ""
+        ).startswith("cash:")
         # Cash is tracked as the account balance in finance-sync, not as a
         # holdings row — it must not count as a position outside the source
         # snapshot (the live Wealthfolio instance returns a holdingType
