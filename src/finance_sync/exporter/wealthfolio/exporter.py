@@ -1239,8 +1239,15 @@ def _reconcile_holdings(
             if isinstance(raw_instrument, dict)
             else {}
         )
+        is_cash = str(row.get("holdingType") or "").lower() == "cash" or str(
+            instrument.get("id") or ""
+        ).startswith("cash:")
+        # Cash is tracked as the account balance in finance-sync, not as a
+        # holdings row — it must not count as a position outside the source
+        # snapshot (the live Wealthfolio instance returns a holdingType
+        # "cash" row with the currency code as its symbol).
         symbol = str(instrument.get("isin") or instrument.get("symbol") or "")
-        if symbol:
+        if symbol and not is_cash:
             remote_quantities[symbol] = Decimal(str(row.get("quantity") or 0))
         raw_market_value = row.get("marketValue")
         market_value: dict[str, Any] = (
