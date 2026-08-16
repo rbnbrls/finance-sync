@@ -43,7 +43,12 @@ from finance_sync.connectors.exceptions import (
     RateLimitError,
     TransientError,
 )
-from finance_sync.connectors.models import RawAccount, RawTransaction
+from finance_sync.connectors.models import (
+    RawAccount,
+    RawHolding,
+    RawTransaction,
+    SecurityReference,
+)
 from finance_sync.connectors.rate_limiter import RateLimitPolicy
 
 if TYPE_CHECKING:
@@ -79,6 +84,7 @@ class Trading212Connector(Connector):
 
     display_name = "Trading212"
     sdk_version = "0.1.0"
+    supported_resources = frozenset({"accounts", "transactions", "holdings"})
 
     rate_limit_policy = RateLimitPolicy(
         max_requests=10,
@@ -210,6 +216,57 @@ class Trading212Connector(Connector):
         except httpx.HTTPError as exc:
             msg = f"Trading212 HTTP error fetching portfolio: {exc}"
             raise TransientError(msg) from exc
+
+    async def fetch_holdings(
+        self, *, account_id: str | None = None
+    ) -> list[RawHolding]:
+        """Map Trading212's live portfolio to canonical raw snapshots."""
+        if not self._account_id:
+            msg = "Trading212Connector not authenticated"
+            raise PermanentError(msg)
+        if account_id is not None and account_id != self._account_id:
+            return []
+
+        observed_at = datetime.now(UTC)
+        items = await self.fetch_portfolio()
+        holdings: list[RawHolding] = []
+        for item in items:
+            ticker = str(item.get("ticker", ""))
+            quantity = Decimal(str(item.get("quantity", "0")))
+            average_price = _optional_decimal(item.get("averagePrice"))
+            current_price = _optional_decimal(item.get("currentPrice"))
+            currency = str(item.get("currencyCode") or self._account_currency)
+            frontend = str(item.get("frontend", "")).upper()
+            security_type = "etf" if frontend == "ETF" else "stock"
+            holdings.append(
+                RawHolding(
+                    external_account_id=self._account_id,
+                    observed_at=observed_at,
+                    quantity=quantity,
+                    security_reference=SecurityReference(
+                        external_id=ticker,
+                        ticker=ticker,
+                        name=str(item.get("name") or ticker),
+                        currency_code=currency,
+                        security_type=security_type,
+                    ),
+                    cost_basis=(average_price * quantity)
+                    if average_price is not None
+                    else None,
+                    cost_basis_currency=currency,
+                    market_value=(current_price * quantity)
+                    if current_price is not None
+                    else None,
+                    currency_code=currency,
+                    price=current_price,
+                    price_currency=currency,
+                    provider_metadata={
+                        "initial_fill_date": item.get("initialFillDate"),
+                        "frontend": item.get("frontend"),
+                    },
+                )
+            )
+        return holdings
 
     # ── Accounts ────────────────────────────────────────────────────────
 
@@ -514,7 +571,7 @@ def _map_transaction_type(t212_type: str) -> str:
         "WITHDRAWAL": "withdrawal",
         "INTEREST": "interest",
         "FEE": "fee",
-        "TAX": "fee",
+        "TAX": "tax",
         "CASHBACK": "deposit",
         "LOYALTY_BONUS": "interest",
     }
@@ -557,6 +614,20 @@ def _parse_order(
         transaction_type=_map_order_side(side),
         quantity=Decimal(str(quantity)) if quantity else None,
         status=_map_order_status(status_raw),
+        security_reference=SecurityReference(
+            external_id=ticker or None,
+            ticker=ticker or None,
+            name=ticker or None,
+            venue=execution_venue,
+            currency_code=currency,
+            security_type=(
+                "etf"
+                if str(data.get("frontend", "")).upper() == "ETF"
+                else "stock"
+            ),
+        )
+        if ticker
+        else None,
         provider_metadata={
             "ticker": ticker,
             "order_type": order_type,
@@ -589,7 +660,7 @@ def _parse_cash_transaction(
 
     # Dividends and inflows are positive; fees are negative
     canonical_type = _map_transaction_type(t212_type)
-    if canonical_type in ("withdrawal", "fee"):
+    if canonical_type in ("withdrawal", "fee", "tax"):
         amount = -abs(amount)
     else:
         amount = abs(amount)
@@ -608,6 +679,14 @@ def _parse_cash_transaction(
         description=description,
         transaction_type=canonical_type,
         status="booked",
+        security_reference=SecurityReference(
+            external_id=str(ticker),
+            ticker=str(ticker),
+            name=str(ticker),
+            currency_code=currency,
+        )
+        if ticker
+        else None,
         provider_metadata={
             "t212_type": t212_type,
             "reference": reference,
@@ -615,3 +694,10 @@ def _parse_cash_transaction(
             "transaction_id": txn_id,
         },
     )
+
+
+def _optional_decimal(value: Any) -> Decimal | None:
+    """Parse an optional provider number without turning null into zero."""
+    if value is None or value == "":
+        return None
+    return Decimal(str(value))

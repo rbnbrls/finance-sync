@@ -1,0 +1,38 @@
+[
+  {
+    "ticker": "VWCE.DE",
+    "quantity": 2.0,
+    "averagePrice": 130.0,
+    "currentPrice": 132.0,
+    "initialFillDate": "2026-07-03T10:00:30.000Z",
+    "frontend": "ETF",
+    "currencyCode": "EUR"
+  },
+  {
+    "ticker": "AAPL",
+    "quantity": 1.0,
+    "averagePrice": 195.0,
+    "currentPrice": 198.0,
+    "initialFillDate": "2026-07-10T10:00:30.000Z",
+    "frontend": "STOCKS",
+    "currencyCode": "EUR"
+  },
+  {
+    "ticker": "ASML.NL",
+    "quantity": 0.5,
+    "averagePrice": 680.0,
+    "currentPrice": 700.0,
+    "initialFillDate": "2026-07-24T10:00:30.000Z",
+    "frontend": "STOCKS",
+    "currencyCode": "EUR"
+  },
+  {
+    "ticker": "IWDA.NL",
+    "quantity": 3.0,
+    "averagePrice": 91.0,
+    "currentPrice": 92.0,
+    "initialFillDate": "2026-07-31T10:00:30.000Z",
+    "frontend": "ETF",
+    "currencyCode": "EUR"
+  }
+]

@@ -100,6 +100,33 @@ async def outbox_reconciliation_completed(
     )
 
 
+async def outbox_sync_completed(
+    uow: UnitOfWork,
+    *,
+    run_id: str,
+    provider_key: str,
+    accounts: int,
+    transactions: int,
+    holdings: int,
+    unresolved_securities: int,
+) -> OutboxMessage:
+    """Emit an aggregate-only sync summary without financial payloads."""
+    return await add_outbox_message(
+        uow,
+        aggregate_id=run_id,
+        aggregate_type="sync_run",
+        event_type="sync.completed",
+        payload={
+            "provider_key": provider_key,
+            "accounts": accounts,
+            "transactions": transactions,
+            "holdings": holdings,
+            "unresolved_securities": unresolved_securities,
+        },
+        idempotency_key=f"sync:{run_id}:completed",
+    )
+
+
 async def outbox_entity_updated(
     uow: UnitOfWork,
     *,

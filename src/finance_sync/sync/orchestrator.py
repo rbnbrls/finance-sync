@@ -12,7 +12,9 @@ For a given connector and tenant::
     4. For each account: connector.fetch_transactions(since)
        → upsert canonical Transaction records
        → emit outbox messages for created/updated transactions
-    5. Complete SyncRun (status=completed / failed)
+    5. When capability-gated: connector.fetch_holdings()
+       → resolve securities and upsert time-versioned Holding records
+    6. Complete SyncRun (status=completed / failed)
 
 Every domain write (steps 3-5) happens inside a **single** ``UnitOfWork``
 transaction.  If any step fails, the whole batch rolls back and the
@@ -21,6 +23,7 @@ SyncRun is marked ``failed``.
 
 from __future__ import annotations
 
+import json
 import traceback
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -36,27 +39,35 @@ from finance_sync.connectors.exceptions import (
 from finance_sync.models import (
     Account,
     CardTransaction,
+    Holding,
     ScheduledPayment,
+    Security,
     Transaction,
+    UnresolvedSecurity,
 )
 from finance_sync.models.enums import (
     CardAuthorizationType,
+    HoldingSource,
     ReconciliationRunStatus,
     ScheduleFrequency,
     ScheduleStatus,
+    SecurityType,
     SyncRunStatus,
     TransactionStatus,
     TransactionType,
 )
 from finance_sync.observability.metrics import (
+    holdings_ingested_total,
     sync_run_duration_seconds,
     sync_runs_total,
     transactions_ingested_total,
+    unresolved_securities_total,
 )
 from finance_sync.sync.outbox import (
     outbox_entity_created,
     outbox_entity_updated,
     outbox_reconciliation_completed,
+    outbox_sync_completed,
 )
 from finance_sync.sync.sync_cursor import (
     RESOURCE_CARD_TRANSACTIONS,
@@ -78,11 +89,13 @@ if TYPE_CHECKING:
     from finance_sync.connectors.models import (
         CanonicalAccountData,
         CanonicalCardTransactionData,
+        CanonicalHoldingData,
         CanonicalScheduledPaymentData,
         CanonicalTransactionData,
         ConnectorConfig,
         RawCardTransaction,
         RawScheduledPayment,
+        SecurityReference,
     )
     from finance_sync.connectors.registry import ConnectorRegistry
     from finance_sync.db.uow import UnitOfWork
@@ -189,6 +202,12 @@ class SyncOrchestrator:
             getattr(result, "card_transactions_synced", 0),
         )
         transactions_ingested_total.labels(provider=provider).inc(ingested or 0)
+        holdings_ingested_total.labels(provider=provider).inc(
+            getattr(result, "holdings_synced", 0) or 0
+        )
+        unresolved_securities_total.labels(provider=provider).inc(
+            getattr(result, "unresolved_securities", 0) or 0
+        )
 
     async def run_sync(
         self,
@@ -241,6 +260,8 @@ class SyncOrchestrator:
                 "sync_completed",
                 accounts=result.accounts_synced,
                 transactions=result.transactions_synced,
+                holdings=result.holdings_synced,
+                unresolved_securities=result.unresolved_securities,
                 duration_s=result.duration_s,
             )
 
@@ -452,6 +473,8 @@ class SyncOrchestrator:
         run = None
         accounts_synced = 0
         transactions_synced = 0
+        holdings_synced = 0
+        unresolved_keys: set[str] = set()
 
         try:
             async with uow:
@@ -466,6 +489,15 @@ class SyncOrchestrator:
                 # 3. Fetch + upsert accounts
                 raw_accounts = await connector._rate_limited_fetch_accounts()  # type: ignore[attr-defined]
                 canonical_accounts = connector.transform_accounts(raw_accounts)
+                resources = cast(
+                    "frozenset[str]",
+                    getattr(
+                        type(connector),
+                        "supported_resources",
+                        frozenset[str](),
+                    ),
+                )
+                supports_holdings = "holdings" in resources
 
                 for ca in canonical_accounts:
                     await self._upsert_account(uow, ca)
@@ -512,8 +544,50 @@ class SyncOrchestrator:
                         continue
 
                     for ct in canonical_txns:
-                        await self._upsert_transaction(uow, ct, acct.id)
+                        security_id = None
+                        if ct.security_reference is not None:
+                            (
+                                security,
+                                unresolved_key,
+                            ) = await self._resolve_security_reference(
+                                uow,
+                                provider_type,
+                                ct.security_reference,
+                            )
+                            security_id = security.id if security else None
+                            if unresolved_key:
+                                unresolved_keys.add(unresolved_key)
+                        await self._upsert_transaction(
+                            uow, ct, acct.id, security_id=security_id
+                        )
                     transactions_synced += len(canonical_txns)
+
+                    if supports_holdings:
+                        raw_holdings = (
+                            await connector._rate_limited_fetch_holdings(  # type: ignore[attr-defined]
+                                account_id=ca.external_account_id
+                            )
+                        )
+                        canonical_holdings = connector.transform_holdings(
+                            raw_holdings
+                        )
+                        for holding in canonical_holdings:
+                            (
+                                security,
+                                unresolved_key,
+                            ) = await self._resolve_security_reference(
+                                uow,
+                                provider_type,
+                                holding.security_reference,
+                            )
+                            if security is None:
+                                if unresolved_key:
+                                    unresolved_keys.add(unresolved_key)
+                                continue
+                            await self._upsert_holding(
+                                uow, holding, acct.id, security.id
+                            )
+                            holdings_synced += 1
 
                 log.debug("transactions_fetched", count=transactions_synced)
 
@@ -525,9 +599,21 @@ class SyncOrchestrator:
                     uow,
                     run,
                     status=SyncRunStatus.COMPLETED,
-                    items_processed=accounts_synced + transactions_synced,
+                    items_processed=(
+                        accounts_synced + transactions_synced + holdings_synced
+                    ),
                     cursor=start_ts,
                 )
+                if supports_holdings or unresolved_keys:
+                    await outbox_sync_completed(
+                        uow,
+                        run_id=str(run.id),
+                        provider_key=provider_type,
+                        accounts=accounts_synced,
+                        transactions=transactions_synced,
+                        holdings=holdings_synced,
+                        unresolved_securities=len(unresolved_keys),
+                    )
                 for ca in canonical_accounts:
                     await upsert_sync_cursor(
                         uow.session,
@@ -543,6 +629,8 @@ class SyncOrchestrator:
                 status=SyncRunStatus.COMPLETED,
                 accounts_synced=accounts_synced,
                 transactions_synced=transactions_synced,
+                holdings_synced=holdings_synced,
+                unresolved_securities=len(unresolved_keys),
                 error_message=None,
                 duration_s=(end_ts - start_ts).total_seconds(),
             )
@@ -554,6 +642,8 @@ class SyncOrchestrator:
                 status=SyncRunStatus.FAILED,
                 accounts_synced=accounts_synced,
                 transactions_synced=transactions_synced,
+                holdings_synced=holdings_synced,
+                unresolved_securities=len(unresolved_keys),
                 error_message=str(exc),
                 duration_s=(end_ts - start_ts).total_seconds(),
             )
@@ -564,6 +654,8 @@ class SyncOrchestrator:
                 status=SyncRunStatus.FAILED,
                 accounts_synced=accounts_synced,
                 transactions_synced=transactions_synced,
+                holdings_synced=holdings_synced,
+                unresolved_securities=len(unresolved_keys),
                 error_message=str(exc),
                 duration_s=(end_ts - start_ts).total_seconds(),
             )
@@ -575,6 +667,8 @@ class SyncOrchestrator:
                 status=SyncRunStatus.FAILED,
                 accounts_synced=accounts_synced,
                 transactions_synced=transactions_synced,
+                holdings_synced=holdings_synced,
+                unresolved_securities=len(unresolved_keys),
                 error_message=tb,
                 duration_s=(end_ts - start_ts).total_seconds(),
             )
@@ -796,6 +890,8 @@ class SyncOrchestrator:
         uow: UnitOfWork,
         ct: CanonicalTransactionData,
         account_id: str,
+        *,
+        security_id: str | None = None,
     ) -> Transaction:
         """Create or update a canonical Transaction from connector data."""
         existing = await uow.transactions.get_by_external_id(
@@ -816,12 +912,20 @@ class SyncOrchestrator:
                 "description",
                 "quantity",
                 "status",
+                "amount_in_base",
+                "base_currency_code",
+                "fx_rate",
+                "provider_fingerprint",
             ):
                 new_val = getattr(ct, field, None)
                 old_val = getattr(existing, field, None)
                 if new_val is not None and str(new_val) != str(old_val):
                     setattr(existing, field, new_val)
                     changed[field] = new_val
+
+            if security_id is not None and security_id != existing.security_id:
+                existing.security_id = security_id
+                changed["security_id"] = security_id
 
             if changed:
                 existing.revision = (existing.revision or 0) + 1
@@ -855,14 +959,25 @@ class SyncOrchestrator:
             provider_key=ct.provider_key,
             external_transaction_id=ct.external_transaction_id,
             account_id=account_id,
+            security_id=security_id,
             amount=Decimal(str(ct.amount)),
             currency_code=ct.currency_code,
+            amount_in_base=(
+                Decimal(str(ct.amount_in_base))
+                if ct.amount_in_base is not None
+                else None
+            ),
+            base_currency_code=ct.base_currency_code,
+            fx_rate=(
+                Decimal(str(ct.fx_rate)) if ct.fx_rate is not None else None
+            ),
             occurred_at=ct.occurred_at,
             booked_at=ct.booked_at,
             transaction_type=txn_type,
             description=ct.description,
             quantity=ct.quantity,
             status=txn_status,
+            provider_fingerprint=ct.provider_fingerprint,
             revision=1,
         )
         uow.session.add(transaction)
@@ -880,6 +995,274 @@ class SyncOrchestrator:
             provider_key=ct.provider_key,
         )
         return transaction
+
+    async def _upsert_holding(
+        self,
+        uow: UnitOfWork,
+        holding: CanonicalHoldingData,
+        account_id: str,
+        security_id: str,
+    ) -> Holding:
+        """Idempotently store one time-versioned holding snapshot."""
+        try:
+            source = HoldingSource(holding.source)
+        except ValueError:
+            source = HoldingSource.PROVIDER_SYNC
+        existing = await uow.holdings.get_by_snapshot(
+            self._tenant_id,
+            account_id,
+            security_id,
+            holding.observed_at,
+            source.value,
+        )
+        values = {
+            "quantity": Decimal(str(holding.quantity)),
+            "cost_basis": (
+                Decimal(str(holding.cost_basis))
+                if holding.cost_basis is not None
+                else None
+            ),
+            "cost_basis_currency": holding.cost_basis_currency,
+            "market_value": (
+                Decimal(str(holding.market_value))
+                if holding.market_value is not None
+                else None
+            ),
+            "currency_code": holding.currency_code,
+            "price": (
+                Decimal(str(holding.price))
+                if holding.price is not None
+                else None
+            ),
+            "price_currency": holding.price_currency,
+        }
+        if existing is not None:
+            changed: dict[str, Any] = {}
+            for field, new_value in values.items():
+                if str(getattr(existing, field)) != str(new_value):
+                    setattr(existing, field, new_value)
+                    changed[field] = new_value
+            if changed:
+                await uow.session.flush()
+                await outbox_entity_updated(
+                    uow,
+                    entity_type="holding",
+                    entity_id=str(existing.id),
+                    changed_fields={"snapshot_updated": True},
+                    provider_key=holding.provider_key,
+                )
+            return existing
+
+        from uuid import uuid4
+
+        entity = Holding(
+            id=uuid4(),
+            tenant_id=self._tenant_id,
+            account_id=account_id,
+            security_id=security_id,
+            observed_at=holding.observed_at,
+            source=source,
+            **values,
+        )
+        uow.session.add(entity)
+        await uow.session.flush()
+        await outbox_entity_created(
+            uow,
+            entity_type="holding",
+            entity_id=str(entity.id),
+            entity_data={"observed_at": holding.observed_at.isoformat()},
+            provider_key=holding.provider_key,
+        )
+        return entity
+
+    async def _resolve_security_reference(
+        self,
+        uow: UnitOfWork,
+        provider_key: str,
+        reference: SecurityReference,
+    ) -> tuple[Security | None, str | None]:
+        """Resolve ISIN-first, avoiding ambiguous ticker matches.
+
+        Unknown but sufficiently identified provider instruments become new
+        canonical securities. Ambiguous or incomplete references enter the
+        existing manual-resolution queue. A previously manual-resolved queue
+        item is honoured before automatic matching.
+        """
+        external_id = reference.provider_identifier()
+        if external_id:
+            queued = await uow.unresolved_securities.list(
+                UnresolvedSecurity.provider_key == provider_key,
+                UnresolvedSecurity.external_security_id == external_id,
+                limit=1,
+            )
+            if queued and queued[0].resolved_security_id:
+                resolved = await uow.securities.get(
+                    queued[0].resolved_security_id
+                )
+                if resolved is not None:
+                    return resolved, None
+
+        candidates: list[Security] = []
+        if reference.isin:
+            candidates = await uow.securities.list(
+                Security.isin == reference.isin.upper()
+            )
+        if not candidates and reference.figi:
+            candidates = await uow.securities.list(
+                Security.figi == reference.figi.upper()
+            )
+        if (
+            not candidates
+            and reference.ticker
+            and reference.external_id is None
+        ):
+            candidates = await uow.securities.list(
+                Security.ticker == reference.ticker.upper()
+            )
+            if reference.currency_code:
+                currency_matches = [
+                    item
+                    for item in candidates
+                    if item.currency_code == reference.currency_code.upper()
+                ]
+                candidates = currency_matches
+
+        if len(candidates) == 1:
+            if reference.external_id:
+                await self._queue_unresolved_security(
+                    uow,
+                    provider_key,
+                    reference,
+                    resolved_security_id=str(candidates[0].id),
+                    resolution_method=(
+                        "auto_isin"
+                        if reference.isin
+                        else "auto_figi"
+                        if reference.figi
+                        else "auto_ticker"
+                    ),
+                )
+            return candidates[0], None
+        if len(candidates) > 1:
+            return None, await self._queue_unresolved_security(
+                uow, provider_key, reference
+            )
+
+        can_create = bool(
+            reference.isin
+            or reference.figi
+            or (
+                reference.external_id
+                and reference.ticker
+                and reference.name
+                and reference.currency_code
+            )
+        )
+        if can_create:
+            try:
+                security_type = SecurityType(
+                    reference.security_type or SecurityType.OTHER.value
+                )
+            except ValueError:
+                security_type = SecurityType.OTHER
+            from uuid import uuid4
+
+            security = Security(
+                id=uuid4(),
+                isin=reference.isin.upper() if reference.isin else None,
+                figi=(
+                    reference.figi.upper()
+                    if reference.figi and len(reference.figi) <= 12
+                    else None
+                ),
+                ticker=(reference.ticker.upper() if reference.ticker else None),
+                name=reference.name
+                or reference.ticker
+                or reference.isin
+                or reference.figi
+                or "Unknown security",
+                security_type=security_type,
+                currency_code=(reference.currency_code or "EUR").upper(),
+            )
+            uow.session.add(security)
+            await uow.session.flush()
+            if reference.external_id:
+                await self._queue_unresolved_security(
+                    uow,
+                    provider_key,
+                    reference,
+                    resolved_security_id=str(security.id),
+                    resolution_method=(
+                        "auto_isin"
+                        if reference.isin
+                        else "auto_figi"
+                        if reference.figi
+                        else "provider_instrument"
+                    ),
+                )
+            return security, None
+
+        return None, await self._queue_unresolved_security(
+            uow, provider_key, reference
+        )
+
+    async def _queue_unresolved_security(
+        self,
+        uow: UnitOfWork,
+        provider_key: str,
+        reference: SecurityReference,
+        *,
+        resolved_security_id: str | None = None,
+        resolution_method: str | None = None,
+    ) -> str | None:
+        """Create or refresh a provider identity mapping/queue item."""
+        external_id = reference.provider_identifier()
+        if not external_id:
+            # No stable key means silently storing the row would itself create
+            # an unresolvable duplicate stream. It is still counted by type.
+            return "missing-provider-identifier"
+        rows = await uow.unresolved_securities.list(
+            UnresolvedSecurity.provider_key == provider_key,
+            UnresolvedSecurity.external_security_id == external_id,
+            limit=1,
+        )
+        metadata = dict(reference.provider_metadata or {})
+        if reference.venue:
+            metadata["venue"] = reference.venue
+        raw_metadata = (
+            json.dumps(metadata, sort_keys=True) if metadata else None
+        )
+        if rows:
+            unresolved = rows[0]
+            unresolved.raw_isin = reference.isin
+            unresolved.raw_figi = reference.figi
+            unresolved.raw_ticker = reference.ticker
+            unresolved.raw_name = reference.name
+            unresolved.raw_currency_code = reference.currency_code
+            unresolved.raw_metadata = raw_metadata
+            unresolved.resolved_security_id = resolved_security_id
+            unresolved.resolution_method = resolution_method
+            await uow.session.flush()
+        else:
+            from uuid import uuid4
+
+            uow.session.add(
+                UnresolvedSecurity(
+                    id=uuid4(),
+                    provider_key=provider_key,
+                    external_security_id=external_id,
+                    raw_isin=reference.isin,
+                    raw_figi=reference.figi,
+                    raw_ticker=reference.ticker,
+                    raw_name=reference.name,
+                    raw_currency_code=reference.currency_code,
+                    raw_metadata=raw_metadata,
+                    resolved_security_id=resolved_security_id,
+                    resolution_method=resolution_method,
+                )
+            )
+            await uow.session.flush()
+        return external_id
 
     async def _upsert_scheduled_payment(
         self,
@@ -1140,8 +1523,10 @@ class SyncResult:
         "accounts_synced",
         "duration_s",
         "error_message",
+        "holdings_synced",
         "status",
         "transactions_synced",
+        "unresolved_securities",
     )
 
     def __init__(
@@ -1152,10 +1537,14 @@ class SyncResult:
         transactions_synced: int,
         error_message: str | None,
         duration_s: float,
+        holdings_synced: int = 0,
+        unresolved_securities: int = 0,
     ) -> None:
         self.status = status
         self.accounts_synced = accounts_synced
         self.transactions_synced = transactions_synced
+        self.holdings_synced = holdings_synced
+        self.unresolved_securities = unresolved_securities
         self.error_message = error_message
         self.duration_s = duration_s
 
@@ -1163,6 +1552,8 @@ class SyncResult:
         return (
             f"<SyncResult status={self.status!r} "
             f"accts={self.accounts_synced} txns={self.transactions_synced} "
+            f"holdings={self.holdings_synced} "
+            f"unresolved={self.unresolved_securities} "
             f"err={self.error_message!r} dur={self.duration_s:.2f}s>"
         )
 

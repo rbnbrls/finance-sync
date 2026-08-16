@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from datetime import datetime
 from decimal import Decimal
+from typing import ClassVar
 
-from sqlalchemy import DateTime, ForeignKey, Numeric, String
+from sqlalchemy import DateTime, ForeignKey, Numeric, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from finance_sync.db import Base, pk_uuid
@@ -17,6 +18,16 @@ class Holding(TimestampMixin, Base):
     """A point-in-time snapshot of a position in one security."""
 
     __tablename__ = "holdings"
+    __table_args__: ClassVar = (
+        UniqueConstraint(
+            "tenant_id",
+            "account_id",
+            "security_id",
+            "observed_at",
+            "source",
+            name="uq_holdings_snapshot",
+        ),
+    )
 
     id: Mapped[str] = pk_uuid()
     tenant_id: Mapped[str] = mapped_column(

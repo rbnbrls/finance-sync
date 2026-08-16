@@ -23,10 +23,14 @@ from finance_sync.connectors.exceptions import PermanentError
 from finance_sync.connectors.models import (
     CanonicalAccountData,
     CanonicalCardTransactionData,
+    CanonicalHoldingData,
     CanonicalScheduledPaymentData,
     CanonicalTransactionData,
+    SecurityReference,
 )
+from finance_sync.models import Security
 from finance_sync.models.enums import (
+    HoldingSource,
     ReconciliationRunStatus,
     SyncRunStatus,
 )
@@ -936,6 +940,125 @@ class TestUpsertTransaction:
         assert result is not None
         assert result.amount == Decimal("-42.50")
         assert result.description == "Coffee"
+
+    async def test_upsert_persists_security_and_fx_fields(
+        self, orchestrator, sample_transaction_data
+    ) -> None:
+        uow = MagicMock()
+        uow.session = AsyncMock()
+        uow.transactions.get_by_external_id = AsyncMock(return_value=None)
+        sample_transaction_data.security_reference = SecurityReference(
+            isin="US0378331005"
+        )
+        sample_transaction_data.amount_in_base = Decimal("-39.10")
+        sample_transaction_data.base_currency_code = "EUR"
+        sample_transaction_data.fx_rate = Decimal("0.92")
+
+        result = await orchestrator._upsert_transaction(
+            uow,
+            sample_transaction_data,
+            "account_id_1",
+            security_id="security_id_1",
+        )
+
+        assert result.security_id == "security_id_1"
+        assert result.amount_in_base == Decimal("-39.10")
+        assert result.base_currency_code == "EUR"
+        assert result.fx_rate == Decimal("0.92")
+
+
+class TestHoldingsAndSecurityResolution:
+    @pytest.fixture
+    def orchestrator(self) -> SyncOrchestrator:
+        return SyncOrchestrator(
+            session_factory=MagicMock(),
+            registry=MagicMock(),
+            tenant_id="tenant_1",
+        )
+
+    async def test_isin_resolution_links_existing_security(
+        self, orchestrator
+    ) -> None:
+        security = MagicMock(spec=Security)
+        security.id = "security_1"
+        uow = MagicMock()
+        uow.unresolved_securities.list = AsyncMock(return_value=[])
+        uow.securities.list = AsyncMock(return_value=[security])
+
+        result, unresolved = await orchestrator._resolve_security_reference(
+            uow,
+            "broker",
+            SecurityReference(isin="US0378331005", ticker="AAPL"),
+        )
+
+        assert result is security
+        assert unresolved is None
+
+    async def test_ambiguous_ticker_enters_unresolved_queue(
+        self, orchestrator
+    ) -> None:
+        first = MagicMock(spec=Security, currency_code="EUR")
+        second = MagicMock(spec=Security, currency_code="EUR")
+        uow = MagicMock()
+        uow.session = AsyncMock()
+        uow.unresolved_securities.list = AsyncMock(side_effect=[[], []])
+        uow.securities.list = AsyncMock(return_value=[first, second])
+
+        result, unresolved = await orchestrator._resolve_security_reference(
+            uow,
+            "broker",
+            SecurityReference(
+                external_id="provider-vwce",
+                ticker="VWCE",
+                currency_code="EUR",
+            ),
+        )
+
+        assert result is None
+        assert unresolved == "provider-vwce"
+        uow.session.add.assert_called_once()
+
+    async def test_holding_snapshot_is_updated_not_duplicated(
+        self, orchestrator
+    ) -> None:
+        observed = datetime(2025, 1, 1, tzinfo=UTC)
+        existing = MagicMock()
+        existing.id = "holding_1"
+        existing.quantity = Decimal(1)
+        existing.cost_basis = None
+        existing.cost_basis_currency = None
+        existing.market_value = None
+        existing.currency_code = "EUR"
+        existing.price = None
+        existing.price_currency = None
+        uow = MagicMock()
+        uow.session = AsyncMock()
+        uow.holdings.get_by_snapshot = AsyncMock(return_value=existing)
+        holding = CanonicalHoldingData(
+            provider_key="broker",
+            external_account_id="account_external",
+            observed_at=observed,
+            quantity=Decimal(2),
+            security_reference=SecurityReference(isin="IE00BK5BQT80"),
+            market_value=Decimal(210),
+            currency_code="EUR",
+        )
+
+        result = await orchestrator._upsert_holding(
+            uow, holding, "account_1", "security_1"
+        )
+
+        assert result is existing
+        assert existing.quantity == Decimal(2)
+        added = uow.session.add.call_args.args[0]
+        assert added.event_type == "holding.updated"
+        uow.holdings.get_by_snapshot.assert_awaited_once_with(
+            "tenant_1",
+            "account_1",
+            "security_1",
+            observed,
+            HoldingSource.PROVIDER_SYNC.value,
+        )
 
 
 # ── Upsert scheduled payments / card transactions ─────────────────

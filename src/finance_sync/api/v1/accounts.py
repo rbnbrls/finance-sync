@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from finance_sync.api.deps.auth import AuthContext, require_permission
 from finance_sync.dependencies import get_db
+from finance_sync.models.enums import TransactionType
 from finance_sync.services.read_api import (
     AccountDetailResponse,
     AccountSummary,
@@ -97,7 +98,7 @@ async def list_account_transactions(
     sort_order: str = Query(default="desc"),
     date_from: datetime | None = Query(default=None),
     date_to: datetime | None = Query(default=None),
-    transaction_type: str | None = Query(default=None),
+    transaction_type: TransactionType | None = Query(default=None),
     security_id: str | None = Query(default=None),
 ) -> dict[str, Any]:
     """List transactions for an account with optional date range, type, and

@@ -15,6 +15,7 @@ from finance_sync_sdk.exceptions import (
 )
 from finance_sync_sdk.models import (
     CanonicalAccountData,
+    CanonicalHoldingData,
     CanonicalTransactionData,
     ConnectorConfig,
     ConnectorHealth,
@@ -23,7 +24,9 @@ from finance_sync_sdk.models import (
     ExportRequest,
     ExportResult,
     RawAccount,
+    RawHolding,
     RawTransaction,
+    SecurityReference,
 )
 from finance_sync_sdk.plugin import ConnectorPlugin, ExporterPlugin
 from finance_sync_sdk.rate_limiter import RateLimiter, RateLimitPolicy
@@ -31,6 +34,7 @@ from finance_sync_sdk.registry import PluginRegistry
 
 __all__ = [
     "CanonicalAccountData",
+    "CanonicalHoldingData",
     "CanonicalTransactionData",
     "ConnectorConfig",
     "ConnectorError",
@@ -48,6 +52,8 @@ __all__ = [
     "RateLimitPolicy",
     "RateLimiter",
     "RawAccount",
+    "RawHolding",
     "RawTransaction",
+    "SecurityReference",
     "TransientError",
 ]

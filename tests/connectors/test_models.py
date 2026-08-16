@@ -8,11 +8,14 @@ from decimal import Decimal
 
 from finance_sync.connectors.models import (
     CanonicalAccountData,
+    CanonicalHoldingData,
     CanonicalTransactionData,
     ConnectorConfig,
     ConnectorHealth,
     RawAccount,
+    RawHolding,
     RawTransaction,
+    SecurityReference,
 )
 
 
@@ -82,6 +85,50 @@ class TestCanonicalTransactionData:
             transaction_type="transfer",
         )
         assert txn.status == "pending"  # default
+
+
+class TestInvestmentModels:
+    def test_security_fx_and_holding_fields(self) -> None:
+        observed = datetime(2025, 1, 1, tzinfo=UTC)
+        reference = SecurityReference(
+            external_id="instrument-1",
+            isin="IE00BK5BQT80",
+            ticker="VWCE",
+            name="Vanguard FTSE All-World",
+            venue="XETR",
+            currency_code="EUR",
+            security_type="etf",
+        )
+        raw = RawHolding(
+            external_account_id="portfolio-1",
+            observed_at=observed,
+            quantity=Decimal("2.5"),
+            security_reference=reference,
+            cost_basis=Decimal(250),
+            market_value=Decimal(275),
+            price=Decimal(110),
+        )
+        canonical = CanonicalHoldingData(
+            provider_key="broker",
+            **raw.model_dump(exclude={"provider_metadata"}),
+        )
+        txn = CanonicalTransactionData(
+            provider_key="broker",
+            external_transaction_id="txn-1",
+            external_account_id="portfolio-1",
+            amount=Decimal(-100),
+            occurred_at=observed,
+            transaction_type="purchase",
+            security_reference=reference,
+            amount_in_base=Decimal(-92),
+            base_currency_code="EUR",
+            fx_rate=Decimal("0.92"),
+        )
+
+        assert canonical.security_reference.isin == "IE00BK5BQT80"
+        assert canonical.quantity == Decimal("2.5")
+        assert txn.amount_in_base == Decimal(-92)
+        assert txn.security_reference.provider_identifier() == "instrument-1"
 
 
 class TestConnectorConfig:

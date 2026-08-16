@@ -112,6 +112,47 @@ class RawTransaction(BaseModel):
         default=None,
         description="Number of units / shares transacted (for purchase/sale)",
     )
+    security_reference: SecurityReference | None = Field(
+        default=None,
+        description="Provider-neutral identity of the traded instrument",
+    )
+    amount_in_base: Decimal | None = Field(default=None)
+    base_currency_code: str | None = Field(default=None)
+    fx_rate: Decimal | None = Field(default=None)
+
+
+class SecurityReference(BaseModel):
+    """Provider-supplied instrument identity; never contains database IDs."""
+
+    external_id: str | None = Field(default=None)
+    isin: str | None = Field(default=None, max_length=12)
+    figi: str | None = Field(default=None, max_length=16)
+    ticker: str | None = Field(default=None, max_length=64)
+    name: str | None = Field(default=None)
+    venue: str | None = Field(default=None)
+    currency_code: str | None = Field(default=None, max_length=3)
+    security_type: str | None = Field(default=None)
+    provider_metadata: dict[str, Any] | None = Field(default=None)
+
+    def provider_identifier(self) -> str | None:
+        """Return the best stable provider-local identifier."""
+        return self.external_id or self.isin or self.figi or self.ticker
+
+
+class RawHolding(BaseModel):
+    """Raw point-in-time position snapshot returned by a provider."""
+
+    external_account_id: str
+    observed_at: datetime
+    quantity: Decimal
+    security_reference: SecurityReference
+    cost_basis: Decimal | None = None
+    cost_basis_currency: str | None = Field(default=None, max_length=3)
+    market_value: Decimal | None = None
+    currency_code: str = Field(default="EUR", max_length=3)
+    price: Decimal | None = None
+    price_currency: str | None = Field(default=None, max_length=3)
+    provider_metadata: dict[str, Any] | None = None
 
 
 # ── Canonical (normalised) models ───────────────────────────────────────
@@ -187,6 +228,27 @@ class CanonicalTransactionData(BaseModel):
         description="pending/booked/reversed/cancelled",
     )
     provider_fingerprint: str | None = Field(default=None)
+    security_reference: SecurityReference | None = Field(default=None)
+    amount_in_base: Decimal | None = Field(default=None)
+    base_currency_code: str | None = Field(default=None)
+    fx_rate: Decimal | None = Field(default=None)
+
+
+class CanonicalHoldingData(BaseModel):
+    """Normalised, provider-agnostic holding snapshot ready for upsert."""
+
+    provider_key: str
+    external_account_id: str
+    observed_at: datetime
+    quantity: Decimal
+    security_reference: SecurityReference
+    cost_basis: Decimal | None = None
+    cost_basis_currency: str | None = Field(default=None, max_length=3)
+    market_value: Decimal | None = None
+    currency_code: str = Field(default="EUR", max_length=3)
+    price: Decimal | None = None
+    price_currency: str | None = Field(default=None, max_length=3)
+    source: str = Field(default="provider_sync")
 
 
 class RawScheduledPayment(BaseModel):

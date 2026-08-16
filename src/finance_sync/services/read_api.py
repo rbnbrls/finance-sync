@@ -70,7 +70,7 @@ class TransactionResponse(BaseModel):
     occurred_at: datetime
     booked_at: datetime | None = None
     description: str | None = None
-    transaction_type: str
+    transaction_type: TransactionType
     status: str
     provider_key: str
     created_at: datetime | None = None
@@ -669,7 +669,7 @@ class ReadService:
             occurred_at=t.occurred_at,
             booked_at=t.booked_at,
             description=t.description,
-            transaction_type=str(t.transaction_type),
+            transaction_type=TransactionType(str(t.transaction_type)),
             status=str(t.status),
             provider_key=t.provider_key,
             created_at=t.created_at,

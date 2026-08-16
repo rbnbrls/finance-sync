@@ -65,6 +65,18 @@ transactions_ingested_total = Counter(
     labelnames=["provider"],
 )
 
+holdings_ingested_total = Counter(
+    "holdings_ingested_total",
+    "Total number of holding snapshots ingested by provider",
+    labelnames=["provider"],
+)
+
+unresolved_securities_total = Counter(
+    "unresolved_securities_total",
+    "Total number of unresolved security references by provider",
+    labelnames=["provider"],
+)
+
 sync_run_duration_seconds = Gauge(
     "sync_run_duration_seconds",
     "Duration of the most recent sync run in seconds",

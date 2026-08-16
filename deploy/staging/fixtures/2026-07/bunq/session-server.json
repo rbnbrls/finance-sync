@@ -1,0 +1,20 @@
+{
+  "Response": [
+    {
+      "Token": {
+        "id": 990001,
+        "token": "staging_session_token"
+      }
+    },
+    {
+      "UserPerson": {
+        "id": 9900001,
+        "public_uuid": "staging-user-0001",
+        "display_name": "Staging User"
+      }
+    }
+  ],
+  "Pagination": {
+    "future_url": null
+  }
+}

@@ -58,6 +58,23 @@ class RawAccount(BaseModel):
     )
 
 
+class SecurityReference(BaseModel):
+    """Provider-neutral instrument identity without host database IDs."""
+
+    external_id: str | None = None
+    isin: str | None = Field(default=None, max_length=12)
+    figi: str | None = Field(default=None, max_length=16)
+    ticker: str | None = Field(default=None, max_length=64)
+    name: str | None = None
+    venue: str | None = None
+    currency_code: str | None = Field(default=None, max_length=3)
+    security_type: str | None = None
+    provider_metadata: dict[str, Any] | None = None
+
+    def provider_identifier(self) -> str | None:
+        return self.external_id or self.isin or self.figi or self.ticker
+
+
 class RawTransaction(BaseModel):
     """Raw transaction data as returned by a provider."""
 
@@ -92,6 +109,27 @@ class RawTransaction(BaseModel):
         default=None,
         description="Provider-specific attributes that don't fit the standard schema",
     )
+    quantity: Decimal | None = None
+    security_reference: SecurityReference | None = None
+    amount_in_base: Decimal | None = None
+    base_currency_code: str | None = None
+    fx_rate: Decimal | None = None
+
+
+class RawHolding(BaseModel):
+    """Raw point-in-time position snapshot."""
+
+    external_account_id: str
+    observed_at: datetime
+    quantity: Decimal
+    security_reference: SecurityReference
+    cost_basis: Decimal | None = None
+    cost_basis_currency: str | None = Field(default=None, max_length=3)
+    market_value: Decimal | None = None
+    currency_code: str = Field(default="EUR", max_length=3)
+    price: Decimal | None = None
+    price_currency: str | None = Field(default=None, max_length=3)
+    provider_metadata: dict[str, Any] | None = None
 
 
 # ── Canonical (normalised) models ───────────────────────────────────────
@@ -141,6 +179,28 @@ class CanonicalTransactionData(BaseModel):
         description="pending/booked/reversed/cancelled",
     )
     provider_fingerprint: str | None = Field(default=None)
+    quantity: Decimal | None = None
+    security_reference: SecurityReference | None = None
+    amount_in_base: Decimal | None = None
+    base_currency_code: str | None = None
+    fx_rate: Decimal | None = None
+
+
+class CanonicalHoldingData(BaseModel):
+    """Normalised provider-neutral holding snapshot."""
+
+    provider_key: str
+    external_account_id: str
+    observed_at: datetime
+    quantity: Decimal
+    security_reference: SecurityReference
+    cost_basis: Decimal | None = None
+    cost_basis_currency: str | None = Field(default=None, max_length=3)
+    market_value: Decimal | None = None
+    currency_code: str = Field(default="EUR", max_length=3)
+    price: Decimal | None = None
+    price_currency: str | None = Field(default=None, max_length=3)
+    source: str = "provider_sync"
 
 
 # ── Configuration models ────────────────────────────────────────────────

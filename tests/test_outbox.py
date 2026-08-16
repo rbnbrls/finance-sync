@@ -189,6 +189,28 @@ class TestOutboxReconciliationCompleted:
             assert msg.payload["summary"] == {}
 
 
+class TestOutboxSyncCompleted:
+    async def test_reports_holding_and_unresolved_counts(self, session) -> None:
+        from finance_sync.db.uow import UnitOfWork
+        from finance_sync.sync.outbox import outbox_sync_completed
+
+        async with UnitOfWork(session) as uow:
+            msg = await outbox_sync_completed(
+                uow,
+                run_id="sync_run_1",
+                provider_key="broker",
+                accounts=1,
+                transactions=4,
+                holdings=3,
+                unresolved_securities=1,
+            )
+
+            assert msg.event_type == "sync.completed"
+            assert msg.payload["holdings"] == 3
+            assert msg.payload["unresolved_securities"] == 1
+            assert "amount" not in msg.payload
+
+
 # ── Tests for OutboxPublisher ─────────────────────────────────────
 
 

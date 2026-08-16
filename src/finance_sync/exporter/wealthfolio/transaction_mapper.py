@@ -64,6 +64,7 @@ TRANSACTION_TYPE_MAP: dict[str, str] = {
     "dividend": WF_ACTIVITY_DIVIDEND,
     "interest": WF_ACTIVITY_INTEREST,
     "fee": WF_ACTIVITY_FEE,
+    "tax": WF_ACTIVITY_TAX,
     "payment": WF_ACTIVITY_FEE,
     "transfer": WF_ACTIVITY_TRANSFER_IN,  # adjusted by sign in mapper
 }

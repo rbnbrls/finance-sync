@@ -1,0 +1,28 @@
+{
+  "Response": [
+    {
+      "MonetaryAccountBank": {
+        "id": 9100001,
+        "created": "2026-01-01 09:00:00.000000",
+        "updated": "2026-07-31 23:59:00.000000",
+        "description": "Staging Betaalrekening",
+        "status": "ACTIVE",
+        "sub_type": "CURRENT",
+        "balance": {
+          "value": "3444.49",
+          "currency": "EUR"
+        },
+        "alias": [
+          {
+            "type": "IBAN",
+            "value": "NL00STAGE0000000001",
+            "name": "Staging User"
+          }
+        ]
+      }
+    }
+  ],
+  "Pagination": {
+    "future_url": null
+  }
+}

@@ -152,6 +152,7 @@ class ConnectorRegistry:
                 "display_name": cls.display_name,
                 "sdk_version": cls.sdk_version,
                 "has_rate_limit_policy": cls.rate_limit_policy is not None,
+                "supported_resources": sorted(cls.supported_resources),
             }
         return result
 

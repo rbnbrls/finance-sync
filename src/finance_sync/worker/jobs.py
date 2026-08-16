@@ -216,6 +216,8 @@ async def sync_connector_job(
                 "status": result.status.value,
                 "accounts_synced": result.accounts_synced,
                 "transactions_synced": result.transactions_synced,
+                "holdings_synced": result.holdings_synced,
+                "unresolved_securities": result.unresolved_securities,
                 "duration_s": round(result.duration_s, 2),
                 "error": result.error_message,
             }
@@ -240,6 +242,8 @@ async def sync_connector_job(
                 "status": "failed",
                 "accounts_synced": 0,
                 "transactions_synced": 0,
+                "holdings_synced": 0,
+                "unresolved_securities": 0,
                 "duration_s": 0.0,
                 "error": str(exc)[:500],
             }
@@ -249,6 +253,8 @@ async def sync_connector_job(
 
     total_accounts = sum(r["accounts_synced"] for r in summary)
     total_transactions = sum(r["transactions_synced"] for r in summary)
+    total_holdings = sum(r["holdings_synced"] for r in summary)
+    total_unresolved = sum(r["unresolved_securities"] for r in summary)
     failed = [r for r in summary if r["status"] == "failed"]
 
     log.info(
@@ -256,6 +262,8 @@ async def sync_connector_job(
         tenants_synced=len(summary),
         total_accounts=total_accounts,
         total_transactions=total_transactions,
+        total_holdings=total_holdings,
+        total_unresolved_securities=total_unresolved,
         failed=len(failed),
     )
 
@@ -264,6 +272,8 @@ async def sync_connector_job(
         "tenants_synced": len(summary),
         "total_accounts": total_accounts,
         "total_transactions": total_transactions,
+        "total_holdings": total_holdings,
+        "total_unresolved_securities": total_unresolved,
         "failed": len(failed),
         "results": summary,
     }

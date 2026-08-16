@@ -1,0 +1,689 @@
+{
+  "Response": [
+    {
+      "Payment": {
+        "id": 7202607031,
+        "created": "2026-07-31 12:00:00.000000",
+        "updated": "2026-07-31 12:02:00.000000",
+        "monetary_account_id": 9100001,
+        "amount": {
+          "value": "-8.50",
+          "currency": "EUR"
+        },
+        "description": "Lunch",
+        "type": "PAYMENT",
+        "status": "ACCEPTED",
+        "sub_type": null,
+        "counterparty_alias": {
+          "type": "IBAN",
+          "value": "NL00STAGE0000000031",
+          "name": "Staging Lunchroom"
+        },
+        "attachment": []
+      }
+    },
+    {
+      "Payment": {
+        "id": 7202607030,
+        "created": "2026-07-30 12:00:00.000000",
+        "updated": "2026-07-30 12:02:00.000000",
+        "monetary_account_id": 9100001,
+        "amount": {
+          "value": "-95.00",
+          "currency": "EUR"
+        },
+        "description": "Eigen risico",
+        "type": "SDD",
+        "status": "ACCEPTED",
+        "sub_type": null,
+        "counterparty_alias": {
+          "type": "IBAN",
+          "value": "NL00STAGE0000000030",
+          "name": "Staging Zorgverzekeraar"
+        },
+        "attachment": []
+      }
+    },
+    {
+      "Payment": {
+        "id": 7202607029,
+        "created": "2026-07-29 12:00:00.000000",
+        "updated": "2026-07-29 12:02:00.000000",
+        "monetary_account_id": 9100001,
+        "amount": {
+          "value": "-52.10",
+          "currency": "EUR"
+        },
+        "description": "Boodschappen",
+        "type": "PAYMENT",
+        "status": "ACCEPTED",
+        "sub_type": null,
+        "counterparty_alias": {
+          "type": "IBAN",
+          "value": "NL00STAGE0000000029",
+          "name": "Staging Supermarkt"
+        },
+        "attachment": []
+      }
+    },
+    {
+      "Payment": {
+        "id": 7202607028,
+        "created": "2026-07-28 12:00:00.000000",
+        "updated": "2026-07-28 12:02:00.000000",
+        "monetary_account_id": 9100001,
+        "amount": {
+          "value": "-30.00",
+          "currency": "EUR"
+        },
+        "description": "Openbaar vervoer",
+        "type": "BILLING",
+        "status": "ACCEPTED",
+        "sub_type": null,
+        "counterparty_alias": {
+          "type": "IBAN",
+          "value": "NL00STAGE0000000028",
+          "name": "Staging Mobiliteit"
+        },
+        "attachment": []
+      }
+    },
+    {
+      "Payment": {
+        "id": 7202607027,
+        "created": "2026-07-27 12:00:00.000000",
+        "updated": "2026-07-27 12:02:00.000000",
+        "monetary_account_id": 9100001,
+        "amount": {
+          "value": "-4.60",
+          "currency": "EUR"
+        },
+        "description": "Koffie",
+        "type": "PAYMENT",
+        "status": "ACCEPTED",
+        "sub_type": null,
+        "counterparty_alias": {
+          "type": "IBAN",
+          "value": "NL00STAGE0000000027",
+          "name": "Staging Koffiebar"
+        },
+        "attachment": []
+      }
+    },
+    {
+      "Payment": {
+        "id": 7202607026,
+        "created": "2026-07-26 12:00:00.000000",
+        "updated": "2026-07-26 12:02:00.000000",
+        "monetary_account_id": 9100001,
+        "amount": {
+          "value": "-16.25",
+          "currency": "EUR"
+        },
+        "description": "Bioscoop",
+        "type": "PAYMENT",
+        "status": "ACCEPTED",
+        "sub_type": null,
+        "counterparty_alias": {
+          "type": "IBAN",
+          "value": "NL00STAGE0000000026",
+          "name": "Staging Bioscoop"
+        },
+        "attachment": []
+      }
+    },
+    {
+      "Payment": {
+        "id": 7202607025,
+        "created": "2026-07-25 12:00:00.000000",
+        "updated": "2026-07-25 12:02:00.000000",
+        "monetary_account_id": 9100001,
+        "amount": {
+          "value": "-39.80",
+          "currency": "EUR"
+        },
+        "description": "Boodschappen",
+        "type": "PAYMENT",
+        "status": "ACCEPTED",
+        "sub_type": null,
+        "counterparty_alias": {
+          "type": "IBAN",
+          "value": "NL00STAGE0000000025",
+          "name": "Staging Supermarkt"
+        },
+        "attachment": []
+      }
+    },
+    {
+      "Payment": {
+        "id": 7202607024,
+        "created": "2026-07-24 12:00:00.000000",
+        "updated": "2026-07-24 12:02:00.000000",
+        "monetary_account_id": 9100001,
+        "amount": {
+          "value": "-75.00",
+          "currency": "EUR"
+        },
+        "description": "Pensioeninleg",
+        "type": "TRANSFER",
+        "status": "ACCEPTED",
+        "sub_type": null,
+        "counterparty_alias": {
+          "type": "IBAN",
+          "value": "NL00STAGE0000000024",
+          "name": "DEGIRO Pensioen"
+        },
+        "attachment": []
+      }
+    },
+    {
+      "Payment": {
+        "id": 7202607023,
+        "created": "2026-07-23 12:00:00.000000",
+        "updated": "2026-07-23 12:02:00.000000",
+        "monetary_account_id": 9100001,
+        "amount": {
+          "value": "-26.50",
+          "currency": "EUR"
+        },
+        "description": "Restaurant",
+        "type": "PAYMENT",
+        "status": "ACCEPTED",
+        "sub_type": null,
+        "counterparty_alias": {
+          "type": "IBAN",
+          "value": "NL00STAGE0000000023",
+          "name": "Staging Restaurant"
+        },
+        "attachment": []
+      }
+    },
+    {
+      "Payment": {
+        "id": 7202607022,
+        "created": "2026-07-22 12:00:00.000000",
+        "updated": "2026-07-22 12:02:00.000000",
+        "monetary_account_id": 9100001,
+        "amount": {
+          "value": "-3.85",
+          "currency": "EUR"
+        },
+        "description": "Koffie",
+        "type": "PAYMENT",
+        "status": "ACCEPTED",
+        "sub_type": null,
+        "counterparty_alias": {
+          "type": "IBAN",
+          "value": "NL00STAGE0000000022",
+          "name": "Staging Koffiebar"
+        },
+        "attachment": []
+      }
+    },
+    {
+      "Payment": {
+        "id": 7202607021,
+        "created": "2026-07-21 12:00:00.000000",
+        "updated": "2026-07-21 12:02:00.000000",
+        "monetary_account_id": 9100001,
+        "amount": {
+          "value": "-47.60",
+          "currency": "EUR"
+        },
+        "description": "Boodschappen",
+        "type": "PAYMENT",
+        "status": "ACCEPTED",
+        "sub_type": null,
+        "counterparty_alias": {
+          "type": "IBAN",
+          "value": "NL00STAGE0000000021",
+          "name": "Staging Supermarkt"
+        },
+        "attachment": []
+      }
+    },
+    {
+      "Payment": {
+        "id": 7202607020,
+        "created": "2026-07-20 12:00:00.000000",
+        "updated": "2026-07-20 12:02:00.000000",
+        "monetary_account_id": 9100001,
+        "amount": {
+          "value": "-125.00",
+          "currency": "EUR"
+        },
+        "description": "Verzekering",
+        "type": "SDD",
+        "status": "ACCEPTED",
+        "sub_type": null,
+        "counterparty_alias": {
+          "type": "IBAN",
+          "value": "NL00STAGE0000000020",
+          "name": "Staging Verzekeraar"
+        },
+        "attachment": []
+      }
+    },
+    {
+      "Payment": {
+        "id": 7202607019,
+        "created": "2026-07-19 12:00:00.000000",
+        "updated": "2026-07-19 12:02:00.000000",
+        "monetary_account_id": 9100001,
+        "amount": {
+          "value": "-19.99",
+          "currency": "EUR"
+        },
+        "description": "Software abonnement",
+        "type": "BILLING",
+        "status": "ACCEPTED",
+        "sub_type": null,
+        "counterparty_alias": {
+          "type": "IBAN",
+          "value": "NL00STAGE0000000019",
+          "name": "Staging Software"
+        },
+        "attachment": []
+      }
+    },
+    {
+      "Payment": {
+        "id": 7202607018,
+        "created": "2026-07-18 12:00:00.000000",
+        "updated": "2026-07-18 12:02:00.000000",
+        "monetary_account_id": 9100001,
+        "amount": {
+          "value": "-8.75",
+          "currency": "EUR"
+        },
+        "description": "Bakker",
+        "type": "PAYMENT",
+        "status": "ACCEPTED",
+        "sub_type": null,
+        "counterparty_alias": {
+          "type": "IBAN",
+          "value": "NL00STAGE0000000018",
+          "name": "Staging Bakker"
+        },
+        "attachment": []
+      }
+    },
+    {
+      "Payment": {
+        "id": 7202607017,
+        "created": "2026-07-17 12:00:00.000000",
+        "updated": "2026-07-17 12:02:00.000000",
+        "monetary_account_id": 9100001,
+        "amount": {
+          "value": "-61.25",
+          "currency": "EUR"
+        },
+        "description": "Boodschappen",
+        "type": "PAYMENT",
+        "status": "ACCEPTED",
+        "sub_type": null,
+        "counterparty_alias": {
+          "type": "IBAN",
+          "value": "NL00STAGE0000000017",
+          "name": "Staging Supermarkt"
+        },
+        "attachment": []
+      }
+    },
+    {
+      "Payment": {
+        "id": 7202607016,
+        "created": "2026-07-16 12:00:00.000000",
+        "updated": "2026-07-16 12:02:00.000000",
+        "monetary_account_id": 9100001,
+        "amount": {
+          "value": "-22.40",
+          "currency": "EUR"
+        },
+        "description": "Internet",
+        "type": "SDD",
+        "status": "ACCEPTED",
+        "sub_type": null,
+        "counterparty_alias": {
+          "type": "IBAN",
+          "value": "NL00STAGE0000000016",
+          "name": "Staging Telecom"
+        },
+        "attachment": []
+      }
+    },
+    {
+      "Payment": {
+        "id": 7202607015,
+        "created": "2026-07-15 12:00:00.000000",
+        "updated": "2026-07-15 12:02:00.000000",
+        "monetary_account_id": 9100001,
+        "amount": {
+          "value": "-14.50",
+          "currency": "EUR"
+        },
+        "description": "Lunch",
+        "type": "PAYMENT",
+        "status": "ACCEPTED",
+        "sub_type": null,
+        "counterparty_alias": {
+          "type": "IBAN",
+          "value": "NL00STAGE0000000015",
+          "name": "Staging Lunchroom"
+        },
+        "attachment": []
+      }
+    },
+    {
+      "Payment": {
+        "id": 7202607014,
+        "created": "2026-07-14 12:00:00.000000",
+        "updated": "2026-07-14 12:02:00.000000",
+        "monetary_account_id": 9100001,
+        "amount": {
+          "value": "-36.00",
+          "currency": "EUR"
+        },
+        "description": "Brandstof",
+        "type": "PAYMENT",
+        "status": "ACCEPTED",
+        "sub_type": null,
+        "counterparty_alias": {
+          "type": "IBAN",
+          "value": "NL00STAGE0000000014",
+          "name": "Staging Tankstation"
+        },
+        "attachment": []
+      }
+    },
+    {
+      "Payment": {
+        "id": 7202607013,
+        "created": "2026-07-13 12:00:00.000000",
+        "updated": "2026-07-13 12:02:00.000000",
+        "monetary_account_id": 9100001,
+        "amount": {
+          "value": "-5.10",
+          "currency": "EUR"
+        },
+        "description": "Koffie",
+        "type": "PAYMENT",
+        "status": "ACCEPTED",
+        "sub_type": null,
+        "counterparty_alias": {
+          "type": "IBAN",
+          "value": "NL00STAGE0000000013",
+          "name": "Staging Koffiebar"
+        },
+        "attachment": []
+      }
+    },
+    {
+      "Payment": {
+        "id": 7202607012,
+        "created": "2026-07-12 12:00:00.000000",
+        "updated": "2026-07-12 12:02:00.000000",
+        "monetary_account_id": 9100001,
+        "amount": {
+          "value": "-29.99",
+          "currency": "EUR"
+        },
+        "description": "Kleding",
+        "type": "PAYMENT",
+        "status": "ACCEPTED",
+        "sub_type": null,
+        "counterparty_alias": {
+          "type": "IBAN",
+          "value": "NL00STAGE0000000012",
+          "name": "Staging Warenhuis"
+        },
+        "attachment": []
+      }
+    },
+    {
+      "Payment": {
+        "id": 7202607011,
+        "created": "2026-07-11 12:00:00.000000",
+        "updated": "2026-07-11 12:02:00.000000",
+        "monetary_account_id": 9100001,
+        "amount": {
+          "value": "-43.21",
+          "currency": "EUR"
+        },
+        "description": "Boodschappen",
+        "type": "PAYMENT",
+        "status": "ACCEPTED",
+        "sub_type": null,
+        "counterparty_alias": {
+          "type": "IBAN",
+          "value": "NL00STAGE0000000011",
+          "name": "Staging Supermarkt"
+        },
+        "attachment": []
+      }
+    },
+    {
+      "Payment": {
+        "id": 7202607010,
+        "created": "2026-07-10 12:00:00.000000",
+        "updated": "2026-07-10 12:02:00.000000",
+        "monetary_account_id": 9100001,
+        "amount": {
+          "value": "-75.00",
+          "currency": "EUR"
+        },
+        "description": "Pensioeninleg",
+        "type": "TRANSFER",
+        "status": "ACCEPTED",
+        "sub_type": null,
+        "counterparty_alias": {
+          "type": "IBAN",
+          "value": "NL00STAGE0000000010",
+          "name": "DEGIRO Pensioen"
+        },
+        "attachment": []
+      }
+    },
+    {
+      "Payment": {
+        "id": 7202607009,
+        "created": "2026-07-09 12:00:00.000000",
+        "updated": "2026-07-09 12:02:00.000000",
+        "monetary_account_id": 9100001,
+        "amount": {
+          "value": "-12.00",
+          "currency": "EUR"
+        },
+        "description": "Streaming",
+        "type": "SDD",
+        "status": "ACCEPTED",
+        "sub_type": null,
+        "counterparty_alias": {
+          "type": "IBAN",
+          "value": "NL00STAGE0000000009",
+          "name": "Staging Streaming"
+        },
+        "attachment": []
+      }
+    },
+    {
+      "Payment": {
+        "id": 7202607008,
+        "created": "2026-07-08 12:00:00.000000",
+        "updated": "2026-07-08 12:02:00.000000",
+        "monetary_account_id": 9100001,
+        "amount": {
+          "value": "-24.95",
+          "currency": "EUR"
+        },
+        "description": "Apotheek",
+        "type": "PAYMENT",
+        "status": "ACCEPTED",
+        "sub_type": null,
+        "counterparty_alias": {
+          "type": "IBAN",
+          "value": "NL00STAGE0000000008",
+          "name": "Staging Apotheek"
+        },
+        "attachment": []
+      }
+    },
+    {
+      "Payment": {
+        "id": 7202607007,
+        "created": "2026-07-07 12:00:00.000000",
+        "updated": "2026-07-07 12:02:00.000000",
+        "monetary_account_id": 9100001,
+        "amount": {
+          "value": "-18.75",
+          "currency": "EUR"
+        },
+        "description": "Lunch",
+        "type": "PAYMENT",
+        "status": "ACCEPTED",
+        "sub_type": null,
+        "counterparty_alias": {
+          "type": "IBAN",
+          "value": "NL00STAGE0000000007",
+          "name": "Staging Lunchroom"
+        },
+        "attachment": []
+      }
+    },
+    {
+      "Payment": {
+        "id": 7202607006,
+        "created": "2026-07-06 12:00:00.000000",
+        "updated": "2026-07-06 12:02:00.000000",
+        "monetary_account_id": 9100001,
+        "amount": {
+          "value": "-68.40",
+          "currency": "EUR"
+        },
+        "description": "Energie",
+        "type": "SDD",
+        "status": "ACCEPTED",
+        "sub_type": null,
+        "counterparty_alias": {
+          "type": "IBAN",
+          "value": "NL00STAGE0000000006",
+          "name": "Staging Energie"
+        },
+        "attachment": []
+      }
+    },
+    {
+      "Payment": {
+        "id": 7202607005,
+        "created": "2026-07-05 12:00:00.000000",
+        "updated": "2026-07-05 12:02:00.000000",
+        "monetary_account_id": 9100001,
+        "amount": {
+          "value": "-32.50",
+          "currency": "EUR"
+        },
+        "description": "Openbaar vervoer",
+        "type": "BILLING",
+        "status": "ACCEPTED",
+        "sub_type": null,
+        "counterparty_alias": {
+          "type": "IBAN",
+          "value": "NL00STAGE0000000005",
+          "name": "Staging Mobiliteit"
+        },
+        "attachment": []
+      }
+    },
+    {
+      "Payment": {
+        "id": 7202607004,
+        "created": "2026-07-04 12:00:00.000000",
+        "updated": "2026-07-04 12:02:00.000000",
+        "monetary_account_id": 9100001,
+        "amount": {
+          "value": "-4.20",
+          "currency": "EUR"
+        },
+        "description": "Koffie",
+        "type": "PAYMENT",
+        "status": "ACCEPTED",
+        "sub_type": null,
+        "counterparty_alias": {
+          "type": "IBAN",
+          "value": "NL00STAGE0000000004",
+          "name": "Staging Koffiebar"
+        },
+        "attachment": []
+      }
+    },
+    {
+      "Payment": {
+        "id": 7202607003,
+        "created": "2026-07-03 12:00:00.000000",
+        "updated": "2026-07-03 12:02:00.000000",
+        "monetary_account_id": 9100001,
+        "amount": {
+          "value": "-54.32",
+          "currency": "EUR"
+        },
+        "description": "Boodschappen",
+        "type": "PAYMENT",
+        "status": "ACCEPTED",
+        "sub_type": null,
+        "counterparty_alias": {
+          "type": "IBAN",
+          "value": "NL00STAGE0000000003",
+          "name": "Staging Supermarkt"
+        },
+        "attachment": []
+      }
+    },
+    {
+      "Payment": {
+        "id": 7202607002,
+        "created": "2026-07-02 12:00:00.000000",
+        "updated": "2026-07-02 12:02:00.000000",
+        "monetary_account_id": 9100001,
+        "amount": {
+          "value": "-1250.00",
+          "currency": "EUR"
+        },
+        "description": "Huur juli",
+        "type": "SDD",
+        "status": "ACCEPTED",
+        "sub_type": null,
+        "counterparty_alias": {
+          "type": "IBAN",
+          "value": "NL00STAGE0000000002",
+          "name": "Staging Verhuurder"
+        },
+        "attachment": []
+      }
+    },
+    {
+      "Payment": {
+        "id": 7202607001,
+        "created": "2026-07-01 12:00:00.000000",
+        "updated": "2026-07-01 12:02:00.000000",
+        "monetary_account_id": 9100001,
+        "amount": {
+          "value": "3250.00",
+          "currency": "EUR"
+        },
+        "description": "Salaris juli",
+        "type": "DEPOSIT",
+        "status": "ACCEPTED",
+        "sub_type": null,
+        "counterparty_alias": {
+          "type": "IBAN",
+          "value": "NL00STAGE0000000001",
+          "name": "Staging Werkgever"
+        },
+        "attachment": []
+      }
+    }
+  ],
+  "Pagination": {
+    "future_url": null
+  }
+}

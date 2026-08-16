@@ -80,6 +80,9 @@ exactly one parent and there is exactly one head:
 | 0008 | Exporter tables (export_runs, ab_account_mappings, export_deliveries) |
 | 0009 | Sync schema to ORM: create_all-only tables (`enrichment_freshness`, `security_prices`, `unresolved_securities`, `detected_subscriptions`, `resolution_audit_log`), `outbox_messages.idempotency_key`, column type/comment/index and tenant FK alignment with the models |
 | 0010 | `card_transactions.account_id` relaxed to nullable (bunq card payments carry no settling monetary account id) |
+| 0011 | Per-account sync cursors |
+| 0012 | Wealthfolio delivery cursors and exporter type |
+| 0013 | Holding snapshot deduplication and idempotency constraint |
 
 > **History note:** revisions 0004–0007 were originally four files that all
 > declared `revision="0004"` (duplicate heads), and the export tables

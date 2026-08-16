@@ -72,6 +72,8 @@ class SyncRunLink(BaseModel):
     status: str
     accounts_synced: int = 0
     transactions_synced: int = 0
+    holdings_synced: int = 0
+    unresolved_securities: int = 0
     error_message: str | None = None
     link: str | None = None
 
@@ -163,6 +165,8 @@ async def _run_provider_sync(
             status=str(result.status.value),
             accounts_synced=result.accounts_synced,
             transactions_synced=result.transactions_synced,
+            holdings_synced=getattr(result, "holdings_synced", 0),
+            unresolved_securities=getattr(result, "unresolved_securities", 0),
             error_message=result.error_message,
             link=f"/api/v1/sync-runs/{run_id}" if run_id else None,
         )

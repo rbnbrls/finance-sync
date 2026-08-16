@@ -288,6 +288,25 @@ class CardTransactionRepository(Repository[CardTransaction]):
 class HoldingRepository(Repository[Holding]):
     model_class = Holding
 
+    async def get_by_snapshot(
+        self,
+        tenant_id: str,
+        account_id: str,
+        security_id: str,
+        observed_at: datetime,
+        source: str,
+    ) -> Holding | None:
+        """Find a holding by its provider-neutral idempotency key."""
+        rows = await self.list(
+            Holding.tenant_id == tenant_id,  # type: ignore[attr-defined]
+            Holding.account_id == account_id,  # type: ignore[attr-defined]
+            Holding.security_id == security_id,  # type: ignore[attr-defined]
+            Holding.observed_at == observed_at,  # type: ignore[attr-defined]
+            Holding.source == source,  # type: ignore[attr-defined]
+            limit=1,
+        )
+        return rows[0] if rows else None
+
 
 class TaxLotRepository(Repository[TaxLot]):
     model_class = TaxLot

@@ -42,6 +42,7 @@ class TestTransactionType:
         assert TransactionType.FEE.value == "fee"
         assert TransactionType.INTEREST.value == "interest"
         assert TransactionType.DIVIDEND.value == "dividend"
+        assert TransactionType.TAX.value == "tax"
         assert TransactionType.WITHDRAWAL.value == "withdrawal"
         assert TransactionType.DEPOSIT.value == "deposit"
         assert TransactionType.OTHER.value == "other"

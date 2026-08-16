@@ -126,6 +126,53 @@ fields by name.  Override them when your provider returns data in a
 non‑standard format or needs normalisation (e.g. splitting a combined
 field, mapping provider‑specific type codes to canonical types).
 
+### 2.6 Investment data and the `holdings` capability
+
+Holdings are opt-in. Add `"holdings"` to `supported_resources` and implement
+`fetch_holdings()`; connectors that do neither retain the accounts/transactions
+contract unchanged.
+
+```python
+from finance_sync.connectors.models import RawHolding, SecurityReference
+
+class MyBrokerConnector(Connector):
+    supported_resources = frozenset({"accounts", "transactions", "holdings"})
+
+    async def fetch_holdings(self, *, account_id=None):
+        return [RawHolding(
+            external_account_id=account_id,
+            observed_at=provider_snapshot_time,
+            quantity="2.5",
+            cost_basis="250.00",
+            cost_basis_currency="EUR",
+            market_value="275.00",
+            currency_code="EUR",
+            price="110.00",
+            price_currency="EUR",
+            security_reference=SecurityReference(
+                external_id="provider-instrument-42",
+                isin="IE00BK5BQT80",
+                ticker="VWCE",
+                name="Vanguard FTSE All-World UCITS ETF",
+                venue="XETR",
+                currency_code="EUR",
+                security_type="etf",
+            ),
+        )]
+```
+
+Use the same `SecurityReference` on investment transactions. Do not look up or
+emit finance-sync database IDs. `RawTransaction` also accepts
+`amount_in_base`, `base_currency_code`, and `fx_rate`; all are copied by the
+default transformer. Dividend withholding uses canonical type `tax`.
+
+The orchestrator resolves ISIN first, then FIGI and ticker. Ambiguous or
+incomplete identities go to the unresolved-security queue. Holdings use the
+idempotency key `(tenant, account, security, observed_at, source)`. Reusing an
+observation time updates that snapshot; a new time appends history. Account,
+transaction, security, holding, cursor, sync-run, and outbox writes commit in
+one unit of work.
+
 ---
 
 ## 3. Register the connector

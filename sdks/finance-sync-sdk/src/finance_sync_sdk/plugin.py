@@ -12,12 +12,14 @@ from typing import TYPE_CHECKING, Any
 from finance_sync_sdk.exceptions import ConnectorError
 from finance_sync_sdk.models import (
     CanonicalAccountData,
+    CanonicalHoldingData,
     CanonicalTransactionData,
     ConnectorConfig,
     ConnectorHealth,
     ExportRequest,
     ExportResult,
     RawAccount,
+    RawHolding,
     RawTransaction,
 )
 from finance_sync_sdk.rate_limiter import RateLimiter, RateLimitPolicy
@@ -70,6 +72,7 @@ class ConnectorPlugin(ABC):
     #: ``fetch_accounts`` and ``fetch_transactions`` with rate-limited,
     #: auto-retrying wrappers.
     rate_limit_policy: RateLimitPolicy | None = None
+    supported_resources: frozenset[str] = frozenset({"accounts", "transactions"})
 
     def __init__(self, config: ConnectorConfig) -> None:
         self.config = config
@@ -121,6 +124,11 @@ class ConnectorPlugin(ABC):
         """
 
     # ── Optional overrides ─────────────────────────────────────────────
+
+    async def fetch_holdings(self, *, account_id: str | None = None) -> list[RawHolding]:
+        """Return snapshots when ``holdings`` is advertised."""
+        del account_id
+        return []
 
     async def health(self) -> ConnectorHealth:
         """Lightweight connectivity check.
@@ -188,6 +196,29 @@ class ConnectorPlugin(ABC):
                 description=r.description,
                 status=r.status or "pending",
                 provider_fingerprint=r.provider_fingerprint,
+                quantity=r.quantity,
+                security_reference=r.security_reference,
+                amount_in_base=r.amount_in_base,
+                base_currency_code=r.base_currency_code,
+                fx_rate=r.fx_rate,
+            )
+            for r in raw
+        ]
+
+    def transform_holdings(self, raw: list[RawHolding]) -> list[CanonicalHoldingData]:
+        return [
+            CanonicalHoldingData(
+                provider_key=self.name,
+                external_account_id=r.external_account_id,
+                observed_at=r.observed_at,
+                quantity=r.quantity,
+                security_reference=r.security_reference,
+                cost_basis=r.cost_basis,
+                cost_basis_currency=r.cost_basis_currency,
+                market_value=r.market_value,
+                currency_code=r.currency_code,
+                price=r.price,
+                price_currency=r.price_currency,
             )
             for r in raw
         ]
@@ -220,6 +251,18 @@ class ConnectorPlugin(ABC):
             return result  # type: ignore[return-value]
         return await self.fetch_transactions(since, account_id=account_id, limit=limit)
 
+    async def _rate_limited_fetch_holdings(
+        self, *, account_id: str | None = None
+    ) -> list[RawHolding]:
+        async def _fetch() -> object:
+            return await self.fetch_holdings(account_id=account_id)
+
+        if self._rate_limiter is not None:
+            result = await self._rate_limiter.retry(_fetch)
+            assert isinstance(result, list)
+            return result  # type: ignore[return-value]
+        return await self.fetch_holdings(account_id=account_id)
+
     # ── Introspection ──────────────────────────────────────────────────
 
     @classmethod
@@ -235,6 +278,7 @@ class ConnectorPlugin(ABC):
             "display_name": getattr(cls, "display_name", ""),
             "plugin_version": getattr(cls, "plugin_version", "0.1.0"),
             "has_rate_limit_policy": getattr(cls, "rate_limit_policy", None) is not None,
+            "supported_resources": sorted(getattr(cls, "supported_resources", frozenset())),
             "config_schema": getattr(cls, "config_schema", None),
         }
 

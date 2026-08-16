@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from finance_sync.api.deps.auth import AuthContext, require_permission
 from finance_sync.dependencies import get_db
+from finance_sync.models.enums import TransactionType
 from finance_sync.services.read_api import (
     ReadService,
     TopLevelTransactionListResponse,
@@ -37,7 +38,9 @@ async def list_transactions(
     account_id: str | None = Query(default=None, alias="accountId"),
     provider: str | None = Query(default=None),
     status: str | None = Query(default=None),
-    transaction_type: str | None = Query(default=None, alias="type"),
+    transaction_type: TransactionType | None = Query(
+        default=None, alias="type"
+    ),
     currency: str | None = Query(default=None),
     date_from: datetime | None = Query(default=None, alias="from"),
     date_to: datetime | None = Query(default=None, alias="to"),

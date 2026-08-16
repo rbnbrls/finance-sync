@@ -21,12 +21,14 @@ from finance_sync.connectors.exceptions import ConnectorError
 from finance_sync.connectors.models import (
     CanonicalAccountData,
     CanonicalCardTransactionData,
+    CanonicalHoldingData,
     CanonicalScheduledPaymentData,
     CanonicalTransactionData,
     ConnectorConfig,
     ConnectorHealth,
     RawAccount,
     RawCardTransaction,
+    RawHolding,
     RawScheduledPayment,
     RawTransaction,
 )
@@ -61,6 +63,12 @@ class Connector(ABC):
     #: Semantic version of the connector SDK this connector targets.
     #: Must be a PEP 440 version string such as ``"0.1.0"``.
     sdk_version: str = "0.1.0"
+
+    #: Resources implemented by this connector.  Holdings are deliberately
+    #: opt-in so existing third-party connectors keep their old behaviour.
+    supported_resources: frozenset[str] = frozenset(
+        {"accounts", "transactions"}
+    )
 
     #: Optional rate-limit policy.  When set, the base class wraps
     #: ``fetch_accounts`` and ``fetch_transactions`` with rate-limited,
@@ -142,6 +150,18 @@ class Connector(ABC):
                 provider_type=self.name,
             )
 
+    async def fetch_holdings(
+        self, *, account_id: str | None = None
+    ) -> list[RawHolding]:
+        """Return current or historical position snapshots.
+
+        Connectors must also add ``"holdings"`` to
+        :attr:`supported_resources`; the default is a no-op for backwards
+        compatibility.
+        """
+        del account_id
+        return []
+
     def transform_accounts(
         self,
         raw: list[RawAccount],
@@ -190,6 +210,31 @@ class Connector(ABC):
                 quantity=r.quantity,
                 status=r.status or "pending",
                 provider_fingerprint=r.provider_fingerprint,
+                security_reference=r.security_reference,
+                amount_in_base=r.amount_in_base,
+                base_currency_code=r.base_currency_code,
+                fx_rate=r.fx_rate,
+            )
+            for r in raw
+        ]
+
+    def transform_holdings(
+        self, raw: list[RawHolding]
+    ) -> list[CanonicalHoldingData]:
+        """Transform provider holdings to canonical snapshots."""
+        return [
+            CanonicalHoldingData(
+                provider_key=self.name,
+                external_account_id=r.external_account_id,
+                observed_at=r.observed_at,
+                quantity=r.quantity,
+                security_reference=r.security_reference,
+                cost_basis=r.cost_basis,
+                cost_basis_currency=r.cost_basis_currency,
+                market_value=r.market_value,
+                currency_code=r.currency_code,
+                price=r.price,
+                price_currency=r.price_currency,
             )
             for r in raw
         ]
@@ -290,3 +335,17 @@ class Connector(ABC):
         return await self.fetch_transactions(
             since, account_id=account_id, limit=limit
         )
+
+    async def _rate_limited_fetch_holdings(
+        self, *, account_id: str | None = None
+    ) -> list[RawHolding]:
+        """Call :meth:`fetch_holdings` with rate-limit protection."""
+
+        async def _fetch() -> object:
+            return await self.fetch_holdings(account_id=account_id)
+
+        if self._rate_limiter is not None:
+            result = await self._rate_limiter.retry(_fetch)
+            assert isinstance(result, list)
+            return cast("list[RawHolding]", result)
+        return await self.fetch_holdings(account_id=account_id)

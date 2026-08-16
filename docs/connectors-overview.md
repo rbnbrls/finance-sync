@@ -30,8 +30,10 @@ via the ``finance_sync.connectors`` entry point group in ``pyproject.toml``.
 - **Auth:** API key in ``credentials["api_key"]``
 - **API:** Trading212 v0 REST API
 - **Rate limit:** 10 req/min (free tier)
-- **Features:** Portfolio holdings, order history, dividend/cash
-  transaction history, live/demo mode switching
+- **Capabilities:** `accounts`, `transactions`, `holdings`
+- **Features:** Portfolio snapshots through the generic holdings pipeline,
+  linked security references, order history, dividend/tax/cash transaction
+  history, live/demo mode switching
 - **Docs:** See module docstring
 
 ## YNAB

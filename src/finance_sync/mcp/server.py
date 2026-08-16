@@ -311,6 +311,8 @@ async def tool_run_sync(ctx: ServerContext, connector_type: str) -> str:
             "status": str(result.status.value),
             "accounts_synced": result.accounts_synced,
             "transactions_synced": result.transactions_synced,
+            "holdings_synced": result.holdings_synced,
+            "unresolved_securities": result.unresolved_securities,
             "error_message": result.error_message,
             "duration_s": result.duration_s,
         }

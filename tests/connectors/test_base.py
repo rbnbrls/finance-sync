@@ -16,7 +16,9 @@ from finance_sync.connectors.exceptions import (
 from finance_sync.connectors.models import (
     ConnectorConfig,
     RawAccount,
+    RawHolding,
     RawTransaction,
+    SecurityReference,
 )
 from finance_sync.connectors.rate_limiter import RateLimitPolicy
 
@@ -113,6 +115,27 @@ class TestConnectorABC:
         health = await mock_connector.health()
         assert health.healthy
         assert health.provider_type == "mock_provider"
+
+    async def test_holdings_are_opt_in_and_default_to_empty(
+        self, mock_connector: Connector
+    ) -> None:
+        assert "holdings" not in mock_connector.supported_resources
+        assert await mock_connector.fetch_holdings() == []
+
+    async def test_transform_holdings(self, mock_connector: Connector) -> None:
+        raw = RawHolding(
+            external_account_id="acc_1",
+            observed_at=datetime(2025, 1, 1, tzinfo=UTC),
+            quantity=Decimal(3),
+            security_reference=SecurityReference(
+                isin="IE00BK5BQT80", name="ETF"
+            ),
+            price=Decimal(100),
+            market_value=Decimal(300),
+        )
+        canonical = mock_connector.transform_holdings([raw])
+        assert canonical[0].provider_key == "mock_provider"
+        assert canonical[0].security_reference.isin == "IE00BK5BQT80"
 
     async def test_health_failure(
         self, sample_connector_config: ConnectorConfig

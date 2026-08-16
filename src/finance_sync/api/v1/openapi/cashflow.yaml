@@ -79,7 +79,7 @@ paths:
             Filter by transaction type / category. Only entries matching
             this transaction type are included in the breakdown and period
             history. Examples: `deposit`, `payment`, `interest`, `fee`,
-            `withdrawal`, `dividend`, `purchase`.
+            `withdrawal`, `dividend`, `tax`, `purchase`.
           schema:
             type: string
             example: deposit

@@ -67,6 +67,19 @@ Dependency direction is `api/workers -> services -> domain <- infrastructure/con
 
 ## 4. Synchronization flow
 
+The generic pipeline ingests accounts and transactions for every connector. A
+connector advertising `holdings` also supplies time-versioned position
+snapshots. Transactions and holdings carry a provider-neutral security
+reference; the orchestrator resolves it ISIN-first and sends ambiguous
+identities to `unresolved_securities`. Connectors never depend on canonical
+database IDs.
+
+All facts for a sync, including securities, holding snapshots, cursors, the
+completed run, and outbox messages, share one transaction. Holding uniqueness
+is `(tenant_id, account_id, security_id, observed_at, source)`, preserving
+history while making retries idempotent. Results, metrics, and investment sync
+events contain aggregate holding and unresolved counts only.
+
 1. Scheduler or `POST /sync/{provider}` creates a `sync_run` with a unique request/idempotency key.
 2. Connector Manager obtains a per-connection Redis lock and invokes the connector's incremental fetch methods, using persisted watermarks/cursors.
 3. Raw responses are encrypted and fingerprinted; the normalizer converts records to canonical commands.

@@ -32,6 +32,7 @@ from finance_sync.exporter.wealthfolio.transaction_mapper import (
     WF_ACTIVITY_FEE,
     WF_ACTIVITY_INTEREST,
     WF_ACTIVITY_SELL,
+    WF_ACTIVITY_TAX,
     WF_ACTIVITY_TRANSFER_IN,
     WF_ACTIVITY_TRANSFER_OUT,
     WF_ACTIVITY_WITHDRAWAL,
@@ -267,6 +268,17 @@ class TestTransactionMapper:
         row = map_transaction_to_wf_row(txn)
         assert row["activityType"] == WF_ACTIVITY_FEE
         assert row["amount"] == "9.99"
+
+    def test_map_tax(self) -> None:
+        txn = _make_mock_transaction(
+            transaction_type="tax",
+            amount=Decimal("-7.50"),
+            currency_code="EUR",
+            description="Dividend withholding tax",
+        )
+        row = map_transaction_to_wf_row(txn)
+        assert row["activityType"] == WF_ACTIVITY_TAX
+        assert row["amount"] == "7.50"
 
     def test_map_transfer_in(self) -> None:
         txn = _make_mock_transaction(

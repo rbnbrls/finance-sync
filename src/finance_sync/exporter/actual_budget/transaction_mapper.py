@@ -110,6 +110,7 @@ def _build_payee(
         "withdrawal": "Withdrawal",
         "deposit": "Deposit",
         "fee": "Bank Fee",
+        "tax": "Tax Withholding",
         "interest": "Interest Payment",
         "dividend": "Dividend",
         "transfer": "Transfer",
@@ -138,7 +139,10 @@ def _build_notes(txn: FsTransaction) -> str | None:
         parts.append(fx_info)
 
     # Transaction type hint for investment transactions
-    if txn.transaction_type in ("sale", "dividend", "fee") and txn.security_id:
+    if (
+        txn.transaction_type in ("sale", "dividend", "fee", "tax")
+        and txn.security_id
+    ):
         parts.append(f"Type: {txn.transaction_type}")
 
     # Provider fingerprint

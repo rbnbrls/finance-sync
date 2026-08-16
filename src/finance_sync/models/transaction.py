@@ -90,7 +90,7 @@ class Transaction(TimestampMixin, Base):
         String(64),
         nullable=False,
         comment="transfer/payment/purchase/sale/fee/interest/dividend/"
-        "withdrawal/deposit/other",
+        "tax/withdrawal/deposit/other",
     )
     description: Mapped[str | None] = mapped_column(String(1024), nullable=True)
 

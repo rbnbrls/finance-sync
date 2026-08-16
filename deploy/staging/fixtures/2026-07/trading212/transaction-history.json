@@ -1,0 +1,14 @@
+{
+  "items": [
+    {
+      "id": 830260717,
+      "type": "DIVIDEND",
+      "dateTime": "2026-07-17T08:00:00.000Z",
+      "amount": 0.25,
+      "currencyCode": "EUR",
+      "reference": "Synthetic AAPL dividend",
+      "ticker": "AAPL"
+    }
+  ],
+  "nextPagePath": null
+}

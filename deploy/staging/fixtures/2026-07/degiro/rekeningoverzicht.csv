@@ -1,0 +1,4 @@
+﻿Datum,Tijd,Valutadatum,Product,ISIN,Omschrijving,Wisselkoers,Mutatie,,Saldo,,Order ID
+01-07-2026,09:00,01-07-2026,,,Storting,,350.00,EUR,350.00,EUR,
+17-07-2026,08:00,17-07-2026,Apple Inc.,US0378331005,Dividend,1.1500,0.25,USD,0.25,USD,
+17-07-2026,08:00,17-07-2026,Apple Inc.,US0378331005,Dividendbelasting,1.1500,-0.04,USD,0.21,USD,

@@ -140,6 +140,20 @@ class TestTrading212ConnectorContract:
         with pytest.raises(PermanentError, match="not authenticated"):
             await t212_connector.fetch_portfolio()
 
+    async def test_fetch_holdings_maps_portfolio_capability(
+        self, t212_connector: Trading212Connector
+    ) -> None:
+        await t212_connector.authenticate()
+        holdings = await t212_connector.fetch_holdings(account_id="12345678")
+
+        assert "holdings" in t212_connector.supported_resources
+        assert len(holdings) == 3
+        assert holdings[0].security_reference.ticker == "AAPL"
+        assert holdings[0].cost_basis == Decimal("1755.0")
+        assert holdings[0].market_value == Decimal("1800.0")
+        assert holdings[2].security_reference.security_type == "etf"
+        assert len({holding.observed_at for holding in holdings}) == 1
+
     # ── Transactions ───────────────────────────────────────────────────
 
     async def test_fetch_transactions_returns_list(
@@ -545,7 +559,7 @@ class TestTrading212Mapping:
         assert _map_transaction_type("WITHDRAWAL") == "withdrawal"
         assert _map_transaction_type("INTEREST") == "interest"
         assert _map_transaction_type("FEE") == "fee"
-        assert _map_transaction_type("TAX") == "fee"
+        assert _map_transaction_type("TAX") == "tax"
         assert _map_transaction_type("CASHBACK") == "deposit"
         assert _map_transaction_type("LOYALTY_BONUS") == "interest"
         assert _map_transaction_type("UNKNOWN") == "other"

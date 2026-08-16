@@ -21,13 +21,17 @@ from finance_sync.connectors.exceptions import PermanentError
 from finance_sync.connectors.models import (
     ConnectorConfig,
     RawAccount,
+    RawHolding,
     RawTransaction,
+    SecurityReference,
 )
 from finance_sync.connectors.registry import ConnectorRegistry
 from finance_sync.db.uow import UnitOfWork
 from finance_sync.models import (
     Account,
+    Holding,
     OutboxMessage,
+    Security,
     SyncCursor,
     SyncRun,
     Tenant,
@@ -56,12 +60,16 @@ class StaticMockConnector(Connector):
         transactions: list[RawTransaction] | None = None,
         fail_auth: bool = False,
         fail_accounts: bool = False,
+        holdings: list[RawHolding] | None = None,
+        fail_holdings: bool = False,
     ) -> None:
         super().__init__(config)
         self._accounts = accounts or []
         self._transactions = transactions or []
         self._fail_auth = fail_auth
         self._fail_accounts = fail_accounts
+        self._holdings = holdings or []
+        self._fail_holdings = fail_holdings
 
     @property
     def name(self) -> str:
@@ -93,6 +101,20 @@ class StaticMockConnector(Connector):
         if limit and limit < len(filtered):
             filtered = filtered[:limit]
         return [t for t in filtered if t.occurred_at >= since]
+
+    async def fetch_holdings(
+        self, *, account_id: str | None = None
+    ) -> list[RawHolding]:
+        if self._fail_holdings:
+            msg = "Mock holdings unavailable"
+            raise PermanentError(msg)
+        if account_id:
+            return [
+                holding
+                for holding in self._holdings
+                if holding.external_account_id == account_id
+            ]
+        return self._holdings
 
 
 @pytest.fixture
@@ -222,6 +244,157 @@ class TestSyncPipelinePg:
             assert "account.created" in event_types
             assert "transaction.created" in event_types
             assert len(outbox) == 4
+
+    async def test_investment_pipeline_links_fx_tax_and_holding_history(
+        self, session_factory, tenant, sample_raw_account
+    ) -> None:
+        observed = datetime(2026, 6, 1, 12, 0, tzinfo=UTC)
+        reference = SecurityReference(
+            external_id="provider-vwce",
+            isin="IE00BK5BQT80",
+            ticker="VWCE",
+            name="Vanguard FTSE All-World",
+            currency_code="EUR",
+            security_type="etf",
+        )
+        holdings = [
+            RawHolding(
+                external_account_id="acc_12345",
+                observed_at=observed,
+                quantity=Decimal(2),
+                security_reference=reference,
+                market_value=Decimal(220),
+                currency_code="EUR",
+                price=Decimal(110),
+                price_currency="EUR",
+            )
+        ]
+        transactions = [
+            RawTransaction(
+                external_transaction_id="tax_1",
+                external_account_id="acc_12345",
+                amount=Decimal(-15),
+                currency_code="USD",
+                amount_in_base=Decimal("-13.80"),
+                base_currency_code="EUR",
+                fx_rate=Decimal("0.92"),
+                occurred_at=observed,
+                transaction_type="tax",
+                status="booked",
+                security_reference=reference,
+            )
+        ]
+
+        class InvestmentConnector(StaticMockConnector):
+            supported_resources = frozenset(
+                {"accounts", "transactions", "holdings"}
+            )
+
+            def __init__(self, config: ConnectorConfig) -> None:
+                super().__init__(
+                    config,
+                    accounts=[sample_raw_account],
+                    transactions=transactions,
+                    holdings=holdings,
+                )
+
+        orchestrator = _make_orchestrator(
+            session_factory, tenant, InvestmentConnector
+        )
+        first = await orchestrator.run_sync(
+            "mock_provider", _config(), since=observed - timedelta(days=1)
+        )
+        second = await orchestrator.run_sync(
+            "mock_provider", _config(), since=observed - timedelta(days=1)
+        )
+
+        assert first.holdings_synced == 1
+        assert second.holdings_synced == 1
+        async with session_factory() as session:
+            securities = (
+                (await session.execute(select(Security))).scalars().all()
+            )
+            stored_holdings = (
+                (await session.execute(select(Holding))).scalars().all()
+            )
+            stored_transactions = (
+                (await session.execute(select(Transaction))).scalars().all()
+            )
+            assert len(securities) == 1
+            assert len(stored_holdings) == 1
+            assert len(stored_transactions) == 1
+            assert stored_transactions[0].security_id == securities[0].id
+            assert stored_holdings[0].security_id == securities[0].id
+            assert stored_transactions[0].amount_in_base == Decimal(
+                "-13.80000000"
+            )
+            assert stored_transactions[0].transaction_type == "tax"
+
+            sync_events = (
+                (
+                    await session.execute(
+                        select(OutboxMessage).where(
+                            OutboxMessage.event_type == "sync.completed"
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            assert sync_events[-1].payload["holdings"] == 1
+            assert sync_events[-1].payload["unresolved_securities"] == 0
+
+        holdings.append(
+            holdings[0].model_copy(
+                update={
+                    "observed_at": observed + timedelta(days=1),
+                    "market_value": Decimal(230),
+                }
+            )
+        )
+        await orchestrator.run_sync(
+            "mock_provider", _config(), since=observed - timedelta(days=1)
+        )
+        async with session_factory() as session:
+            stored = (await session.execute(select(Holding))).scalars().all()
+            assert len(stored) == 2
+
+    async def test_holding_failure_rolls_back_whole_portfolio(
+        self,
+        session_factory,
+        tenant,
+        sample_raw_account,
+        sample_raw_transactions,
+    ) -> None:
+        class FailingHoldingsConnector(StaticMockConnector):
+            supported_resources = frozenset(
+                {"accounts", "transactions", "holdings"}
+            )
+
+            def __init__(self, config: ConnectorConfig) -> None:
+                super().__init__(
+                    config,
+                    accounts=[sample_raw_account],
+                    transactions=sample_raw_transactions,
+                    fail_holdings=True,
+                )
+
+        orchestrator = _make_orchestrator(
+            session_factory, tenant, FailingHoldingsConnector
+        )
+        result = await orchestrator.run_sync("mock_provider", _config())
+        assert result.status == SyncRunStatus.FAILED
+
+        async with session_factory() as session:
+            assert (
+                await session.execute(select(Account))
+            ).scalars().all() == []
+            assert (
+                await session.execute(select(Transaction))
+            ).scalars().all() == []
+            assert (
+                await session.execute(select(Holding))
+            ).scalars().all() == []
 
     async def test_rerun_is_idempotent(
         self,

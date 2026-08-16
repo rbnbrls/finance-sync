@@ -1,0 +1,83 @@
+{
+  "dataset": "finance-sync-staging-2026-07",
+  "synthetic": true,
+  "period": {
+    "from": "2026-07-01",
+    "to": "2026-07-31"
+  },
+  "timezone": "Europe/Amsterdam",
+  "expected": {
+    "bunq": {
+      "accounts": 1,
+      "transactions": 31,
+      "daily_date_coverage": [
+        "2026-07-01",
+        "2026-07-02",
+        "2026-07-03",
+        "2026-07-04",
+        "2026-07-05",
+        "2026-07-06",
+        "2026-07-07",
+        "2026-07-08",
+        "2026-07-09",
+        "2026-07-10",
+        "2026-07-11",
+        "2026-07-12",
+        "2026-07-13",
+        "2026-07-14",
+        "2026-07-15",
+        "2026-07-16",
+        "2026-07-17",
+        "2026-07-18",
+        "2026-07-19",
+        "2026-07-20",
+        "2026-07-21",
+        "2026-07-22",
+        "2026-07-23",
+        "2026-07-24",
+        "2026-07-25",
+        "2026-07-26",
+        "2026-07-27",
+        "2026-07-28",
+        "2026-07-29",
+        "2026-07-30",
+        "2026-07-31"
+      ]
+    },
+    "degiro_pension": {
+      "investment_events": 5,
+      "trade_rows": 4,
+      "dividend_rows": 1,
+      "tax_rows": 1,
+      "holdings": 4,
+      "security_types": [
+        "stock",
+        "etf"
+      ]
+    },
+    "trading212": {
+      "investment_events": 5,
+      "order_rows": 4,
+      "dividend_rows": 1,
+      "holdings": 4,
+      "security_types": [
+        "stock",
+        "etf"
+      ]
+    }
+  },
+  "routes": {
+    "bunq": {
+      "POST /v1/session-server": "bunq/session-server.json",
+      "GET /v1/user/9900001/monetary-account": "bunq/monetary-accounts.json",
+      "GET /v1/monetary-account/9100001/payment": "bunq/payments-account-9100001.json"
+    },
+    "trading212": {
+      "GET /api/v0/equity/account/info": "trading212/account-info.json",
+      "GET /api/v0/equity/account/cash": "trading212/account-cash.json",
+      "GET /api/v0/equity/history/orders": "trading212/order-history.json",
+      "GET /api/v0/equity/history/transactions": "trading212/transaction-history.json",
+      "GET /api/v0/equity/portfolio": "trading212/portfolio.json"
+    }
+  }
+}
