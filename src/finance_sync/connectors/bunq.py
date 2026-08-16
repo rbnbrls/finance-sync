@@ -1,10 +1,9 @@
 """Bunq API connector implementation.
 
-Uses bunq's v1 API with API-key authentication. The authentication flow
-creates a session-server from the API key.  For production use, the full
-installation flow (key exchange, device registration, session creation) is
-needed; this implementation assumes an existing installation and performs
-the session-server step on each :meth:`authenticate` call.
+Uses bunq's v1 API with API-key authentication. When ``full_auth`` is enabled,
+the connector performs installation, device registration and the signed
+session flow required by the official sandbox. A lightweight session-only mode
+remains available for existing configurations and recorded/static fixtures.
 
 Rate limit
     bunq allows 60 requests per minute per user.  The connector's
@@ -19,6 +18,8 @@ Pagination
 
 from __future__ import annotations
 
+import base64
+import json
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any, cast
@@ -100,6 +101,7 @@ class BunqConnector(Connector):
         )
         self._session_token: str | None = None
         self._user_id: int | None = None
+        self._full_auth = bool(config.options.get("full_auth", False))
 
     @property
     def name(self) -> str:
@@ -121,7 +123,10 @@ class BunqConnector(Connector):
             raise PermanentError(msg)
 
         try:
-            session_data = await self._create_session(api_key)
+            if self._full_auth:
+                session_data = await self._bootstrap_session(api_key)
+            else:
+                session_data = await self._create_session(api_key)
             self._session_token = session_data["token"]
             self._user_id = session_data["user_id"]
         except httpx.HTTPStatusError as exc:
@@ -165,6 +170,62 @@ class BunqConnector(Connector):
             raise PermanentError(msg)
 
         return {"token": session_token, "user_id": user_id}
+
+    async def _bootstrap_session(self, api_key: str) -> dict[str, Any]:
+        """Register an installation/device and create a signed session."""
+        from cryptography.hazmat.primitives import hashes, serialization
+        from cryptography.hazmat.primitives.asymmetric import padding, rsa
+
+        private_key = rsa.generate_private_key(
+            public_exponent=65537, key_size=2048
+        )
+        public_key = private_key.public_key().public_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo,
+        )
+        installation = await self._http.post(
+            "/installation",
+            json={"client_public_key": public_key.decode("ascii")},
+            headers=_base_headers(),
+        )
+        installation.raise_for_status()
+        installation_token = _bunq_token(installation.json())
+
+        async def signed_post(path: str, body: dict[str, object]) -> Any:
+            payload = json.dumps(body, separators=(",", ":")).encode()
+            signature = private_key.sign(
+                payload,
+                padding.PKCS1v15(),
+                hashes.SHA256(),
+            )
+            headers = _base_headers()
+            headers.update(
+                {
+                    "Content-Type": "application/json",
+                    "X-Bunq-Client-Authentication": installation_token,
+                    "X-Bunq-Client-Signature": base64.b64encode(
+                        signature
+                    ).decode("ascii"),
+                }
+            )
+            response = await self._http.post(
+                path, content=payload, headers=headers
+            )
+            response.raise_for_status()
+            return response.json()
+
+        await signed_post(
+            "/device-server",
+            {
+                "description": "finance-sync",
+                "secret": api_key,
+                "permitted_ips": self.config.options.get(
+                    "permitted_ips", []
+                ),
+            },
+        )
+        session = await signed_post("/session-server", {"secret": api_key})
+        return _bunq_session(session)
 
     def _auth_headers(self) -> dict[str, str]:
         """Return request headers with the session token."""
@@ -695,7 +756,33 @@ def _base_headers() -> dict[str, str]:
         "X-Bunq-Language": "en_US",
         "X-Bunq-Region": "NL",
         "Cache-Control": "no-cache",
+        "User-Agent": "finance-sync/0.1",
     }
+
+
+def _bunq_token(data: dict[str, Any]) -> str:
+    """Extract a token from a bunq response envelope."""
+    for item in data.get("Response", []):
+        if "Token" in item and item["Token"].get("token"):
+            return str(item["Token"]["token"])
+    msg = "bunq installation response missing token"
+    raise PermanentError(msg)
+
+
+def _bunq_session(data: dict[str, Any]) -> dict[str, Any]:
+    """Extract the session token and user id from a response envelope."""
+    token: str | None = None
+    user_id: int | None = None
+    for item in data.get("Response", []):
+        if "Token" in item:
+            token = item["Token"].get("token")
+        user = item.get("UserPerson") or item.get("UserCompany")
+        if user:
+            user_id = int(user["id"])
+    if not token or not user_id:
+        msg = "bunq session-server response missing token or user_id"
+        raise PermanentError(msg)
+    return {"token": token, "user_id": user_id}
 
 
 def _request_id() -> str:

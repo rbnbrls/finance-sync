@@ -15,7 +15,7 @@ because FastAPI needs runtime type introspection for OpenAPI generation.
 
 import json
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
@@ -126,7 +126,22 @@ def _decrypt_config(
         cred_dict: dict[str, str] = json.loads(raw_payload)
     except (json.JSONDecodeError, TypeError):
         cred_dict = {"api_key": raw_payload}
-    return ConnectorConfig(provider_type=provider, credentials=cred_dict)
+    options: dict[str, Any] = {}
+    try:
+        stored = json.loads(getattr(cred, "description", None) or "{}")
+        if isinstance(stored, dict):
+            options = {
+                k: v
+                for k, v in cast(dict[str, Any], stored).items()
+                if k != "_label"
+            }
+    except (json.JSONDecodeError, TypeError):
+        pass
+    return ConnectorConfig(
+        provider_type=provider,
+        credentials=cred_dict,
+        options=options,
+    )
 
 
 async def _run_provider_sync(

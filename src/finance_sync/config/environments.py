@@ -22,6 +22,11 @@ class Environment(enum.StrEnum):
         """Whether this is a production environment."""
         return self == Environment.PRODUCTION
 
+    @property
+    def is_staging(self) -> bool:
+        """Whether this is the staging environment."""
+        return self == Environment.STAGING
+
     @classmethod
     def from_str(cls, value: str) -> Environment:
         """Parse an environment string, case-insensitively.

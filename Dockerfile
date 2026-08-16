@@ -20,6 +20,7 @@ COPY src/ ./src/
 # `alembic upgrade head` as a pre-deployment command in this image)
 COPY alembic.ini ./
 COPY migrations/ ./migrations/
+COPY deploy/staging/fixtures/ ./deploy/staging/fixtures/
 
 # Synchronise dependencies (no dev extras)
 RUN uv sync --no-dev --frozen
