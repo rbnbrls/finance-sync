@@ -819,12 +819,17 @@ class BunqConnector(Connector):
 
 
 def _base_headers() -> dict[str, str]:
-    """Return headers common to all bunq API requests."""
+    """Return headers common to all bunq API requests.
+
+    Note: the X-Bunq-Region header is deliberately NOT sent — bunq's API
+    rejects it with HTTP 400 ("Your device's region setting are not
+    supported by bunq") on both sandbox and production endpoints while the
+    same request without it succeeds (verified live 2026-08-17).
+    """
     return {
         "X-Bunq-Client-Request-Id": _request_id(),
         "X-Bunq-Geolocation": "0 0 0 0 NL",
         "X-Bunq-Language": "en_US",
-        "X-Bunq-Region": "NL",
         "Cache-Control": "no-cache",
         "User-Agent": "finance-sync/0.1",
     }
