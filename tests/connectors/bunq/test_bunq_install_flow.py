@@ -69,6 +69,7 @@ class InstallFlowMockTransport(httpx.MockTransport):
                 "method": request.method,
                 "path": request.url.path,
                 "body": request.content,
+                "headers": dict(request.headers),
             }
         )
         path = request.url.path
@@ -246,3 +247,108 @@ class TestInstallationFlow:
             "/v1/device-server",
             "/v1/session-server",
         ]
+
+
+class TestRegionHeaderRejected:
+    """bunq's API rejects the X-Bunq-Region header (HTTP 400 'region
+    setting are not supported'). It must never be sent on any request.
+
+    Verified live 2026-08-17: same request with the header -> 400, without
+    it -> 200, on both sandbox and production endpoints.
+    """
+
+    @pytest.mark.asyncio
+    async def test_install_flow_never_sends_x_bunq_region(self) -> None:
+        transport = InstallFlowMockTransport()
+        conn = _make_connector(transport)
+
+        await conn.authenticate()
+
+        assert transport.paths == [
+            "/v1/installation",
+            "/v1/device-server",
+            "/v1/session-server",
+        ]
+        for entry in transport.call_log:
+            headers = {k.lower(): v for k, v in entry["headers"].items()}
+            assert "x-bunq-region" not in headers, (
+                f"X-Bunq-Region was sent on {entry['method']} {entry['path']}"
+            )
+            # The geolocation header must still be present (bunq requires it).
+            assert "x-bunq-geolocation" in headers
+
+    @pytest.mark.asyncio
+    async def test_accounts_fetch_never_sends_x_bunq_region(self) -> None:
+        """The authenticated data path must not carry the header either."""
+        transport = _AccountsMockTransport()
+        conn = _make_connector(
+            transport,
+            options={"base_url": "https://public-api.sandbox.bunq.com/v1"},
+        )
+
+        await conn.authenticate()
+        accounts = await conn.fetch_accounts()
+
+        assert accounts
+        for entry in transport.call_log:
+            headers = {k.lower(): v for k, v in entry["headers"].items()}
+            assert "x-bunq-region" not in headers, (
+                f"X-Bunq-Region was sent on {entry['method']} {entry['path']}"
+            )
+
+
+class _AccountsMockTransport(httpx.MockTransport):
+    """Install flow + one sandbox monetary-account page."""
+
+    def __init__(self) -> None:
+        super().__init__(self._handler)
+        self._call_log: list[dict[str, Any]] = []
+
+    @property
+    def call_log(self) -> list[dict[str, Any]]:
+        return list(self._call_log)
+
+    def _handler(self, request: httpx.Request) -> httpx.Response:
+        self._call_log.append(
+            {
+                "method": request.method,
+                "path": request.url.path,
+                "body": request.content,
+                "headers": dict(request.headers),
+            }
+        )
+        path = request.url.path
+        if request.method == "POST" and path == "/v1/installation":
+            return httpx.Response(200, json=INSTALLATION_RESPONSE)
+        if request.method == "POST" and path == "/v1/device-server":
+            return httpx.Response(200, json=DEVICE_SERVER_RESPONSE)
+        if request.method == "POST" and path == "/v1/session-server":
+            return httpx.Response(200, json=SESSION_SERVER_RESPONSE)
+        if request.method == "GET" and "/monetary-account" in path:
+            return httpx.Response(
+                200,
+                json={
+                    "Response": [
+                        {
+                            "MonetaryAccountBank": {
+                                "id": 123,
+                                "description": "Test Checking",
+                                "balance": {
+                                    "value": "42.50",
+                                    "currency": "EUR",
+                                },
+                                "alias": [
+                                    {
+                                        "type": "IBAN",
+                                        "value": "NL00BUNQ0000000000",
+                                    }
+                                ],
+                                "status": "ACTIVE",
+                            }
+                        }
+                    ],
+                    "Pagination": {"future_url": None},
+                },
+            )
+        msg = f"No mock handler for {request.method} {path}"
+        return httpx.Response(404, json={"error": msg})
