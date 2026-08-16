@@ -29,9 +29,18 @@ RUN uv sync --no-dev --frozen
 # =========================================
 FROM python:3.12-slim-bookworm AS production
 
-# Install runtime system deps
+# Install runtime system deps.
+# BOTH curl and wget are required (issue #233):
+#   - curl backs the Dockerfile HEALTHCHECK below.
+#   - wget is what Coolify's own healthcheck probe injects when Coolify
+#     manages the healthcheck itself (custom_healthcheck_found=false).
+#     A curl-only image made every probe fail with "wget: not found"
+#     (rc 1), so Coolify rolled back every deployment.  Shipping wget
+#     keeps the default probe working even if a Coolify-side custom
+#     health_check_command is ever reset.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
+    wget \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
