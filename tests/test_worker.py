@@ -759,6 +759,36 @@ class TestJobstoreSyncDriver:
         store = built._jobstores["default"]
         assert store.engine.url.drivername == "postgresql+psycopg"
 
+    def test_monitored_job_callable_is_picklable(self) -> None:
+        """Job callables must survive SQLAlchemyJobStore pickling.
+
+        Regression test for the production worker crash: the monitored
+        wrapper used to be a closure over ``self``, which APScheduler
+        cannot pickle when persisting jobs to PostgreSQL
+        ("This Job cannot be serialized since the reference to its
+        callable could not be determined").
+        """
+        import pickle
+
+        from finance_sync.container import Container
+        from finance_sync.worker.jobs import export_wealthfolio_job
+        from finance_sync.worker.monitoring import JobMonitor
+        from finance_sync.worker.scheduler import WorkerScheduler
+
+        settings = self._settings_with_db()
+        container = Container.from_settings(settings)  # type: ignore[arg-type]
+        scheduler = WorkerScheduler(
+            settings,
+            container,
+            JobMonitor(),  # type: ignore[arg-type]
+        )
+
+        job_callable = scheduler._make_monitored_job(
+            "export_wealthfolio", export_wealthfolio_job
+        )
+        restored = pickle.loads(pickle.dumps(job_callable))
+        assert callable(restored)
+
 
 # ── export_wealthfolio_job tests ───────────────────────────────────────
 

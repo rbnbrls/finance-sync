@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import traceback
+from functools import partial
 from typing import TYPE_CHECKING, Any, cast
 
 import structlog
@@ -98,6 +99,34 @@ def sync_jobstore_url(engine_url: str | None) -> str | None:
 # ── Scheduler wrapper ─────────────────────────────────────────────────
 
 
+# Module-level job entrypoint registry.
+#
+# APScheduler's SQLAlchemyJobStore pickles job callables into PostgreSQL.
+# Closures over ``self`` and bound methods of WorkerScheduler are not
+# picklable ("This Job cannot be serialized since the reference to its
+# callable could not be determined" — observed on the production worker,
+# 2026-08-16).  Monitored jobs are therefore registered as a module-level
+# function with ``(scheduler_key, job_id, func)`` arguments; the entrypoint
+# resolves the owning scheduler from module state at run time.
+_schedulers: dict[int, WorkerScheduler] = {}
+
+
+async def _monitored_job_entrypoint(
+    scheduler_key: int,
+    job_id: str,
+    func: Any,
+) -> None:
+    """Run *func* on the scheduler instance identified by *scheduler_key*."""
+    scheduler = _schedulers.get(scheduler_key)
+    if scheduler is None:
+        logger.error(
+            "job_dropped_no_active_scheduler",
+            job_id=job_id,
+        )
+        return
+    await scheduler.run_monitored_job(job_id, func)
+
+
 class WorkerScheduler:
     """Wraps APScheduler with finance-sync specific setup and monitoring.
 
@@ -138,6 +167,7 @@ class WorkerScheduler:
         if self._scheduler.running:
             self._scheduler.shutdown(wait=True)
             logger.info("scheduler_stopped")
+        _schedulers.pop(id(self), None)
 
     def pause(self) -> None:
         """Pause the scheduler — no new jobs fire."""
@@ -377,25 +407,43 @@ class WorkerScheduler:
     ) -> Any:
         """Wrap a job function with monitoring and error logging.
 
-        Returns a callable that APScheduler can invoke.
+        Returns a picklable ``functools.partial`` of the module-level
+        entrypoint (see ``_monitored_job_entrypoint``) so APScheduler can
+        persist the job in its SQLAlchemy job store — a closure over
+        ``self`` cannot be pickled.
         """
+        _schedulers[id(self)] = self
+        return partial(
+            _monitored_job_entrypoint,
+            id(self),
+            job_id,
+            func,
+        )
 
-        async def wrapper() -> None:
-            self._running_jobs.add(job_id)
-            try:
-                async with JobRunContext(
-                    self._monitor,
-                    job_id,
-                    name=job_id.replace("_", " ").title(),
-                ):
-                    await func(self._container)
-            except Exception:
-                logger.error(
-                    "job_unhandled_error",
-                    job_id=job_id,
-                    error=traceback.format_exc(),
-                )
-            finally:
-                self._running_jobs.discard(job_id)
+    async def run_monitored_job(
+        self,
+        job_id: str,
+        func: Any,
+    ) -> None:
+        """Execute *func* under job monitoring and error logging.
 
-        return wrapper
+        Invoked by the module-level entrypoint (which APScheduler
+        deserialises from the job store); keeping the heavy body here
+        avoids duplicating monitoring logic in the picklable stub.
+        """
+        self._running_jobs.add(job_id)
+        try:
+            async with JobRunContext(
+                self._monitor,
+                job_id,
+                name=job_id.replace("_", " ").title(),
+            ):
+                await func(self._container)
+        except Exception:
+            logger.error(
+                "job_unhandled_error",
+                job_id=job_id,
+                error=traceback.format_exc(),
+            )
+        finally:
+            self._running_jobs.discard(job_id)
