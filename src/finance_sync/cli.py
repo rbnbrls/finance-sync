@@ -18,7 +18,7 @@ from argparse import (
     RawDescriptionHelpFormatter,
 )
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
     from collections.abc import Coroutine
@@ -238,6 +238,20 @@ def _build_wealthfolio_subparser(
         default=False,
         help="Print what would be pushed without actually pushing",
     )
+
+    smoke = wf_sub.add_parser(
+        "smoke",
+        help="Run a privacy-safe idempotency smoke test",
+        description=(
+            "Push the selected investment accounts twice, verify that the "
+            "second pass imports nothing, and check remote account/activity/"
+            "holding visibility without printing financial values."
+        ),
+    )
+    smoke.add_argument("--server-url", default=None)
+    smoke.add_argument("--password", default=None)
+    smoke.add_argument("--account-ids", default=None)
+    smoke.add_argument("--days-back", type=int, default=3650)
 
     # ── export (CSV) ─────────────────────────────────────────────────
     export = wf_sub.add_parser(
@@ -701,6 +715,8 @@ async def _cmd_wealthfolio(args: Namespace) -> None:
             await _cmd_wealthfolio_export(args, container, tenant_id)
         elif args.wf_command == "push":
             await _cmd_wealthfolio_push(args, container, tenant_id)
+        elif args.wf_command == "smoke":
+            await _cmd_wealthfolio_smoke(args, container, tenant_id)
         else:
             print(f"Unknown wealthfolio command: {args.wf_command}")
             sys.exit(2)
@@ -839,6 +855,7 @@ async def _cmd_wealthfolio_push(
 
         result = await exporter.push_to_wealthfolio(
             wf_client=wf_client,
+            accounts=await exporter._load_accounts(account_ids),  # noqa: SLF001
             since=since,
         )
         print("\nResult:")
@@ -851,6 +868,89 @@ async def _cmd_wealthfolio_push(
         sys.exit(2)
     finally:
         await wf_client.close()
+
+
+async def _cmd_wealthfolio_smoke(
+    args: Namespace,
+    container: Container,
+    tenant_id: str,
+) -> None:
+    """Verify account visibility, reconciliation and cursor idempotency."""
+    from finance_sync.exporter.wealthfolio.client import (
+        WealthfolioClient,
+        WealthfolioClientConfig,
+    )
+    from finance_sync.exporter.wealthfolio.config import WealthfolioConfig
+    from finance_sync.exporter.wealthfolio.exporter import WealthfolioExporter
+
+    server_url = args.server_url or container.settings.wealthfolio_server_url
+    password = args.password or container.settings.wealthfolio_password
+    if not server_url or not password:
+        print(
+            "ERROR: configure WEALTHFOLIO_SERVER_URL and WEALTHFOLIO_PASSWORD.",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+    account_ids = (
+        [
+            value.strip()
+            for value in args.account_ids.split(",")
+            if value.strip()
+        ]
+        if args.account_ids
+        else None
+    )
+    exporter = WealthfolioExporter(
+        session_factory=container.session_factory,
+        wf_config=WealthfolioConfig.from_settings(container.settings),
+        tenant_id=tenant_id,
+    )
+    accounts = await exporter._load_accounts(account_ids)  # noqa: SLF001
+    client = WealthfolioClient(
+        WealthfolioClientConfig(base_url=server_url, password=password)
+    )
+    try:
+        await client.authenticate()
+        since = datetime.now(UTC) - timedelta(days=args.days_back)
+        first = await exporter.push_to_wealthfolio(
+            client, accounts=accounts, since=since
+        )
+        second = await exporter.push_to_wealthfolio(
+            client, accounts=accounts, since=since
+        )
+        visible = 0
+        activity_count = 0
+        holding_count = 0
+        for account in accounts:
+            remote = await exporter._ensure_wf_account(  # noqa: SLF001
+                client, account
+            )
+            remote_id = str(remote["id"])
+            activities = await client.search_activities(remote_id)
+            meta = activities.get("meta")
+            typed_meta = (
+                cast("dict[str, Any]", meta) if isinstance(meta, dict) else {}
+            )
+            total_rows = typed_meta.get("totalRowCount", 0)
+            activity_count += total_rows if isinstance(total_rows, int) else 0
+            holding_count += len(await client.get_holdings(remote_id))
+            visible += 1
+        healthy = (
+            bool(accounts)
+            and visible == len(accounts)
+            and not first.get("errors")
+            and not second.get("errors")
+            and second.get("imported", 0) == 0
+        )
+        print("Wealthfolio smoke result:")
+        print(f"  Accounts visible: {visible}")
+        print(f"  Activities visible: {activity_count}")
+        print(f"  Holdings visible: {holding_count}")
+        print(f"  Idempotent second pass: {'yes' if healthy else 'no'}")
+        if not healthy:
+            sys.exit(1)
+    finally:
+        await client.close()
 
 
 # ═══════════════════════════════════════════════════════════════════════

@@ -31,6 +31,8 @@ dependencies = [
     "apscheduler>=3.10",
     "aiohttp>=3.9",
     "mcp>=1.28.1",
+    "openpyxl>=3.1",
+    "xlrd>=2.0",
 ]
 
 [project.optional-dependencies]
@@ -62,6 +64,7 @@ csv_import = "finance_sync.connectors.csv_import:CSVImportConnector"
 manual_expense = "finance_sync.connectors.manual_expense:ManualExpenseConnector"
 plaid_like = "finance_sync.connectors.plaid_like:PlaidLikeConnector"
 ynab = "finance_sync.connectors.ynab:YnabConnector"
+degiro_pension = "finance_sync.connectors.degiro_pension:DegiroPensionConnector"
 
 [project.scripts]
 finance-sync = "finance_sync.cli:main"

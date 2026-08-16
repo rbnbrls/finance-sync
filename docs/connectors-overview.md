@@ -8,6 +8,7 @@ via the ``finance_sync.connectors`` entry point group in ``pyproject.toml``.
 |---|---|---|---|
 | bunq | ``bunq`` | Bunq banking API (v1) | API key |
 | Trading212 | ``trading212`` | Trading212 equity API (v0) | API key |
+| DEGIRO Pensioen | ``degiro_pension`` | Official pension-account export import | None (file-based) |
 | YNAB | ``ynab`` | You Need A Budget API (v1) | Personal access token |
 | CSV Import | ``csv_import`` | Import transactions from CSV files | None (file-based) |
 | Manual Expense | ``manual_expense`` | Manual expense tracking via JSON | None (file-based) |
@@ -50,6 +51,54 @@ via the ``finance_sync.connectors`` entry point group in ``pyproject.toml``.
   - ``budget_id``: Specific budget to sync (string or budget name)
   - ``base_url``: Custom API base URL (for testing)
 - **Docs:** See module docstring
+
+## DEGIRO Pensioen
+
+- **Module:** ``finance_sync.connectors.degiro_pension``
+- **Auth:** None; the connector only reads files supplied by the user
+- **Capabilities:** `accounts`, `transactions`, `holdings`
+- **Formats:** CSV (UTF-8/BOM or Windows-1252), XLSX and XLS. PDF is not
+  supported.
+- **Options:**
+  - ``export_paths``: the three official export files (a single
+    ``export_path`` or an ``export_directory`` is also accepted)
+  - ``account_key``: optional stable, non-personal value used to derive the
+    external account ID. When omitted, a hash of the configured paths is used.
+  - ``account_name``: display name (default ``DEGIRO Pensioen``)
+  - ``snapshot_at``: optional portfolio observation time; otherwise the
+    portfolio file's modification time is used
+- **Upload/watchfolder guide:** See ``docs/degiro-imports.md``
+- **Wealthfolio end-to-end guide:** See ``docs/degiro-wealthfolio.md``
+
+### Exporting from DEGIRO
+
+1. Log in to the official DEGIRO platform or app and select the pension
+   account.
+2. Open **Inbox > Transacties**, set the required start and end dates, use the
+   export button, and download CSV or Excel.
+3. Open **Inbox > Rekeningoverzicht**, set the same period, use the export
+   button, and download CSV or Excel.
+4. Open **Portefeuille**, select the export button on the right (the downward
+   arrow in the app), select the snapshot date, and download CSV or Excel.
+5. Configure all three files in ``export_paths`` and run a sync. Keep the
+   portfolio export together with its original modification timestamp, or set
+   ``snapshot_at`` explicitly.
+
+These locations and formats follow DEGIRO's current
+[reporting instructions](https://www.degiro.nl/helpdesk/belasting/welke-rapportagemogelijkheden-zijn-er-en-waar-kan-ik-de-rapportages-vinden).
+
+Report types are detected from their headers and structure, not their file
+names. Securities and cash are processed separately. ``current_balance`` is
+the sum of the portfolio's EUR market values and cash row(s), while
+``available_balance`` is cash only. An empty portfolio therefore imports with
+a zero balance and no holdings.
+
+DEGIRO does not publish a supported customer API. finance-sync therefore never
+asks for a DEGIRO username, password or 2FA secret and does not log in, automate
+a browser, manage cookies, or call private endpoints. Imports are snapshots:
+users must periodically create and supply new exports. PDF, pending orders and
+live prices are not supported. Malformed rows fail the complete atomic sync and
+are exposed through the connector's validation report.
 
 ## CSV Import
 

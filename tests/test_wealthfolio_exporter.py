@@ -36,6 +36,7 @@ from finance_sync.exporter.wealthfolio.transaction_mapper import (
     WF_ACTIVITY_TRANSFER_IN,
     WF_ACTIVITY_TRANSFER_OUT,
     WF_ACTIVITY_WITHDRAWAL,
+    UnresolvedSecurityExportError,
     map_holding_to_wf_row,
     map_holdings_to_csv,
     map_transaction_to_wf_row,
@@ -91,6 +92,10 @@ def _make_mock_transaction(**kwargs):
         "status": "booked",
         "revision": 1,
         "provider_fingerprint": None,
+        "quantity": None,
+        "unit_price": None,
+        "fee_amount": None,
+        "fee_currency_code": None,
     }
     for k, v in {**defaults, **kwargs}.items():
         setattr(txn, k, v)
@@ -162,6 +167,11 @@ class TestWealthfolioConfig:
         settings.wealthfolio_include_pending = True
         settings.wealthfolio_account_name_overrides = {"acct_1": "WF Broker"}
         settings.wealthfolio_instrument_type_overrides = {"crypto": "CRYPTO"}
+        settings.wealthfolio_holdings_strategy = "reconcile"
+        settings.wealthfolio_reconciliation_absolute_tolerance = Decimal(1)
+        settings.wealthfolio_reconciliation_percentage_tolerance = Decimal(
+            "0.005"
+        )
 
         config = WealthfolioConfig.from_settings(settings)
         assert str(config.output_dir) == "/custom/path"
@@ -187,10 +197,14 @@ class TestTransactionMapper:
             currency_code="USD",
             description="Buy 10 AAPL",
             security_id=sec.id,
+            quantity=Decimal(10),
+            unit_price=Decimal("150.50"),
         )
         row = map_transaction_to_wf_row(txn, security=sec)
         assert row["activityType"] == WF_ACTIVITY_BUY
-        assert row["symbol"] == "AAPL"
+        assert row["symbol"] == "US0378331005"
+        assert row["quantity"] == "10.00"
+        assert row["unitPrice"] == "150.50"
         assert row["instrumentType"] == "EQUITY"
         assert row["currency"] == "USD"
 
@@ -202,10 +216,12 @@ class TestTransactionMapper:
             currency_code="USD",
             description="Sell 5 MSFT",
             security_id=sec.id,
+            quantity=Decimal(5),
+            unit_price=Decimal(500),
         )
         row = map_transaction_to_wf_row(txn, security=sec)
         assert row["activityType"] == WF_ACTIVITY_SELL
-        assert row["symbol"] == "MSFT"
+        assert row["symbol"] == "US0378331005"
         assert row["instrumentType"] == "EQUITY"
 
     def test_map_deposit(self) -> None:
@@ -244,7 +260,7 @@ class TestTransactionMapper:
         )
         row = map_transaction_to_wf_row(txn, security=sec)
         assert row["activityType"] == WF_ACTIVITY_DIVIDEND
-        assert row["symbol"] == "VOO"
+        assert row["symbol"] == "US0378331005"
         assert row["amount"] == "50.00"
 
     def test_map_interest(self) -> None:
@@ -306,6 +322,7 @@ class TestTransactionMapper:
             transaction_type="purchase",
             amount=Decimal("-1000.00"),
             security_id=sec.id,
+            quantity=Decimal(10),
         )
         row = map_transaction_to_wf_row(txn, security=sec)
         assert row["symbol"] == "US0378331005"
@@ -317,6 +334,7 @@ class TestTransactionMapper:
             transaction_type="purchase",
             amount=Decimal("-2000.00"),
             security_id=sec.id,
+            quantity=Decimal(20),
         )
         custom_map = {"etf": "ETF"}
         row = map_transaction_to_wf_row(
@@ -337,7 +355,7 @@ class TestTransactionMapper:
         sec = _make_mock_security()
         holding = _make_mock_holding(security_id=sec.id)
         row = map_holding_to_wf_row(holding, security=sec)
-        assert row["symbol"] == "AAPL"
+        assert row["symbol"] == "US0378331005"
         assert row["date"] == "2025-06-30"
         assert float(row["quantity"]) == 50.0
         # avgCost = cost_basis / quantity = 8574 / 50
@@ -350,14 +368,14 @@ class TestTransactionMapper:
             cost_basis=None,
         )
         row = map_holding_to_wf_row(holding, security=sec)
-        assert row["symbol"] == "BTC"
+        assert row["symbol"] == "US0378331005"
         assert row["avgCost"] == ""
 
     def test_map_holding_cash(self) -> None:
-        """Holdings without a security use UNKNOWN symbol."""
+        """Holdings without a security enter the review flow."""
         holding = _make_mock_holding(security_id="nonexistent")
-        row = map_holding_to_wf_row(holding, security=None)
-        assert row["symbol"] == "UNKNOWN"
+        with pytest.raises(UnresolvedSecurityExportError):
+            map_holding_to_wf_row(holding, security=None)
 
     def test_map_transactions_to_csv_content(self) -> None:
         """Full CSV content includes header and all rows."""
@@ -367,11 +385,14 @@ class TestTransactionMapper:
                 transaction_type="purchase",
                 amount=Decimal("-100.00"),
                 security_id=sec.id,
+                quantity=Decimal(1),
+                unit_price=Decimal(100),
             ),
             _make_mock_transaction(
                 transaction_type="dividend",
                 amount=Decimal("5.00"),
                 description="Dividend",
+                security_id=sec.id,
             ),
         ]
         csv = map_transactions_to_csv(txns, security_map={sec.id: sec})
@@ -385,7 +406,11 @@ class TestTransactionMapper:
 
     def test_map_holdings_to_csv_content(self) -> None:
         holdings = [_make_mock_holding() for _ in range(2)]
-        csv = map_holdings_to_csv(holdings)
+        securities = {
+            holding.security_id: _make_mock_security(id=holding.security_id)
+            for holding in holdings
+        }
+        csv = map_holdings_to_csv(holdings, security_map=securities)
         assert csv.startswith("date,symbol,")
         assert csv.count("\n") == 3  # header + 2 rows
 
@@ -628,6 +653,7 @@ class TestWealthfolioExporter:
                 cost_basis=Decimal("15000.00"),
             )
         ]
+        mock_security = _make_mock_security(id=mock_holdings[0].security_id)
         mock_run = MagicMock(id=str(uuid4()))
 
         with (
@@ -639,7 +665,7 @@ class TestWealthfolioExporter:
             patch.object(
                 exporter,
                 "_load_securities",
-                return_value={},
+                return_value={mock_security.id: mock_security},
             ),
             patch.object(
                 exporter,
@@ -978,6 +1004,16 @@ class TestWealthfolioPushCursor:
         ).start()
         patch.object(exporter, "_load_accounts", return_value=accounts).start()
         patch.object(exporter, "_load_securities", return_value={}).start()
+        patch.object(
+            exporter,
+            "_ensure_wf_account",
+            return_value={"id": "wf-account-1", "name": "Brokerage"},
+        ).start()
+        patch.object(
+            exporter,
+            "_sync_and_reconcile_holdings",
+            return_value=[],
+        ).start()
         patch.object(
             exporter, "_fetch_pending_transactions", fetch_mock
         ).start()

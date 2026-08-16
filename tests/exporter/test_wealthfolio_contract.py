@@ -31,6 +31,7 @@ from finance_sync.exporter.wealthfolio.transaction_mapper import (
     WF_ACTIVITY_TRANSFER_IN,
     WF_ACTIVITY_TRANSFER_OUT,
     WF_ACTIVITY_WITHDRAWAL,
+    UnresolvedSecurityExportError,
     map_holding_to_wf_row,
     map_holdings_to_csv,
     map_transaction_to_wf_row,
@@ -64,6 +65,12 @@ from tests.exporter.fixtures.wf_fixtures import (
     WF_TRANSACTION_TRANSFER_OUT,
     WF_TRANSACTION_WITHDRAWAL,
 )
+
+WF_SECURITY_MAP = {
+    SECURITY_AAPL.id: SECURITY_AAPL,
+    SECURITY_MSFT.id: SECURITY_MSFT,
+    SECURITY_VWCE.id: SECURITY_VWCE,
+}
 
 # ═══════════════════════════════════════════════════════════════════════
 # Config contract
@@ -143,7 +150,9 @@ class TestWFTransactionMapping(TransactionMappingContractTest):
 
     @pytest.fixture
     def map_function(self):
-        return lambda txn: map_transaction_to_wf_row(txn)
+        return lambda txn: map_transaction_to_wf_row(
+            txn, security=WF_SECURITY_MAP.get(txn.security_id)
+        )
 
     @pytest.fixture
     def map_test_cases(self) -> list[dict]:
@@ -152,13 +161,13 @@ class TestWFTransactionMapping(TransactionMappingContractTest):
     # ── WF-specific mapping tests ───────────────────────────────────
 
     def test_map_buy_with_security(self) -> None:
-        """Purchase should map to BUY activity with ticker symbol."""
+        """Purchase should map to BUY activity with stable ISIN."""
         row = map_transaction_to_wf_row(
             WF_TRANSACTION_BUY_AAPL,
             security=SECURITY_AAPL,
         )
         assert row["activityType"] == WF_ACTIVITY_BUY
-        assert row["symbol"] == "AAPL"
+        assert row["symbol"] == "US0378331005"
         assert row["instrumentType"] == "EQUITY"
         assert row["currency"] == "USD"
 
@@ -169,7 +178,7 @@ class TestWFTransactionMapping(TransactionMappingContractTest):
             security=SECURITY_MSFT,
         )
         assert row["activityType"] == WF_ACTIVITY_SELL
-        assert row["symbol"] == "MSFT"
+        assert row["symbol"] == "US5949181045"
 
     def test_map_deposit(self) -> None:
         """Deposit should map to DEPOSIT with empty symbol."""
@@ -191,7 +200,7 @@ class TestWFTransactionMapping(TransactionMappingContractTest):
             security=SECURITY_AAPL,
         )
         assert row["activityType"] == WF_ACTIVITY_DIVIDEND
-        assert row["symbol"] == "AAPL"
+        assert row["symbol"] == "US0378331005"
         assert row["amount"] == "50.00"
 
     def test_map_interest(self) -> None:
@@ -235,6 +244,10 @@ class TestWFTransactionMapping(TransactionMappingContractTest):
         txn.base_currency_code = None
         txn.amount_in_base = None
         txn.status = "booked"
+        txn.quantity = Decimal(5)
+        txn.unit_price = Decimal(200)
+        txn.fee_amount = None
+        txn.fee_currency_code = None
 
         row = map_transaction_to_wf_row(txn, security=sec_no_ticker)
         assert row["symbol"] == "US0378331005"
@@ -255,7 +268,7 @@ class TestWFTransactionMapping(TransactionMappingContractTest):
             WF_HOLDING_AAPL,
             security=SECURITY_AAPL,
         )
-        assert row["symbol"] == "AAPL"
+        assert row["symbol"] == "US0378331005"
         assert row["date"] == "2025-06-30"
         assert float(row["quantity"]) == 50.0
 
@@ -280,8 +293,8 @@ class TestWFTransactionMapping(TransactionMappingContractTest):
         assert row["symbol"] == "BTC"
         assert row["avgCost"] == ""
 
-    def test_map_holding_cash(self) -> None:
-        """Holdings without a security use UNKNOWN symbol."""
+    def test_map_holding_without_security_requires_review(self) -> None:
+        """Holdings without a resolved security must not be exported."""
         holding_no_sec = MagicMock()
         holding_no_sec.id = str(uuid4())
         holding_no_sec.tenant_id = "tenant_wf_contract"
@@ -297,12 +310,16 @@ class TestWFTransactionMapping(TransactionMappingContractTest):
         holding_no_sec.price_currency = "EUR"
         holding_no_sec.source = "provider_sync"
 
-        row = map_holding_to_wf_row(holding_no_sec, security=None)
-        assert row["symbol"] == "UNKNOWN"
+        with pytest.raises(
+            UnresolvedSecurityExportError, match="security-resolutie"
+        ):
+            map_holding_to_wf_row(holding_no_sec, security=None)
 
     def test_comment_includes_external_id(self) -> None:
         """Comment should include external transaction ID for dedup."""
-        row = map_transaction_to_wf_row(WF_TRANSACTION_BUY_AAPL)
+        row = map_transaction_to_wf_row(
+            WF_TRANSACTION_BUY_AAPL, security=SECURITY_AAPL
+        )
         assert "Buy 10 AAPL" in row["comment"]
         assert WF_TRANSACTION_BUY_AAPL.external_transaction_id in row["comment"]
 
@@ -317,11 +334,15 @@ class TestWFCsvExport(CsvExportContractTest):
 
     @pytest.fixture
     def csv_transactions_function(self):
-        return map_transactions_to_csv
+        return lambda transactions: map_transactions_to_csv(
+            transactions, security_map=WF_SECURITY_MAP
+        )
 
     @pytest.fixture
     def csv_holdings_function(self):
-        return map_holdings_to_csv
+        return lambda holdings: map_holdings_to_csv(
+            holdings, security_map=WF_SECURITY_MAP
+        )
 
     @pytest.fixture
     def sample_transactions(self) -> list:
@@ -342,7 +363,10 @@ class TestWFCsvExport(CsvExportContractTest):
 
     def test_csv_correct_column_order(self) -> None:
         """CSV should have expected columns in correct order."""
-        csv = map_transactions_to_csv([WF_TRANSACTION_BUY_AAPL])
+        csv = map_transactions_to_csv(
+            [WF_TRANSACTION_BUY_AAPL],
+            security_map={SECURITY_AAPL.id: SECURITY_AAPL},
+        )
         header = csv.split("\n")[0].strip()
         expected_cols = [
             "date",
@@ -367,7 +391,7 @@ class TestWFCsvExport(CsvExportContractTest):
             [WF_TRANSACTION_BUY_AAPL],
             security_map=sec_map,
         )
-        assert "AAPL" in csv
+        assert "US0378331005" in csv
         assert "BUY" in csv
 
     def test_holdings_csv_content(self) -> None:
@@ -382,8 +406,8 @@ class TestWFCsvExport(CsvExportContractTest):
         )
         lines = [line for line in csv.strip().split("\n") if line.strip()]
         assert len(lines) == 3  # header + 2 holdings
-        assert "AAPL" in csv
-        assert "VWCE" in csv
+        assert "US0378331005" in csv
+        assert "IE00BK5BQT80" in csv
 
     def test_csv_with_instrument_type_override(self) -> None:
         """CSV with instrument type map applies custom mappings."""
@@ -466,7 +490,9 @@ def run_wf_export(wf_exporter, wf_since_time):
             patch.object(
                 wf_exporter, "_load_accounts", return_value=accounts or []
             ),
-            patch.object(wf_exporter, "_load_securities", return_value={}),
+            patch.object(
+                wf_exporter, "_load_securities", return_value=WF_SECURITY_MAP
+            ),
             patch.object(
                 wf_exporter,
                 "_resolve_wf_account_name",
@@ -571,7 +597,9 @@ class TestWealthfolioLifecycle(ExportLifecycleContractTest):
                 "_load_accounts",
                 return_value=[WF_ACCOUNT_BROKERAGE],
             ),
-            patch.object(wf_exporter, "_load_securities", return_value={}),
+            patch.object(
+                wf_exporter, "_load_securities", return_value=WF_SECURITY_MAP
+            ),
             patch.object(
                 wf_exporter,
                 "_resolve_wf_account_name",
@@ -630,7 +658,9 @@ class TestWealthfolioLifecycle(ExportLifecycleContractTest):
                 "_load_accounts",
                 return_value=[WF_ACCOUNT_BROKERAGE],
             ),
-            patch.object(wf_exporter, "_load_securities", return_value={}),
+            patch.object(
+                wf_exporter, "_load_securities", return_value=WF_SECURITY_MAP
+            ),
             patch.object(
                 wf_exporter,
                 "_resolve_wf_account_name",
@@ -722,7 +752,9 @@ class TestWealthfolioLifecycle(ExportLifecycleContractTest):
                 "_load_accounts",
                 return_value=[WF_ACCOUNT_BROKERAGE],
             ),
-            patch.object(wf_exporter, "_load_securities", return_value={}),
+            patch.object(
+                wf_exporter, "_load_securities", return_value=WF_SECURITY_MAP
+            ),
             patch.object(
                 wf_exporter,
                 "_resolve_wf_account_name",
@@ -785,7 +817,9 @@ class TestWealthfolioLifecycle(ExportLifecycleContractTest):
                 "_load_accounts",
                 return_value=[WF_ACCOUNT_BROKERAGE],
             ),
-            patch.object(wf_exporter, "_load_securities", return_value={}),
+            patch.object(
+                wf_exporter, "_load_securities", return_value=WF_SECURITY_MAP
+            ),
             patch.object(
                 wf_exporter,
                 "_resolve_wf_account_name",

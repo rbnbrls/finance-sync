@@ -225,6 +225,54 @@ def _get_connector_credential_schema(
                 },
             ],
         ),
+        "degiro_pension": (
+            [],
+            [
+                {
+                    "key": "watchfolder",
+                    "label": "Inkomende watchfolder",
+                    "type": "text",
+                    "required": False,
+                    "description": (
+                        "Alleen voor self-hosting; mount deze map ook in de worker"
+                    ),
+                },
+                {
+                    "key": "archive_directory",
+                    "label": "Archiefmap",
+                    "type": "text",
+                    "required": False,
+                },
+                {
+                    "key": "quarantine_directory",
+                    "label": "Quarantainemap",
+                    "type": "text",
+                    "required": False,
+                },
+                {
+                    "key": "account_key",
+                    "label": "Rekeningkenmerk",
+                    "type": "text",
+                    "required": False,
+                    "description": (
+                        "Willekeurig, blijvend kenmerk; gebruik geen "
+                        "gebruikersnaam of rekeningnummer"
+                    ),
+                },
+                {
+                    "key": "account_name",
+                    "label": "Rekeningnaam",
+                    "type": "text",
+                    "default": "DEGIRO Pensioen",
+                },
+                {
+                    "key": "snapshot_at",
+                    "label": "Portefeuillesnapshotdatum",
+                    "type": "date",
+                    "required": False,
+                },
+            ],
+        ),
     }
     return schemas.get(connector_type, ([], []))
 
@@ -273,7 +321,11 @@ async def list_connector_configs(
     configs: list[ConnectorConfigResponse] = []
     for row in rows:
         options: Any = {}
-        is_configured = bool(row.encrypted_payload)
+        is_configured = bool(row.encrypted_payload) or row.provider_key in {
+            "degiro_pension",
+            "csv_import",
+            "manual_expense",
+        }
         label = row.description
         with contextlib.suppress(json.JSONDecodeError, TypeError):
             parsed = json.loads(row.description or "{}")
@@ -380,7 +432,9 @@ async def create_connector_config(
         provider_type=cred.provider_key,
         description=label,
         options=body.options,
-        is_configured=bool(body.credentials),
+        is_configured=bool(body.credentials)
+        or body.provider_type
+        in {"degiro_pension", "csv_import", "manual_expense"},
         created_at=cred.created_at,
         updated_at=cred.updated_at,
     )
@@ -466,7 +520,9 @@ async def update_connector_config(
         provider_type=cred.provider_key,
         description=label,
         options=options,
-        is_configured=bool(cred.encrypted_payload),
+        is_configured=bool(cred.encrypted_payload)
+        or cred.provider_key
+        in {"degiro_pension", "csv_import", "manual_expense"},
         created_at=cred.created_at,
         updated_at=cred.updated_at,
     )

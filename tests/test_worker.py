@@ -482,6 +482,7 @@ class TestWorkerScheduler:
             worker_job_price_enrichment_enabled=False,
             worker_job_reconciliation_enabled=False,
             worker_job_outbox_enabled=False,
+            worker_job_degiro_watch_enabled=False,
         )
         container = Container.from_settings(settings)
         monitor = JobMonitor()

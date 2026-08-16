@@ -213,6 +213,12 @@ Options:
 
 Exit codes: **0** — completed (or dry-run finished), **2** — error.
 
+`finance-sync wealthfolio smoke --account-ids <id>` voert twee account-scoped
+pushes uit en controleert account-, activity- en holdingszichtbaarheid plus
+idempotentie. De uitvoer bevat geen financiële waarden of credentials. Zie
+`docs/degiro-wealthfolio.md` voor de activity-first holdingsstrategie en
+reconciliatietoleranties.
+
 ## Exporters: feature flags
 
 Both exporters are behind per-exporter kill switches (roadmap dr.3 / gap
@@ -246,4 +252,6 @@ The Wealthfolio push path (`finance-sync wealthfolio push` / the worker
 sweep) tracks each push as an `ExportRun` and maintains a per-account
 `wealthfolio_deliveries` cursor: after a partial failure the run is marked
 `failed` with per-account error detail, and the next push (or retry) only
-re-processes the accounts whose cursor did not advance.
+re-processes the accounts whose cursor did not advance. Activities carry the
+stable remote `accountId`; account mappings are persisted in
+`wealthfolio_account_mappings`.

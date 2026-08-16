@@ -631,6 +631,7 @@
         let token = localStorage.getItem('fs_token');
         let connectors = [];     // available connector types
         let configs = [];        // saved configs
+        let degiroRuns = [];     // path-free DEGIRO import status
 
         // ── Feedback submission guard ────────────────────────────────────
         let __feedbackSubmitting = false;  // state machine: prevents double-submit
@@ -750,12 +751,14 @@
         // ── Load & render connectors ────────────────────────────────────
         async function loadConnectors() {
             try {
-                const [avail, cfgs] = await Promise.all([
+                const [avail, cfgs, imports] = await Promise.all([
                     api('GET', '/connectors'),
                     api('GET', '/connectors/configs'),
+                    api('GET', '/connectors/degiro-pension/imports'),
                 ]);
                 connectors = avail || [];
                 configs = cfgs || [];
+                degiroRuns = imports || [];
                 renderConnectors();
             } catch (e) {
                 document.getElementById('connector-list').innerHTML =
@@ -777,6 +780,8 @@
                 const badgeClass = isConfigured ? 'connected' : 'unconfigured';
                 const badgeText = isConfigured ? 'Connected' : 'Not Configured';
                 const caps = c.capabilities || [];
+                const lastImport = c.name === 'degiro_pension' ? degiroRuns.find(r => r.status === 'completed') : null;
+                const latestAttempt = c.name === 'degiro_pension' ? degiroRuns[0] : null;
 
                 html += `
                     <div class="connector-card" data-provider="${c.name}">
@@ -784,15 +789,17 @@
                             <div class="name">${c.display_name}</div>
                             <span class="badge ${badgeClass}" id="badge-${c.name}">${badgeText}</span>
                         </div>
-                        <div class="desc">${c.display_name} API connector. SDK v${c.sdk_version}.</div>
+                        <div class="desc">${c.name === 'degiro_pension' ? 'Import official DEGIRO CSV/Excel exports.' : `${c.display_name} API connector.`} SDK v${c.sdk_version}.</div>
                         <div class="capabilities">
                             ${caps.map(cap => `<span class="cap">${cap}</span>`).join('')}
                         </div>
+                        ${c.name === 'degiro_pension' ? `<div class="desc">Last snapshot: ${lastImport ? (lastImport.completed_at || lastImport.created_at) : 'never'}<br>Period: ${lastImport ? `${lastImport.period_start || '—'} – ${lastImport.period_end || '—'}` : '—'}<br>Missing reports: ${latestAttempt && latestAttempt.preview.missing_report_types ? (latestAttempt.preview.missing_report_types.join(', ') || 'none') : 'unknown'}${latestAttempt && latestAttempt.warnings.length ? `<br>Warnings: ${latestAttempt.warnings.join('; ')}` : ''}</div>` : ''}
                         <div class="actions">
                             <button class="btn btn-primary btn-sm" onclick="openConfigModal('${c.name}')">
                                 ${isConfigured ? '&#9998; Edit' : '&#43; Configure'}
                             </button>
                             ${isConfigured ? `<button class="btn btn-success btn-sm" onclick="testConnection('${cfg.id}', '${c.name}')">&#10003; Test</button>` : ''}
+                            ${c.name === 'degiro_pension' && cfg ? `<button class="btn btn-success btn-sm" onclick="openDegiroImport('${cfg.id}')">&#8679; Import</button>` : ''}
                             ${cfg ? `<button class="btn btn-danger btn-sm" onclick="deleteConfig('${cfg.id}', '${c.name}')">&#10005; Remove</button>` : ''}
                         </div>
                         <div id="test-result-${c.name}" style="margin-top: 12px;"></div>
@@ -801,6 +808,72 @@
             }
             html += '</div>';
             container.innerHTML = html;
+        }
+
+        function openDegiroImport(connectionId) {
+            const modal = document.createElement('div');
+            modal.className = 'modal-overlay';
+            modal.innerHTML = `
+                <div class="modal">
+                    <h2>Import DEGIRO Pensioen</h2>
+                    <p style="color:var(--text-muted);margin-bottom:16px;">Selecteer officiële transactie-, rekening- en portefeuille-exports. Eerst volgt een dry-run; er wordt nog niets geschreven.</p>
+                    <div class="form-group">
+                        <label>DEGIRO exports (CSV, XLSX of XLS)</label>
+                        <input id="degiro-files" type="file" multiple accept=".csv,.xlsx,.xls">
+                    </div>
+                    <div id="degiro-preview"></div>
+                    <div class="modal-footer">
+                        <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+                        <button id="degiro-preview-btn" class="btn btn-primary" onclick="previewDegiroImport('${connectionId}')">Preview</button>
+                    </div>
+                </div>`;
+            document.getElementById('modal-container').appendChild(modal);
+        }
+
+        async function previewDegiroImport(connectionId) {
+            const files = document.getElementById('degiro-files').files;
+            if (!files.length) { toast('Select at least one export', 'error'); return; }
+            const form = new FormData();
+            form.append('connection_id', connectionId);
+            for (const file of files) form.append('files', file);
+            const headers = {};
+            if (token) headers.Authorization = `Bearer ${token}`;
+            const button = document.getElementById('degiro-preview-btn');
+            button.disabled = true;
+            try {
+                const response = await fetch(`${API_BASE}/connectors/degiro-pension/imports/preview`, { method: 'POST', headers, body: form });
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.detail || 'Preview failed');
+                const p = data.preview;
+                document.getElementById('degiro-preview').innerHTML = `
+                    <div class="alert alert-success">
+                        <strong>${p.account_label}</strong><br>
+                        Reports: ${p.report_types.join(', ') || 'none'}<br>
+                        Period: ${p.period_start || '—'} – ${p.period_end || '—'}<br>
+                        Rows: ${p.rows}; transactions: ${p.transactions}; holdings: ${p.holdings}<br>
+                        Possible duplicates: ${p.possible_duplicates}<br>
+                        Missing: ${p.missing_report_types.join(', ') || 'none'}
+                    </div>`;
+                button.textContent = 'Confirm exact import';
+                button.disabled = false;
+                button.onclick = () => confirmDegiroImport(data.id);
+            } catch (e) {
+                toast(e.message, 'error');
+                button.disabled = false;
+            }
+        }
+
+        async function confirmDegiroImport(runId) {
+            const button = document.getElementById('degiro-preview-btn');
+            button.disabled = true;
+            try {
+                const result = await api('POST', `/connectors/degiro-pension/imports/${runId}/confirm`, {});
+                toast(`Import complete: ${result.created_count} items processed`, 'success');
+                closeModal();
+            } catch (e) {
+                toast(e.message, 'error');
+                button.disabled = false;
+            }
         }
 
         // ── Configuration Modal ─────────────────────────────────────────

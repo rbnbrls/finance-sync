@@ -59,6 +59,7 @@ EXPECTED_TABLES = {
     "unresolved_securities",
     "detected_subscriptions",
     "resolution_audit_log",
+    "import_runs",
     # sync cursor persistence (migration 0011)
     "sync_cursor",
     # exporter tables (migration 0008)
@@ -67,6 +68,7 @@ EXPECTED_TABLES = {
     "export_deliveries",
     # wealthfolio delivery cursor (migration 0012)
     "wealthfolio_deliveries",
+    "wealthfolio_account_mappings",
 }
 
 

@@ -33,8 +33,8 @@ from finance_sync.db import Base, created_at_ts, pk_uuid, updated_at_ts
 class WealthfolioAccountMapping(Base):
     """Maps a finance-sync account to a Wealthfolio account.
 
-    The Wealthfolio account is identified by its display name
-    (human-readable).  CSV imports reference accounts by name.
+    The remote UUID is authoritative. The display name is retained for
+    operator visibility and backwards-compatible CSV exports.
     """
 
     __tablename__ = "wealthfolio_account_mappings"
@@ -64,8 +64,19 @@ class WealthfolioAccountMapping(Base):
         nullable=False,
         comment="Wealthfolio account display name",
     )
+    wf_account_id: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+        comment="Wealthfolio account UUID returned by its API",
+    )
+    provider_account_id: Mapped[str | None] = mapped_column(
+        String(256),
+        nullable=True,
+        comment="Stable finance-sync identity stored in Wealthfolio",
+    )
 
     created_at = created_at_ts()
+    updated_at = updated_at_ts()
 
     def __repr__(self) -> str:
         return (
