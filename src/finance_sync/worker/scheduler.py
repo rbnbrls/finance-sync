@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import asyncio
 import traceback
-from functools import partial
 from typing import TYPE_CHECKING, Any, cast
 
 import structlog
@@ -256,7 +255,7 @@ class WorkerScheduler:
         if settings.worker_job_bunq_sync_enabled:
             self._add_job(
                 "sync_bunq",
-                self._make_monitored_job("sync_bunq", sync_bunq_job),
+                sync_bunq_job,
                 trigger=IntervalTrigger(
                     minutes=settings.worker_job_bunq_sync_interval_minutes,
                 ),
@@ -268,10 +267,7 @@ class WorkerScheduler:
         if settings.worker_job_bunq_cards_enabled:
             self._add_job(
                 "sync_bunq_cards",
-                self._make_monitored_job(
-                    "sync_bunq_cards",
-                    sync_bunq_cards_job,
-                ),
+                sync_bunq_cards_job,
                 trigger=IntervalTrigger(
                     hours=settings.worker_job_bunq_cards_interval_hours,
                 ),
@@ -281,10 +277,7 @@ class WorkerScheduler:
         if settings.worker_job_trading212_sync_enabled:
             self._add_job(
                 "sync_trading212",
-                self._make_monitored_job(
-                    "sync_trading212",
-                    sync_trading212_job,
-                ),
+                sync_trading212_job,
                 trigger=IntervalTrigger(
                     hours=settings.worker_job_trading212_sync_interval_hours,
                 ),
@@ -293,10 +286,7 @@ class WorkerScheduler:
         if settings.worker_job_degiro_watch_enabled:
             self._add_job(
                 "process_degiro_watchfolders",
-                self._make_monitored_job(
-                    "process_degiro_watchfolders",
-                    process_degiro_watchfolders_job,
-                ),
+                process_degiro_watchfolders_job,
                 trigger=IntervalTrigger(
                     seconds=settings.worker_job_degiro_watch_interval_seconds,
                 ),
@@ -310,10 +300,7 @@ class WorkerScheduler:
             )
             self._add_job(
                 "enrich_prices",
-                self._make_monitored_job(
-                    "enrich_prices",
-                    enrich_prices_job,
-                ),
+                enrich_prices_job,
                 trigger=trigger,
             )
 
@@ -323,10 +310,7 @@ class WorkerScheduler:
             if len(cron_parts) == 5:
                 self._add_job(
                     "nightly_reconciliation",
-                    self._make_monitored_job(
-                        "nightly_reconciliation",
-                        nightly_reconciliation_job,
-                    ),
+                    nightly_reconciliation_job,
                     trigger=CronTrigger(
                         minute=cron_parts[0],
                         hour=cron_parts[1],
@@ -341,10 +325,7 @@ class WorkerScheduler:
         if settings.worker_job_outbox_enabled:
             self._add_job(
                 "process_outbox",
-                self._make_monitored_job(
-                    "process_outbox",
-                    process_outbox_job,
-                ),
+                process_outbox_job,
                 trigger=IntervalTrigger(
                     seconds=settings.worker_job_outbox_interval_seconds,
                 ),
@@ -354,10 +335,7 @@ class WorkerScheduler:
         if settings.worker_job_outbox_enabled:
             self._add_job(
                 "process_webhook_retries",
-                self._make_monitored_job(
-                    "process_webhook_retries",
-                    process_webhook_retries_job,
-                ),
+                process_webhook_retries_job,
                 trigger=IntervalTrigger(
                     seconds=settings.worker_job_outbox_interval_seconds,
                 ),
@@ -374,10 +352,7 @@ class WorkerScheduler:
         if settings.worker_job_export_enabled:
             self._add_job(
                 "export_wealthfolio",
-                self._make_monitored_job(
-                    "export_wealthfolio",
-                    export_wealthfolio_job,
-                ),
+                export_wealthfolio_job,
                 trigger=IntervalTrigger(
                     minutes=settings.worker_job_export_interval_minutes,
                 ),
@@ -390,35 +365,26 @@ class WorkerScheduler:
         *,
         trigger: Any,
     ) -> None:
-        """Register a job with APScheduler and track its ID."""
+        """Register a monitored job with APScheduler and track its ID.
+
+        The callable registered is the module-level
+        ``_monitored_job_entrypoint`` — APScheduler's ``Job.__getstate__``
+        resolves job callables to ``module:qualname`` textual references for
+        persistent stores, so closures, bound methods and ``functools.partial``
+        all fail ("reference to its callable could not be determined").  The
+        owning scheduler, job id and target function travel as plain (picklable)
+        job args.
+        """
+        _schedulers[id(self)] = self
         cast("Any", self._scheduler).add_job(
-            func,
+            _monitored_job_entrypoint,
             trigger=trigger,
+            args=[id(self), job_id, func],
             id=job_id,
             name=job_id.replace("_", " ").title(),
             replace_existing=True,
         )
         self._job_ids.append(job_id)
-
-    def _make_monitored_job(
-        self,
-        job_id: str,
-        func: Any,
-    ) -> Any:
-        """Wrap a job function with monitoring and error logging.
-
-        Returns a picklable ``functools.partial`` of the module-level
-        entrypoint (see ``_monitored_job_entrypoint``) so APScheduler can
-        persist the job in its SQLAlchemy job store — a closure over
-        ``self`` cannot be pickled.
-        """
-        _schedulers[id(self)] = self
-        return partial(
-            _monitored_job_entrypoint,
-            id(self),
-            job_id,
-            func,
-        )
 
     async def run_monitored_job(
         self,

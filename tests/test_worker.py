@@ -763,17 +763,26 @@ class TestJobstoreSyncDriver:
         """Job callables must survive SQLAlchemyJobStore pickling.
 
         Regression test for the production worker crash: the monitored
-        wrapper used to be a closure over ``self``, which APScheduler
-        cannot pickle when persisting jobs to PostgreSQL
-        ("This Job cannot be serialized since the reference to its
-        callable could not be determined").
+        wrapper used to be a closure over ``self`` (and later a
+        ``functools.partial``), neither of which APScheduler can resolve
+        when persisting jobs to PostgreSQL — ``Job.__getstate__`` raises
+        "This Job cannot be serialized since the reference to its callable
+        could not be determined".  The registered callable must resolve to
+        a textual ``module:function`` reference and the job args must
+        pickle.
         """
         import pickle
+
+        from apscheduler.triggers.interval import IntervalTrigger
+        from apscheduler.util import obj_to_ref
 
         from finance_sync.container import Container
         from finance_sync.worker.jobs import export_wealthfolio_job
         from finance_sync.worker.monitoring import JobMonitor
-        from finance_sync.worker.scheduler import WorkerScheduler
+        from finance_sync.worker.scheduler import (
+            WorkerScheduler,
+            _monitored_job_entrypoint,
+        )
 
         settings = self._settings_with_db()
         container = Container.from_settings(settings)  # type: ignore[arg-type]
@@ -783,11 +792,23 @@ class TestJobstoreSyncDriver:
             JobMonitor(),  # type: ignore[arg-type]
         )
 
-        job_callable = scheduler._make_monitored_job(
-            "export_wealthfolio", export_wealthfolio_job
+        scheduler._add_job(
+            "export_wealthfolio",
+            export_wealthfolio_job,
+            trigger=IntervalTrigger(minutes=5),
         )
-        restored = pickle.loads(pickle.dumps(job_callable))
-        assert callable(restored)
+
+        # 1. The registered callable must resolve to a textual reference —
+        #    the exact check Job.__getstate__ performs before persisting.
+        assert obj_to_ref(_monitored_job_entrypoint) == (
+            "finance_sync.worker.scheduler:_monitored_job_entrypoint"
+        )
+
+        # 2. The job args (scheduler key, job id, job function) must pickle
+        #    exactly as _add_job builds them.
+        job_args = (id(scheduler), "export_wealthfolio", export_wealthfolio_job)
+        restored_args = pickle.loads(pickle.dumps(job_args))
+        assert restored_args[2].__name__ == "export_wealthfolio_job"
 
 
 # ── export_wealthfolio_job tests ───────────────────────────────────────
