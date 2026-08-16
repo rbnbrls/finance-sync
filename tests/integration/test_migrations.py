@@ -238,7 +238,10 @@ class TestMigrationUpgrade:
         assert not missing, (
             f"missing tables after re-upgrade: {sorted(missing)}"
         )
-        assert await _alembic_version(fresh_database_url) == _alembic_head_revision()
+        assert (
+            await _alembic_version(fresh_database_url)
+            == _alembic_head_revision()
+        )
 
     async def test_upgrade_head_is_idempotent(
         self, fresh_database_url: str
@@ -249,4 +252,7 @@ class TestMigrationUpgrade:
 
         tables = await _public_tables(fresh_database_url)
         assert "accounts" in tables
-        assert await _alembic_version(fresh_database_url) == _alembic_head_revision()
+        assert (
+            await _alembic_version(fresh_database_url)
+            == _alembic_head_revision()
+        )
