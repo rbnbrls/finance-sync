@@ -1,0 +1,67 @@
+# syntax=docker/dockerfile:1
+# Worker image — same build as the app image, different entrypoint.
+# ==============================================================================
+# finance-sync runs two processes in production:
+#   - app:     FastAPI (uvicorn) — docker-compose.coolify.yml service `app`
+#   - worker:  APScheduler (python -m finance_sync.worker) — service `worker`
+#
+# The worker container must run `python -m finance_sync.worker` instead of the
+# Dockerfile CMD (uvicorn) and expose its health server on port 9090.  Coolify's
+# dockerfile build pack does not support a start-command override (start_command
+# only applies to nixpacks builds), so the worker gets its own Dockerfile with
+# the production-stage image and a worker CMD + HEALTHCHECK.
+#
+# Keep this file in sync with Dockerfile (same build stage); the only
+# intentional differences are: EXPOSE 9090, HEALTHCHECK on :9090, worker CMD.
+# ==============================================================================
+
+# Build stage — install dependencies with uv (identical to Dockerfile)
+FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS build
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    libc6-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY pyproject.toml uv.lock ./
+COPY src/ ./src/
+COPY alembic.ini ./
+COPY migrations/ ./migrations/
+
+RUN uv sync --no-dev --frozen
+
+
+# Production stage — minimal runtime image (identical base to Dockerfile)
+FROM python:3.12-slim-bookworm AS production
+
+# curl + wget: curl backs the HEALTHCHECK; wget keeps Coolify's default
+# injected probe working (issue #233).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    wget \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN groupadd --system --gid 1000 finance && \
+    useradd --system --gid finance --uid 1000 --create-home --shell /sbin/nologin finance
+
+WORKDIR /app
+COPY --from=build /app /app
+COPY --from=build /app/.venv /app/.venv
+
+RUN mkdir -p /app/src/finance_sync/static && chown -R finance:finance /app/src/finance_sync/static
+
+ENV PATH="/app/.venv/bin:$PATH" \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    APP_ENVIRONMENT=prod
+
+# Worker health server (WorkerHealthServer) — port 9090
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+    CMD curl --fail http://localhost:9090/health/live || exit 1
+
+USER finance
+
+EXPOSE 9090
+CMD ["python", "-m", "finance_sync.worker"]
