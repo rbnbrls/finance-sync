@@ -206,6 +206,7 @@ class TestOutboxSyncCompleted:
             )
 
             assert msg.event_type == "sync.completed"
+            assert msg.payload is not None
             assert msg.payload["holdings"] == 3
             assert msg.payload["unresolved_securities"] == 1
             assert "amount" not in msg.payload
