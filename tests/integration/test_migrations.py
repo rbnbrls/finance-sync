@@ -24,7 +24,7 @@ import sqlalchemy as sa
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from tests.integration.conftest import run_alembic
+from tests.integration.conftest import REPO_ROOT, run_alembic
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
@@ -135,6 +135,30 @@ async def _alembic_version(url: str) -> str | None:
         await engine.dispose()
 
 
+def _alembic_head_revision() -> str:
+    """Return the current Alembic head revision from the migration scripts.
+
+    Derived via ``alembic heads`` instead of hardcoding a revision id so
+    the assertions keep working whenever a new migration is added.
+    """
+    result = subprocess.run(
+        [sys.executable, "-m", "alembic", "heads"],
+        capture_output=True,
+        text=True,
+        env={**os.environ},
+        cwd=REPO_ROOT,
+        timeout=120,
+    )
+    assert result.returncode == 0, result.stderr
+    heads = [
+        line.split()[0]
+        for line in result.stdout.splitlines()
+        if line.strip() and "(head)" in line
+    ]
+    assert len(heads) == 1, f"expected exactly one head, got: {heads}"
+    return heads[0]
+
+
 class TestMigrationUpgrade:
     async def test_upgrade_head_creates_full_schema(
         self, fresh_database_url: str
@@ -150,7 +174,8 @@ class TestMigrationUpgrade:
         )
 
         version = await _alembic_version(fresh_database_url)
-        assert version == "0012", f"expected head revision 0012, got {version}"
+        head = _alembic_head_revision()
+        assert version == head, f"expected head revision {head}, got {version}"
 
     async def test_single_head_linear_chain(
         self, fresh_database_url: str
@@ -213,7 +238,7 @@ class TestMigrationUpgrade:
         assert not missing, (
             f"missing tables after re-upgrade: {sorted(missing)}"
         )
-        assert await _alembic_version(fresh_database_url) == "0012"
+        assert await _alembic_version(fresh_database_url) == _alembic_head_revision()
 
     async def test_upgrade_head_is_idempotent(
         self, fresh_database_url: str
@@ -224,4 +249,4 @@ class TestMigrationUpgrade:
 
         tables = await _public_tables(fresh_database_url)
         assert "accounts" in tables
-        assert await _alembic_version(fresh_database_url) == "0012"
+        assert await _alembic_version(fresh_database_url) == _alembic_head_revision()
