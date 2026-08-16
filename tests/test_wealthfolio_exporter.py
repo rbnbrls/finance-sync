@@ -1242,6 +1242,37 @@ class TestWealthfolioPushCursor:
         assert "1 account(s) failed to push" in complete_kwargs["error_message"]
 
     @pytest.mark.asyncio
+    async def test_update_delivery_stores_string_transaction_id(
+        self, exporter: WealthfolioExporter
+    ) -> None:
+        """The delivery cursor column is VARCHAR — store str, not UUID.
+
+        In production ``Transaction.id`` is a ``uuid.UUID`` object
+        (``pk_uuid`` → ``UUID(as_uuid=True)``).  ``wealthfolio_deliveries``
+        stores ``last_exported_transaction_id`` in a ``String(64)``
+        column; asyncpg rejects a UUID value for a VARCHAR bind
+        (``DataError: expected str, got UUID``), which was observed live
+        on 2026-08-16 right after the first successful activity import.
+        """
+        last_id = uuid4()  # real UUID, as produced by the ORM in prod
+        last_txn = _make_mock_transaction(id=last_id)
+
+        result = MagicMock()
+        result.scalar_one_or_none.return_value = None
+        mock_session = exporter._session_factory()
+        mock_session.execute = AsyncMock(return_value=result)
+
+        await exporter._update_wealthfolio_delivery(
+            account_id="acct_001",
+            transactions=[last_txn],
+            export_run_id="run-1",
+        )
+
+        added = mock_session.add.call_args[0][0]
+        assert added.last_exported_transaction_id == str(last_id)
+        assert isinstance(added.last_exported_transaction_id, str)
+
+    @pytest.mark.asyncio
     async def test_push_no_accounts_completes_cleanly(
         self, exporter: WealthfolioExporter
     ) -> None:
