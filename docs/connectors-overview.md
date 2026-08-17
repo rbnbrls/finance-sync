@@ -16,6 +16,11 @@ via the ``finance_sync.connectors`` entry point group in ``pyproject.toml``.
 
 ## Environment behavior
 
+- **Multiple connections per provider** — a tenant can hold any number of
+  connections for the same provider (e.g. two bunq logins), each with its
+  own credentials, label, pause state and account selection.  See
+  [docs/connections.md](docs/connections.md) for the full user guide.
+
 - **Staging (`APP_ENVIRONMENT=staging`)** — each bunq and Trading212 card lets
   the user choose between the checked-in synthetic July 2026 dataset and the
   provider's official test environment. bunq Sandbox requires a sandbox API

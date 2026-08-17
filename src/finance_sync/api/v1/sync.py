@@ -352,7 +352,16 @@ async def trigger_sync(
     auth: AuthContext = Depends(require_permission("sync", "write")),
     db: AsyncSession = Depends(get_db),
 ) -> SyncTriggerResponse:
-    """Start syncs for the requested (or all configured) connectors."""
+    """Start syncs for the requested (or all configured) connectors.
+
+    A tenant can hold several connections per provider.  Every active
+    connection is processed **independently**: a failing connection
+    never blocks its siblings, and each connection's accounts, sync
+    runs and cursors stay scoped to it.  Paused connections are
+    skipped by this provider-wide trigger (they can still be synced
+    individually via ``POST /sync/connections/{connection_id}``).
+    Errors are recorded per connection as a sanitised ``last_error``.
+    """
     return await _trigger(
         get_container(request), db, auth.tenant_id, body.providers
     )

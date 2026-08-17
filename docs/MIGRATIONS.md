@@ -65,7 +65,7 @@ The migration history is a **single linear chain** — every revision has
 exactly one parent and there is exactly one head:
 
 ```text
-<base> -> 0001 -> 0002 -> 0003 -> 0004 -> 0005 -> 0006 -> 0007 -> 0008 -> 0009 -> 0010 (head)
+<base> -> 0001 -> 0002 -> 0003 -> 0004 -> 0005 -> 0006 -> 0007 -> 0008 -> 0009 -> 0010 -> 0011 -> 0012 -> 0013 -> 0014 -> 0015 -> 0016 -> 0017 (head)
 ```
 
 | Revision | Contents |
@@ -83,6 +83,10 @@ exactly one parent and there is exactly one head:
 | 0011 | Per-account sync cursors |
 | 0012 | Wealthfolio delivery cursors and exporter type |
 | 0013 | Holding snapshot deduplication and idempotency constraint |
+| 0014 | `import_runs` table (connector file-based import runs, tenant + connection scoped) |
+| 0015 | Wealthfolio E2E fields (`wealthfolio_account_mappings` table; legacy `transactions.fee_*` / `unit_price` columns dropped) |
+| 0016 | `connector_state` table — per-tenant bunq installation material (RSA keypair + installation token) so syncs reuse one device |
+| 0017 | Multi-connection model: `credentials.status` (active/paused), `selected_accounts`, `last_attempt_at` / `last_success_at` / `last_error`; drop the `(tenant_id, provider_key)` unique index (multiple connections per provider); nullable `connection_id` on accounts / transactions / card_transactions / sync_cursor / sync_runs / connector_state with connection-scoped unique constraints; `connection_audit_log` table |
 
 > **History note:** revisions 0004–0007 were originally four files that all
 > declared `revision="0004"` (duplicate heads), and the export tables
