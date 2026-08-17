@@ -227,7 +227,7 @@ class SyncOrchestrator:
         try:
             async with self._session_factory() as session:
                 cred = await session.get(Credential, connection_id)
-                if cred is None or cred.tenant_id != self._tenant_id:
+                if cred is None or str(cred.tenant_id) != self._tenant_id:
                     log.warning(
                         "connection_not_found_for_attempt",
                         connection_id=connection_id,
@@ -262,7 +262,7 @@ class SyncOrchestrator:
         try:
             async with self._session_factory() as session:
                 cred = await session.get(Credential, connection_id)
-                if cred is None or cred.tenant_id != self._tenant_id:
+                if cred is None or str(cred.tenant_id) != self._tenant_id:
                     return
                 if status == SyncRunStatus.COMPLETED:
                     cred.last_success_at = datetime.now(UTC)

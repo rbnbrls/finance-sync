@@ -313,6 +313,22 @@ async def _trigger(
         for cred in target_creds
     ]
 
+    # A requested provider without any configured connection still gets
+    # a skipped entry so operators see why nothing ran.
+    configured = {cred.provider_key for cred in cred_rows}
+    links.extend(
+        SyncRunLink(
+            provider=provider,
+            status="skipped",
+            error_message=(
+                f"No credentials found for connector {provider!r} "
+                f"and tenant {tenant_id}"
+            ),
+        )
+        for provider in providers
+        if provider not in configured
+    )
+
     return SyncTriggerResponse(
         sync_runs=links,
         meta=CollectionMeta(

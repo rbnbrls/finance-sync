@@ -194,18 +194,21 @@ def test_openapi_exposes_upload_confirm_and_recovery() -> None:
 
 @pytest.mark.asyncio
 async def test_worker_loads_options_for_secretless_connector() -> None:
-    from finance_sync.worker.jobs import _get_tenant_credentials
+    from finance_sync.worker.jobs import _get_tenant_connections
 
     tenant = SimpleNamespace(id="00000000-0000-0000-0000-000000000001")
     credential = Credential(
+        id="conn-degiro-1",
         provider_key="degiro_pension",
         tenant_id=tenant.id,
         encrypted_payload=b"",
         nonce=b"",
+        status="active",
+        selected_accounts=None,
         description='{"watchfolder":"/imports/degiro/incoming"}',
     )
     scalar_result = MagicMock()
-    scalar_result.scalar_one_or_none.return_value = credential
+    scalar_result.scalars.return_value.all.return_value = [credential]
     uow = cast(
         "UnitOfWork",
         SimpleNamespace(
@@ -216,10 +219,12 @@ async def test_worker_loads_options_for_secretless_connector() -> None:
             ),
         ),
     )
-    configs = await _get_tenant_credentials(uow, "degiro_pension")
-    assert len(configs) == 1
-    assert configs[0][1].credentials == {}
-    assert configs[0][1].options["watchfolder"] == "/imports/degiro/incoming"
+    connections = await _get_tenant_connections(uow, "degiro_pension")
+    assert len(connections) == 1
+    assert connections[0]["credential"].id == "conn-degiro-1"
+    config = connections[0]["config"]
+    assert config.credentials == {}
+    assert config.options == {"watchfolder": "/imports/degiro/incoming"}
 
 
 @pytest.mark.asyncio

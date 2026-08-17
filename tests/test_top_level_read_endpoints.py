@@ -461,11 +461,14 @@ class TestSyncTrigger:
         cred_result = MagicMock()
         cred_result.scalars.return_value.all.return_value = [
             SimpleNamespace(
+                id=f"conn-{index}",
                 provider_key=p,
+                status="active",
+                selected_accounts=None,
                 encrypted_payload=b"\x00" * 32,
                 nonce=b"\x00" * 12,
             )
-            for p in providers
+            for index, p in enumerate(providers)
         ]
         # SyncRun id lookup returns None (no run rows).
         cred_result.scalar_one_or_none.return_value = None
@@ -518,6 +521,8 @@ class TestSyncTrigger:
             status=SimpleNamespace(value="completed"),
             accounts_synced=2,
             transactions_synced=9,
+            holdings_synced=0,
+            unresolved_securities=0,
             error_message=None,
             duration_s=1.25,
         )
@@ -541,6 +546,166 @@ class TestSyncTrigger:
         assert run["status"] == "completed"
         assert run["accounts_synced"] == 2
         assert run["transactions_synced"] == 9
+        # The run is scoped to the connection it belongs to.
+        assert run["connection_id"] == "conn-0"
+        fake_orch.run_sync.assert_awaited_once()
+        call_kwargs = fake_orch.run_sync.await_args.kwargs
+        assert call_kwargs["connection_id"] == "conn-0"
+
+    def test_two_connections_same_provider_sync_independently(
+        self, authed_app: FastAPI, settings: Settings
+    ) -> None:
+        """Two bunq connections produce two independent sync runs."""
+        session = self._session_with_credentials(["bunq", "bunq"])
+        authed_app.dependency_overrides[get_db] = lambda: session
+
+        fake_result = SimpleNamespace(
+            status=SimpleNamespace(value="completed"),
+            accounts_synced=1,
+            transactions_synced=2,
+            holdings_synced=0,
+            unresolved_securities=0,
+            error_message=None,
+            duration_s=0.5,
+        )
+        fake_orch = MagicMock()
+        fake_orch.run_sync = AsyncMock(return_value=fake_result)
+
+        with (
+            patch(
+                "finance_sync.api.v1.sync.SyncOrchestrator",
+                return_value=fake_orch,
+            ),
+            patch("finance_sync.api.v1.sync.ConnectorRegistry"),
+            self._decrypt_patch(),
+            self._container_patch(settings),
+            TestClient(authed_app) as c,
+        ):
+            response = c.post("/api/v1/sync", json={"providers": ["bunq"]})
+        assert response.status_code == 202
+        runs = response.json()["sync_runs"]
+        assert len(runs) == 2
+        assert {r["connection_id"] for r in runs} == {"conn-0", "conn-1"}
+        assert fake_orch.run_sync.await_count == 2
+
+    def test_paused_connection_skipped_by_provider_trigger(
+        self, authed_app: FastAPI, settings: Settings
+    ) -> None:
+        session = AsyncMock()
+        cred_result = MagicMock()
+        cred_result.scalars.return_value.all.return_value = [
+            SimpleNamespace(
+                id="conn-active",
+                provider_key="bunq",
+                status="active",
+                selected_accounts=None,
+                encrypted_payload=b"\x00" * 32,
+                nonce=b"\x00" * 12,
+            ),
+            SimpleNamespace(
+                id="conn-paused",
+                provider_key="bunq",
+                status="paused",
+                selected_accounts=None,
+                encrypted_payload=b"\x00" * 32,
+                nonce=b"\x00" * 12,
+            ),
+        ]
+        cred_result.scalar_one_or_none.return_value = None
+        session.execute.return_value = cred_result
+        authed_app.dependency_overrides[get_db] = lambda: session
+
+        fake_result = SimpleNamespace(
+            status=SimpleNamespace(value="completed"),
+            accounts_synced=1,
+            transactions_synced=1,
+            holdings_synced=0,
+            unresolved_securities=0,
+            error_message=None,
+            duration_s=0.5,
+        )
+        fake_orch = MagicMock()
+        fake_orch.run_sync = AsyncMock(return_value=fake_result)
+
+        with (
+            patch(
+                "finance_sync.api.v1.sync.SyncOrchestrator",
+                return_value=fake_orch,
+            ),
+            patch("finance_sync.api.v1.sync.ConnectorRegistry"),
+            self._decrypt_patch(),
+            self._container_patch(settings),
+            TestClient(authed_app) as c,
+        ):
+            response = c.post("/api/v1/sync", json={"providers": ["bunq"]})
+        assert response.status_code == 202
+        runs = response.json()["sync_runs"]
+        by_conn = {r["connection_id"]: r for r in runs}
+        assert by_conn["conn-active"]["status"] == "completed"
+        assert by_conn["conn-paused"]["status"] == "skipped"
+        # Only the active connection actually ran.
+        assert fake_orch.run_sync.await_count == 1
+
+    def test_manual_connection_sync_endpoint(
+        self, authed_app: FastAPI, settings: Settings
+    ) -> None:
+        """POST /sync/connections/{id} syncs exactly that connection."""
+        cred = SimpleNamespace(
+            id="conn-42",
+            provider_key="trading212",
+            status="paused",  # manual sync runs even when paused
+            selected_accounts=["acc_1"],
+            encrypted_payload=b"\x00" * 32,
+            nonce=b"\x00" * 12,
+        )
+        session = AsyncMock()
+        cred_result = MagicMock()
+        cred_result.scalar_one_or_none.return_value = cred
+        session.execute.return_value = cred_result
+        authed_app.dependency_overrides[get_db] = lambda: session
+
+        fake_result = SimpleNamespace(
+            status=SimpleNamespace(value="completed"),
+            accounts_synced=1,
+            transactions_synced=4,
+            holdings_synced=3,
+            unresolved_securities=0,
+            error_message=None,
+            duration_s=2.0,
+        )
+        fake_orch = MagicMock()
+        fake_orch.run_sync = AsyncMock(return_value=fake_result)
+
+        with (
+            patch(
+                "finance_sync.api.v1.sync.SyncOrchestrator",
+                return_value=fake_orch,
+            ),
+            patch("finance_sync.api.v1.sync.ConnectorRegistry"),
+            self._decrypt_patch(),
+            self._container_patch(settings),
+            TestClient(authed_app) as c,
+        ):
+            response = c.post("/api/v1/sync/connections/conn-42")
+        assert response.status_code == 202
+        body = response.json()
+        assert body["connection_id"] == "conn-42"
+        assert body["status"] == "completed"
+        call_kwargs = fake_orch.run_sync.await_args.kwargs
+        assert call_kwargs["connection_id"] == "conn-42"
+        assert call_kwargs["selected_accounts"] == ["acc_1"]
+
+    def test_manual_connection_sync_404_for_foreign_connection(
+        self, authed_app: FastAPI
+    ) -> None:
+        session = AsyncMock()
+        cred_result = MagicMock()
+        cred_result.scalar_one_or_none.return_value = None
+        session.execute.return_value = cred_result
+        authed_app.dependency_overrides[get_db] = lambda: session
+        with TestClient(authed_app) as c:
+            response = c.post("/api/v1/sync/connections/nope")
+        assert response.status_code == 404
 
     def test_provider_path_endpoint(
         self, authed_app: FastAPI, settings: Settings
@@ -552,6 +717,8 @@ class TestSyncTrigger:
             status=SimpleNamespace(value="completed"),
             accounts_synced=1,
             transactions_synced=3,
+            holdings_synced=0,
+            unresolved_securities=0,
             error_message=None,
             duration_s=0.5,
         )

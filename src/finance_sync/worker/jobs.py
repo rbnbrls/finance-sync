@@ -169,6 +169,8 @@ async def _get_tenant_connections(
                 provider_type=provider_key,
                 credentials=credentials,
                 options=connector_options(cred),
+                connection_id=str(cred.id),
+                selected_accounts=list(cred.selected_accounts or []),
             )
             result.append(
                 {

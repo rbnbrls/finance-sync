@@ -26,6 +26,7 @@ from finance_sync.connectors.models import (
     CanonicalHoldingData,
     CanonicalScheduledPaymentData,
     CanonicalTransactionData,
+    ConnectorConfig,
     SecurityReference,
 )
 from finance_sync.models import Security
@@ -759,7 +760,9 @@ class TestSyncCursorResume:
             return_value=[]
         )
 
-        async def get_acct(tenant_id, provider_key, external_account_id):
+        async def get_acct(
+            tenant_id, provider_key, external_account_id, connection_id=None
+        ):
             acct = MagicMock()
             acct.id = f"acct_{external_account_id}"
             return acct
@@ -1725,7 +1728,15 @@ class TestAutoReconciliationAfterSync:
         )
 
         def patch_run_pipeline(
-            session, connector, provider_type, since, log, *, resume=True
+            session,
+            connector,
+            provider_type,
+            since,
+            log,
+            *,
+            resume=True,
+            connection_id=None,
+            selected_accounts=None,
         ):
             return mock_result
 
@@ -1775,7 +1786,15 @@ class TestAutoReconciliationAfterSync:
         )
 
         def patch_run_pipeline(
-            session, connector, provider_type, since, log, *, resume=True
+            session,
+            connector,
+            provider_type,
+            since,
+            log,
+            *,
+            resume=True,
+            connection_id=None,
+            selected_accounts=None,
         ):
             return mock_result
 
@@ -1818,7 +1837,15 @@ class TestAutoReconciliationAfterSync:
         )
 
         def patch_run_pipeline(
-            session, connector, provider_type, since, log, *, resume=True
+            session,
+            connector,
+            provider_type,
+            since,
+            log,
+            *,
+            resume=True,
+            connection_id=None,
+            selected_accounts=None,
         ):
             return mock_result
 
@@ -1887,7 +1914,15 @@ class TestAutoReconciliationDisabled:
         )
 
         def patch_run_pipeline(
-            session, connector, provider_type, since, log, *, resume=True
+            session,
+            connector,
+            provider_type,
+            since,
+            log,
+            *,
+            resume=True,
+            connection_id=None,
+            selected_accounts=None,
         ):
             return mock_result
 
@@ -2085,7 +2120,7 @@ class TestSyncOrchestratorRunSync:
         ):
             result = await orchestrator.run_sync(
                 provider_type="mock_provider",
-                config=MagicMock(),
+                config=ConnectorConfig(provider_type="mock_provider"),
             )
 
         assert result.status == SyncRunStatus.COMPLETED
@@ -2123,7 +2158,7 @@ class TestSyncOrchestratorRunSync:
 
         result = await orchestrator.run_sync(
             provider_type="mock_provider",
-            config=MagicMock(),
+            config=ConnectorConfig(provider_type="mock_provider"),
         )
 
         assert result.status == SyncRunStatus.FAILED
@@ -2160,7 +2195,7 @@ class TestSyncOrchestratorRunSync:
         ):
             result = await orchestrator.run_sync(
                 provider_type="mock_provider",
-                config=MagicMock(),
+                config=ConnectorConfig(provider_type="mock_provider"),
             )
 
         # Sync result must remain COMPLETED even when reconciliation fails
@@ -2257,7 +2292,7 @@ class TestSyncOrchestratorRunSyncDisabled:
         ):
             result = await orchestrator.run_sync(
                 provider_type="mock_provider",
-                config=MagicMock(),
+                config=ConnectorConfig(provider_type="mock_provider"),
             )
 
         assert result.status == SyncRunStatus.COMPLETED
@@ -2371,8 +2406,20 @@ class TestConnectorStatePersistence:
     """Stateful connector state (e.g. bunq installation) round trip."""
 
     class _FakeRow:
-        def __init__(self, state: dict) -> None:
+        def __init__(
+            self, state: dict, connection_id: str | None = None
+        ) -> None:
             self.state = dict(state)
+            self.connection_id = connection_id
+
+    class _FakeScalars:
+        """Result-like object exposing ``.all()`` for ``session.scalars``."""
+
+        def __init__(self, rows: list[object]) -> None:
+            self._rows = rows
+
+        def all(self) -> list[object]:
+            return self._rows
 
     class _FakeSession:
         """Minimal AsyncSession stand-in storing one connector_state row."""
@@ -2383,6 +2430,15 @@ class TestConnectorStatePersistence:
 
         async def scalar(self, _stmt: object) -> object | None:
             return self.row
+
+        async def scalars(
+            self, _stmt: object
+        ) -> TestConnectorStatePersistence._FakeScalars:
+            # The orchestrator filters the returned rows by connection_id
+            # in Python, so expose every stored row (state lookup keeps
+            # the connection scope itself on the row).
+            rows = [self.row] if self.row is not None else []
+            return TestConnectorStatePersistence._FakeScalars(rows)
 
         def add(self, obj: object) -> None:
             self.added.append(obj)

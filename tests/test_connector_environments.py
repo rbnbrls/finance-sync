@@ -100,8 +100,10 @@ def test_sync_uses_frontend_saved_connector_options() -> None:
         json.dumps({"api_key": "configured-in-frontend"}), settings
     )
     stored = SimpleNamespace(
+        id="conn-env-1",
         encrypted_payload=encrypted,
         nonce=nonce,
+        selected_accounts=None,
         description=json.dumps(
             {
                 "base_url": "https://provider.example.test",

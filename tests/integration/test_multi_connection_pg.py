@@ -335,3 +335,232 @@ class TestMultiConnectionIsolationPg:
                 )
             ).all()
             assert [a.external_account_id for a in accounts] == ["acc_1"]
+
+
+class SelectiveFailConnector(StaticConnector):
+    """A StaticConnector that fails authenticate() for one connection."""
+
+    #: connection_id that must fail authentication (set per test).
+    fail_connection_id: str | None = None
+
+    async def authenticate(self) -> None:
+        if (
+            self.fail_connection_id
+            and self.config.connection_id == self.fail_connection_id
+        ):
+            msg = "Authentication failed for secret-value-9f8e7d6c"
+            from finance_sync.connectors.exceptions import PermanentError
+
+            raise PermanentError(msg)
+
+
+class TestFailureIsolationPg:
+    @pytest.mark.integration
+    async def test_failing_connection_does_not_block_siblings(
+        self,
+        session_factory,
+        session,
+    ) -> None:
+        """One failing connection never blocks the other; the failure is
+        recorded (sanitised) on the connection row."""
+        tenant = Tenant(name="multi-conn-fail", slug="multi-conn-fail")
+        session.add(tenant)
+        await session.flush()
+
+        registry = ConnectorRegistry()
+        StaticConnector.accounts = [
+            _raw_account("ext_acc", "Main Account"),
+        ]
+        StaticConnector.transactions = [
+            _raw_txn("ext_txn", "ext_acc", "-10.00"),
+        ]
+        registry.register_class(
+            "mock_multi", SelectiveFailConnector, replace=True
+        )
+
+        conn_a = Credential(
+            tenant_id=tenant.id,
+            provider_key="mock_multi",
+            encrypted_payload=b"\x00" * 16,
+            nonce=b"\x00" * 12,
+            status="active",
+        )
+        conn_b = Credential(
+            tenant_id=tenant.id,
+            provider_key="mock_multi",
+            encrypted_payload=b"\x00" * 16,
+            nonce=b"\x00" * 12,
+            status="active",
+        )
+        session.add_all([conn_a, conn_b])
+        await session.flush()
+        await session.commit()
+
+        SelectiveFailConnector.fail_connection_id = str(conn_a.id)
+
+        def _make_config(connection_id: str) -> ConnectorConfig:
+            return ConnectorConfig(
+                provider_type="mock_multi",
+                credentials={"api_key": "secret-value-9f8e7d6c"},
+                options={},
+                connection_id=connection_id,
+            )
+
+        orch = SyncOrchestrator(
+            session_factory=session_factory,
+            registry=registry,
+            tenant_id=str(tenant.id),
+            settings=_NO_RECONCILIATION,
+        )
+
+        # The failing connection must not prevent the sibling from syncing.
+        result_a = await orch.run_sync(
+            "mock_multi",
+            _make_config(str(conn_a.id)),
+            connection_id=str(conn_a.id),
+        )
+        result_b = await orch.run_sync(
+            "mock_multi",
+            _make_config(str(conn_b.id)),
+            connection_id=str(conn_b.id),
+        )
+        assert result_a.status == SyncRunStatus.FAILED
+        assert result_b.status == SyncRunStatus.COMPLETED
+
+        async with session_factory() as s:
+            reloaded_a = await s.get(Credential, conn_a.id)
+            reloaded_b = await s.get(Credential, conn_b.id)
+
+            # Failure outcome recorded, secret scrubbed, error truncated.
+            assert reloaded_a.last_attempt_at is not None
+            assert reloaded_a.last_success_at is None
+            assert reloaded_a.last_error is not None
+            assert "secret-value-9f8e7d6c" not in reloaded_a.last_error
+            assert "Authentication failed" in reloaded_a.last_error
+
+            # Successful sibling recorded a success timestamp, no error.
+            assert reloaded_b.last_attempt_at is not None
+            assert reloaded_b.last_success_at is not None
+            assert reloaded_b.last_error is None
+
+            # Both runs exist; the failed one is observable and scoped.
+            runs = (
+                await s.scalars(
+                    select(SyncRun).where(
+                        SyncRun.connector == "mock_multi",
+                        SyncRun.connection_id.in_(
+                            [str(conn_a.id), str(conn_b.id)]
+                        ),
+                    )
+                )
+            ).all()
+            assert len(runs) == 2
+            statuses = {r.connection_id: r.status for r in runs}
+            assert statuses[str(conn_a.id)] == SyncRunStatus.FAILED
+            assert statuses[str(conn_b.id)] == SyncRunStatus.COMPLETED
+
+            # Only the successful connection stored data.
+            accounts = (
+                await s.scalars(
+                    select(Account).where(
+                        Account.tenant_id == str(tenant.id),
+                        Account.provider_key == "mock_multi",
+                    )
+                )
+            ).all()
+            assert [a.connection_id for a in accounts] == [str(conn_b.id)]
+
+
+class TestExportSelectionPg:
+    @pytest.mark.integration
+    async def test_deselected_accounts_not_exported(
+        self,
+        session_factory,
+        session,
+    ) -> None:
+        """Wealthfolio export only sees accounts present in the
+        connection's selected_accounts."""
+        from finance_sync.exporter.wealthfolio.config import WealthfolioConfig
+        from finance_sync.exporter.wealthfolio.exporter import (
+            WealthfolioExporter,
+        )
+        from finance_sync.models.enums import AccountType
+
+        tenant = Tenant(name="multi-conn-export", slug="multi-conn-export")
+        session.add(tenant)
+        await session.flush()
+
+        # Connection with a pinned selection: only acc_1 is selected.
+        conn_sel = Credential(
+            tenant_id=tenant.id,
+            provider_key="trading212",
+            encrypted_payload=b"\x00" * 16,
+            nonce=b"\x00" * 12,
+            status="active",
+            selected_accounts=["acc_1"],
+        )
+        # Connection without a selection: everything is exported.
+        conn_all = Credential(
+            tenant_id=tenant.id,
+            provider_key="trading212",
+            encrypted_payload=b"\x00" * 16,
+            nonce=b"\x00" * 12,
+            status="active",
+        )
+        session.add_all([conn_sel, conn_all])
+        await session.flush()
+
+        accounts = [
+            Account(
+                tenant_id=tenant.id,
+                provider_key="trading212",
+                connection_id=str(conn_sel.id),
+                external_account_id="acc_1",
+                name="Selected",
+                account_type=AccountType.BROKERAGE,
+                currency_code="EUR",
+            ),
+            Account(
+                tenant_id=tenant.id,
+                provider_key="trading212",
+                connection_id=str(conn_sel.id),
+                external_account_id="acc_2",
+                name="Deselected",
+                account_type=AccountType.BROKERAGE,
+                currency_code="EUR",
+            ),
+            Account(
+                tenant_id=tenant.id,
+                provider_key="trading212",
+                connection_id=str(conn_all.id),
+                external_account_id="acc_3",
+                name="Unrestricted",
+                account_type=AccountType.BROKERAGE,
+                currency_code="EUR",
+            ),
+            Account(
+                tenant_id=tenant.id,
+                provider_key="trading212",
+                connection_id=None,
+                external_account_id="acc_legacy",
+                name="Legacy",
+                account_type=AccountType.BROKERAGE,
+                currency_code="EUR",
+            ),
+        ]
+        session.add_all(accounts)
+        await session.flush()
+        await session.commit()
+
+        exporter = WealthfolioExporter(
+            session_factory=session_factory,
+            wf_config=WealthfolioConfig(),
+            tenant_id=str(tenant.id),
+        )
+        loaded = await exporter._load_accounts(None)
+
+        exported = {account.external_account_id for account in loaded}
+        # Deselected account is never exported; selected + unrestricted +
+        # legacy rows are.
+        assert "acc_2" not in exported
+        assert {"acc_1", "acc_3", "acc_legacy"} <= exported
