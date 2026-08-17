@@ -18,6 +18,7 @@ from finance_sync.models.account import Account
 from finance_sync.models.api_key import ApiKey
 from finance_sync.models.balance import Balance
 from finance_sync.models.card_transaction import CardTransaction
+from finance_sync.models.connection_audit_log import ConnectionAuditLog
 from finance_sync.models.connector_state import ConnectorState
 from finance_sync.models.credential import Credential
 from finance_sync.models.detected_subscription import DetectedSubscription
@@ -149,6 +150,7 @@ __all__ = [
     "BalanceSource",
     "CardAuthorizationType",
     "CardTransaction",
+    "ConnectionAuditLog",
     "ConnectorProvider",
     "ConnectorState",
     "CostBasisMethod",

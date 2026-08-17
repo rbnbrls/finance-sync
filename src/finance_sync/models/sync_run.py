@@ -30,6 +30,15 @@ class SyncRun(Base):
         nullable=False,
         comment="Connector name, e.g. 'plaid', 'teller', 'openbb'",
     )
+    connection_id: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+        index=True,
+        comment=(
+            "Stable connection (credential) id this run belongs to, "
+            "when the sync was performed for a specific connection"
+        ),
+    )
 
     # ── State ────────────────────────────────────────────────────────
     status: Mapped[SyncRunStatus] = mapped_column(

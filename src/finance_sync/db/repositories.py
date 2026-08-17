@@ -16,6 +16,7 @@ from finance_sync.models import (
     ActualBudgetAccountMapping,
     Balance,
     CardTransaction,
+    ConnectionAuditLog,
     DetectedSubscription,
     EnrichmentFreshness,
     ExportRun,
@@ -58,14 +59,24 @@ class AccountRepository(Repository[Account]):
         tenant_id: str,
         provider_key: str,
         external_account_id: str,
+        connection_id: str | None = None,
     ) -> Account | None:
-        """Find an account by its provider-scoped external ID."""
-        results = await self.list(
+        """Find an account by its provider-scoped external ID.
+
+        When *connection_id* is provided (multi-connection syncs), the
+        lookup is scoped to that connection so equal external ids from
+        different connections resolve to distinct local accounts.
+        """
+        filters = [
             Account.tenant_id == tenant_id,  # type: ignore[attr-defined]
             Account.provider_key == provider_key,  # type: ignore[attr-defined]
             Account.external_account_id == external_account_id,  # type: ignore[attr-defined]
-            limit=1,
-        )
+        ]
+        if connection_id is not None:
+            filters.append(  # type: ignore[union-attr]
+                Account.connection_id == connection_id  # type: ignore[attr-defined]
+            )
+        results = await self.list(*filters, limit=1)
         return results[0] if results else None
 
 
@@ -93,14 +104,24 @@ class TransactionRepository(Repository[Transaction]):
         tenant_id: str,
         provider_key: str,
         external_transaction_id: str,
+        connection_id: str | None = None,
     ) -> Transaction | None:
-        """Find a transaction by its provider-scoped external ID."""
-        results = await self.list(
+        """Find a transaction by its provider-scoped external ID.
+
+        When *connection_id* is provided, the lookup is scoped to that
+        connection so identical external ids from two connections never
+        resolve to the same local row.
+        """
+        filters = [
             Transaction.tenant_id == tenant_id,  # type: ignore[attr-defined]
             Transaction.provider_key == provider_key,  # type: ignore[attr-defined]
             Transaction.external_transaction_id == external_transaction_id,  # type: ignore[attr-defined]
-            limit=1,
-        )
+        ]
+        if connection_id is not None:
+            filters.append(  # type: ignore[union-attr]
+                Transaction.connection_id == connection_id  # type: ignore[attr-defined]
+            )
+        results = await self.list(*filters, limit=1)
         return results[0] if results else None
 
     async def find_duplicate_candidates(
@@ -254,14 +275,19 @@ class ScheduledPaymentRepository(Repository[ScheduledPayment]):
         tenant_id: str,
         provider_key: str,
         external_schedule_id: str,
+        connection_id: str | None = None,
     ) -> ScheduledPayment | None:
         """Find a scheduled payment by its provider-scoped external ID."""
-        results = await self.list(
+        filters = [
             ScheduledPayment.tenant_id == tenant_id,  # type: ignore[attr-defined]
             ScheduledPayment.provider_key == provider_key,  # type: ignore[attr-defined]
             ScheduledPayment.external_schedule_id == external_schedule_id,  # type: ignore[attr-defined]
-            limit=1,
-        )
+        ]
+        if connection_id is not None:
+            filters.append(  # type: ignore[union-attr]
+                ScheduledPayment.connection_id == connection_id  # type: ignore[attr-defined]
+            )
+        results = await self.list(*filters, limit=1)
         return results[0] if results else None
 
 
@@ -273,15 +299,20 @@ class CardTransactionRepository(Repository[CardTransaction]):
         tenant_id: str,
         provider_key: str,
         external_card_transaction_id: str,
+        connection_id: str | None = None,
     ) -> CardTransaction | None:
         """Find a card transaction by its provider-scoped external ID."""
-        results = await self.list(
+        filters = [
             CardTransaction.tenant_id == tenant_id,  # type: ignore[attr-defined]
             CardTransaction.provider_key == provider_key,  # type: ignore[attr-defined]
             CardTransaction.external_card_transaction_id
             == external_card_transaction_id,  # type: ignore[attr-defined]
-            limit=1,
-        )
+        ]
+        if connection_id is not None:
+            filters.append(  # type: ignore[union-attr]
+                CardTransaction.connection_id == connection_id  # type: ignore[attr-defined]
+            )
+        results = await self.list(*filters, limit=1)
         return results[0] if results else None
 
 
@@ -411,3 +442,7 @@ class SecurityMetadataObservationRepository(
 
 class FundamentalObservationRepository(Repository[FundamentalObservation]):
     model_class = FundamentalObservation
+
+
+class ConnectionAuditLogRepository(Repository[ConnectionAuditLog]):
+    model_class = ConnectionAuditLog

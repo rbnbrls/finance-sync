@@ -12,6 +12,7 @@ from finance_sync.db.repositories import (
     AccountRepository,
     BalanceRepository,
     CardTransactionRepository,
+    ConnectionAuditLogRepository,
     EnrichmentFreshnessRepository,
     FundamentalObservationRepository,
     FxRateRepository,
@@ -157,6 +158,12 @@ class UnitOfWork:
     def fundamental_observations(self) -> FundamentalObservationRepository:
         return self._repo(
             "fundamental_observations", FundamentalObservationRepository
+        )  # type: ignore[return-value]
+
+    @property
+    def connection_audit_logs(self) -> ConnectionAuditLogRepository:
+        return self._repo(
+            "connection_audit_logs", ConnectionAuditLogRepository
         )  # type: ignore[return-value]
 
     @property

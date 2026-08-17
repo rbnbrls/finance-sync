@@ -34,6 +34,7 @@ class ConnectorState(Base):
         UniqueConstraint(
             "tenant_id",
             "provider_key",
+            "connection_id",
             name="uq_connector_state_tenant_provider",
         ),
     )
@@ -49,6 +50,15 @@ class ConnectorState(Base):
         String(64),
         nullable=False,
         comment="Connector name, e.g. 'bunq'",
+    )
+    connection_id: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+        index=True,
+        comment=(
+            "Stable connection (credential) id this state belongs to; "
+            "each connection keeps its own installation material"
+        ),
     )
     state: Mapped[dict[str, Any]] = mapped_column(
         JSONB,

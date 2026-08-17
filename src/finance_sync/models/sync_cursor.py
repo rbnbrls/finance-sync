@@ -30,6 +30,7 @@ class SyncCursor(Base):
         UniqueConstraint(
             "tenant_id",
             "connector",
+            "connection_id",
             "resource",
             name="uq_sync_cursor_tenant_connector_resource",
         ),
@@ -46,6 +47,15 @@ class SyncCursor(Base):
         String(64),
         nullable=False,
         comment="Connector name, e.g. 'bunq', 'bunq_cards'",
+    )
+    connection_id: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+        index=True,
+        comment=(
+            "Stable connection (credential) id this cursor belongs to; "
+            "keeps same-provider connections from sharing watermarks"
+        ),
     )
     resource: Mapped[str] = mapped_column(
         String(128),
