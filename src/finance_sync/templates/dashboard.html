@@ -389,6 +389,96 @@
         /* ── Hide / Show helpers ──────────────────────────────────────── */
         .hidden { display: none !important; }
 
+        /* ── Inline load error with retry ─────────────────────────────── */
+        .inline-error {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 12px;
+            justify-content: space-between;
+        }
+        .inline-error .inline-error-msg { flex: 1 1 260px; }
+        .inline-error .inline-error-msg strong { display: block; margin-bottom: 2px; color: var(--text); }
+        .inline-error .inline-error-msg span { color: var(--text-muted); font-size: 0.8rem; }
+        .inline-error .btn { flex-shrink: 0; }
+
+        /* ── Accessible focus ─────────────────────────────────────────── */
+        :focus-visible {
+            outline: 2px solid var(--accent);
+            outline-offset: 2px;
+            border-radius: 4px;
+        }
+        .btn:focus-visible, .sidebar-nav a:focus-visible, input:focus-visible, select:focus-visible {
+            outline: 2px solid var(--accent);
+            outline-offset: 2px;
+        }
+        .modal-overlay[aria-hidden="false"] .modal { outline: none; }
+
+        /* ── Responsive layout ────────────────────────────────────────── */
+        @media (max-width: 900px) {
+            body { flex-direction: column; }
+            .sidebar {
+                position: static;
+                width: 100%;
+                height: auto;
+                flex-direction: row;
+                align-items: center;
+                border-right: none;
+                border-bottom: 1px solid var(--border);
+            }
+            .sidebar-header { padding: 12px 16px; border-bottom: none; }
+            .sidebar-nav {
+                display: flex;
+                flex: 1;
+                gap: 4px;
+                padding: 8px 8px;
+                overflow-x: auto;
+            }
+            .sidebar-nav a {
+                padding: 8px 12px;
+                border-left: none;
+                border-bottom: 2px solid transparent;
+                white-space: nowrap;
+            }
+            .sidebar-nav a:hover, .sidebar-nav a.active {
+                border-left-color: transparent;
+                border-bottom-color: var(--accent);
+            }
+            .sidebar-footer { padding: 8px 16px; border-top: none; }
+            .main {
+                margin-left: 0;
+                padding: 20px;
+                max-width: 100%;
+            }
+            .connector-grid { grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }
+            .modal { width: 100%; }
+        }
+        @media (max-width: 560px) {
+            .main { padding: 12px; }
+            .connector-grid { grid-template-columns: 1fr; }
+            .toast-container { left: 12px; right: 12px; top: 12px; }
+            .toast { max-width: none; }
+            .modal-footer { flex-direction: column-reverse; }
+            .modal-footer .btn { width: 100%; }
+            .page-title { font-size: 1.25rem; }
+            .btn-sm { padding: 6px 10px; }
+        }
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after {
+                animation-duration: 0.01ms !important;
+                animation-iteration-count: 1 !important;
+                transition-duration: 0.01ms !important;
+            }
+        }
+
+        @media (prefers-contrast: more) {
+            :root {
+                --border: #4a4f6b;
+                --text: #ffffff;
+                --text-muted: #c3c8dd;
+            }
+        }
+
         /* Login page (no sidebar) */
         .login-body {
             display: flex;
@@ -559,56 +649,56 @@
 </head>
 <body>
     <!-- Toast container -->
-    <div class="toast-container" id="toast-container"></div>
+    <div class="toast-container" id="toast-container" role="status" aria-live="polite" aria-atomic="true"></div>
 
     <!-- Sidebar -->
-    <aside class="sidebar" id="sidebar">
+    <aside class="sidebar" id="sidebar" aria-label="Main navigation">
         <div class="sidebar-header">
             <h1>finance<span>-sync</span></h1>
             <div class="version">v0.1.0 &middot; Control Panel</div>
         </div>
-        <nav class="sidebar-nav">
-            <a href="#" class="active" data-section="connectors" onclick="switchSection('connectors')">
-                <span class="icon">&#9881;</span> Connectors
+        <nav class="sidebar-nav" aria-label="Sections">
+            <a href="#" class="active" data-section="connectors" data-perm="connectors:read" aria-current="page" onclick="switchSection('connectors')">
+                <span class="icon" aria-hidden="true">&#9881;</span> Connectors
             </a>
             <a href="#" data-section="exporters" onclick="switchSection('exporters')">
-                <span class="icon">&#10145;</span> Exporters
+                <span class="icon" aria-hidden="true">&#10145;</span> Exporters
             </a>
-            <a href="#" data-section="sync" onclick="switchSection('sync')">
-                <span class="icon">&#8635;</span> Sync Runs
+            <a href="#" data-section="sync" data-perm="sync:read" onclick="switchSection('sync')">
+                <span class="icon" aria-hidden="true">&#8635;</span> Sync Runs
             </a>
             <a href="#" data-section="settings" onclick="switchSection('settings')">
-                <span class="icon">&#9879;</span> Settings
+                <span class="icon" aria-hidden="true">&#9879;</span> Settings
             </a>
         </nav>
         <div class="sidebar-footer">
-            <span class="user-email" id="user-email">—</span>
+            <span class="user-email" id="user-email" aria-label="Signed in as">—</span>
             <button onclick="logout()">Sign Out</button>
         </div>
     </aside>
 
     <!-- Main Content -->
     <main class="main" id="main-content">
-        <div id="section-connectors">
-            <h1 class="page-title">Connectors</h1>
+        <div id="section-connectors" role="region" aria-labelledby="connectors-title">
+            <h1 class="page-title" id="connectors-title">Connectors</h1>
             <p class="page-subtitle" id="connectors-subtitle">Configure data source connections for syncing financial data.</p>
-            <div id="connector-list"></div>
+            <div id="connector-list" aria-live="polite" aria-busy="true"></div>
         </div>
-        <div id="section-exporters" class="hidden">
-            <h1 class="page-title">Exporters</h1>
+        <div id="section-exporters" class="hidden" role="region" aria-labelledby="exporters-title">
+            <h1 class="page-title" id="exporters-title">Exporters</h1>
             <p class="page-subtitle">Configure export destinations and trigger data exports to Wealthfolio.</p>
-            <div id="exporter-list"></div>
+            <div id="exporter-list" aria-live="polite" aria-busy="true"></div>
             <div id="exporter-runs" style="margin-top: 24px;"></div>
         </div>
-        <div id="section-sync" class="hidden">
-            <h1 class="page-title">Sync Runs</h1>
+        <div id="section-sync" class="hidden" role="region" aria-labelledby="sync-title">
+            <h1 class="page-title" id="sync-title">Sync Runs</h1>
             <p class="page-subtitle">View recent synchronization activity.</p>
             <div class="card">
                 <p style="color: var(--text-muted);">Sync run history will be available here in a future update. Use the API at <code>/api/v1/sync-runs</code>.</p>
             </div>
         </div>
-        <div id="section-settings" class="hidden">
-            <h1 class="page-title">Settings</h1>
+        <div id="section-settings" class="hidden" role="region" aria-labelledby="settings-title">
+            <h1 class="page-title" id="settings-title">Settings</h1>
             <p class="page-subtitle">Application-level configuration.</p>
             <div class="card">
                 <p style="color: var(--text-muted);">Application settings will be available here in a future update.</p>
@@ -617,8 +707,8 @@
     </main>
 
     <!-- Feedback trigger button — emits custom event for integration layer -->
-    <button class="feedback-trigger" id="feedback-trigger" title="Send feedback">
-        <span class="icon">&#9993;</span>
+    <button class="feedback-trigger" id="feedback-trigger" title="Send feedback" aria-label="Send feedback">
+        <span class="icon" aria-hidden="true">&#9993;</span>
         Feedback
     </button>
 
@@ -669,6 +759,102 @@
             el.textContent = message;
             container.appendChild(el);
             setTimeout(() => { el.style.opacity = '0'; el.style.transition = 'opacity 0.3s'; setTimeout(() => el.remove(), 300); }, 4000);
+        }
+
+        // ── Friendly inline error with Retry ───────────────────────────
+        // Renders a self-contained error block carrying a Retry button.
+        // Used for page-level loads so a failed API call never leaves a
+        // blank body or a raw exception dump on screen.
+        function renderInlineError(containerId, title, detail, retryFn) {
+            const container = document.getElementById(containerId);
+            if (!container) return;
+            container.setAttribute('aria-busy', 'false');
+            container.innerHTML = `
+                <div class="alert alert-error inline-error" role="alert">
+                    <div class="inline-error-msg">
+                        <strong>${escapeHtml(title || 'Something went wrong')}</strong>
+                        <span>${escapeHtml(detail || '')}</span>
+                    </div>
+                    <button type="button" class="btn btn-secondary btn-sm" data-retry="${containerId}" onclick="retryLoad('${containerId}')">&#8635; Retry</button>
+                </div>`;
+            if (typeof retryFn === 'function') {
+                container._retry = retryFn;
+            }
+        }
+
+        // Retry entry point used by the inline Retry buttons. Delegates to
+        // the loader that rendered the error so we never need to re-wire
+        // handlers after re-rendering.
+        async function retryLoad(containerId) {
+            const container = document.getElementById(containerId);
+            if (container && typeof container._retry === 'function') {
+                container.setAttribute('aria-busy', 'true');
+                container.innerHTML = '<div class="alert alert-info"><span class="spinner"></span> Retrying…</div>';
+                await container._retry();
+            }
+        }
+
+        function escapeHtml(value) {
+            return String(value ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        let currentUser = null;   // populated from GET /auth/me
+
+        // Hide nav sections the current user lacks permission for, so
+        // admin-only surfaces never appear for plain users.
+        function applySectionPermissions() {
+            const perms = new Set((currentUser && currentUser.permissions) || []);
+            const isAdmin = currentUser && currentUser.role === 'admin';
+            document.querySelectorAll('.sidebar-nav a[data-perm]').forEach(a => {
+                const perm = a.getAttribute('data-perm');
+                const allowed = isAdmin || perms.has(perm) || perms.has('*:*') || perms.has(perm.split(':')[0] + ':*');
+                a.classList.toggle('hidden', !allowed);
+            });
+        }
+
+        // ── Accessible modal helpers ───────────────────────────────────
+        let __lastFocused = null;
+
+        // Open a modal with dialog semantics: role/aria attributes, focus
+        // trap, Escape-to-close and focus restore on close.
+        function openModal(modal) {
+            modal.setAttribute('role', 'dialog');
+            modal.setAttribute('aria-modal', 'true');
+            modal.setAttribute('aria-hidden', 'false');
+            __lastFocused = document.activeElement;
+            document.body.style.overflow = 'hidden';
+            const focusables = () => modal.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+            const first = focusables()[0];
+            if (first) first.focus();
+            modal._keydown = (e) => {
+                if (e.key === 'Escape') { closeModal(); return; }
+                if (e.key !== 'Tab') return;
+                const els = focusables();
+                if (!els.length) return;
+                const firstEl = els[0];
+                const lastEl = els[els.length - 1];
+                if (e.shiftKey && document.activeElement === firstEl) { e.preventDefault(); lastEl.focus(); }
+                else if (!e.shiftKey && document.activeElement === lastEl) { e.preventDefault(); firstEl.focus(); }
+            };
+            document.addEventListener('keydown', modal._keydown);
+        }
+
+        // Focus restoration + overflow cleanup for all open modals.
+        function closeModal() {
+            document.body.style.overflow = '';
+            document.querySelectorAll('.modal-overlay').forEach(m => {
+                m.setAttribute('aria-hidden', 'true');
+                document.removeEventListener('keydown', m._keydown);
+                m.remove();
+            });
+            if (__lastFocused && document.contains(__lastFocused)) __lastFocused.focus();
+            __lastFocused = null;
+            __feedbackSubmitting = false;
         }
 
         // ── Frontend error monitoring ──────────────────────────────────
@@ -727,10 +913,20 @@
 
         // ── Section switching ───────────────────────────────────────────
         function switchSection(name) {
-            document.querySelectorAll('.sidebar-nav a').forEach(a => a.classList.remove('active'));
-            document.querySelector(`.sidebar-nav a[data-section="${name}"]`).classList.add('active');
+            const link = document.querySelector(`.sidebar-nav a[data-section="${name}"]`);
+            if (!link || link.classList.contains('hidden')) {
+                // Permission-gated or unknown section: stay on connectors.
+                name = 'connectors';
+            }
+            document.querySelectorAll('.sidebar-nav a').forEach(a => {
+                const active = a.getAttribute('data-section') === name;
+                a.classList.toggle('active', active);
+                if (active) a.setAttribute('aria-current', 'page');
+                else a.removeAttribute('aria-current');
+            });
             document.querySelectorAll('[id^="section-"]').forEach(s => s.classList.add('hidden'));
-            document.getElementById(`section-${name}`).classList.remove('hidden');
+            const section = document.getElementById(`section-${name}`);
+            if (section) section.classList.remove('hidden');
             if (name === 'connectors') loadConnectors();
             if (name === 'exporters') loadExporters();
             if (name === 'sync') loadSyncRuns();
@@ -749,27 +945,65 @@
         }
 
         // ── Load & render connectors ────────────────────────────────────
+        // Loads each connector endpoint independently so a single failing
+        // call can never blank the whole page: we render whatever loaded
+        // and surface a friendly inline error with Retry for the rest.
         async function loadConnectors() {
-            try {
-                const [avail, cfgs, imports] = await Promise.all([
-                    api('GET', '/connectors'),
-                    api('GET', '/connectors/configs'),
-                    api('GET', '/connectors/degiro-pension/imports'),
-                ]);
-                connectors = avail || [];
-                configs = cfgs || [];
-                degiroRuns = imports || [];
-                renderConnectors();
-            } catch (e) {
-                document.getElementById('connector-list').innerHTML =
-                    `<div class="alert alert-error">Failed to load connectors: ${e.message}</div>`;
+            const container = document.getElementById('connector-list');
+            if (container) container.setAttribute('aria-busy', 'true');
+            const settled = await Promise.allSettled([
+                api('GET', '/connectors'),
+                api('GET', '/connectors/configs'),
+                api('GET', '/connectors/degiro-pension/imports'),
+            ]);
+            const [avail, cfgs, imports] = settled.map(r => r.status === 'fulfilled' ? r.value : null);
+            const failed = [avail, cfgs, imports].filter(v => v === null).length;
+
+            if (failed === settled.length) {
+                const firstErr = settled.find(r => r.status === 'rejected');
+                const detail = (firstErr && firstErr.reason && firstErr.reason.message)
+                    ? String(firstErr.reason.message) : 'The connectors service did not respond.';
+                renderInlineError('connector-list', 'Could not load connectors', detail, loadConnectors);
+                return;
             }
+
+            connectors = avail || [];
+            configs = cfgs || [];
+            degiroRuns = imports || [];
+            renderConnectors();
+
+            // Friendly inline notice for any endpoint that failed, each
+            // with its own Retry action.
+            if (failed > 0) {
+                const notices = [];
+                if (!avail) notices.push(['connector catalog', 'Failed to load the list of available connectors.']);
+                if (!cfgs) notices.push(['saved configurations', 'Failed to load your saved configurations.']);
+                if (!imports) notices.push(['DEGIRO import status', 'Failed to load DEGIRO import status.']);
+                const noticeEl = document.createElement('div');
+                noticeEl.innerHTML = `
+                    <div class="alert alert-error inline-error" role="alert">
+                        <div class="inline-error-msg">
+                            <strong>${notices.map(n => escapeHtml(n[0])).join(', ')} could not be loaded</strong>
+                            <span>Showing the data that did load. ${escapeHtml(detailHint(failed))}</span>
+                        </div>
+                        <button type="button" class="btn btn-secondary btn-sm" onclick="loadConnectors()">&#8635; Retry</button>
+                    </div>`;
+                container.prepend(noticeEl);
+            }
+            if (container) container.setAttribute('aria-busy', 'false');
+        }
+
+        function detailHint(failedCount) {
+            return failedCount > 1
+                ? 'You can retry to load everything at once.'
+                : 'You can retry to load the missing part.';
         }
 
         function renderConnectors() {
             const container = document.getElementById('connector-list');
             if (!connectors.length) {
                 container.innerHTML = `<div class="empty-state"><div class="icon">&#9881;</div><p>No connectors available.</p></div>`;
+                container.setAttribute('aria-busy', 'false');
                 return;
             }
 
@@ -786,32 +1020,56 @@
                 const caps = c.capabilities || [];
                 const lastImport = c.name === 'degiro_pension' ? degiroRuns.find(r => r.status === 'completed') : null;
                 const latestAttempt = c.name === 'degiro_pension' ? degiroRuns[0] : null;
+                const displayName = escapeHtml(String(c.display_name || c.name));
+                const apiName = escapeHtml(String(c.name));
+                let descText;
+                if (usesTestData) descText = `${displayName} uses the synthetic July 2026 staging dataset.`;
+                else if (usesTestApi) descText = `${displayName} uses the provider's official ${c.name === 'bunq' ? 'sandbox' : 'paper-trading'} API.`;
+                else if (c.name === 'degiro_pension') descText = 'Import official DEGIRO CSV/Excel exports.';
+                else descText = `${displayName} API connector.`;
+                const desc = escapeHtml(descText + ` SDK v${c.sdk_version}.`);
+                const capChips = (caps.map(cap => `<span class="cap">${escapeHtml(String(cap))}</span>`)).join('');
+                let degiroInfo = '';
+                if (c.name === 'degiro_pension') {
+                    const lastAt = lastImport ? (lastImport.completed_at || lastImport.created_at) : 'never';
+                    let extra = '';
+                    if (latestAttempt && latestAttempt.preview) {
+                        const missing = latestAttempt.preview.missing_report_types
+                            ? latestAttempt.preview.missing_report_types.join(', ') : 'none';
+                        extra += `<br>Missing reports: ${escapeHtml(missing)}`;
+                        if (latestAttempt.warnings && latestAttempt.warnings.length) {
+                            extra += `<br>Warnings: ${escapeHtml(latestAttempt.warnings.join('; '))}`;
+                        }
+                    }
+                    degiroInfo = `<div class="desc">Last snapshot: ${escapeHtml(lastAt)}<br>Period: ${escapeHtml((lastImport && (lastImport.period_start || lastImport.period_end)) ? `${lastImport.period_start || '—'} – ${lastImport.period_end || '—'}` : '—')}${extra}</div>`;
+                }
 
                 html += `
-                    <div class="connector-card" data-provider="${c.name}">
+                    <div class="connector-card" data-provider="${apiName}">
                         <div class="top">
-                            <div class="name">${c.display_name}</div>
-                            <span class="badge ${badgeClass}" id="badge-${c.name}">${badgeText}</span>
+                            <div class="name">${displayName}</div>
+                            <span class="badge ${badgeClass}" id="badge-${apiName}">${escapeHtml(badgeText)}</span>
                         </div>
-                        <div class="desc">${usesTestData ? `${c.display_name} uses the synthetic July 2026 staging dataset.` : (usesTestApi ? `${c.display_name} uses the provider's official ${c.name === 'bunq' ? 'sandbox' : 'paper-trading'} API.` : (c.name === 'degiro_pension' ? 'Import official DEGIRO CSV/Excel exports.' : `${c.display_name} API connector.`))} SDK v${c.sdk_version}.</div>
+                        <div class="desc">${desc}</div>
                         <div class="capabilities">
-                            ${caps.map(cap => `<span class="cap">${cap}</span>`).join('')}
+                            ${capChips}
                         </div>
-                        ${c.name === 'degiro_pension' ? `<div class="desc">Last snapshot: ${lastImport ? (lastImport.completed_at || lastImport.created_at) : 'never'}<br>Period: ${lastImport ? `${lastImport.period_start || '—'} – ${lastImport.period_end || '—'}` : '—'}<br>Missing reports: ${latestAttempt && latestAttempt.preview.missing_report_types ? (latestAttempt.preview.missing_report_types.join(', ') || 'none') : 'unknown'}${latestAttempt && latestAttempt.warnings.length ? `<br>Warnings: ${latestAttempt.warnings.join('; ')}` : ''}</div>` : ''}
+                        ${degiroInfo}
                         <div class="actions">
-                            <button class="btn btn-primary btn-sm" onclick="openConfigModal('${c.name}')">
+                            <button class="btn btn-primary btn-sm" onclick="openConfigModal('${apiName}')" aria-haspopup="dialog">
                                 ${isConfigured ? '&#9998; Edit' : '&#43; Configure'}
                             </button>
-                            ${isConfigured && cfg ? `<button class="btn btn-success btn-sm" onclick="testConnection('${cfg.id}', '${c.name}')">&#10003; Test</button>` : ''}
-                            ${c.name === 'degiro_pension' && cfg ? `<button class="btn btn-success btn-sm" onclick="openDegiroImport('${cfg.id}')">&#8679; Import</button>` : ''}
-                            ${cfg && !isStagingChoice ? `<button class="btn btn-danger btn-sm" onclick="deleteConfig('${cfg.id}', '${c.name}')">&#10005; Remove</button>` : ''}
+                            ${isConfigured && cfg ? `<button class="btn btn-success btn-sm" onclick="testConnection('${escapeHtml(String(cfg.id))}', '${apiName}')">&#10003; Test</button>` : ''}
+                            ${c.name === 'degiro_pension' && cfg ? `<button class="btn btn-success btn-sm" onclick="openDegiroImport('${escapeHtml(String(cfg.id))}')">&#8679; Import</button>` : ''}
+                            ${cfg && !isStagingChoice ? `<button class="btn btn-danger btn-sm" onclick="deleteConfig('${escapeHtml(String(cfg.id))}', '${apiName}')">&#10005; Remove</button>` : ''}
                         </div>
-                        <div id="test-result-${c.name}" style="margin-top: 12px;"></div>
+                        <div id="test-result-${apiName}" style="margin-top: 12px;" aria-live="polite"></div>
                     </div>
                 `;
             }
             html += '</div>';
             container.innerHTML = html;
+            container.setAttribute('aria-busy', 'false');
         }
 
         function openDegiroImport(connectionId) {
@@ -819,19 +1077,22 @@
             modal.className = 'modal-overlay';
             modal.innerHTML = `
                 <div class="modal">
-                    <h2>Import DEGIRO Pensioen</h2>
+                    <h2 id="degiro-modal-title">Import DEGIRO Pensioen</h2>
                     <p style="color:var(--text-muted);margin-bottom:16px;">Selecteer officiële transactie-, rekening- en portefeuille-exports. Eerst volgt een dry-run; er wordt nog niets geschreven.</p>
                     <div class="form-group">
-                        <label>DEGIRO exports (CSV, XLSX of XLS)</label>
-                        <input id="degiro-files" type="file" multiple accept=".csv,.xlsx,.xls">
+                        <label for="degiro-files">DEGIRO exports (CSV, XLSX of XLS)</label>
+                        <input id="degiro-files" type="file" multiple accept=".csv,.xlsx,.xls" aria-required="true">
                     </div>
-                    <div id="degiro-preview"></div>
+                    <div id="degiro-preview" aria-live="polite"></div>
                     <div class="modal-footer">
-                        <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
-                        <button id="degiro-preview-btn" class="btn btn-primary" onclick="previewDegiroImport('${connectionId}')">Preview</button>
+                        <button type="button" class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+                        <button type="button" id="degiro-preview-btn" class="btn btn-primary" onclick="previewDegiroImport('${escapeHtml(String(connectionId))}')">Preview</button>
                     </div>
                 </div>`;
             document.getElementById('modal-container').appendChild(modal);
+            modal.setAttribute('aria-labelledby', 'degiro-modal-title');
+            openModal(modal);
+            modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
         }
 
         async function previewDegiroImport(connectionId) {
@@ -862,8 +1123,18 @@
                 button.disabled = false;
                 button.onclick = () => confirmDegiroImport(data.id);
             } catch (e) {
-                toast(e.message, 'error');
+                // Friendly inline error inside the modal; the Preview
+                // button stays enabled so the user can immediately retry.
+                document.getElementById('degiro-preview').innerHTML = `
+                    <div class="alert alert-error inline-error" role="alert">
+                        <div class="inline-error-msg">
+                            <strong>Could not preview the import</strong>
+                            <span>${escapeHtml(e.message || 'The server rejected the files.')}</span>
+                        </div>
+                        <button type="button" class="btn btn-secondary btn-sm" onclick="previewDegiroImport('${escapeHtml(String(connectionId))}')">&#8635; Retry</button>
+                    </div>`;
                 button.disabled = false;
+                button.textContent = 'Preview';
             }
         }
 
@@ -875,8 +1146,23 @@
                 toast(`Import complete: ${result.created_count} items processed`, 'success');
                 closeModal();
             } catch (e) {
-                toast(e.message, 'error');
+                // Inline error with a retry path: keep the button enabled
+                // and surface the message next to the preview.
+                const preview = document.getElementById('degiro-preview');
+                if (preview) {
+                    preview.innerHTML = `
+                        <div class="alert alert-error inline-error" role="alert">
+                            <div class="inline-error-msg">
+                                <strong>Could not confirm the import</strong>
+                                <span>${escapeHtml(e.message || 'The server rejected the confirmation.')}</span>
+                            </div>
+                            <button type="button" class="btn btn-secondary btn-sm" onclick="confirmDegiroImport('${escapeHtml(String(runId))}')">&#8635; Retry</button>
+                        </div>`;
+                } else {
+                    toast(e.message, 'error');
+                }
                 button.disabled = false;
+                button.textContent = 'Confirm exact import';
             }
         }
 
@@ -889,21 +1175,28 @@
 
             let fieldsHtml = '';
             for (const f of c.credential_fields || []) {
-                const val = '';
-                const checkedAttr = '';
+                const label = escapeHtml(String(f.label || f.key));
+                const requiredStr = f.required ? 'required aria-required="true"' : '';
+                const descHtml = f.description ? `<span class="field-hint" id="cred-hint-${escapeHtml(String(f.key))}">${escapeHtml(String(f.description))}</span>` : '';
+                const hintFor = f.description ? ` aria-describedby="cred-hint-${escapeHtml(String(f.key))}"` : '';
                 if (f.type === 'boolean') {
                     fieldsHtml += `
                         <div class="form-group">
                             <div class="checkbox-wrap">
-                                <input type="checkbox" id="cred-${f.key}" ${f.default ? 'checked' : ''}>
-                                <label for="cred-${f.key}" style="margin:0;">${f.label}</label>
+                                <input type="checkbox" id="cred-${escapeHtml(String(f.key))}" ${f.default ? 'checked' : ''} ${requiredStr}>
+                                <label for="cred-${escapeHtml(String(f.key))}" style="margin:0;">${label}</label>
                             </div>
+                            ${descHtml}
                         </div>`;
                 } else {
+                    const placeholder = f.placeholder ? ` placeholder="${escapeHtml(String(f.placeholder))}"` : '';
+                    const isPassword = f.type === 'password';
+                    const autoComplete = isPassword ? ' autocomplete="new-password"' : '';
                     fieldsHtml += `
                         <div class="form-group">
-                            <label for="cred-${f.key}">${f.label}${f.required ? ' <span style="color:var(--red)">*</span>' : ''}</label>
-                            <input type="${f.type}" id="cred-${f.key}" placeholder="${f.placeholder || ''}" ${f.required ? 'required' : ''}>
+                            <label for="cred-${escapeHtml(String(f.key))}">${label}${f.required ? ' <span style="color:var(--red)">*</span>' : ''}</label>
+                            <input type="${escapeHtml(String(f.type))}" id="cred-${escapeHtml(String(f.key))}"${placeholder}${requiredStr}${autoComplete}${hintFor}>
+                            ${descHtml}
                         </div>`;
                 }
             }
@@ -911,29 +1204,34 @@
             let optsHtml = '';
             for (const f of c.option_fields || []) {
                 const configuredValue = cfg && cfg.options && cfg.options[f.key] !== undefined ? cfg.options[f.key] : f.default;
+                const label = escapeHtml(String(f.label || f.key));
+                const requiredStr = f.required ? 'required aria-required="true"' : '';
+                const descHtml = f.description ? `<div class="field-hint" id="opt-hint-${escapeHtml(String(f.key))}">${escapeHtml(String(f.description))}</div>` : '';
                 if (f.type === 'boolean') {
                     optsHtml += `
                         <div class="form-group">
                             <div class="checkbox-wrap">
-                                <input type="checkbox" id="opt-${f.key}" ${configuredValue ? 'checked' : ''}>
-                                <label for="opt-${f.key}" style="margin:0;">${f.label}</label>
-                                ${f.description ? `<span style="font-size:0.75rem;color:var(--text-muted);margin-left:6px;">— ${f.description}</span>` : ''}
+                                <input type="checkbox" id="opt-${escapeHtml(String(f.key))}" ${configuredValue ? 'checked' : ''}>
+                                <label for="opt-${escapeHtml(String(f.key))}" style="margin:0;">${label}</label>
                             </div>
+                            ${descHtml}
                         </div>`;
                 } else if (f.type === 'select') {
                     optsHtml += `
                         <div class="form-group">
-                            <label for="opt-${f.key}">${f.label}</label>
-                            <select id="opt-${f.key}">
-                                ${(f.choices || []).map(choice => `<option value="${choice.value}" ${choice.value === configuredValue ? 'selected' : ''}>${choice.label}</option>`).join('')}
+                            <label for="opt-${escapeHtml(String(f.key))}">${label}${f.required ? ' <span style="color:var(--red)">*</span>' : ''}</label>
+                            <select id="opt-${escapeHtml(String(f.key))}" ${requiredStr}>
+                                ${(f.choices || []).map(choice => `<option value="${escapeHtml(String(choice.value))}" ${choice.value === configuredValue ? 'selected' : ''}>${escapeHtml(String(choice.label))}</option>`).join('')}
                             </select>
-                            ${f.description ? `<div style="font-size:0.75rem;color:var(--text-muted);margin-top:6px;">${f.description}</div>` : ''}
+                            ${descHtml}
                         </div>`;
                 } else {
+                    const value = configuredValue !== undefined && configuredValue !== null ? String(configuredValue) : '';
                     optsHtml += `
                         <div class="form-group">
-                            <label for="opt-${f.key}">${f.label}</label>
-                            <input type="${f.type}" id="opt-${f.key}" placeholder="${f.placeholder || ''}" value="${configuredValue || ''}">
+                            <label for="opt-${escapeHtml(String(f.key))}">${label}${f.required ? ' <span style="color:var(--red)">*</span>' : ''}</label>
+                            <input type="${escapeHtml(String(f.type))}" id="opt-${escapeHtml(String(f.key))}" placeholder="${escapeHtml(String(f.placeholder || ''))}" value="${escapeHtml(value)}" ${requiredStr}>
+                            ${descHtml}
                         </div>`;
                 }
             }
@@ -943,15 +1241,15 @@
             modal.id = 'config-modal';
             modal.innerHTML = `
                 <div class="modal">
-                    <h2>${isEdit ? 'Edit' : 'Configure'} ${c.display_name}</h2>
-                    <form id="config-form" onsubmit="saveConfig(event, '${providerType}', ${!!isEdit})">
+                    <h2 id="config-modal-title">${isEdit ? 'Edit' : 'Configure'} ${escapeHtml(String(c.display_name || c.name))}</h2>
+                    <form id="config-form" novalidate onsubmit="saveConfig(event, '${escapeHtml(String(providerType))}', ${!!isEdit})">
                         <div class="form-group">
-                            <label>Description <span style="color:var(--text-muted);font-size:0.8rem;">(optional label)</span></label>
-                            <input type="text" id="config-desc" placeholder="My ${c.display_name} connection" value="${cfg ? (cfg.description || '') : ''}">
+                            <label for="config-desc">Description <span style="color:var(--text-muted);font-size:0.8rem;">(optional label)</span></label>
+                            <input type="text" id="config-desc" placeholder="My ${escapeHtml(String(c.display_name || c.name))} connection" value="${cfg ? escapeHtml(String(cfg.description || '')) : ''}">
                         </div>
                         ${fieldsHtml ? `<h3 style="font-size:0.9rem;font-weight:600;margin-bottom:12px;margin-top:4px;">Credentials</h3>${fieldsHtml}` : ''}
                         ${optsHtml ? `<h3 style="font-size:0.9rem;font-weight:600;margin:16px 0 12px;">Options</h3>${optsHtml}` : ''}
-                        <div id="config-error" class="hidden alert alert-error"></div>
+                        <div id="config-error" class="hidden alert alert-error" role="alert"></div>
                         <div class="modal-footer">
                             <button type="button" class="btn btn-secondary" onclick="closeModal()">Cancel</button>
                             <button type="submit" class="btn btn-primary" id="config-submit">Save Configuration</button>
@@ -960,17 +1258,51 @@
                 </div>
             `;
             document.getElementById('modal-container').appendChild(modal);
+            modal.setAttribute('aria-labelledby', 'config-modal-title');
+            openModal(modal);
             modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
         }
 
         async function saveConfig(event, providerType, isEdit) {
             event.preventDefault();
             const submitBtn = document.getElementById('config-submit');
-            submitBtn.disabled = true;
-            submitBtn.innerHTML = '<span class="spinner"></span> Saving...';
-            document.getElementById('config-error').classList.add('hidden');
+            const errorEl = document.getElementById('config-error');
+            errorEl.classList.add('hidden');
 
             const c = connectors.find(x => x.name === providerType);
+            if (!c) {
+                errorEl.innerHTML = '<strong>Configuration error</strong> Unknown connector. Please reload the page and try again.';
+                errorEl.classList.remove('hidden');
+                return;
+            }
+
+            // Validate required fields client-side (friendly inline errors
+            // instead of native browser tooltips — the form uses novalidate).
+            const missing = [];
+            for (const f of c.credential_fields || []) {
+                if (!f.required || f.type === 'boolean') continue;
+                const el = document.getElementById(`cred-${f.key}`);
+                if (el && !String(el.value || '').trim()) missing.push(f.label || f.key);
+            }
+            for (const f of c.option_fields || []) {
+                if (!f.required) continue;
+                const el = document.getElementById(`opt-${f.key}`);
+                if (el && !String(el.value || '').trim()) missing.push(f.label || f.key);
+            }
+            if (missing.length) {
+                errorEl.innerHTML = `<strong>Please fill in the required fields:</strong> ${escapeHtml(missing.join(', '))}.`;
+                errorEl.classList.remove('hidden');
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Save Configuration';
+                const firstMissing = document.getElementById(`cred-${(c.credential_fields || []).find(f => f.required && f.type !== 'boolean')?.key}`)
+                    || document.getElementById(`opt-${(c.option_fields || []).find(f => f.required)?.key}`);
+                if (firstMissing) firstMissing.focus();
+                return;
+            }
+
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = '<span class="spinner"></span> Saving...';
+
             const credentials = {};
             for (const f of c.credential_fields || []) {
                 if (f.type === 'boolean') {
@@ -1002,19 +1334,18 @@
                 toast(`Configuration saved for ${c.display_name}`, 'success');
                 await loadConnectors();
             } catch (e) {
-                const errEl = document.getElementById('config-error');
-                errEl.textContent = e.message;
-                errEl.classList.remove('hidden');
+                errorEl.innerHTML = `
+                    <strong>Could not save the configuration.</strong>
+                    <span style="display:block;margin-top:4px;">${escapeHtml(e.message || 'The server did not accept the changes.')}</span>`;
+                errorEl.classList.remove('hidden');
                 submitBtn.disabled = false;
-                submitBtn.textContent = 'Save Configuration';
+                submitBtn.innerHTML = '&#8635; Retry Save';
+                submitBtn.setAttribute('aria-label', 'Retry saving configuration');
             }
         }
 
-        function closeModal() {
-            __feedbackSubmitting = false;
-            const modals = document.querySelectorAll('.modal-overlay');
-            modals.forEach(m => m.remove());
-        }
+        // (closeModal is defined once in the modal helpers section above;
+        // it handles focus restore, Escape-to-close and overflow cleanup.)
 
         // ── Feedback ─────────────────────────────────────────────────────
         function openFeedbackModal(onSubmit) {
@@ -1027,7 +1358,7 @@
             modal.innerHTML = `
                 <div class="feedback-modal">
                     <div id="feedback-form-view">
-                        <h2>Send Feedback</h2>
+                        <h2 id="feedback-modal-title">Send Feedback</h2>
                         <div class="sub">Report a bug or suggest a feature for finance-sync.</div>
 
                         <div class="form-group">
@@ -1040,12 +1371,12 @@
 
                         <div class="form-group">
                             <label for="feedback-title">Title <span style="color:var(--red)">*</span></label>
-                            <input type="text" id="feedback-title" placeholder="Brief summary of your feedback" maxlength="200" required>
+                            <input type="text" id="feedback-title" placeholder="Brief summary of your feedback" maxlength="200" required aria-required="true">
                         </div>
 
                         <div class="form-group">
                             <label for="feedback-desc">Description <span style="color:var(--red)">*</span></label>
-                            <textarea id="feedback-desc" placeholder="Describe the bug or feature request in detail. What did you expect? What happened instead?" maxlength="2000" oninput="updateFeedbackCharCount()"></textarea>
+                            <textarea id="feedback-desc" placeholder="Describe the bug or feature request in detail. What did you expect? What happened instead?" maxlength="2000" oninput="updateFeedbackCharCount()" required aria-required="true"></textarea>
                             <div class="char-count" id="feedback-char-count">0 / 2000</div>
                         </div>
 
@@ -1054,7 +1385,7 @@
                             <input type="email" id="feedback-email" placeholder="your@email.com">
                         </div>
 
-                        <div id="feedback-error" class="hidden alert alert-error"></div>
+                        <div id="feedback-error" class="hidden alert alert-error" role="alert"></div>
                         <div class="modal-footer">
                             <button type="button" class="btn btn-secondary" onclick="closeModal()">Cancel</button>
                             <button type="button" class="btn btn-primary" id="feedback-submit" onclick="submitFeedback()">Submit Feedback</button>
@@ -1072,6 +1403,8 @@
                 </div>
             `;
             document.getElementById('modal-container').appendChild(modal);
+            modal.setAttribute('aria-labelledby', 'feedback-modal-title');
+            openModal(modal);
             modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
             document.getElementById('feedback-title').focus();
         }
@@ -1179,14 +1512,26 @@
             try {
                 const result = await api('POST', `/connectors/configs/${configId}/test`);
                 if (result.success) {
-                    resultEl.innerHTML = `<div class="alert alert-success">&#10003; ${result.message}</div>`;
-                    document.getElementById(`badge-${providerName}`).className = 'badge connected';
-                    document.getElementById(`badge-${providerName}`).textContent = 'Connected';
+                    resultEl.innerHTML = `<div class="alert alert-success">&#10003; ${escapeHtml(result.message)}</div>`;
+                    const badge = document.getElementById(`badge-${providerName}`);
+                    if (badge) {
+                        badge.className = 'badge connected';
+                        badge.textContent = 'Connected';
+                    }
                 } else {
-                    resultEl.innerHTML = `<div class="alert alert-error">&#10005; ${result.message}</div>`;
+                    resultEl.innerHTML = `<div class="alert alert-error">&#10005; ${escapeHtml(result.message)}</div>`;
                 }
             } catch (e) {
-                resultEl.innerHTML = `<div class="alert alert-error">&#10005; ${e.message}</div>`;
+                // Friendly inline error; the Test button above stays in
+                // place so the user can retry with one click.
+                resultEl.innerHTML = `
+                    <div class="alert alert-error inline-error" role="alert">
+                        <div class="inline-error-msg">
+                            <strong>Connection test failed</strong>
+                            <span>${escapeHtml(e.message || 'The connector did not respond.')}</span>
+                        </div>
+                        <button type="button" class="btn btn-secondary btn-sm" onclick="testConnection('${escapeHtml(String(configId))}', '${escapeHtml(String(providerName))}')">&#8635; Retry</button>
+                    </div>`;
             }
         }
 
@@ -1215,6 +1560,8 @@
         }
 
         async function loadExporters() {
+            const container = document.getElementById('exporter-list');
+            if (container) container.setAttribute('aria-busy', 'true');
             try {
                 const [types, config, runs] = await Promise.all([
                     api('GET', '/exporters/types'),
@@ -1225,10 +1572,10 @@
                 exporterConfig = config || null;
                 exportRuns = (runs && runs.runs) || [];
                 renderExporters();
+                if (container) container.setAttribute('aria-busy', 'false');
             } catch (e) {
-                document.getElementById('exporter-list').innerHTML =
-                    `<div class="alert alert-error">Failed to load exporters: ${e.message}</div>`;
-                document.getElementById('exporter-runs').innerHTML = '';
+                renderInlineError('exporter-list', 'Could not load exporters', e.message || 'The exporters service did not respond.', loadExporters);
+                renderExportRuns();
             }
         }
 
@@ -1331,32 +1678,32 @@
             modal.id = 'exporter-config-modal';
             modal.innerHTML = `
                 <div class="modal" style="width:540px;">
-                    <h2>${exporterType.charAt(0).toUpperCase() + exporterType.slice(1)} Configuration</h2>
+                    <h2 id="exporter-config-title">${escapeHtml(exporterType.charAt(0).toUpperCase() + exporterType.slice(1))} Configuration</h2>
                     <p style="color:var(--text-muted);font-size:0.85rem;margin-bottom:20px;">Configuration is read from environment variables.</p>
                     <div class="form-group">
-                        <label>Output Directory</label>
-                        <input type="text" value="${exporterConfig.output_dir}" readonly style="background:var(--surface-2);cursor:default;">
+                        <label for="exporter-output-dir">Output Directory</label>
+                        <input id="exporter-output-dir" type="text" value="${escapeHtml(String(exporterConfig.output_dir))}" readonly style="background:var(--surface-2);cursor:default;">
                     </div>
                     <div class="form-group">
-                        <label>Default Currency</label>
-                        <input type="text" value="${exporterConfig.default_currency}" readonly style="background:var(--surface-2);cursor:default;">
+                        <label for="exporter-default-currency">Default Currency</label>
+                        <input id="exporter-default-currency" type="text" value="${escapeHtml(String(exporterConfig.default_currency))}" readonly style="background:var(--surface-2);cursor:default;">
                     </div>
                     <div class="form-group">
                         <div class="checkbox-wrap">
-                            <input type="checkbox" ${exporterConfig.export_holdings ? 'checked' : ''} disabled>
-                            <label style="margin:0;">Export Holdings</label>
+                            <input type="checkbox" ${exporterConfig.export_holdings ? 'checked' : ''} disabled id="exporter-export-holdings">
+                            <label for="exporter-export-holdings" style="margin:0;">Export Holdings</label>
                         </div>
                     </div>
                     <div class="form-group">
                         <div class="checkbox-wrap">
-                            <input type="checkbox" ${exporterConfig.include_pending ? 'checked' : ''} disabled>
-                            <label style="margin:0;">Include Pending</label>
+                            <input type="checkbox" ${exporterConfig.include_pending ? 'checked' : ''} disabled id="exporter-include-pending">
+                            <label for="exporter-include-pending" style="margin:0;">Include Pending</label>
                         </div>
                     </div>
                     ${Object.keys(exporterConfig.account_name_overrides || {}).length > 0 ? `
                     <h3 style="font-size:0.9rem;font-weight:600;margin:16px 0 8px;">Account Name Overrides</h3>
                     <div style="background:var(--bg);border-radius:6px;padding:10px;font-size:0.8rem;font-family:monospace;color:var(--text-muted);">
-                        ${JSON.stringify(exporterConfig.account_name_overrides, null, 2)}
+                        ${escapeHtml(JSON.stringify(exporterConfig.account_name_overrides, null, 2))}
                     </div>` : ''}
                     <div class="modal-footer">
                         <button type="button" class="btn btn-secondary" onclick="closeModal()">Close</button>
@@ -1364,6 +1711,8 @@
                 </div>
             `;
             document.getElementById('modal-container').appendChild(modal);
+            modal.setAttribute('aria-labelledby', 'exporter-config-title');
+            openModal(modal);
             modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
         }
 
@@ -1412,8 +1761,16 @@
             // Fetch user info
             try {
                 const me = await api('GET', '/auth/me');
-                if (me) document.getElementById('user-email').textContent = me.email;
-            } catch {}
+                if (me) {
+                    currentUser = me;
+                    document.getElementById('user-email').textContent = me.email;
+                    applySectionPermissions();
+                }
+            } catch (e) {
+                // A failing /auth/me must not take the page down: keep the
+                // user's session and show the connectors that still load.
+                console.warn('Could not fetch profile:', e);
+            }
             await loadConnectors();
         })();
     </script>
