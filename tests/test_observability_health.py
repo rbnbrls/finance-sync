@@ -31,6 +31,10 @@ def app() -> FastAPI:
             database_url=None,
             redis_url=None,
             secret_key=_TEST_SECRET,
+            # Hermetic tests: never inherit a real GITHUB_TOKEN from the
+            # environment, otherwise /health would make a live GitHub API
+            # call (issue #273 regression coverage depends on this).
+            github_token="",
         )
     )
 
@@ -124,3 +128,92 @@ class TestHealthContentType:
     def test_content_type_json(self, client: TestClient, path: str) -> None:
         response: Response = client.get(path)
         assert response.headers["content-type"] == "application/json"
+
+
+class TestHealthGithubComponent:
+    """GET /health — github feedback-integration component (issue #273).
+
+    The feedback button broke silently in production for weeks because the
+    configured GITHUB_TOKEN was invalid and no signal surfaced it.  The
+    github health component exposes the integration state so operators /
+    monitoring can detect a bad token before users do.
+    """
+
+    def test_health_includes_github_component(self, client: TestClient) -> None:
+        """/health always reports a github component with a known status."""
+        from unittest.mock import AsyncMock, patch
+
+        with patch(
+            "finance_sync.observability.health.check_github_issue_access",
+            new_callable=AsyncMock,
+        ) as mock_check:
+            mock_check.return_value = {"status": "ok", "detail": "ok"}
+            response = client.get("/health")
+            data = response.json()
+            assert "github" in data["components"]
+            assert data["components"]["github"]["status"] in (
+                "ok",
+                "not_configured",
+                "error",
+            )
+
+    def test_health_github_disabled_without_token(
+        self, client: TestClient
+    ) -> None:
+        """Without a GITHUB_TOKEN the component reports not_configured
+        without making any network call."""
+        response = client.get("/health")
+        data = response.json()
+        github = data["components"]["github"]
+        assert github["status"] == "not_configured"
+        assert "token" in (github.get("detail") or "").lower()
+
+    def test_health_github_ok_keeps_overall_ok(self) -> None:
+        """A healthy GitHub integration keeps the overall status ok."""
+        from unittest.mock import AsyncMock, patch
+
+        app = create_app(
+            settings=Settings(
+                database_url=None,
+                redis_url=None,
+                secret_key=_TEST_SECRET,
+                github_token="ghp_test_configured_token",
+            )
+        )
+        with patch(
+            "finance_sync.observability.health.check_github_issue_access",
+            new_callable=AsyncMock,
+        ) as mock_check:
+            mock_check.return_value = {"status": "ok", "detail": "ok"}
+            with TestClient(app) as client:
+                data = client.get("/health").json()
+            assert mock_check.called
+            assert data["status"] == "ok"
+            assert data["components"]["github"]["status"] == "ok"
+
+    def test_health_github_error_degrades_overall(self) -> None:
+        """A broken GitHub integration (e.g. invalid token) degrades the
+        overall health so operators/monitoring notice it."""
+        from unittest.mock import AsyncMock, patch
+
+        app = create_app(
+            settings=Settings(
+                database_url=None,
+                redis_url=None,
+                secret_key=_TEST_SECRET,
+                github_token="ghp_test_configured_token",
+            )
+        )
+        with patch(
+            "finance_sync.observability.health.check_github_issue_access",
+            new_callable=AsyncMock,
+        ) as mock_check:
+            mock_check.return_value = {
+                "status": "error",
+                "detail": "GitHub authentication failed",
+            }
+            with TestClient(app) as client:
+                data = client.get("/health").json()
+            assert mock_check.called
+            assert data["status"] == "degraded"
+            assert data["components"]["github"]["status"] == "error"

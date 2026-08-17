@@ -290,3 +290,111 @@ class GitHubIssueService:
             issue_url=issue_url,
             issue_number=issue_number,
         )
+
+
+# ── Configuration probe (feedback integration health) ────────────────────────
+
+
+async def check_github_issue_access(
+    token: str,
+    repo_full: str,
+    http_client: httpx.AsyncClient | None = None,
+) -> dict[str, str]:
+    """Verify the GitHub token can access the feedback target repository.
+
+    Performs the same class of authenticated request the feedback flow
+    uses (GET on the repository) so a misconfigured or expired
+    ``GITHUB_TOKEN`` surfaces on the health endpoint instead of failing
+    silently for users.  See issue #273 — the feedback button was broken
+    for weeks because the production token was invalid and nothing
+    exposed it.
+
+    Args:
+        token: GitHub personal access token (may be empty).
+        repo_full: Repository in ``owner/repo`` form.
+        http_client: Optional pre-configured ``httpx.AsyncClient``.
+
+    Returns:
+        A dict with ``status`` ∈ {``ok``, ``not_configured``, ``error``}
+        and an optional human-readable ``detail``.  The token itself is
+        never included in the result.
+    """
+    if not token:
+        return {
+            "status": "not_configured",
+            "detail": "GITHUB_TOKEN is not set",
+        }
+    if "/" not in repo_full:
+        return {
+            "status": "error",
+            "detail": f"Invalid GITHUB_REPO format: {repo_full!r}. "
+            "Expected owner/repo.",
+        }
+
+    owner, repo = repo_full.split("/", 1)
+    url = f"{GitHubIssueService.BASE_URL}/repos/{owner}/{repo}"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github+json",
+        "User-Agent": GitHubIssueService.USER_AGENT,
+    }
+
+    try:
+        if http_client is not None:
+            response = await http_client.get(url, headers=headers)
+        else:
+            async with httpx.AsyncClient(
+                timeout=GitHubIssueService.DEFAULT_TIMEOUT
+            ) as client:
+                response = await client.get(url, headers=headers)
+    except (httpx.TimeoutException, httpx.RequestError) as exc:
+        logger.warning(
+            "github_health_check_network_error", url=url, error=str(exc)
+        )
+        return {
+            "status": "error",
+            "detail": f"Network error contacting GitHub API: {exc}",
+        }
+
+    if response.status_code == 200:
+        return {
+            "status": "ok",
+            "detail": "GitHub token can access the repository",
+        }
+
+    if response.status_code in (401, 403):
+        logger.warning(
+            "github_health_check_auth_failed",
+            url=url,
+            status_code=response.status_code,
+        )
+        return {
+            "status": "error",
+            "detail": (
+                "GitHub authentication failed — GITHUB_TOKEN is invalid "
+                "or lacks access to the repository"
+            ),
+        }
+
+    if response.status_code == 404:
+        logger.warning(
+            "github_health_check_repo_not_found",
+            url=url,
+            status_code=response.status_code,
+        )
+        return {
+            "status": "error",
+            "detail": (
+                f"GitHub repository not found or not accessible: {repo_full}"
+            ),
+        }
+
+    logger.warning(
+        "github_health_check_unexpected_status",
+        url=url,
+        status_code=response.status_code,
+    )
+    return {
+        "status": "error",
+        "detail": f"GitHub API error ({response.status_code})",
+    }

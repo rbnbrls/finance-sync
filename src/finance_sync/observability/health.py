@@ -16,6 +16,7 @@ from fastapi import APIRouter, Request
 from sqlalchemy import text
 
 from finance_sync.dependencies import get_container
+from finance_sync.services.github_issue import check_github_issue_access
 
 router = APIRouter(tags=["health"])
 
@@ -55,12 +56,34 @@ async def _check_redis(request: Request) -> dict[str, str]:
         return {"status": "error", "detail": str(exc)}
 
 
+async def _check_github(request: Request) -> dict[str, str]:
+    """Verify the GitHub feedback-integration configuration.
+
+    Checks that ``GITHUB_TOKEN`` is set and can actually access the
+    configured ``GITHUB_REPO`` — a broken token (expired, revoked,
+    missing scope) silently broke the feedback button for weeks before
+    issue #273.  Returns ``not_configured`` without a network call when
+    no token is set.
+    """
+    settings = get_container(request).settings
+    if not settings.github_token:
+        return {
+            "status": "not_configured",
+            "detail": "GITHUB_TOKEN is not set",
+        }
+    return await check_github_issue_access(
+        token=settings.github_token,
+        repo_full=settings.github_repo,
+    )
+
+
 @router.get("/health")
 async def health_check(request: Request) -> dict[str, Any]:
     """Return overall health status with per-component checks."""
     components = {
         "database": await _check_database(request),
         "redis": await _check_redis(request),
+        "github": await _check_github(request),
     }
 
     all_ok = all(
