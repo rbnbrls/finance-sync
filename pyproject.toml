@@ -70,6 +70,7 @@ degiro_pension = "finance_sync.connectors.degiro_pension:DegiroPensionConnector"
 [project.scripts]
 finance-sync = "finance_sync.cli:main"
 finance-sync-monitor = "finance_sync.monitoring.health_monitor:main"
+finance-sync-wealthfolio-monitor = "finance_sync.monitoring.wealthfolio_monitor:main"
 
 [tool.ruff]
 # Enable all default rules and a curated set of optional ones

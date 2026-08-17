@@ -1,0 +1,12 @@
+[Unit]
+Description=Wealthfolio consistent SQLite snapshot (LXC 104)
+After=network.target
+
+[Service]
+Type=oneshot
+# Runs inside LXC 104 where the Wealthfolio database lives.  The Proxmox
+# host pulls this snapshot shortly after (wealthfolio-backup.timer).
+ExecStart=/usr/bin/python3 /opt/wealthfolio/backup.py snapshot-only --db /opt/wealthfolio_data/wealthfolio.db --out /opt/wealthfolio_data/snapshot/wealthfolio-snapshot.db
+# Snapshot + WAL files are ~1-3 MB; a fresh snapshot replaces the old one.
+Nice=10
+IOSchedulingClass=idle

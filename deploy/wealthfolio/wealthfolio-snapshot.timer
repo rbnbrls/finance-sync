@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily Wealthfolio SQLite snapshot (LXC 104)
+Requires=wealthfolio-snapshot.service
+
+[Timer]
+OnCalendar=*-*-* 03:17:00
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target
