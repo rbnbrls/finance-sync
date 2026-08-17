@@ -40,7 +40,6 @@ async def _create_account(
     name: str = "Main Checking",
     connection_id: str | None = None,
     metadata_: dict | None = None,
-    connection_id: str | None = None,
 ) -> Account:
     async with session_factory() as session, UnitOfWork(session) as uow:
         return await uow.accounts.add(
@@ -56,7 +55,6 @@ async def _create_account(
                 available_balance=Decimal("1480.00"),
                 provider_metadata=metadata_
                 or {"iban": "NL00BANK0123456789", "bic": "BANKNL2A"},
-                connection_id=connection_id,
             )
         )
 
