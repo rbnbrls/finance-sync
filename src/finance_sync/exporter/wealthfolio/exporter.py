@@ -421,7 +421,20 @@ class WealthfolioExporter:
         self,
         account_ids: list[str] | None,
     ) -> list[Account]:
-        """Load finance-sync accounts, optionally filtered."""
+        """Load finance-sync accounts, optionally filtered.
+
+        The tenant's per-connection account selection is applied: a
+        connection that pinned ``selected_accounts`` only exports the
+        accounts in that selection (deselected accounts are never
+        exported), while connections without a selection export
+        everything they synced.  Legacy rows without a connection scope
+        keep exporting.
+        """
+        from finance_sync.services.account_selection import (
+            account_is_selected,
+            load_account_selection,
+        )
+
         async with self._session_factory() as session:
             stmt = select(Account).where(
                 Account.tenant_id == self._tenant_id,  # type: ignore[attr-defined]
@@ -429,12 +442,19 @@ class WealthfolioExporter:
                 Account.account_type.in_(["investment", "brokerage"]),  # type: ignore[attr-defined]
             )
             if account_ids:
-                stmt = stmt.where(
+                stmt = stmt.where(  # type: ignore[attr-defined]
                     Account.id.in_(account_ids)  # type: ignore[attr-defined]
                 )
             stmt = stmt.order_by(Account.name)  # type: ignore[attr-defined]
             result = await session.execute(stmt)
-            return list(result.scalars().all())
+
+            # Per-connection account selection (multi-connection support).
+            selection = await load_account_selection(session, self._tenant_id)
+            return [
+                account
+                for account in result.scalars().all()
+                if account_is_selected(account, selection)
+            ]
 
     async def _load_securities(self) -> dict[str, Security]:
         """Load all securities keyed by id."""

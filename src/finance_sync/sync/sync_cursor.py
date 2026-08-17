@@ -1,3 +1,4 @@
+# pyright: basic
 """Sync cursor (watermark) persistence helpers.
 
 Thin read/write helpers for the ``sync_cursor`` table, mirroring the
@@ -29,6 +30,7 @@ async def get_connector_cursors(
     *,
     tenant_id: str,
     connector: str,
+    connection_id: str | None = None,
 ) -> dict[str, datetime]:
     """Return ``{resource: cursor}`` for a connector's stored watermarks.
 
@@ -36,13 +38,21 @@ async def get_connector_cursors(
     per-account resume position is looked up directly; accounts without
     a stored cursor (e.g. newly added) fall back to the run-level
     ``since`` (explicit backfill or the 90-day first-sync default).
+
+    When *connection_id* is provided the cursors are scoped to that
+    connection so identical external ids from two connections resume
+    independently; when omitted (legacy single-connection syncs) only
+    rows without a connection scope are returned.
     """
-    rows = await session.scalars(
-        select(SyncCursor).where(
-            SyncCursor.tenant_id == tenant_id,
-            SyncCursor.connector == connector,
-        )
+    stmt = select(SyncCursor).where(
+        SyncCursor.tenant_id == tenant_id,
+        SyncCursor.connector == connector,
     )
+    if connection_id is not None:
+        stmt = stmt.where(SyncCursor.connection_id == connection_id)
+    else:
+        stmt = stmt.where(SyncCursor.connection_id.is_(None))
+    rows = await session.scalars(stmt)
     return {row.resource: row.cursor for row in rows}
 
 
@@ -52,10 +62,14 @@ async def get_cursor(
     tenant_id: str,
     connector: str,
     resource: str,
+    connection_id: str | None = None,
 ) -> datetime | None:
     """Return the stored cursor for one resource, or ``None``."""
     cursors = await get_connector_cursors(
-        session, tenant_id=tenant_id, connector=connector
+        session,
+        tenant_id=tenant_id,
+        connector=connector,
+        connection_id=connection_id,
     )
     return cursors.get(resource)
 
@@ -67,23 +81,31 @@ async def upsert_sync_cursor(
     connector: str,
     resource: str,
     cursor: datetime,
+    connection_id: str | None = None,
 ) -> SyncCursor:
     """Create or update the watermark for one ``(connector, resource)``.
 
     Idempotent: the ``(tenant_id, connector, resource)`` unique
-    constraint means repeated runs update the row in place.
+    constraint means repeated runs update the row in place.  When
+    *connection_id* is provided, the watermark is scoped to that
+    connection (and the connection scope is persisted on the row);
+    legacy syncs without a connection scope keep ``NULL``.
     """
-    row = await session.scalar(
-        select(SyncCursor).where(
-            SyncCursor.tenant_id == tenant_id,
-            SyncCursor.connector == connector,
-            SyncCursor.resource == resource,
-        )
-    )
+    filters = [
+        SyncCursor.tenant_id == tenant_id,
+        SyncCursor.connector == connector,
+        SyncCursor.resource == resource,
+    ]
+    if connection_id is not None:
+        filters.append(SyncCursor.connection_id == connection_id)
+    else:
+        filters.append(SyncCursor.connection_id.is_(None))
+    row = await session.scalar(select(SyncCursor).where(*filters))
     if row is None:
         row = SyncCursor(
             tenant_id=tenant_id,
             connector=connector,
+            connection_id=connection_id,
             resource=resource,
             cursor=cursor,
         )

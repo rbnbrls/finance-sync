@@ -65,8 +65,9 @@ class SyncTriggerRequest(BaseModel):
 
 
 class SyncRunLink(BaseModel):
-    """Per-provider sync outcome with a link to the sync run."""
+    """Per-connection sync outcome with a link to the sync run."""
 
+    connection_id: str | None = None
     provider: str
     sync_run_id: str | None = None
     status: str
@@ -94,8 +95,11 @@ class SyncTriggerResponse(BaseModel):
 # ── Helpers ───────────────────────────────────────────────────────────
 
 
-async def _latest_run_id(db: AsyncSession, provider: str) -> str | None:
-    """Return the most recent sync-run id for a connector.
+async def _latest_run_id(
+    db: AsyncSession, provider: str, connection_id: str | None = None
+) -> str | None:
+    """Return the most recent sync-run id for a connector (optionally
+    scoped to one connection).
 
     ``SyncRun.id`` is a UUID column; on PostgreSQL the ORM returns a
     ``uuid.UUID`` object, which pydantic refuses to coerce into the
@@ -103,12 +107,14 @@ async def _latest_run_id(db: AsyncSession, provider: str) -> str | None:
     response carries a usable id (aiosqlite unit tests masked this
     because SQLite stores UUIDs as text).
     """
-    result = await db.execute(
-        select(SyncRun.id)  # type: ignore[attr-defined]
-        .where(SyncRun.connector == provider)  # type: ignore[attr-defined]
-        .order_by(SyncRun.started_at.desc())  # type: ignore[attr-defined]
-        .limit(1)
-    )
+    stmt = select(SyncRun.id)  # type: ignore[attr-defined]
+    stmt = stmt.where(SyncRun.connector == provider)  # type: ignore[attr-defined]
+    if connection_id is not None:
+        stmt = stmt.where(  # type: ignore[attr-defined]
+            SyncRun.connection_id == connection_id  # type: ignore[attr-defined]
+        )
+    stmt = stmt.order_by(SyncRun.started_at.desc()).limit(1)  # type: ignore[attr-defined]
+    result = await db.execute(stmt)
     run_id = result.scalar_one_or_none()
     return str(run_id) if run_id is not None else None
 
@@ -116,7 +122,12 @@ async def _latest_run_id(db: AsyncSession, provider: str) -> str | None:
 def _decrypt_config(
     cred: Credential, provider: str, settings: Any
 ) -> ConnectorConfig:
-    """Decrypt a credential row into a ``ConnectorConfig``."""
+    """Decrypt a credential row into a ``ConnectorConfig``.
+
+    The stable connection id and the selected provider accounts travel
+    with the config so every sync path (scheduler, API, MCP) scopes the
+    run to the exact connection it was triggered for.
+    """
     raw_payload = decrypt_credential(
         cred.encrypted_payload,
         cred.nonce,
@@ -141,28 +152,80 @@ def _decrypt_config(
         provider_type=provider,
         credentials=cred_dict,
         options=options,
+        connection_id=str(cred.id),
+        selected_accounts=list(cred.selected_accounts or []),
     )
 
 
-async def _run_provider_sync(
+async def _record_sync_audit(
+    db: AsyncSession,
+    *,
+    tenant_id: str,
+    cred: Credential,
+    status: str,
+    error_message: str | None,
+) -> None:
+    """Append a sanitised sync-trigger entry to the connection audit log."""
+    from finance_sync.services.connection_audit import (
+        AUDIT_SYNC,
+        log_connection_event,
+    )
+
+    await log_connection_event(
+        db,
+        tenant_id=tenant_id,
+        action=AUDIT_SYNC,
+        provider_key=cred.provider_key,
+        connection_id=str(cred.id),
+        detail={
+            "status": status,
+            "error": (error_message or "")[:200],
+        },
+        secrets=_credential_secrets(db, cred),
+    )
+
+
+def _credential_secrets(db: AsyncSession, cred: Credential) -> list[str]:
+    """Best-effort secret values for audit redaction (never raises)."""
+    try:
+        raw = decrypt_credential(
+            cred.encrypted_payload, cred.nonce, db.info.get("settings")
+        )
+        parsed: dict[str, Any] = json.loads(raw)
+        return [str(v) for v in parsed.values() if isinstance(v, str)]
+    except Exception:
+        pass
+    return []
+
+
+async def _run_connection_sync(
     container: Any,
     db: AsyncSession,
     tenant_id: str,
-    provider: str,
-    cred: Credential | None,
+    cred: Credential,
+    *,
+    allow_paused: bool = False,
 ) -> SyncRunLink:
-    """Run one provider's sync; never raises — failures become entries."""
-    if cred is None:
+    """Run one connection's sync; never raises — failures become entries.
+
+    The run is scoped to the connection: the orchestrator persists
+    connection_id on accounts/transactions/runs/cursors and updates the
+    connection's ``last_attempt_at`` / ``last_success_at`` /
+    sanitised ``last_error``.
+    """
+    from finance_sync.models.credential import CONNECTION_STATUS_PAUSED
+
+    if (
+        cred.status or "active"
+    ) == CONNECTION_STATUS_PAUSED and not allow_paused:
         return SyncRunLink(
-            provider=provider,
+            connection_id=str(cred.id),
+            provider=cred.provider_key,
             status="skipped",
-            error_message=(
-                f"No credentials found for connector {provider!r} "
-                f"and tenant {tenant_id}"
-            ),
+            error_message="Connection is paused",
         )
     try:
-        config = _decrypt_config(cred, provider, container.settings)
+        config = _decrypt_config(cred, cred.provider_key, container.settings)
         orchestrator = SyncOrchestrator(
             session_factory=container.session_factory,
             registry=ConnectorRegistry(),
@@ -170,14 +233,25 @@ async def _run_provider_sync(
             settings=container.settings,
         )
         result = await orchestrator.run_sync(
-            provider_type=provider,
+            provider_type=cred.provider_key,
             config=config,
+            connection_id=str(cred.id),
+            selected_accounts=list(cred.selected_accounts or []),
         )
-        run_id = await _latest_run_id(db, provider)
+        run_id = await _latest_run_id(db, cred.provider_key, str(cred.id))
+        status = str(result.status.value)
+        await _record_sync_audit(
+            db,
+            tenant_id=tenant_id,
+            cred=cred,
+            status=status,
+            error_message=result.error_message,
+        )
         return SyncRunLink(
-            provider=provider,
+            connection_id=str(cred.id),
+            provider=cred.provider_key,
             sync_run_id=run_id,
-            status=str(result.status.value),
+            status=status,
             accounts_synced=result.accounts_synced,
             transactions_synced=result.transactions_synced,
             holdings_synced=getattr(result, "holdings_synced", 0),
@@ -186,8 +260,16 @@ async def _run_provider_sync(
             link=f"/api/v1/sync-runs/{run_id}" if run_id else None,
         )
     except Exception as exc:
+        await _record_sync_audit(
+            db,
+            tenant_id=tenant_id,
+            cred=cred,
+            status="error",
+            error_message=str(exc),
+        )
         return SyncRunLink(
-            provider=provider,
+            connection_id=str(cred.id),
+            provider=cred.provider_key,
             status="error",
             error_message=str(exc)[:500],
         )
@@ -199,17 +281,22 @@ async def _trigger(
     tenant_id: str,
     providers: list[str] | None,
 ) -> SyncTriggerResponse:
-    """Resolve providers and run each sync, returning the 202 payload."""
+    """Resolve connections and run each one, returning the 202 payload.
+
+    A tenant can hold several connections per provider; every connection
+    is synced independently and a failing connection never blocks the
+    others.  Paused connections are skipped (they can still be synced
+    individually via ``POST /sync/connections/{connection_id}``).
+    """
     cred_result = await db.execute(
         select(Credential).where(  # type: ignore[attr-defined]
             Credential.tenant_id == tenant_id  # type: ignore[attr-defined]
         )
     )
     cred_rows: list[Credential] = list(cred_result.scalars().all())  # type: ignore[assignment]
-    cred_by_provider = {c.provider_key: c for c in cred_rows}
 
     if providers is None:
-        providers = sorted(cred_by_provider)
+        providers = sorted({c.provider_key for c in cred_rows})
 
     if not providers:
         raise HTTPException(
@@ -217,11 +304,13 @@ async def _trigger(
             detail="No connectors configured for this tenant",
         )
 
+    target_creds = [
+        cred for cred in cred_rows if cred.provider_key in providers
+    ]
+
     links = [
-        await _run_provider_sync(
-            container, db, tenant_id, provider, cred_by_provider.get(provider)
-        )
-        for provider in providers
+        await _run_connection_sync(container, db, tenant_id, cred)
+        for cred in target_creds
     ]
 
     return SyncTriggerResponse(
@@ -264,7 +353,55 @@ async def trigger_sync_provider(
     auth: AuthContext = Depends(require_permission("sync", "write")),
     db: AsyncSession = Depends(get_db),
 ) -> SyncTriggerResponse:
-    """Start a sync for one configured provider (registry key)."""
+    """Start a sync for one configured provider (registry key).
+
+    Every connection of the provider is synced independently; paused
+    connections are skipped.
+    """
     return await _trigger(
         get_container(request), db, auth.tenant_id, [provider]
     )
+
+
+@router.post(
+    "/connections/{connection_id}",
+    response_model=SyncRunLink,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def trigger_sync_connection(
+    connection_id: str,
+    request: Request,
+    auth: AuthContext = Depends(require_permission("sync", "write")),
+    db: AsyncSession = Depends(get_db),
+) -> SyncRunLink:
+    """Manually sync a single connection by its stable ``connection_id``.
+
+    Only the given connection is synced: accounts, transactions, sync
+    runs and cursors are scoped to it, and its ``last_attempt_at`` /
+    ``last_success_at`` / sanitised ``last_error`` are updated.  Unlike
+    the provider-wide trigger, an explicit per-connection sync also runs
+    for a paused connection (the user asked for this exact connection).
+    A missing or foreign connection returns 404.
+    """
+    result = await db.execute(
+        select(Credential).where(  # type: ignore[attr-defined]
+            Credential.id == connection_id,  # type: ignore[attr-defined]
+            Credential.tenant_id == auth.tenant_id,  # type: ignore[attr-defined]
+        )
+    )
+    cred = result.scalar_one_or_none()
+    if cred is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Connector configuration not found",
+        )
+
+    link = await _run_connection_sync(
+        get_container(request),
+        db,
+        auth.tenant_id,
+        cred,
+        allow_paused=True,
+    )
+    await db.flush()
+    return link

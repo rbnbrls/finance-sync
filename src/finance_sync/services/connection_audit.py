@@ -23,6 +23,7 @@ from finance_sync.models.connection_audit_log import (
     AUDIT_DELETE,
     AUDIT_PAUSE,
     AUDIT_RESUME,
+    AUDIT_SYNC,
     AUDIT_TEST,
     AUDIT_UPDATE,
 )
@@ -41,6 +42,7 @@ __all__ = [
     "AUDIT_DELETE",
     "AUDIT_PAUSE",
     "AUDIT_RESUME",
+    "AUDIT_SYNC",
     "AUDIT_TEST",
     "AUDIT_UPDATE",
     "list_connection_audit_events",
