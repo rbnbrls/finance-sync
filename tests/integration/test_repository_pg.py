@@ -38,6 +38,7 @@ async def _create_account(
     external_id: str = "acc_ext_1",
     provider_key: str = "mock_provider",
     name: str = "Main Checking",
+    connection_id: str | None = None,
     metadata_: dict | None = None,
     connection_id: str | None = None,
 ) -> Account:
@@ -46,6 +47,7 @@ async def _create_account(
             Account(
                 tenant_id=tenant.id,
                 provider_key=provider_key,
+                connection_id=connection_id,
                 external_account_id=external_id,
                 name=name,
                 account_type=AccountType.CHECKING,
@@ -255,7 +257,8 @@ class TestPgConstraints:
                     )
                     await uow.commit()
 
-        # Same external id under a DIFFERENT connection is allowed.
+        # Same external id under a DIFFERENT connection is allowed — that
+        # is the whole point of the multi-connection feature.
         second = await _create_account(
             session_factory,
             tenant,

@@ -1217,10 +1217,14 @@ async def test_connector_inline(
         health = await connector.health()
 
         if not health.healthy:
-            return InlineTestResult(
-                success=False,
-                message=health.message or "Connection test failed",
+            # Sanitise the provider's message: an unhealthy connector may
+            # echo back the very credentials it was given (bad auth flows
+            # often include the key/token in the response text).
+            message = sanitize_error(
+                health.message or "Connection test failed",
+                list(body.credentials.values()),
             )
+            return InlineTestResult(success=False, message=message)
 
         # Optionally fetch accounts to return to the caller
         accounts: list[InlineTestAccount] = []
