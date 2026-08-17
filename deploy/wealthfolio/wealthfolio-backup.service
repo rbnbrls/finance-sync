@@ -11,6 +11,6 @@ ExecStart=/usr/bin/python3 /opt/wealthfolio-backup/backup.py backup \
     --backup-dir /var/backups/wealthfolio \
     --key-file /root/.wealthfolio-backup.key \
     --snapshot-file /var/backups/wealthfolio/staging/wealthfolio-snapshot.db \
-    --pg-dump-cmd pct exec 100 -- docker exec sxhp9cilwdw277krqq4affkc pg_dump -U postgres -d finance_sync --data-only -t wealthfolio_deliveries -t wealthfolio_account_mappings -t export_runs
+    --pg-dump-cmd "pct exec 100 -- docker exec sxhp9cilwdw277krqq4affkc pg_dump -U finance_sync -d finance_sync --data-only -t wealthfolio_deliveries -t wealthfolio_account_mappings -t export_runs"
 Nice=10
 IOSchedulingClass=idle

@@ -33,7 +33,7 @@ Usage
         --backup-dir /var/backups/wealthfolio \\
         --key-file /root/.wealthfolio-backup.key \\
         --snapshot-file /var/backups/wealthfolio/staging/wealthfolio-snapshot.db \\
-        --pg-dump-cmd 'pct exec 100 -- docker exec sxhp9cilwdw277krqq4affkc pg_dump -U postgres -d finance_sync --data-only -t wealthfolio_deliveries -t wealthfolio_account_mappings -t export_runs'
+        --pg-dump-cmd 'pct exec 100 -- docker exec sxhp9cilwdw277krqq4affkc pg_dump -U finance_sync -d finance_sync --data-only -t wealthfolio_deliveries -t wealthfolio_account_mappings -t export_runs'
 """
 
 from __future__ import annotations
@@ -287,12 +287,13 @@ def prune_retention(
 # ═══════════════════════════════════════════════════════════════════════
 
 
-def run_pg_dump(cmd: list[str], out_path: Path) -> bool:
-    """Run an external pg_dump command, writing stdout to *out_path*."""
+def run_pg_dump(cmd: str, out_path: Path) -> bool:
+    """Run an external pg_dump command (shell string), stdout -> *out_path*."""
     out_path.parent.mkdir(parents=True, exist_ok=True)
     try:
         with open(out_path, "wb") as f:
-            subprocess.run(cmd, check=True, stdout=f, stderr=subprocess.PIPE)
+            subprocess.run(cmd, shell=True, check=True, stdout=f,
+                           stderr=subprocess.PIPE)
         return out_path.stat().st_size > 0
     except (subprocess.CalledProcessError, OSError):
         return False
@@ -385,8 +386,8 @@ def main(argv: list[str] | None = None) -> int:
     backup.add_argument("--backup-dir", required=True)
     backup.add_argument("--key-file", required=True)
     backup.add_argument("--snapshot-file", required=True)
-    backup.add_argument("--pg-dump-cmd", nargs="+", default=None,
-                        help="pg_dump command (argv) for finance-sync delivery cursors")
+    backup.add_argument("--pg-dump-cmd", default=None,
+                        help="pg_dump command (shell string) for the finance-sync delivery cursors")
     backup.add_argument("--keep-daily", type=int, default=14)
     backup.add_argument("--keep-weekly", type=int, default=8)
     backup.add_argument("--keep-monthly", type=int, default=6)
