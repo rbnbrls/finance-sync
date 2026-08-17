@@ -1,6 +1,6 @@
 ---
 title: "Beheer meerdere bunq- en Trading212-verbindingen met accountselectie"
-status: todo
+status: done
 priority: 25
 ---
 
