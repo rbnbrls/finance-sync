@@ -4,9 +4,13 @@ After=network.target
 
 [Service]
 Type=oneshot
-# Pulls the LXC 104 snapshot, optionally dumps the finance-sync delivery
-# cursors, bundles + encrypts (AES-256-CBC, local key), prunes retention
-# and verifies the fresh bundle by restoring it to a temp dir.
+# Pulls the LXC 104 snapshot created by wealthfolio-snapshot.service
+# (snapshot timer 03:17, this timer 03:47), then optionally dumps the
+# finance-sync delivery cursors, bundles + encrypts (AES-256-CBC, local
+# key), prunes retention and verifies the fresh bundle by restoring it
+# to a temp dir.
+ExecStartPre=/usr/bin/mkdir -p /var/backups/wealthfolio/staging
+ExecStartPre=/usr/bin/pct pull 104 /opt/wealthfolio_data/snapshot/wealthfolio-snapshot.db /var/backups/wealthfolio/staging/wealthfolio-snapshot.db
 ExecStart=/usr/bin/python3 /opt/wealthfolio-backup/backup.py backup \
     --backup-dir /var/backups/wealthfolio \
     --key-file /root/.wealthfolio-backup.key \

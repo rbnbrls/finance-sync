@@ -141,6 +141,53 @@ def test_cert_expiry_fails_when_soon(monkeypatch: pytest.MonkeyPatch) -> None:
     assert result.ok is False
 
 
+def test_cert_expiry_handles_iso_notafter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ISO-8601 notAfter (emitted by some TLS stacks) must not crash the check."""
+    import urllib.request
+
+    class _CertResp:
+        def __enter__(self) -> _CertResp:
+            return self
+
+        def __exit__(self, *args: Any) -> None:
+            return None
+
+        def getpeercert(self) -> dict[str, Any]:
+            far = (datetime.now(UTC) + timedelta(days=90)).strftime(
+                "%Y-%m-%d %H:%M:%S UTC"
+            )
+            return {"notAfter": far}
+
+    monkeypatch.setattr(urllib.request, "urlopen", lambda *a, **k: _CertResp())
+    result = check_cert_expiry("https://wealthfolio.example.test", warn_days=21)
+    assert result.ok is True
+    assert result.value is not None and result.value > 21
+
+
+def test_cert_expiry_fails_cleanly_on_unparseable_notafter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A malformed notAfter must fail the check, not crash the whole monitor."""
+    import urllib.request
+
+    class _CertResp:
+        def __enter__(self) -> _CertResp:
+            return self
+
+        def __exit__(self, *args: Any) -> None:
+            return None
+
+        def getpeercert(self) -> dict[str, Any]:
+            return {"notAfter": "not-a-real-date"}
+
+    monkeypatch.setattr(urllib.request, "urlopen", lambda *a, **k: _CertResp())
+    result = check_cert_expiry("https://wealthfolio.example.test", warn_days=21)
+    assert result.ok is False
+    assert "notAfter" in result.detail
+
+
 def test_export_freshness_ok_when_recent() -> None:
     now = datetime(2026, 8, 17, 12, 0, tzinfo=UTC)
     deliveries = [(now - timedelta(minutes=30), "acct-1")]
