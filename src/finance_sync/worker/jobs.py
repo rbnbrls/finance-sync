@@ -24,7 +24,10 @@ from sqlalchemy import func, select
 from finance_sync.connectors.models import ConnectorConfig
 from finance_sync.connectors.registry import ConnectorRegistry
 from finance_sync.db.uow import UnitOfWork
-from finance_sync.models.credential import Credential
+from finance_sync.models.credential import (
+    CONNECTION_STATUS_PAUSED,
+    Credential,
+)
 from finance_sync.models.import_run import ImportRun
 from finance_sync.observability.metrics import enrichment_last_success_timestamp
 from finance_sync.services.degiro_import import (
@@ -118,53 +121,65 @@ def retryable_job(
 # ── Connector credential loading ──────────────────────────────────────
 
 
-async def _get_tenant_credentials(
+async def _get_tenant_connections(
     uow: UnitOfWork,
     provider_key: str,
-) -> list[tuple[Tenant, ConnectorConfig]]:
-    """Load credentials for *provider_key* across all tenants.
+) -> list[dict[str, Any]]:
+    """Load *every* connection for *provider_key* across all tenants.
 
-    Returns a list of ``(tenant, connector_config)`` pairs.
-    Credentials are decrypted on-the-fly.
+    Returns one entry per credential row (per connection), each with the
+    owning tenant, the decrypted ``ConnectorConfig`` and the credential
+    secrets (for error sanitisation).  A tenant may hold several
+    connections for the same provider; each is synced independently.
     """
     tenants = await uow.tenants.list(limit=100)
-    result: list[tuple[Tenant, ConnectorConfig]] = []
+    result: list[dict[str, Any]] = []
 
     for tenant in tenants:
         stmt = select(Credential).where(
             Credential.tenant_id == tenant.id,
             Credential.provider_key == provider_key,
         )
-        cred_rows = await uow.session.execute(stmt)
-        cred: Credential | None = cred_rows.scalar_one_or_none()
+        cred_rows = (await uow.session.execute(stmt)).scalars().all()
 
-        if cred is None:
-            continue
+        for cred in cred_rows:
+            credentials: dict[str, str] = {}
+            secrets: list[str] = []
+            if cred.encrypted_payload:
+                from finance_sync.services.auth import decrypt_credential
 
-        credentials: dict[str, str] = {}
-        if cred.encrypted_payload:
-            from finance_sync.services.auth import decrypt_credential
-
-            try:
-                decrypted = decrypt_credential(
-                    cred.encrypted_payload,
-                    cred.nonce,
-                    uow.session.info.get("settings"),
-                )
-                credentials = json.loads(decrypted)
-            except Exception:
-                logger.error(
-                    "credential_decrypt_failed",
-                    tenant_id=tenant.id,
-                    provider_key=provider_key,
-                )
-                continue
-        config = ConnectorConfig(
-            provider_type=provider_key,
-            credentials=credentials,
-            options=connector_options(cred),
-        )
-        result.append((tenant, config))
+                try:
+                    decrypted = decrypt_credential(
+                        cred.encrypted_payload,
+                        cred.nonce,
+                        uow.session.info.get("settings"),
+                    )
+                    parsed: dict[str, Any] = json.loads(decrypted)
+                    credentials = {str(k): str(v) for k, v in parsed.items()}
+                    secrets = [str(v) for v in credentials.values()]
+                except Exception:
+                    logger.error(
+                        "credential_decrypt_failed",
+                        tenant_id=tenant.id,
+                        provider_key=provider_key,
+                        connection_id=str(cred.id),
+                    )
+                    continue
+            config = ConnectorConfig(
+                provider_type=provider_key,
+                credentials=credentials,
+                options=connector_options(cred),
+                connection_id=str(cred.id),
+                selected_accounts=list(cred.selected_accounts or []),
+            )
+            result.append(
+                {
+                    "tenant": tenant,
+                    "credential": cred,
+                    "config": config,
+                    "secrets": secrets,
+                }
+            )
 
     return result
 
@@ -179,13 +194,21 @@ async def sync_connector_job(
     max_attempts: int | None = None,
     base_delay: float | None = None,
 ) -> dict[str, Any]:
-    """Sync a specific connector for all configured tenants.
+    """Sync a connector for all configured connections (per-tenant).
 
-    Each tenant resumes from its stored sync cursor when one exists
-    (per account); first syncs and accounts without a cursor fall back
-    to the orchestrator's 90-day default window.
+    Every active connection of *provider_key* is synced independently:
 
-    Returns a summary dict with per-tenant results.
+    - paused connections are skipped entirely (scheduler respects the
+      connection's pause state; a manual sync can still be triggered)
+    - a failing connection is reported and the loop continues with the
+      remaining connections (errors never block siblings)
+    - each connection resumes from its own stored sync cursor (per
+      account); first syncs and accounts without a cursor fall back to
+      the orchestrator's 90-day default window
+    - the orchestrator records ``last_attempt_at`` / ``last_success_at``
+      / sanitised ``last_error`` on each connection row
+
+    Returns a summary dict with per-connection results.
     """
     settings: Settings = container.settings
     max_attempts = max_attempts or settings.worker_retry_max_attempts
@@ -200,33 +223,65 @@ async def sync_connector_job(
         # Attach settings so credential decryption can access them
         session.info["settings"] = settings
 
-        configs = await _get_tenant_credentials(uow, provider_key)
+        connections = await _get_tenant_connections(uow, provider_key)
 
-    if not configs:
-        log.info("sync_job_no_tenants")
-        return {"provider": provider_key, "tenants_synced": 0, "results": []}
+    if not connections:
+        log.info("sync_job_no_connections")
+        return {
+            "provider": provider_key,
+            "connections_synced": 0,
+            "results": [],
+        }
 
     summary: list[dict[str, Any]] = []
 
-    for tenant, config in configs:
-        tenant_log = log.bind(tenant_id=tenant.id)
+    for conn in connections:
+        tenant = conn["tenant"]
+        cred = conn["credential"]
+        config = conn["config"]
+        connection_id = str(cred.id)
+        conn_log = log.bind(
+            tenant_id=tenant.id,
+            connection_id=connection_id,
+            connection_status=cred.status or "active",
+        )
+
+        # Paused connections are skipped by the scheduler (manual sync
+        # remains possible via the REST API).  Skip quietly, keep the
+        # summary entry so operators see the skip.
+        if (cred.status or "active") == CONNECTION_STATUS_PAUSED:
+            conn_log.info("sync_job_connection_skipped_paused")
+            summary.append(
+                {
+                    "tenant_id": tenant.id,
+                    "connection_id": connection_id,
+                    "status": "skipped",
+                    "reason": "paused",
+                }
+            )
+            continue
 
         async def _run_single(
             _cfg: ConnectorConfig = config,
             _tenant: Tenant = tenant,
+            _connection_id: str = connection_id,
+            _selected: list[str] | None = cred.selected_accounts,
         ) -> dict[str, Any]:
             orchestrator = SyncOrchestrator(
                 session_factory=container.session_factory,
                 registry=registry,
-                tenant_id=_tenant.id,
+                tenant_id=str(_tenant.id),
                 settings=container.settings,
             )
             result = await orchestrator.run_sync(
                 provider_type=_cfg.provider_type,
                 config=_cfg,
+                connection_id=_connection_id,
+                selected_accounts=_selected,
             )
             return {
                 "tenant_id": _tenant.id,
+                "connection_id": _connection_id,
                 "status": result.status.value,
                 "accounts_synced": result.accounts_synced,
                 "transactions_synced": result.transactions_synced,
@@ -241,10 +296,10 @@ async def sync_connector_job(
                 _run_single,
                 max_attempts=max_attempts,
                 base_delay=base_delay,
-                job_name=f"sync_{provider_key}_{tenant.id[:8]}",
+                job_name=f"sync_{provider_key}_{connection_id[:8]}",
             )
-            tenant_log.info(
-                "sync_job_tenant_complete",
+            conn_log.info(
+                "sync_job_connection_complete",
                 **tenant_result,
             )
 
@@ -253,6 +308,7 @@ async def sync_connector_job(
         except Exception as exc:
             tenant_result = {
                 "tenant_id": tenant.id,
+                "connection_id": connection_id,
                 "status": "failed",
                 "accounts_synced": 0,
                 "transactions_synced": 0,
@@ -261,34 +317,40 @@ async def sync_connector_job(
                 "duration_s": 0.0,
                 "error": str(exc)[:500],
             }
-            tenant_log.error("sync_job_tenant_failed", error=str(exc)[:300])
+            conn_log.error(
+                "sync_job_connection_failed",
+                error=str(exc)[:300],
+            )
 
         summary.append(tenant_result)
 
-    total_accounts = sum(r["accounts_synced"] for r in summary)
-    total_transactions = sum(r["transactions_synced"] for r in summary)
-    total_holdings = sum(r["holdings_synced"] for r in summary)
-    total_unresolved = sum(r["unresolved_securities"] for r in summary)
-    failed = [r for r in summary if r["status"] == "failed"]
+    total_accounts = sum(r.get("accounts_synced", 0) for r in summary)
+    total_transactions = sum(r.get("transactions_synced", 0) for r in summary)
+    total_holdings = sum(r.get("holdings_synced", 0) for r in summary)
+    total_unresolved = sum(r.get("unresolved_securities", 0) for r in summary)
+    failed = [r for r in summary if r.get("status") == "failed"]
+    skipped = [r for r in summary if r.get("status") == "skipped"]
 
     log.info(
         "sync_job_complete",
-        tenants_synced=len(summary),
+        connections_synced=len(summary),
         total_accounts=total_accounts,
         total_transactions=total_transactions,
         total_holdings=total_holdings,
         total_unresolved_securities=total_unresolved,
         failed=len(failed),
+        skipped=len(skipped),
     )
 
     return {
         "provider": provider_key,
-        "tenants_synced": len(summary),
+        "connections_synced": len(summary),
         "total_accounts": total_accounts,
         "total_transactions": total_transactions,
         "total_holdings": total_holdings,
         "total_unresolved_securities": total_unresolved,
         "failed": len(failed),
+        "skipped": len(skipped),
         "results": summary,
     }
 
@@ -299,12 +361,17 @@ async def sync_bunq_job(container: Container) -> dict[str, Any]:
 
 
 async def sync_bunq_cards_job(container: Container) -> dict[str, Any]:
-    """Sync bunq card transactions + scheduled payments for all tenants.
+    """Sync bunq card transactions + scheduled payments for all connections.
 
     Runs on an hourly cadence (see ``worker_job_bunq_cards_enabled`` /
     ``worker_job_bunq_cards_interval_hours``), independent of the
     15-minute transaction sync, matching the ARCHITECTURE.md §5 promise
     of hourly bunq cards/scheduled payments ingestion.
+
+    Every active bunq connection is synced independently: paused
+    connections are skipped and a failing connection never blocks the
+    remaining ones.  The orchestrator records the per-connection
+    ``last_attempt_at`` / ``last_success_at`` / sanitised ``last_error``.
     """
     settings: Settings = container.settings
     registry = ConnectorRegistry()
@@ -315,36 +382,61 @@ async def sync_bunq_cards_job(container: Container) -> dict[str, Any]:
         uow = UnitOfWork(session)
         session.info["settings"] = settings
 
-        configs = await _get_tenant_credentials(uow, "bunq")
+        connections = await _get_tenant_connections(uow, "bunq")
 
-    if not configs:
-        log.info("bunq_cards_job_no_tenants")
+    if not connections:
+        log.info("bunq_cards_job_no_connections")
         return {
             "provider": "bunq_cards",
-            "tenants_synced": 0,
+            "connections_synced": 0,
             "results": [],
         }
 
     summary: list[dict[str, Any]] = []
 
-    for tenant, config in configs:
-        tenant_log = log.bind(tenant_id=tenant.id)
+    for conn in connections:
+        tenant = conn["tenant"]
+        cred = conn["credential"]
+        config = conn["config"]
+        connection_id = str(cred.id)
+        conn_log = log.bind(
+            tenant_id=tenant.id,
+            connection_id=connection_id,
+            connection_status=cred.status or "active",
+        )
+
+        if (cred.status or "active") == CONNECTION_STATUS_PAUSED:
+            conn_log.info("bunq_cards_job_connection_skipped_paused")
+            summary.append(
+                {
+                    "tenant_id": tenant.id,
+                    "connection_id": connection_id,
+                    "status": "skipped",
+                    "reason": "paused",
+                }
+            )
+            continue
 
         async def _run_single(
             _cfg: ConnectorConfig = config,
             _tenant: Tenant = tenant,
+            _connection_id: str = connection_id,
+            _selected: list[str] | None = cred.selected_accounts,
         ) -> dict[str, Any]:
             orchestrator = SyncOrchestrator(
                 session_factory=container.session_factory,
                 registry=registry,
-                tenant_id=_tenant.id,
+                tenant_id=str(_tenant.id),
                 settings=settings,
             )
             result = await orchestrator.run_bunq_cards_sync(
                 config=_cfg,
+                connection_id=_connection_id,
+                selected_accounts=_selected,
             )
             return {
                 "tenant_id": _tenant.id,
+                "connection_id": _connection_id,
                 "status": result.status.value,
                 "schedules_synced": result.schedules_synced,
                 "card_transactions_synced": result.card_transactions_synced,
@@ -357,43 +449,47 @@ async def sync_bunq_cards_job(container: Container) -> dict[str, Any]:
                 _run_single,
                 max_attempts=settings.worker_retry_max_attempts,
                 base_delay=settings.worker_retry_base_delay_s,
-                job_name=f"bunq_cards_{tenant.id[:8]}",
+                job_name=f"bunq_cards_{connection_id[:8]}",
             )
-            tenant_log.info("bunq_cards_job_tenant_complete", **tenant_result)
+            conn_log.info("bunq_cards_job_connection_complete", **tenant_result)
         except Exception as exc:
             tenant_result = {
                 "tenant_id": tenant.id,
+                "connection_id": connection_id,
                 "status": "failed",
                 "schedules_synced": 0,
                 "card_transactions_synced": 0,
                 "duration_s": 0.0,
                 "error": str(exc)[:500],
             }
-            tenant_log.error(
-                "bunq_cards_job_tenant_failed",
+            conn_log.error(
+                "bunq_cards_job_connection_failed",
                 error=str(exc)[:300],
             )
 
         summary.append(tenant_result)
 
-    total_schedules = sum(r["schedules_synced"] for r in summary)
-    total_cards = sum(r["card_transactions_synced"] for r in summary)
-    failed = [r for r in summary if r["status"] == "failed"]
+    total_schedules = sum(r.get("schedules_synced", 0) for r in summary)
+    total_cards = sum(r.get("card_transactions_synced", 0) for r in summary)
+    failed = [r for r in summary if r.get("status") == "failed"]
+    skipped = [r for r in summary if r.get("status") == "skipped"]
 
     log.info(
         "bunq_cards_job_complete",
-        tenants_synced=len(summary),
+        connections_synced=len(summary),
         total_schedules=total_schedules,
         total_card_transactions=total_cards,
         failed=len(failed),
+        skipped=len(skipped),
     )
 
     return {
         "provider": "bunq_cards",
-        "tenants_synced": len(summary),
+        "connections_synced": len(summary),
         "total_schedules": total_schedules,
         "total_card_transactions": total_cards,
         "failed": len(failed),
+        "skipped": len(skipped),
         "results": summary,
     }
 
@@ -411,12 +507,25 @@ async def process_degiro_watchfolders_job(
     async with container.session_factory() as session:
         uow = UnitOfWork(session)
         session.info["settings"] = settings
-        configs = await _get_tenant_credentials(uow, "degiro_pension")
+        connections = await _get_tenant_connections(uow, "degiro_pension")
 
     processed = 0
     quarantined = 0
     duplicates = 0
-    for tenant, config in configs:
+    for conn in connections:
+        tenant = conn["tenant"]
+        cred = conn["credential"]
+        config = conn["config"]
+        connection_id = str(cred.id)
+        # Paused connections are skipped by the scheduler, mirroring the
+        # transaction/cards sync jobs.
+        if (cred.status or "active") == CONNECTION_STATUS_PAUSED:
+            logger.info(
+                "degiro_watch_connection_skipped_paused",
+                tenant_id=tenant.id,
+                connection_id=connection_id,
+            )
+            continue
         watch = config.options.get("watchfolder")
         if not watch:
             continue
@@ -471,20 +580,13 @@ async def process_degiro_watchfolders_job(
         hashes = [_file_sha256(path) for path in claimed]
         digest = batch_hash(hashes)
         async with container.session_factory() as session:
-            connection = (
-                await session.execute(
-                    select(Credential).where(
-                        Credential.tenant_id == tenant.id,
-                        Credential.provider_key == "degiro_pension",
-                    )
-                )
-            ).scalar_one()
-            connection_id = str(connection.id)
+            # Use the loop's connection row (already loaded + decrypted);
+            # re-querying here would break with multiple connections.
             prior = (
                 await session.execute(
                     select(ImportRun).where(
                         ImportRun.tenant_id == tenant.id,
-                        ImportRun.connection_id == connection.id,
+                        ImportRun.connection_id == connection_id,
                         ImportRun.batch_hash == digest,
                         ImportRun.status == "completed",
                     )
@@ -496,7 +598,7 @@ async def process_degiro_watchfolders_job(
                         await session.execute(
                             select(func.max(ImportRun.attempt)).where(
                                 ImportRun.tenant_id == tenant.id,
-                                ImportRun.connection_id == connection.id,
+                                ImportRun.connection_id == connection_id,
                                 ImportRun.batch_hash == digest,
                             )
                         )
@@ -512,7 +614,7 @@ async def process_degiro_watchfolders_job(
                     ImportRun(
                         id=run_id,
                         tenant_id=tenant.id,
-                        connection_id=connection.id,
+                        connection_id=connection_id,
                         source="watchfolder",
                         status="duplicate",
                         batch_hash=digest,
@@ -550,7 +652,7 @@ async def process_degiro_watchfolders_job(
                 run = ImportRun(
                     id=run_id,
                     tenant_id=tenant.id,
-                    connection_id=connection.id,
+                    connection_id=connection_id,
                     source="watchfolder",
                     status="previewed",
                     batch_hash=digest,

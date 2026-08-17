@@ -26,6 +26,7 @@ from finance_sync.connectors.models import (
     CanonicalHoldingData,
     CanonicalScheduledPaymentData,
     CanonicalTransactionData,
+    ConnectorConfig,
     SecurityReference,
 )
 from finance_sync.models import Security
@@ -2119,7 +2120,7 @@ class TestSyncOrchestratorRunSync:
         ):
             result = await orchestrator.run_sync(
                 provider_type="mock_provider",
-                config=MagicMock(),
+                config=ConnectorConfig(provider_type="mock_provider"),
             )
 
         assert result.status == SyncRunStatus.COMPLETED
@@ -2157,7 +2158,7 @@ class TestSyncOrchestratorRunSync:
 
         result = await orchestrator.run_sync(
             provider_type="mock_provider",
-            config=MagicMock(),
+            config=ConnectorConfig(provider_type="mock_provider"),
         )
 
         assert result.status == SyncRunStatus.FAILED
@@ -2194,7 +2195,7 @@ class TestSyncOrchestratorRunSync:
         ):
             result = await orchestrator.run_sync(
                 provider_type="mock_provider",
-                config=MagicMock(),
+                config=ConnectorConfig(provider_type="mock_provider"),
             )
 
         # Sync result must remain COMPLETED even when reconciliation fails
@@ -2291,7 +2292,7 @@ class TestSyncOrchestratorRunSyncDisabled:
         ):
             result = await orchestrator.run_sync(
                 provider_type="mock_provider",
-                config=MagicMock(),
+                config=ConnectorConfig(provider_type="mock_provider"),
             )
 
         assert result.status == SyncRunStatus.COMPLETED
@@ -2405,8 +2406,20 @@ class TestConnectorStatePersistence:
     """Stateful connector state (e.g. bunq installation) round trip."""
 
     class _FakeRow:
-        def __init__(self, state: dict) -> None:
+        def __init__(
+            self, state: dict, connection_id: str | None = None
+        ) -> None:
             self.state = dict(state)
+            self.connection_id = connection_id
+
+    class _FakeScalars:
+        """Result-like object exposing ``.all()`` for ``session.scalars``."""
+
+        def __init__(self, rows: list[object]) -> None:
+            self._rows = rows
+
+        def all(self) -> list[object]:
+            return self._rows
 
     class _FakeSession:
         """Minimal AsyncSession stand-in storing one connector_state row."""
@@ -2417,6 +2430,15 @@ class TestConnectorStatePersistence:
 
         async def scalar(self, _stmt: object) -> object | None:
             return self.row
+
+        async def scalars(
+            self, _stmt: object
+        ) -> TestConnectorStatePersistence._FakeScalars:
+            # The orchestrator filters the returned rows by connection_id
+            # in Python, so expose every stored row (state lookup keeps
+            # the connection scope itself on the row).
+            rows = [self.row] if self.row is not None else []
+            return TestConnectorStatePersistence._FakeScalars(rows)
 
         def add(self, obj: object) -> None:
             self.added.append(obj)

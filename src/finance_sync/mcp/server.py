@@ -246,7 +246,7 @@ class RunSyncInput(BaseModel):
     ),
 )
 async def tool_run_sync(ctx: ServerContext, connector_type: str) -> str:
-    """Trigger a manual sync for a connector."""
+    """Trigger a manual sync for a connector (all of its connections)."""
     tenant_id = _get_tenant_id(ctx)
     container = _get_container(ctx)
     settings = container.settings
@@ -265,58 +265,78 @@ async def tool_run_sync(ctx: ServerContext, connector_type: str) -> str:
                 _Cred.provider_key == connector_type,  # type: ignore[attr-defined]
             )
         )
-        cred_row: _Cred | None = result.scalar_one_or_none()  # type: ignore[assignment]
+        cred_rows = list(result.scalars().all())
 
-    if cred_row is None:
+    if not cred_rows:
         msg = (
             f"No credentials found for connector {connector_type!r} "
             f"and tenant {tenant_id}"
         )
         return _serialise({"status": "error", "error": msg})
 
-    raw_payload = _decrypt(
-        cred_row.encrypted_payload,
-        cred_row.nonce,
-        settings,
-    )
-    try:
-        cred_dict: dict[str, str] = json.loads(raw_payload)
-    except (json.JSONDecodeError, TypeError):
-        cred_dict = {"api_key": raw_payload}
-
-    config = _Cfg(
-        provider_type=connector_type,
-        credentials=cred_dict,
-    )
-
-    # ── Run the sync ────────────────────────────────────────────────
+    # ── Run one sync per connection (isolated, never blocks siblings) ─
     from finance_sync.connectors.registry import ConnectorRegistry as _Reg
     from finance_sync.sync.orchestrator import SyncOrchestrator as _Sync
 
     registry = _Reg()
-    orchestrator = _Sync(
-        session_factory=container.session_factory,
-        registry=registry,
-        tenant_id=tenant_id,
-        settings=container.settings,
-    )
+    outcomes: list[dict[str, object]] = []
 
-    result = await orchestrator.run_sync(
-        provider_type=connector_type,
-        config=config,
-    )
+    for cred_row in cred_rows:
+        connection_id = str(cred_row.id)
+        # Paused connections are skipped by automated syncs; a manual
+        # MCP trigger is explicit, so it still runs them.
+        raw_payload = _decrypt(
+            cred_row.encrypted_payload,
+            cred_row.nonce,
+            settings,
+        )
+        try:
+            cred_dict: dict[str, str] = json.loads(raw_payload)
+        except (json.JSONDecodeError, TypeError):
+            cred_dict = {"api_key": raw_payload}
 
-    return _serialise(
-        {
-            "status": str(result.status.value),
-            "accounts_synced": result.accounts_synced,
-            "transactions_synced": result.transactions_synced,
-            "holdings_synced": result.holdings_synced,
-            "unresolved_securities": result.unresolved_securities,
-            "error_message": result.error_message,
-            "duration_s": result.duration_s,
-        }
-    )
+        config = _Cfg(
+            provider_type=connector_type,
+            credentials=cred_dict,
+            connection_id=connection_id,
+            selected_accounts=list(cred_row.selected_accounts or []),
+        )
+
+        orchestrator = _Sync(
+            session_factory=container.session_factory,
+            registry=registry,
+            tenant_id=tenant_id,
+            settings=container.settings,
+        )
+        try:
+            result = await orchestrator.run_sync(
+                provider_type=connector_type,
+                config=config,
+                connection_id=connection_id,
+                selected_accounts=list(cred_row.selected_accounts or []),
+            )
+            outcomes.append(
+                {
+                    "connection_id": connection_id,
+                    "status": str(result.status.value),
+                    "accounts_synced": result.accounts_synced,
+                    "transactions_synced": result.transactions_synced,
+                    "holdings_synced": result.holdings_synced,
+                    "unresolved_securities": result.unresolved_securities,
+                    "error_message": result.error_message,
+                    "duration_s": result.duration_s,
+                }
+            )
+        except Exception as exc:
+            outcomes.append(
+                {
+                    "connection_id": connection_id,
+                    "status": "error",
+                    "error_message": str(exc)[:500],
+                }
+            )
+
+    return _serialise({"status": "completed", "connections": outcomes})
 
 
 class GetSummaryInput(BaseModel):

@@ -23,8 +23,8 @@ async def start_sync_run(
     The record is added to the session but not flushed — it commits
     atomically with the enclosing transaction.
 
-    ``connection_id`` scopes the run to a specific connection (credential)
-    in multi-connection syncs; legacy single-connection runs leave it NULL.
+    When *connection_id* is provided (multi-connection syncs) the run is
+    scoped to that connection so per-connection runs stay traceable.
 
     Returns the created ``SyncRun`` instance.
     """

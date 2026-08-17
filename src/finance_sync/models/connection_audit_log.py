@@ -27,6 +27,7 @@ AUDIT_PAUSE = "pause"
 AUDIT_RESUME = "resume"
 AUDIT_ACCOUNTS = "select_accounts"
 AUDIT_DELETE = "delete"
+AUDIT_SYNC = "sync"
 AUDIT_ACTIONS = {
     AUDIT_CREATE,
     AUDIT_UPDATE,
@@ -35,6 +36,7 @@ AUDIT_ACTIONS = {
     AUDIT_RESUME,
     AUDIT_ACCOUNTS,
     AUDIT_DELETE,
+    AUDIT_SYNC,
 }
 
 

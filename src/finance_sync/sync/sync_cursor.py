@@ -1,3 +1,4 @@
+# pyright: basic
 """Sync cursor (watermark) persistence helpers.
 
 Thin read/write helpers for the ``sync_cursor`` table, mirroring the
@@ -38,17 +39,19 @@ async def get_connector_cursors(
     a stored cursor (e.g. newly added) fall back to the run-level
     ``since`` (explicit backfill or the 90-day first-sync default).
 
-    When *connection_id* is provided (multi-connection syncs) the cursors
-    are scoped to that connection so two connections never share a
-    resume position; legacy calls (``None``) keep the historical
-    single-connection behaviour.
+    When *connection_id* is provided the cursors are scoped to that
+    connection so identical external ids from two connections resume
+    independently; when omitted (legacy single-connection syncs) only
+    rows without a connection scope are returned.
     """
     stmt = select(SyncCursor).where(
         SyncCursor.tenant_id == tenant_id,
         SyncCursor.connector == connector,
     )
     if connection_id is not None:
-        stmt = stmt.where(SyncCursor.connection_id == connection_id)  # type: ignore[attr-defined]
+        stmt = stmt.where(SyncCursor.connection_id == connection_id)
+    else:
+        stmt = stmt.where(SyncCursor.connection_id.is_(None))
     rows = await session.scalars(stmt)
     return {row.resource: row.cursor for row in rows}
 
@@ -82,22 +85,22 @@ async def upsert_sync_cursor(
 ) -> SyncCursor:
     """Create or update the watermark for one ``(connector, resource)``.
 
-    Idempotent: the ``(tenant_id, connector, connection_id, resource)``
-    unique constraint means repeated runs update the row in place.
-
-    When *connection_id* is provided the watermark is scoped to that
-    connection so parallel connections keep independent resume
-    positions; legacy calls (``None``) write NULL and match the rows
-    they created before 0017.
+    Idempotent: the ``(tenant_id, connector, resource)`` unique
+    constraint means repeated runs update the row in place.  When
+    *connection_id* is provided, the watermark is scoped to that
+    connection (and the connection scope is persisted on the row);
+    legacy syncs without a connection scope keep ``NULL``.
     """
-    stmt = select(SyncCursor).where(
+    filters = [
         SyncCursor.tenant_id == tenant_id,
         SyncCursor.connector == connector,
         SyncCursor.resource == resource,
-    )
+    ]
     if connection_id is not None:
-        stmt = stmt.where(SyncCursor.connection_id == connection_id)  # type: ignore[attr-defined]
-    row = await session.scalar(stmt)
+        filters.append(SyncCursor.connection_id == connection_id)
+    else:
+        filters.append(SyncCursor.connection_id.is_(None))
+    row = await session.scalar(select(SyncCursor).where(*filters))
     if row is None:
         row = SyncCursor(
             tenant_id=tenant_id,

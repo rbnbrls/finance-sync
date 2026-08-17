@@ -41,6 +41,7 @@ from finance_sync.models import (
     Account,
     CardTransaction,
     ConnectorState,
+    Credential,
     Holding,
     ScheduledPayment,
     Security,
@@ -208,6 +209,79 @@ class SyncOrchestrator:
             )
         return True
 
+    # ── Connection outcome tracking ────────────────────────────────
+
+    async def _mark_connection_attempt(
+        self,
+        connection_id: str | None,
+        log: structlog.BoundLogger,
+    ) -> None:
+        """Record ``last_attempt_at`` on the connection row.
+
+        Runs before the sync pipeline starts so the control-panel UI can
+        show a live attempt timestamp.  Purely informational metadata —
+        failures here must never abort the sync itself.
+        """
+        if not connection_id:
+            return
+        try:
+            async with self._session_factory() as session:
+                cred = await session.get(Credential, connection_id)
+                if cred is None or str(cred.tenant_id) != self._tenant_id:
+                    log.warning(
+                        "connection_not_found_for_attempt",
+                        connection_id=connection_id,
+                    )
+                    return
+                cred.last_attempt_at = datetime.now(UTC)
+                await session.commit()
+        except Exception:
+            log.warning(
+                "connection_attempt_mark_failed",
+                connection_id=connection_id,
+                error=traceback.format_exc()[:200],
+            )
+
+    async def _record_connection_outcome(
+        self,
+        connection_id: str | None,
+        secrets: dict[str, str] | None,
+        status: SyncRunStatus,
+        error_message: str | None,
+        log: structlog.BoundLogger,
+    ) -> None:
+        """Persist ``last_success_at`` / sanitised ``last_error``.
+
+        Called after every run for multi-connection syncs: a completed
+        run stamps ``last_success_at`` and clears the previous error; a
+        failed run stores a secret-scrubbed, truncated error message so
+        the API/UI ``last_error`` field can never leak credentials.
+        """
+        if not connection_id:
+            return
+        try:
+            async with self._session_factory() as session:
+                cred = await session.get(Credential, connection_id)
+                if cred is None or str(cred.tenant_id) != self._tenant_id:
+                    return
+                if status == SyncRunStatus.COMPLETED:
+                    cred.last_success_at = datetime.now(UTC)
+                    cred.last_error = None
+                else:
+                    from finance_sync.utils.redaction import sanitize_error
+
+                    cred.last_error = sanitize_error(
+                        str(error_message or "Unknown error"),
+                        tuple((secrets or {}).values()),
+                    )
+                await session.commit()
+        except Exception:
+            log.warning(
+                "connection_outcome_record_failed",
+                connection_id=connection_id,
+                error=traceback.format_exc()[:200],
+            )
+
     # ── Public API ───────────────────────────────────────────────────
 
     @staticmethod
@@ -256,28 +330,35 @@ class SyncOrchestrator:
         """Execute a full sync for *provider_type*.
 
         Args:
-            provider_type:  Connector name (e.g. ``"bunq"``).
+            provider_type:  Connector name (e.g. 'bunq').
             config:         ``ConnectorConfig`` with credentials + options.
             since:          Only fetch transactions on or after this time.
                             Defaults to each account's stored sync
                             cursor (resume), or 90 days ago for accounts
                             on their first sync.
-            connection_id:  Optional stable connection (credential) id.
-                            When provided, accounts, transactions, sync
-                            runs and cursors are scoped to that
-                            connection, so identical external ids from
-                            another connection never collide.  ``None``
-                            keeps the legacy single-connection
-                            behaviour.
+            connection_id:  Stable connection (credential) id this sync
+                            belongs to.  When provided, the run is scoped
+                            to that connection: accounts, transactions,
+                            sync runs, cursors and connector state are
+                            persisted with the connection id so identical
+                            provider ids from two connections never
+                            collide, and the connection's
+                            ``last_attempt_at`` / ``last_success_at`` /
+                            ``last_error`` fields are updated for the UI.
             selected_accounts:
-                            Optional list of external account ids to
-                            sync.  Accounts outside the list are skipped
-                            (no accounts/transactions stored for them).
+                            Provider account ids to sync for this
+                            connection.  When provided, only those
+                            accounts (and their transactions/holdings)
+                            are fetched and persisted; ``None``/empty
+                            means 'sync all accounts the provider offers'.
 
         Returns:
             A ``SyncResult`` named tuple with status, counts, and error.
         """
         _since = since or _default_since()
+        connection_id = connection_id or getattr(config, "connection_id", None)
+        if selected_accounts is None:
+            selected_accounts = getattr(config, "selected_accounts", None)
         log = logger.bind(
             provider=provider_type,
             tenant_id=self._tenant_id,
@@ -286,10 +367,16 @@ class SyncOrchestrator:
         )
         log.info("sync_starting")
 
+        # Record the attempt on the connection row so the control-panel
+        # UI can show per-connection status even while the run is live.
+        await self._mark_connection_attempt(connection_id, log)
+
         connector = self._registry.get_connector(config)
 
         # Inject persisted connector state (e.g. bunq installation material)
         # before the run so stateful connectors reuse their device identity.
+        # The state is scoped per connection: two bunq connections keep
+        # separate installations.
         if isinstance(connector, _StatefulConnector):
             stored = await self._load_connector_state(
                 provider_type, connection_id=connection_id
@@ -323,6 +410,13 @@ class SyncOrchestrator:
             )
 
         self._record_sync_metrics(provider_type, result)
+        await self._record_connection_outcome(
+            connection_id,
+            config.credentials,
+            result.status,
+            result.error_message,
+            log,
+        )
 
         if result.status == SyncRunStatus.COMPLETED:
             log.info(
@@ -371,28 +465,31 @@ class SyncOrchestrator:
     async def _load_connector_state(
         self,
         provider_key: str,
-        *,
         connection_id: str | None = None,
     ) -> dict[str, Any]:
         """Return the stored state blob for ``(tenant, provider)``.
 
         Used to inject persistent connector state (e.g. the bunq
         installation material) into stateful connectors before a run.
-
         When *connection_id* is provided the state is scoped to that
-        connection so each credential keeps its own installation;
-        legacy calls (``None``) load the tenant-wide blob.
+        connection so two connections of the same provider keep separate
+        installations; legacy rows (no connection scope) are only read
+        when no connection id is given.
         """
-        stmt = select(ConnectorState).where(
-            ConnectorState.tenant_id == self._tenant_id,
-            ConnectorState.provider_key == provider_key,
-        )
-        if connection_id is not None:
-            stmt = stmt.where(  # type: ignore[attr-defined]
-                ConnectorState.connection_id == connection_id  # type: ignore[attr-defined]
-            )
         async with self._session_factory() as session:
-            row = await session.scalar(stmt)
+            rows = await session.scalars(
+                select(ConnectorState).where(
+                    ConnectorState.tenant_id == self._tenant_id,
+                    ConnectorState.provider_key == provider_key,
+                )
+            )
+            # A tenant holds at most a handful of connections per
+            # provider; select the row scoped to this connection in
+            # Python instead of chaining dynamic SQL filters.
+            row = next(
+                (r for r in rows.all() if r.connection_id == connection_id),
+                None,
+            )
         state = getattr(row, "state", None) if row is not None else None
         if not isinstance(state, dict) or not state:
             return {}
@@ -402,31 +499,30 @@ class SyncOrchestrator:
         self,
         provider_key: str,
         connector: Connector,
-        *,
         connection_id: str | None = None,
     ) -> None:
         """Persist connector state (e.g. a fresh bunq installation).
 
         Only stateful connectors expose state; non-empty dicts are upserted
         into ``connector_state`` so the next run reuses the installation.
-
-        When *connection_id* is provided the state is stored per
-        connection; legacy calls (``None``) keep the tenant-wide row.
+        When *connection_id* is provided the state row is scoped to that
+        connection (per-connection installations stay isolated).
         """
         getter = getattr(connector, "get_state", None)
         state = getter() if callable(getter) else None
         if not isinstance(state, dict) or not state:
             return
-        stmt = select(ConnectorState).where(
-            ConnectorState.tenant_id == self._tenant_id,
-            ConnectorState.provider_key == provider_key,
-        )
-        if connection_id is not None:
-            stmt = stmt.where(  # type: ignore[attr-defined]
-                ConnectorState.connection_id == connection_id  # type: ignore[attr-defined]
-            )
         async with self._session_factory() as session:
-            row = await session.scalar(stmt)
+            rows = await session.scalars(
+                select(ConnectorState).where(
+                    ConnectorState.tenant_id == self._tenant_id,
+                    ConnectorState.provider_key == provider_key,
+                )
+            )
+            row = next(
+                (r for r in rows.all() if r.connection_id == connection_id),
+                None,
+            )
             if row is None:
                 session.add(
                     ConnectorState(
@@ -447,14 +543,17 @@ class SyncOrchestrator:
         config: ConnectorConfig,
         *,
         since: dt_type | None = None,
+        connection_id: str | None = None,
+        selected_accounts: list[str] | None = None,
     ) -> BunqCardsSyncResult:
         """Fetch scheduled payments + card transactions and upsert them.
 
         Runs as an independent sync cycle (connector ``bunq_cards``) so
         the hourly cards/schedules cadence does not depend on the main
         15-minute transaction sync.  Upserts are idempotent: both tables
-        carry a ``(tenant_id, provider_key, external_*)`` unique
-        constraint, so re-runs update in place instead of duplicating.
+        carry a ``(tenant_id, provider_key, connection_id, external_*)``
+        unique constraint, so re-runs update in place instead of
+        duplicating.
 
         Args:
             config: ``ConnectorConfig`` with credentials + options.
@@ -463,12 +562,24 @@ class SyncOrchestrator:
                     for the first sync.  Scheduled payments are always
                     fetched in full (they are templates, not an
                     append-only stream).
+            connection_id: Stable connection id the run belongs to;
+                    scopes cursors, runs and connector state per
+                    connection and updates the connection's
+                    ``last_attempt_at`` / ``last_success_at`` /
+                    ``last_error`` fields.
+            selected_accounts: Provider account ids to sync.  When
+                    provided, scheduled payments are filtered to those
+                    accounts.  Card transactions are card-scoped (not
+                    account-scoped) and are always synced for the
+                    connection.
 
         Returns:
             A ``BunqCardsSyncResult`` with status, counts, and error.
         """
         # Resume from the stored cards cursor unless an explicit window
-        # was given (explicit backfills always win).
+        # was given (explicit backfills always win).  The cursor is
+        # scoped per connection so two bunq connections resume
+        # independently.
         cursor = None
         if since is None:
             async with self._session_factory() as session:
@@ -477,32 +588,54 @@ class SyncOrchestrator:
                     tenant_id=self._tenant_id,
                     connector="bunq_cards",
                     resource=RESOURCE_CARD_TRANSACTIONS,
+                    connection_id=connection_id,
                 )
         _since = since or cursor or _default_since()
         log = logger.bind(
             provider="bunq",
             tenant_id=self._tenant_id,
+            connection_id=connection_id,
             since=_since.isoformat(),
         )
         log.info("bunq_cards_sync_starting")
 
+        await self._mark_connection_attempt(connection_id, log)
+
         connector = self._registry.get_connector(config)
 
-        # Reuse the persisted bunq installation across cards syncs too.
+        # Reuse the persisted bunq installation across cards syncs too —
+        # scoped per connection so two bunq connections keep separate
+        # device installations.
         if isinstance(connector, _StatefulConnector):
-            stored = await self._load_connector_state("bunq")
+            stored = await self._load_connector_state(
+                "bunq", connection_id=connection_id
+            )
             if stored:
                 connector.set_state(stored)
 
         async with self._session_factory() as session:
             result = await self._run_cards_pipeline(
-                session, connector, _since, log
+                session,
+                connector,
+                _since,
+                log,
+                connection_id=connection_id,
+                selected_accounts=selected_accounts,
             )
 
         if isinstance(connector, _StatefulConnector):
-            await self._persist_connector_state("bunq", connector)
+            await self._persist_connector_state(
+                "bunq", connector, connection_id=connection_id
+            )
 
         self._record_sync_metrics("bunq_cards", result)
+        await self._record_connection_outcome(
+            connection_id,
+            config.credentials,
+            result.status,
+            result.error_message,
+            log,
+        )
 
         if result.status == SyncRunStatus.COMPLETED:
             log.info(
@@ -630,16 +763,25 @@ class SyncOrchestrator:
         holdings_synced = 0
         unresolved_keys: set[str] = set()
 
-        # Account selection: when the operator (or the connection's
-        # configuration) pinned a subset of accounts, filter the fetched
-        # set down before any upsert or cursor work.
-        selected_set = set(selected_accounts) if selected_accounts else None
+        # Account selection: when the connection pins a set of provider
+        # account ids, only those accounts are synced (and their
+        # transactions/holdings fetched).  NULL/empty means "all".
+        selected_set: set[str] | None = (
+            set(selected_accounts) if selected_accounts else None
+        )
+        if selected_set is not None:
+            log.debug(
+                "account_selection_filter",
+                selected=len(selected_set),
+            )
 
         try:
             async with uow:
                 # 1. SyncRun record
                 run = await start_sync_run(
-                    uow, connector=provider_type, connection_id=connection_id
+                    uow,
+                    connector=provider_type,
+                    connection_id=connection_id,
                 )
                 log = log.bind(sync_run_id=str(run.id))
 
@@ -813,7 +955,9 @@ class SyncOrchestrator:
 
         except PermanentError as exc:
             end_ts = _dt.now(UTC)
-            await self._mark_run_failed(session, run, str(exc), log)
+            await self._mark_run_failed(
+                session, run, str(exc), log, connection_id=connection_id
+            )
             return SyncResult(
                 status=SyncRunStatus.FAILED,
                 accounts_synced=accounts_synced,
@@ -825,7 +969,9 @@ class SyncOrchestrator:
             )
         except (TransientError, ConnectorError) as exc:
             end_ts = _dt.now(UTC)
-            await self._mark_run_failed(session, run, str(exc), log)
+            await self._mark_run_failed(
+                session, run, str(exc), log, connection_id=connection_id
+            )
             return SyncResult(
                 status=SyncRunStatus.FAILED,
                 accounts_synced=accounts_synced,
@@ -838,7 +984,9 @@ class SyncOrchestrator:
         except Exception:
             end_ts = _dt.now(UTC)
             tb = traceback.format_exc()
-            await self._mark_run_failed(session, run, tb, log)
+            await self._mark_run_failed(
+                session, run, tb, log, connection_id=connection_id
+            )
             return SyncResult(
                 status=SyncRunStatus.FAILED,
                 accounts_synced=accounts_synced,
@@ -857,6 +1005,9 @@ class SyncOrchestrator:
         connector: Connector,
         since: dt_type,
         log: structlog.BoundLogger,
+        *,
+        connection_id: str | None = None,
+        selected_accounts: list[str] | None = None,
     ) -> BunqCardsSyncResult:
         """Internal pipeline for bunq cards + scheduled payments.
 
@@ -882,10 +1033,22 @@ class SyncOrchestrator:
         schedules_synced = 0
         card_txns_synced = 0
 
+        # Account selection filters the account-scoped schedule stream;
+        # card transactions are card-scoped (external_account_id is the
+        # card id, not an account id) and stay connection-wide so user
+        # card activity is never silently dropped by an account filter.
+        selected_set: set[str] | None = (
+            set(selected_accounts) if selected_accounts else None
+        )
+
         try:
             async with uow:
                 # 1. SyncRun record
-                run = await start_sync_run(uow, connector="bunq_cards")
+                run = await start_sync_run(
+                    uow,
+                    connector="bunq_cards",
+                    connection_id=connection_id,
+                )
                 log = log.bind(sync_run_id=str(run.id))
 
                 # 2. Authenticate
@@ -896,21 +1059,37 @@ class SyncOrchestrator:
                 #    their account FK (mirrors the main pipeline).
                 raw_accounts = await connector._rate_limited_fetch_accounts()  # type: ignore[attr-defined]
                 canonical_accounts = connector.transform_accounts(raw_accounts)
+                if selected_set is not None:
+                    canonical_accounts = [
+                        ca
+                        for ca in canonical_accounts
+                        if ca.external_account_id in selected_set
+                    ]
                 for ca in canonical_accounts:
-                    await self._upsert_account(uow, ca)
+                    await self._upsert_account(
+                        uow, ca, connection_id=connection_id
+                    )
                 log.debug("accounts_fetched", count=len(canonical_accounts))
 
                 # 4. Scheduled payments (full fetch — templates, not a
-                #    since-filtered stream).
+                #    since-filtered stream).  Filtered to the selected
+                #    accounts when the connection pins a selection.
                 raw_schedules = await cards_connector.fetch_scheduled_payments()
                 canonical_schedules = connector.transform_scheduled_payments(
                     raw_schedules
                 )
+                if selected_set is not None:
+                    canonical_schedules = [
+                        cs
+                        for cs in canonical_schedules
+                        if cs.external_account_id in selected_set
+                    ]
                 for cs in canonical_schedules:
                     acct = await uow.accounts.get_by_external_id(
                         self._tenant_id,
                         cs.provider_key,
                         cs.external_account_id,
+                        connection_id=connection_id,
                     )
                     if acct is None:
                         log.warning(
@@ -918,7 +1097,9 @@ class SyncOrchestrator:
                             external_account_id=cs.external_account_id,
                         )
                         continue
-                    await self._upsert_scheduled_payment(uow, cs, acct.id)
+                    await self._upsert_scheduled_payment(
+                        uow, cs, acct.id, connection_id=connection_id
+                    )
                 schedules_synced = len(canonical_schedules)
                 log.debug("schedules_fetched", count=schedules_synced)
 
@@ -930,7 +1111,9 @@ class SyncOrchestrator:
                     raw_card_txns
                 )
                 for cct in canonical_card_txns:
-                    await self._upsert_card_transaction(uow, cct)
+                    await self._upsert_card_transaction(
+                        uow, cct, connection_id=connection_id
+                    )
                 card_txns_synced = len(canonical_card_txns)
                 log.debug("card_transactions_fetched", count=card_txns_synced)
 
@@ -950,6 +1133,7 @@ class SyncOrchestrator:
                     connector="bunq_cards",
                     resource=RESOURCE_CARD_TRANSACTIONS,
                     cursor=start_ts,
+                    connection_id=connection_id,
                 )
 
             end_ts = _dt.now(UTC)
@@ -963,7 +1147,9 @@ class SyncOrchestrator:
 
         except (PermanentError, TransientError, ConnectorError) as exc:
             end_ts = _dt.now(UTC)
-            await self._mark_run_failed(session, run, str(exc), log)
+            await self._mark_run_failed(
+                session, run, str(exc), log, connection_id=connection_id
+            )
             return BunqCardsSyncResult(
                 status=SyncRunStatus.FAILED,
                 schedules_synced=schedules_synced,
@@ -974,7 +1160,9 @@ class SyncOrchestrator:
         except Exception:
             end_ts = _dt.now(UTC)
             tb = traceback.format_exc()
-            await self._mark_run_failed(session, run, tb, log)
+            await self._mark_run_failed(
+                session, run, tb, log, connection_id=connection_id
+            )
             return BunqCardsSyncResult(
                 status=SyncRunStatus.FAILED,
                 schedules_synced=schedules_synced,
@@ -994,9 +1182,9 @@ class SyncOrchestrator:
     ) -> Account:
         """Create or update a canonical Account from connector data.
 
-        When *connection_id* is provided the lookup is scoped to that
-        connection and new rows carry it, so equal external ids from
-        different connections resolve to distinct accounts.
+        The lookup is scoped to *connection_id* when provided so the same
+        provider account id in two connections resolves to two distinct
+        local rows; the scope is persisted on the row itself.
         """
         existing = await uow.accounts.get_by_external_id(
             tenant_id=self._tenant_id,
@@ -1081,9 +1269,9 @@ class SyncOrchestrator:
     ) -> Transaction:
         """Create or update a canonical Transaction from connector data.
 
-        When *connection_id* is provided the lookup is scoped to that
-        connection and new rows carry it, so equal external ids from
-        different connections resolve to distinct transactions.
+        The lookup is scoped to *connection_id* when provided so identical
+        external transaction ids from two connections never resolve to the
+        same local row; the scope is persisted on the row itself.
         """
         existing = await uow.transactions.get_by_external_id(
             tenant_id=self._tenant_id,
@@ -1468,17 +1656,22 @@ class SyncOrchestrator:
         uow: UnitOfWork,
         csp: CanonicalScheduledPaymentData,
         account_id: str,
+        *,
+        connection_id: str | None = None,
     ) -> ScheduledPayment:
         """Create or update a ScheduledPayment from connector data.
 
         Idempotent: looked up by the ``(tenant, provider, external
         schedule id)`` unique constraint — a re-run updates mutable
-        fields instead of inserting a duplicate.
+        fields instead of inserting a duplicate.  The lookup is scoped
+        to *connection_id* when provided; the scope is persisted on the
+        row itself.
         """
         existing = await uow.scheduled_payments.get_by_external_id(
             tenant_id=self._tenant_id,
             provider_key=csp.provider_key,
             external_schedule_id=csp.external_schedule_id,
+            connection_id=connection_id,
         )
 
         if existing is not None:
@@ -1525,6 +1718,7 @@ class SyncOrchestrator:
             id=uuid4(),
             tenant_id=self._tenant_id,
             provider_key=csp.provider_key,
+            connection_id=connection_id,
             external_schedule_id=csp.external_schedule_id,
             account_id=account_id,
             amount=Decimal(str(csp.amount)),
@@ -1548,11 +1742,15 @@ class SyncOrchestrator:
         self,
         uow: UnitOfWork,
         cct: CanonicalCardTransactionData,
+        *,
+        connection_id: str | None = None,
     ) -> CardTransaction:
         """Create or update a CardTransaction from connector data.
 
         Idempotent: looked up by the ``(tenant, provider, external card
-        transaction id)`` unique constraint.
+        transaction id)`` unique constraint — scoped to *connection_id*
+        when provided so identical card-transaction ids from two
+        connections never collide.
 
         The canonical record's ``external_account_id`` is the *card*
         identifier for bunq (card payments are card-scoped, not
@@ -1563,6 +1761,7 @@ class SyncOrchestrator:
             tenant_id=self._tenant_id,
             provider_key=cct.provider_key,
             external_card_transaction_id=cct.external_card_transaction_id,
+            connection_id=connection_id,
         )
 
         if existing is not None:
@@ -1600,6 +1799,7 @@ class SyncOrchestrator:
                 tenant_id=self._tenant_id,
                 provider_key=cct.provider_key,
                 external_account_id=cct.external_account_id,
+                connection_id=connection_id,
             )
             if acct is not None:
                 account_id = acct.id
@@ -1632,6 +1832,7 @@ class SyncOrchestrator:
             id=uuid4(),
             tenant_id=self._tenant_id,
             provider_key=cct.provider_key,
+            connection_id=connection_id,
             external_card_transaction_id=cct.external_card_transaction_id,
             account_id=account_id,
             amount=Decimal(str(cct.amount)),
@@ -1662,12 +1863,16 @@ class SyncOrchestrator:
         run: object | None,
         error_message: str,
         log: structlog.BoundLogger,
+        *,
+        connection_id: str | None = None,
     ) -> None:
         """Persist a failed SyncRun outside the main UoW (which rolled back).
 
         The in-flight ``SyncRun`` row was rolled back with the transaction,
         so it cannot be reloaded — instead a fresh ``FAILED`` row is
         inserted so failed runs stay observable (alerting relies on them).
+        The row carries the run's *connection_id* when the failed run was
+        connection-scoped.
         """
         if run is None:
             log.error("sync_failed_before_run_created", error=error_message)
@@ -1697,7 +1902,6 @@ class SyncOrchestrator:
                     # The original row never made it to the DB — insert a
                     # fresh FAILED record so the failure is observable.
                     connector = getattr(run, "connector", None) or "unknown"
-                    connection_id = getattr(run, "connection_id", None)
                     uow.session.add(
                         _SyncRun(
                             connector=connector,

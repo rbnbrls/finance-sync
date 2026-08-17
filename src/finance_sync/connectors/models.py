@@ -447,6 +447,13 @@ class ConnectorConfig(BaseModel):
 
     ``options`` holds non-secret configuration such as sandbox mode,
     custom endpoints, or feature toggles.
+
+    ``connection_id`` / ``selected_accounts`` carry the connection
+    context of the run: the stable credential id the config belongs to
+    and the provider account ids selected for that connection (``None``/
+    empty = sync all accounts the provider offers).  Sync callers pass
+    them explicitly to the orchestrator, which prefers explicit kwargs
+    over the config fields for backward compatibility.
     """
 
     provider_type: str = Field(
@@ -461,6 +468,21 @@ class ConnectorConfig(BaseModel):
         default_factory=dict,
         description="Non-secret configuration (sandbox mode, custom "
         "endpoints, feature toggles, …)",
+    )
+    connection_id: str | None = Field(
+        default=None,
+        description=(
+            "Stable connection (credential) id this config belongs to; "
+            "scopes sync persistence so same-provider connections never "
+            "collide"
+        ),
+    )
+    selected_accounts: list[str] | None = Field(
+        default=None,
+        description=(
+            "Provider account ids selected for this connection; NULL/empty "
+            "means 'sync all accounts the provider offers'"
+        ),
     )
 
 
