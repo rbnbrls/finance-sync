@@ -924,6 +924,7 @@ class SyncOrchestrator:
                 if supports_holdings or unresolved_keys:
                     await outbox_sync_completed(
                         uow,
+                        tenant_id=self._tenant_id,
                         run_id=str(run.id),
                         provider_key=provider_type,
                         accounts=accounts_synced,
@@ -1173,6 +1174,17 @@ class SyncOrchestrator:
 
     # ── Entity upsert helpers ──────────────────────────────────────
 
+    async def _connection_owner_id(
+        self,
+        uow: UnitOfWork,
+        connection_id: str | None,
+    ) -> str | None:
+        """Return the owning user of *connection_id* (or None)."""
+        if not connection_id:
+            return None
+        cred = await uow.session.get(Credential, connection_id)
+        return cred.owner_user_id if cred is not None else None
+
     async def _upsert_account(
         self,
         uow: UnitOfWork,
@@ -1217,6 +1229,7 @@ class SyncOrchestrator:
                 await uow.session.flush()
                 await outbox_entity_updated(
                     uow,
+                    tenant_id=self._tenant_id,
                     entity_type="account",
                     entity_id=str(existing.id),
                     changed_fields=changed,
@@ -1227,11 +1240,17 @@ class SyncOrchestrator:
         # Create new account
         from uuid import uuid4
 
+        # Provenance: a newly imported account inherits its owner from the
+        # connection (credential) it was fetched with, so the chain
+        # user → connection → account stays intact for household sharing.
+        owner_user_id = await self._connection_owner_id(uow, connection_id)
+
         account = Account(
             id=uuid4(),
             tenant_id=self._tenant_id,
             provider_key=ca.provider_key,
             connection_id=connection_id,
+            owner_user_id=owner_user_id,
             external_account_id=ca.external_account_id,
             name=ca.name,
             account_type=ca.account_type,
@@ -1247,6 +1266,7 @@ class SyncOrchestrator:
         await uow.session.flush()
         await outbox_entity_created(
             uow,
+            tenant_id=self._tenant_id,
             entity_type="account",
             entity_id=str(account.id),
             entity_data={
@@ -1315,6 +1335,7 @@ class SyncOrchestrator:
                 await uow.session.flush()
                 await outbox_entity_updated(
                     uow,
+                    tenant_id=self._tenant_id,
                     entity_type="transaction",
                     entity_id=str(existing.id),
                     changed_fields=changed,
@@ -1371,6 +1392,7 @@ class SyncOrchestrator:
         await uow.session.flush()
         await outbox_entity_created(
             uow,
+            tenant_id=self._tenant_id,
             entity_type="transaction",
             entity_id=str(transaction.id),
             entity_data={
@@ -1433,6 +1455,7 @@ class SyncOrchestrator:
                 await uow.session.flush()
                 await outbox_entity_updated(
                     uow,
+                    tenant_id=self._tenant_id,
                     entity_type="holding",
                     entity_id=str(existing.id),
                     changed_fields={"snapshot_updated": True},
@@ -1455,6 +1478,7 @@ class SyncOrchestrator:
         await uow.session.flush()
         await outbox_entity_created(
             uow,
+            tenant_id=self._tenant_id,
             entity_type="holding",
             entity_id=str(entity.id),
             entity_data={"observed_at": holding.observed_at.isoformat()},

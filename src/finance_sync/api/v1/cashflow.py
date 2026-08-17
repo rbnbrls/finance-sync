@@ -10,25 +10,33 @@ from typing import Any
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from finance_sync.api.deps.auth import AuthContext, require_permission
+from finance_sync.api.deps.auth import (
+    AuthContext,
+    get_read_scope,
+    require_permission,
+)
 from finance_sync.dependencies import get_db
 from finance_sync.services.read_api import (
     CashflowHistoryResponse,
     CashflowResponse,
     ReadService,
 )
+from finance_sync.services.visibility import ReadScope
 
 router = APIRouter(prefix="/cashflow", tags=["cashflow"])
 
 
-def _get_service(session: AsyncSession) -> ReadService:
-    return ReadService(session)
+def _get_service(
+    session: AsyncSession, scope: ReadScope | None = None
+) -> ReadService:
+    return ReadService(session, scope=scope)
 
 
 @router.get("", response_model=CashflowResponse)
 async def get_cashflow(
     auth: AuthContext = Depends(require_permission("transactions", "read")),
     db: AsyncSession = Depends(get_db),
+    scope: ReadScope = Depends(get_read_scope),
     date_from: datetime | None = Query(default=None),
     date_to: datetime | None = Query(default=None),
     account_id: str | None = Query(default=None),
@@ -39,7 +47,7 @@ async def get_cashflow(
     inflows, negative amounts as outflows. Returns total inflows,
     total outflows, and net cashflow for the period.
     """
-    svc = _get_service(db)
+    svc = _get_service(db, scope=scope)
     result = await svc.get_cashflow(
         tenant_id=auth.tenant_id,
         date_from=date_from,
@@ -53,6 +61,7 @@ async def get_cashflow(
 async def get_cashflow_history(
     auth: AuthContext = Depends(require_permission("transactions", "read")),
     db: AsyncSession = Depends(get_db),
+    scope: ReadScope = Depends(get_read_scope),
     limit: int = Query(default=90, ge=1, le=730),
     offset: int = Query(default=0, ge=0),
     date_from: datetime | None = Query(default=None),
@@ -64,7 +73,7 @@ async def get_cashflow_history(
     Aggregates booked transactions by day to show how inflows,
     outflows, and net cashflow changed over time.
     """
-    svc = _get_service(db)
+    svc = _get_service(db, scope=scope)
     result = await svc.get_cashflow_history(
         tenant_id=auth.tenant_id,
         limit=limit,

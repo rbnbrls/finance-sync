@@ -11,25 +11,33 @@ from typing import Any
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from finance_sync.api.deps.auth import AuthContext, require_permission
+from finance_sync.api.deps.auth import (
+    AuthContext,
+    get_read_scope,
+    require_permission,
+)
 from finance_sync.dependencies import get_db
 from finance_sync.services.allocation import (
     AllocationResponse,
     AllocationService,
 )
+from finance_sync.services.visibility import ReadScope
 
 router = APIRouter(prefix="/allocation", tags=["allocation"])
 
 
-def _get_service(session: AsyncSession) -> AllocationService:
+def _get_service(
+    session: AsyncSession, scope: ReadScope | None = None
+) -> AllocationService:
     """Factory for AllocationService."""
-    return AllocationService(session)
+    return AllocationService(session, scope=scope)
 
 
 @router.get("", response_model=AllocationResponse)
 async def get_allocation(
     auth: AuthContext = Depends(require_permission("holdings", "read")),
     db: AsyncSession = Depends(get_db),
+    scope: ReadScope = Depends(get_read_scope),
     target_currency: str | None = Query(
         default=None,
         description=(
@@ -54,7 +62,7 @@ async def get_allocation(
     When ``target_currency`` is set, all holding market values are
     converted to that currency using the latest available FX rates.
     """
-    svc = _get_service(db)
+    svc = _get_service(db, scope=scope)
     result = await svc.get_allocation(
         tenant_id=auth.tenant_id,
         target_currency=target_currency,

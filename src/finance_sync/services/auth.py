@@ -184,6 +184,7 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
         "transactions:read",
         "transactions:write",
         "accounts:read",
+        "accounts:write",
         "holdings:read",
         "balances:read",
         "securities:read",

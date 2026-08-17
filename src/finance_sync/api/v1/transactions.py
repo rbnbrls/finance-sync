@@ -14,25 +14,33 @@ from typing import Any
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from finance_sync.api.deps.auth import AuthContext, require_permission
+from finance_sync.api.deps.auth import (
+    AuthContext,
+    get_read_scope,
+    require_permission,
+)
 from finance_sync.dependencies import get_db
 from finance_sync.models.enums import TransactionType
 from finance_sync.services.read_api import (
     ReadService,
     TopLevelTransactionListResponse,
 )
+from finance_sync.services.visibility import ReadScope
 
 router = APIRouter(prefix="/transactions", tags=["transactions"])
 
 
-def _get_service(session: AsyncSession) -> ReadService:
-    return ReadService(session)
+def _get_service(
+    session: AsyncSession, scope: ReadScope | None = None
+) -> ReadService:
+    return ReadService(session, scope=scope)
 
 
 @router.get("", response_model=TopLevelTransactionListResponse)
 async def list_transactions(
     auth: AuthContext = Depends(require_permission("transactions", "read")),
     db: AsyncSession = Depends(get_db),
+    scope: ReadScope = Depends(get_read_scope),
     limit: int = Query(default=50, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
     account_id: str | None = Query(default=None, alias="accountId"),
@@ -52,7 +60,7 @@ async def list_transactions(
     Supports the ``docs/API.md`` filters: accountId, provider, status,
     type, from, to, currency.  Returns the collection ``meta`` envelope.
     """
-    svc = _get_service(db)
+    svc = _get_service(db, scope=scope)
     result = await svc.list_transactions(
         tenant_id=auth.tenant_id,
         account_id=account_id,

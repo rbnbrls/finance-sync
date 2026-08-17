@@ -83,13 +83,49 @@ def _get_container(ctx: ServerContext) -> Container:
     return lifespan_data["container"]
 
 
-def _get_read_service(ctx: ServerContext) -> Any:
-    """Create a ``ReadService`` scoped to the current request's session."""
+async def _get_read_service(ctx: ServerContext) -> Any:
+    """Create a ``ReadService`` scoped to the current request's session.
+
+    The service is constructed with the principal's household
+    visibility scope so private accounts of other household members are
+    never readable through MCP tools/resources.
+    """
     from finance_sync.services.read_api import ReadService
 
     container = _get_container(ctx)
     session = container.session_factory()
-    return ReadService(session)
+    scope = await _get_read_scope(ctx)
+    return ReadService(session, scope=scope)
+
+
+async def _get_read_scope(ctx: ServerContext) -> Any:
+    """Resolve the household visibility scope for the MCP principal.
+
+    JWT principals get their user scope (household + own private +
+    admin unowned); API-key principals get the machine scope (household
+    + system-owned only).
+    """
+    from sqlalchemy import select
+
+    from finance_sync.mcp.auth import get_mcp_auth_context
+    from finance_sync.models.user import User
+    from finance_sync.services.visibility import ReadScope
+
+    auth = get_mcp_auth_context()
+    if auth.auth_method == "jwt":
+        container = _get_container(ctx)
+        async with container.session_factory() as session:
+            result = await session.execute(
+                select(User).where(
+                    User.id == auth.principal_id,  # type: ignore[attr-defined]
+                    User.is_active.is_(True),  # type: ignore[attr-defined]
+                )
+            )
+            user = result.scalar_one_or_none()
+            if user is not None:
+                return ReadScope.for_user(user)
+    # Machine scope (API key) or unknown user → household + system-owned.
+    return ReadScope.for_api_key(auth.tenant_id)
 
 
 def _get_tenant_id(_ctx: ServerContext) -> str:
@@ -132,7 +168,7 @@ async def resource_accounts(ctx: ServerContext) -> str:
     and current balance.
     """
     tenant_id = _get_tenant_id(ctx)
-    read_service = _get_read_service(ctx)
+    read_service = await _get_read_service(ctx)
     try:
         result = await read_service.list_accounts(tenant_id, limit=200)
         return _serialise(result.model_dump())
@@ -156,7 +192,7 @@ async def resource_portfolio(ctx: ServerContext) -> str:
     including quantities, market values, cost basis, and unrealised P&L.
     """
     tenant_id = _get_tenant_id(ctx)
-    read_service = _get_read_service(ctx)
+    read_service = await _get_read_service(ctx)
     try:
         result = await read_service.get_portfolio(tenant_id)
         return _serialise(result.model_dump())
@@ -180,7 +216,7 @@ async def resource_transactions(ctx: ServerContext) -> str:
     For advanced filtering use the REST API at ``/api/v1/``.
     """
     tenant_id = _get_tenant_id(ctx)
-    read_service = _get_read_service(ctx)
+    read_service = await _get_read_service(ctx)
     try:
         accts_result = await read_service.list_accounts(tenant_id, limit=100)
         all_txns: list[dict[str, Any]] = []
@@ -215,7 +251,7 @@ async def resource_net_worth(ctx: ServerContext) -> str:
     net_worth, and per-account breakdown.
     """
     tenant_id = _get_tenant_id(ctx)
-    read_service = _get_read_service(ctx)
+    read_service = await _get_read_service(ctx)
     try:
         result = await read_service.get_net_worth(tenant_id)
         return _serialise(result.model_dump())
@@ -370,7 +406,11 @@ async def tool_get_summary(ctx: ServerContext, timeframe: str = "30d") -> str:
     from finance_sync.services.ai_summary import AISummaryService as _AiSvc
 
     async with container.session_factory() as session:
-        ai_service = _AiSvc(session=session, settings=container.settings)
+        ai_service = _AiSvc(
+            session=session,
+            settings=container.settings,
+            scope=await _get_read_scope(ctx),
+        )
         try:
             if not container.settings.ai_enabled:
                 return _serialise(
@@ -458,7 +498,11 @@ async def tool_get_daily_briefing(
     from finance_sync.services.ai_summary import AISummaryService as _AiSvc
 
     async with container.session_factory() as session:
-        ai_service = _AiSvc(session=session, settings=container.settings)
+        ai_service = _AiSvc(
+            session=session,
+            settings=container.settings,
+            scope=await _get_read_scope(ctx),
+        )
         try:
             if not container.settings.ai_enabled:
                 return _serialise(
@@ -673,7 +717,7 @@ class GetCashflowInput(BaseModel):
 async def tool_get_cashflow(ctx: ServerContext, period: str = "30d") -> str:
     """Return aggregate cashflow for a given period."""
     tenant_id = _get_tenant_id(ctx)
-    read_service = _get_read_service(ctx)
+    read_service = await _get_read_service(ctx)
     try:
         days = int(period[:-1]) if period.endswith("d") else 30
         date_from = datetime.now(UTC) - timedelta(days=days)
@@ -722,7 +766,7 @@ async def tool_list_sync_runs(
 ) -> str:
     """List recent sync runs with status summaries."""
     tenant_id = _get_tenant_id(ctx)
-    read_service = _get_read_service(ctx)
+    read_service = await _get_read_service(ctx)
     try:
         result = await read_service.list_sync_runs(
             tenant_id,

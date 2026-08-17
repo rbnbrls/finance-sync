@@ -199,11 +199,27 @@ class WebhookService:
         Returns the number of webhooks targeted.
 
         This is called from the outbox handler for each outbox message.
+
+        **Privacy policy:** deliveries are scoped to the owning tenant's
+        webhooks (outbox messages carry no tenant column — the tenant is
+        read from the event payload), and in a multi-member household
+        events that concern a *private* account are suppressed entirely,
+        so a webhook can never act as a side channel for another
+        household member's private financial data.
         """
         webhooks = await self._get_active_webhooks_for_event(
             event_type, tenant_id
         )
         if not webhooks:
+            return 0
+
+        if await self._should_suppress_event(event_type, data):
+            logger.info(
+                "webhook_private_event_suppressed",
+                event_type=event_type,
+                tenant_id=tenant_id,
+                reason="private account event in a multi-member household",
+            )
             return 0
 
         log = logger.bind(event_type=event_type, targeted=len(webhooks))
@@ -219,6 +235,102 @@ class WebhookService:
             await session.commit()
 
         return len(webhooks)
+
+    # ── Household privacy filter ────────────────────────────────────
+
+    #: Entity event types whose payload references an account-scoped row.
+    _ACCOUNT_SCOPED_EVENTS: frozenset[str] = frozenset(
+        {
+            "account.created",
+            "account.updated",
+            "transaction.created",
+            "transaction.updated",
+            "holding.created",
+            "holding.updated",
+        }
+    )
+
+    async def _should_suppress_event(
+        self,
+        event_type: str,
+        data: dict[str, Any],
+    ) -> bool:
+        """Return True when *event* must not reach the tenant's webhooks.
+
+        Suppression applies to account-scoped entity events whose
+        underlying account is ``private`` **and** whose tenant has more
+        than one active household member.  In a single-member household
+        the member owns every account, so their events are always part
+        of the household view and keep flowing (backwards compatible).
+
+        Unknown entities or aggregate-only events (``sync.completed``,
+        ``reconciliation.completed``) are never suppressed — the filter
+        must not silently break webhooks on lookup failures.
+        """
+        if event_type not in self._ACCOUNT_SCOPED_EVENTS:
+            return False
+
+        payload: dict[str, Any] = data
+        entity_type = payload.get("entity_type")
+        entity_id = payload.get("entity_id")
+        tenant_id = payload.get("tenant_id")
+        if not isinstance(entity_type, str) or not isinstance(entity_id, str):
+            return False
+        if not isinstance(tenant_id, str):
+            return False
+
+        from sqlalchemy import select
+
+        from finance_sync.models.account import Account
+        from finance_sync.models.holding import Holding
+        from finance_sync.models.transaction import Transaction
+        from finance_sync.models.user import User
+
+        async with self._session_factory() as session:
+            if entity_type == "account":
+                account_id = entity_id
+            elif entity_type == "transaction":
+                txn = await session.get(Transaction, entity_id)
+                account_id = str(txn.account_id) if txn is not None else None
+            elif entity_type == "holding":
+                holding = await session.get(Holding, entity_id)
+                account_id = (
+                    str(holding.account_id) if holding is not None else None
+                )
+            else:
+                return False
+
+            if account_id is None:
+                # Unknown entity — never suppress on lookup failure.
+                return False
+
+            account = await session.get(Account, account_id)
+            if account is None:
+                return False
+
+            # System-owned (legacy/unclaimed) accounts are tenant-level
+            # resources, not a member's private data — keep delivering.
+            if account.owner_user_id is None:
+                return False
+            # Household-visible accounts belong to the shared view.
+            if account.visibility == "household":
+                return False
+
+            # Fetch up to two active member ids: one member → the
+            # household view is that member's own view (deliver);
+            # two or more → a private account's event is that
+            # member's private data (suppress).
+            member_rows = (
+                await session.execute(
+                    select(User.id)
+                    .where(
+                        User.tenant_id == account.tenant_id,  # type: ignore[attr-defined]
+                        User.is_active.is_(True),  # type: ignore[attr-defined]
+                    )
+                    .limit(2)
+                )
+            ).scalars()
+            return len(list(member_rows)) >= 2
 
     # ── Outbox handler (registered with OutboxPublisher) ────────────
 
@@ -238,11 +350,16 @@ class WebhookService:
         transactions in the publisher loop).
         """
         msg: OutboxMessage = message  # type: ignore[assignment]
+        payload = msg.payload or {}
+        # Outbox messages have no tenant column; the emitting service
+        # embeds the owning tenant in the payload (see
+        # finance_sync.sync.outbox) so deliveries stay tenant-scoped.
+        tenant_id = getattr(msg, "tenant_id", None) or payload.get("tenant_id")
         count = await self.dispatch_event(
             event_type=msg.event_type,
-            data=msg.payload or {},
+            data=payload,
             event_id=str(msg.id),
-            tenant_id=getattr(msg, "tenant_id", None),
+            tenant_id=tenant_id,
         )
         if count > 0:
             logger.debug(

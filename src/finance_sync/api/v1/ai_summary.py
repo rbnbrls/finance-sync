@@ -9,10 +9,15 @@ from typing import TYPE_CHECKING, Any
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from finance_sync.api.deps.auth import AuthContext, require_permission
+from finance_sync.api.deps.auth import (
+    AuthContext,
+    get_read_scope,
+    require_permission,
+)
 from finance_sync.api.middleware.ai_rate_limit import check_ai_rate_limit
 from finance_sync.dependencies import get_db, get_settings
 from finance_sync.services.ai_summary import AISummaryService
+from finance_sync.services.visibility import ReadScope
 
 if TYPE_CHECKING:
     from finance_sync.config.settings import Settings
@@ -36,10 +41,12 @@ def _require_ai_enabled(request: Request) -> None:
         )
 
 
-def _get_service(session: AsyncSession, request: Request) -> AISummaryService:
+def _get_service(
+    session: AsyncSession, request: Request, scope: ReadScope | None = None
+) -> AISummaryService:
     """Build an AISummaryService from the container settings."""
     settings = get_settings(request)
-    return AISummaryService(session, settings)
+    return AISummaryService(session, settings, scope=scope)
 
 
 @router.post("/summary")
@@ -48,6 +55,7 @@ async def generate_summary(
     _: None = Depends(_require_ai_enabled),
     auth: AuthContext = Depends(require_permission("accounts", "read")),
     db: AsyncSession = Depends(get_db),
+    scope: ReadScope = Depends(get_read_scope),
     _rate_limit: None = Depends(check_ai_rate_limit),
     time_period_days: int = Query(
         default=30,
@@ -61,7 +69,7 @@ async def generate_summary(
     ),
 ) -> dict[str, Any]:
     """Generate a natural-language summary of recent financial activity."""
-    svc = _get_service(db, request)
+    svc = _get_service(db, request, scope=scope)
     try:
         result = await svc.generate_summary(
             tenant_id=auth.tenant_id,
@@ -83,6 +91,7 @@ async def generate_daily_briefing(
     _: None = Depends(_require_ai_enabled),
     auth: AuthContext = Depends(require_permission("accounts", "read")),
     db: AsyncSession = Depends(get_db),
+    scope: ReadScope = Depends(get_read_scope),
     _rate_limit: None = Depends(check_ai_rate_limit),
     force_refresh: bool = Query(
         default=False,
@@ -90,7 +99,7 @@ async def generate_daily_briefing(
     ),
 ) -> dict[str, Any]:
     """Generate an automated daily financial briefing."""
-    svc = _get_service(db, request)
+    svc = _get_service(db, request, scope=scope)
     try:
         result = await svc.generate_daily_briefing(
             tenant_id=auth.tenant_id,

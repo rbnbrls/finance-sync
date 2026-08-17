@@ -9,9 +9,14 @@ from typing import TYPE_CHECKING, Any
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from finance_sync.api.deps.auth import AuthContext, require_permission
+from finance_sync.api.deps.auth import (
+    AuthContext,
+    get_read_scope,
+    require_permission,
+)
 from finance_sync.dependencies import get_db, get_settings
 from finance_sync.services.ha_integration import HomeAssistantService
+from finance_sync.services.visibility import ReadScope
 
 if TYPE_CHECKING:
     from finance_sync.config.settings import Settings
@@ -36,11 +41,11 @@ def _require_ha_enabled(request: Request) -> None:
 
 
 def _get_service(
-    session: AsyncSession, request: Request
+    session: AsyncSession, request: Request, scope: ReadScope | None = None
 ) -> HomeAssistantService:
     """Build a HomeAssistantService from the container settings."""
     settings = get_settings(request)
-    return HomeAssistantService(session, settings)
+    return HomeAssistantService(session, settings, scope=scope)
 
 
 @router.get("/sensors")
@@ -49,9 +54,10 @@ async def get_ha_sensors(
     _: None = Depends(_require_ha_enabled),
     auth: AuthContext = Depends(require_permission("accounts", "read")),
     db: AsyncSession = Depends(get_db),
+    scope: ReadScope = Depends(get_read_scope),
 ) -> dict[str, Any]:
     """Expose financial sensors for Home Assistant REST sensor integration."""
-    svc = _get_service(db, request)
+    svc = _get_service(db, request, scope=scope)
     sensors = await svc.get_sensors(tenant_id=auth.tenant_id)
     return {"sensors": [s.to_dict() for s in sensors]}
 

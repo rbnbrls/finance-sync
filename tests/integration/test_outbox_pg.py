@@ -73,6 +73,7 @@ class TestOutboxHelpersPg:
         async with UnitOfWork(session) as uow:
             msg = await outbox_entity_created(
                 uow,
+                tenant_id="tenant_1",
                 entity_type="account",
                 entity_id="ent_123",
                 entity_data={"name": "My Account"},
@@ -80,6 +81,7 @@ class TestOutboxHelpersPg:
             )
             assert msg.event_type == "account.created"
             assert msg.idempotency_key == "account:ent_123:created"
+            assert msg.payload["tenant_id"] == "tenant_1"
             assert msg.payload["provider_key"] == "test_provider"
             assert msg.payload["data"]["name"] == "My Account"
 
@@ -87,12 +89,14 @@ class TestOutboxHelpersPg:
         async with UnitOfWork(session) as uow:
             msg = await outbox_entity_updated(
                 uow,
+                tenant_id="tenant_1",
                 entity_type="transaction",
                 entity_id="txn_456",
                 changed_fields={"amount": "50.00"},
                 provider_key="test",
             )
             assert msg.event_type == "transaction.updated"
+            assert msg.payload["tenant_id"] == "tenant_1"
             assert msg.payload["changed_fields"] == {"amount": "50.00"}
 
     async def test_outbox_reconciliation_completed(self, session) -> None:

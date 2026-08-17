@@ -672,6 +672,7 @@ async def create_connector_config(
     now = datetime.now(UTC)
     cred = Credential(
         tenant_id=auth.tenant_id,
+        owner_user_id=(str(auth.user.id) if auth.user is not None else None),
         provider_key=body.provider_type,
         encrypted_payload=encrypted_payload,
         nonce=nonce,

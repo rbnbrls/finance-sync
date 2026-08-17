@@ -116,6 +116,7 @@ class TestOutboxHelpers:
         async with UnitOfWork(session) as uow:
             msg = await outbox_entity_created(
                 uow,
+                tenant_id="tenant-1",
                 entity_type="account",
                 entity_id="ent_123",
                 entity_data={"name": "My Account"},
@@ -125,6 +126,7 @@ class TestOutboxHelpers:
             assert msg.aggregate_id == "ent_123"
             assert msg.aggregate_type == "account"
             assert msg.idempotency_key == "account:ent_123:created"
+            assert msg.payload["tenant_id"] == "tenant-1"
             assert msg.payload["provider_key"] == "test_provider"
 
     async def test_outbox_entity_updated(self, session) -> None:
@@ -135,6 +137,7 @@ class TestOutboxHelpers:
         async with UnitOfWork(session) as uow:
             msg = await outbox_entity_updated(
                 uow,
+                tenant_id="tenant-1",
                 entity_type="transaction",
                 entity_id="txn_456",
                 changed_fields={"amount": "50.00"},
@@ -142,6 +145,7 @@ class TestOutboxHelpers:
             )
             assert msg.event_type == "transaction.updated"
             assert msg.idempotency_key == "transaction:txn_456:updated"
+            assert msg.payload["tenant_id"] == "tenant-1"
             assert msg.payload["changed_fields"] == {"amount": "50.00"}
 
 
@@ -197,6 +201,7 @@ class TestOutboxSyncCompleted:
         async with UnitOfWork(session) as uow:
             msg = await outbox_sync_completed(
                 uow,
+                tenant_id="tenant-1",
                 run_id="sync_run_1",
                 provider_key="broker",
                 accounts=1,
@@ -207,6 +212,7 @@ class TestOutboxSyncCompleted:
 
             assert msg.event_type == "sync.completed"
             assert msg.payload is not None
+            assert msg.payload["tenant_id"] == "tenant-1"
             assert msg.payload["holdings"] == 3
             assert msg.payload["unresolved_securities"] == 1
             assert "amount" not in msg.payload

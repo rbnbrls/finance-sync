@@ -148,10 +148,30 @@ class PerformanceService:
 
     Each method returns Pydantic response models. Methods are async and
     operate on an async SQLAlchemy session.
+
+    When constructed with a ``ReadScope`` (from
+    :mod:`finance_sync.services.visibility`), every Holding/Transaction
+    query is restricted to the visible accounts so private accounts of
+    other household members can never influence performance, valuation
+    or cash-flow figures.
     """
 
-    def __init__(self, session: AsyncSession) -> None:
+    def __init__(
+        self,
+        session: AsyncSession,
+        *,
+        scope: Any | None = None,
+    ) -> None:
         self._session = session
+        self._scope = scope
+
+    def _derived_scope_condition(self, model: Any) -> Any:
+        """Return ``model.account_id IN (visible ids)`` when scoped."""
+        if self._scope is None:
+            return True
+        return model.account_id.in_(  # type: ignore[attr-defined]
+            self._scope.account_ids_subquery()
+        )
 
     # ── TWR (Time-Weighted Return) ────────────────────────────────────
 
@@ -709,6 +729,7 @@ class PerformanceService:
             Holding.tenant_id == tenant_id,  # type: ignore[attr-defined]
             Holding.observed_at >= start,  # type: ignore[attr-defined]
             Holding.observed_at <= end,  # type: ignore[attr-defined]
+            self._derived_scope_condition(Holding),
         )
         result = await self._session.execute(stmt)
         row = result.one()
@@ -736,6 +757,7 @@ class PerformanceService:
                 Holding.observed_at >= start,
                 Holding.observed_at <= end,
                 Holding.market_value.isnot(None),
+                self._derived_scope_condition(Holding),
             )
             .group_by(date_col)
             .order_by(date_col)
@@ -757,6 +779,7 @@ class PerformanceService:
             Holding.tenant_id == tenant_id,
             Holding.observed_at <= at,
             Holding.market_value.isnot(None),
+            self._derived_scope_condition(Holding),
         )
         result = await self._session.execute(stmt)
         val: E | None = result.scalar()
@@ -788,6 +811,7 @@ class PerformanceService:
                 ]
             ),
             Transaction.status.in_(["booked", "pending"]),
+            self._derived_scope_condition(Transaction),
         ]
         stmt = (
             select(Transaction.occurred_at, Transaction.amount_in_base)
@@ -1006,6 +1030,7 @@ class PerformanceService:
                 Holding.tenant_id == tenant_id,
                 Holding.observed_at <= at,
                 Holding.market_value.isnot(None),
+                self._derived_scope_condition(Holding),
             )
             .group_by(Security.security_type)
         )
@@ -1045,6 +1070,7 @@ class PerformanceService:
                 Holding.observed_at >= start,
                 Holding.observed_at <= end,
                 Holding.market_value.isnot(None),
+                self._derived_scope_condition(Holding),
             )
             .group_by(Security.security_type)
         )
