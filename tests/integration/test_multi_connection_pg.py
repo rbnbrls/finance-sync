@@ -899,7 +899,9 @@ class TestSchedulerJobPg:
         no data, no attempt timestamp — the summary still records the
         skip so operators can see it."""
         settings = _test_settings()
-        tenant = Tenant(name="multi-conn-job-paused", slug="multi-conn-job-paused")
+        tenant = Tenant(
+            name="multi-conn-job-paused", slug="multi-conn-job-paused"
+        )
         session.add(tenant)
         await session.flush()
 
@@ -960,9 +962,7 @@ class TestSchedulerJobPg:
 
             accounts = (
                 await s.scalars(
-                    select(Account).where(
-                        Account.tenant_id == str(tenant.id)
-                    )
+                    select(Account).where(Account.tenant_id == str(tenant.id))
                 )
             ).all()
             assert [a.connection_id for a in accounts] == [str(conn_active.id)]
