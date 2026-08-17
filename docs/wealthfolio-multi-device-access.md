@@ -56,7 +56,10 @@ verbindingen vanaf LXC 102). De poort is alleen bereikbaar op het LAN
 - **Cookie-forwarding**: de nginx-proxy stuurt de `Host`-header en cookies
   ongewijzigd door (`proxy_set_header Host $host`), zodat Wealthfolio zijn
   sessiecookies op het publieke hostname `wealthfolio.7rb.nl` zet en de PWA
-  same-origin blijft laden.
+  same-origin blijft laden. Het door Traefik doorgestuurde
+  `X-Forwarded-Proto: https` wordt doorgegeven (met `$scheme` als fallback),
+  zodat Wealthfolio altijd Secure sessiecookies uitreikt — de proxy luistert
+  zelf op plain HTTP, dus `$scheme` alleen zou foutief `http` doorgeven.
 - **SSE**: de Wealthfolio UI gebruikt server-sent events; de proxy zet
   `proxy_buffering off` en ruime timeouts, zodat live-updates niet worden
   gebufferd (zie `deploy/wealthfolio-proxy/nginx.conf`).

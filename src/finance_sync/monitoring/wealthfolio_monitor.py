@@ -123,9 +123,27 @@ def check_cert_expiry(
         )
     if not cert:
         return CheckResult("cert_expiry", False, detail="no peer certificate")
-    not_after = datetime.strptime(
-        cert["notAfter"], "%b %d %H:%M:%S %Y %Z"
-    ).replace(tzinfo=UTC)
+    raw_not_after = cert.get("notAfter", "")
+    try:
+        # OpenSSL-style: "Aug 15 12:00:00 2030 GMT"
+        not_after = datetime.strptime(
+            raw_not_after, "%b %d %H:%M:%S %Y %Z"
+        ).replace(tzinfo=UTC)
+    except ValueError:
+        # Some TLS stacks emit ISO-8601 ("2030-08-15 12:00:00 UTC").  Parse
+        # leniently; on any failure fail the check instead of crashing the
+        # whole monitor run (a monitoring gap must surface as a failed check).
+        try:
+            iso = raw_not_after.strip()
+            if iso.endswith(("UTC", "GMT")):
+                iso = iso[:-3] + "+00:00"
+            not_after = datetime.fromisoformat(iso).astimezone(UTC)
+        except ValueError:
+            return CheckResult(
+                "cert_expiry",
+                False,
+                detail=f"unparseable notAfter: {raw_not_after!r}",
+            )
     days_left = (not_after - datetime.now(UTC)).total_seconds() / 86400.0
     return CheckResult(
         "cert_expiry",
