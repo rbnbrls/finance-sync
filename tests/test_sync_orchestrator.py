@@ -759,7 +759,9 @@ class TestSyncCursorResume:
             return_value=[]
         )
 
-        async def get_acct(tenant_id, provider_key, external_account_id):
+        async def get_acct(
+            tenant_id, provider_key, external_account_id, connection_id=None
+        ):
             acct = MagicMock()
             acct.id = f"acct_{external_account_id}"
             return acct
@@ -1725,7 +1727,15 @@ class TestAutoReconciliationAfterSync:
         )
 
         def patch_run_pipeline(
-            session, connector, provider_type, since, log, *, resume=True
+            session,
+            connector,
+            provider_type,
+            since,
+            log,
+            *,
+            resume=True,
+            connection_id=None,
+            selected_accounts=None,
         ):
             return mock_result
 
@@ -1775,7 +1785,15 @@ class TestAutoReconciliationAfterSync:
         )
 
         def patch_run_pipeline(
-            session, connector, provider_type, since, log, *, resume=True
+            session,
+            connector,
+            provider_type,
+            since,
+            log,
+            *,
+            resume=True,
+            connection_id=None,
+            selected_accounts=None,
         ):
             return mock_result
 
@@ -1818,7 +1836,15 @@ class TestAutoReconciliationAfterSync:
         )
 
         def patch_run_pipeline(
-            session, connector, provider_type, since, log, *, resume=True
+            session,
+            connector,
+            provider_type,
+            since,
+            log,
+            *,
+            resume=True,
+            connection_id=None,
+            selected_accounts=None,
         ):
             return mock_result
 
@@ -1887,7 +1913,15 @@ class TestAutoReconciliationDisabled:
         )
 
         def patch_run_pipeline(
-            session, connector, provider_type, since, log, *, resume=True
+            session,
+            connector,
+            provider_type,
+            since,
+            log,
+            *,
+            resume=True,
+            connection_id=None,
+            selected_accounts=None,
         ):
             return mock_result
 

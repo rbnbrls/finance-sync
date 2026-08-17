@@ -16,16 +16,21 @@ async def start_sync_run(
     uow: object,
     *,
     connector: str,
+    connection_id: str | None = None,
 ) -> SyncRun:
     """Create a new ``SyncRun`` record with status ``running``.
 
     The record is added to the session but not flushed — it commits
     atomically with the enclosing transaction.
 
+    ``connection_id`` scopes the run to a specific connection (credential)
+    in multi-connection syncs; legacy single-connection runs leave it NULL.
+
     Returns the created ``SyncRun`` instance.
     """
     run = SyncRun(
         connector=connector,
+        connection_id=connection_id,
         status=SyncRunStatus.RUNNING,
         started_at=datetime.now(UTC),
     )

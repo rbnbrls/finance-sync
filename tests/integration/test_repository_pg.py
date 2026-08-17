@@ -38,14 +38,15 @@ async def _create_account(
     external_id: str = "acc_ext_1",
     provider_key: str = "mock_provider",
     name: str = "Main Checking",
-    metadata_: dict | None = None,
     connection_id: str | None = None,
+    metadata_: dict | None = None,
 ) -> Account:
     async with session_factory() as session, UnitOfWork(session) as uow:
         return await uow.accounts.add(
             Account(
                 tenant_id=tenant.id,
                 provider_key=provider_key,
+                connection_id=connection_id,
                 external_account_id=external_id,
                 name=name,
                 account_type=AccountType.CHECKING,
@@ -54,7 +55,6 @@ async def _create_account(
                 available_balance=Decimal("1480.00"),
                 provider_metadata=metadata_
                 or {"iban": "NL00BANK0123456789", "bic": "BANKNL2A"},
-                connection_id=connection_id,
             )
         )
 
@@ -225,19 +225,17 @@ class TestPgConstraints:
     """PostgreSQL-specific constraint behaviour."""
 
     async def test_unique_provider_constraint(self, session_factory) -> None:
-        """Accounts are unique per (tenant, provider, connection, external id).
+        """Two accounts with the same (tenant, provider, connection,
+        external) id are rejected by ``uq_accounts_provider``.
 
-        Migration 0017 extended ``uq_accounts_provider`` with
-        ``connection_id``: the same external id within one connection is
-        still rejected, while the same external id in a *different*
-        connection coexists (multi-connection support).
+        Since migration 0017 the unique constraint is scoped per
+        connection: two rows with identical external ids from *different*
+        connections coexist (NULL connection_id rows are legacy and PG
+        treats NULLs as distinct, so they do not collide either).
         """
         tenant = await _create_tenant(session_factory)
         await _create_account(
-            session_factory,
-            tenant,
-            external_id="dup-1",
-            connection_id="conn-1",
+            session_factory, tenant, external_id="dup-1", connection_id="conn-1"
         )
 
         async with session_factory() as session:
@@ -247,22 +245,22 @@ class TestPgConstraints:
                         Account(
                             tenant_id=tenant.id,
                             provider_key="mock_provider",
+                            connection_id="conn-1",
                             external_account_id="dup-1",
                             name="Duplicate",
                             account_type=AccountType.CHECKING,
-                            connection_id="conn-1",
                         )
                     )
                     await uow.commit()
 
-        # Same external id under a DIFFERENT connection is allowed.
-        second = await _create_account(
+        # A different connection with the *same* external id is allowed —
+        # that is the whole point of the multi-connection feature.
+        await _create_account(
             session_factory,
             tenant,
             external_id="dup-1",
             connection_id="conn-2",
         )
-        assert second.id is not None
 
     async def test_fk_violation(self, session_factory) -> None:
         """Account referencing a non-existent tenant violates the FK."""
