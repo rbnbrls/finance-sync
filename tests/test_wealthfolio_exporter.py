@@ -65,6 +65,7 @@ def _make_mock_account(**kwargs):
         "account_type": "brokerage",
         "currency_code": "EUR",
         "is_active": True,
+        "visibility": "household",
     }
     for k, v in {**defaults, **kwargs}.items():
         setattr(acct, k, v)
@@ -1115,6 +1116,43 @@ class TestWealthfolioPushCursor:
             await exporter.push_to_wealthfolio(wf_client, since=fallback)
 
         assert fetch_mock.await_args.kwargs["since"] == fallback
+
+    @pytest.mark.asyncio
+    async def test_push_filters_private_accounts_from_explicit_list(
+        self, exporter: WealthfolioExporter
+    ) -> None:
+        """Even an explicit account list cannot push private accounts.
+
+        The visibility policy is enforced as defense-in-depth on the
+        explicit ``accounts`` argument: only ``household``-visible
+        accounts are pushed to the shared Wealthfolio instance.
+        """
+        shared = _make_mock_account(name="Shared", visibility="household")
+        private = _make_mock_account(name="Private", visibility="private")
+
+        with patch.object(
+            exporter, "_get_wealthfolio_delivery", return_value=None
+        ):
+            wf_client, fetch_mock, _complete_mock = self._patch_push_deps(
+                exporter,
+                accounts=[shared, private],
+                txns_by_account={shared.id: [_make_mock_transaction()]},
+            )
+            wf_client.push_activities.return_value = {
+                "imported": 1,
+                "skipped": 0,
+                "failed": 0,
+            }
+            await exporter.push_to_wealthfolio(wf_client)
+
+        # Only the household account was pushed; the private one is
+        # never fetched, mapped or delivered.
+        fetched_ids = {
+            call.kwargs["account_id"] for call in fetch_mock.await_args_list
+        }
+        assert fetched_ids == {shared.id}
+        assert private.id not in fetched_ids
+        assert exporter._ensure_wf_account.await_count == 1
 
     @pytest.mark.asyncio
     async def test_push_advances_cursor_after_success(

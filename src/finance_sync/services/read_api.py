@@ -56,6 +56,11 @@ class AccountSummary(BaseModel):
     owner_user_id: str | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
+    # Revocation cleanup hint (set on unshare responses only): whether
+    # the account had previously exported data that the owner must
+    # explicitly quarantine or delete — never deleted silently.
+    export_cleanup_required: bool = False
+    export_artifacts: dict[str, Any] | None = None
 
 
 class AccountDetailResponse(BaseModel):

@@ -417,11 +417,21 @@ class ActualBudgetExporter:
         self,
         account_ids: list[str] | None,
     ) -> list[Account]:
-        """Load finance-sync accounts, optionally filtered."""
+        """Load finance-sync accounts, optionally filtered.
+
+        **Visibility policy:** only accounts with ``visibility ==
+        'household'`` are exported to the shared ActualBudget instance
+        (mirroring the Wealthfolio exporter), so private accounts of
+        household members are never created or updated there.  Revoking
+        a share (visibility → private) stops further export immediately.
+        """
+        from finance_sync.services.visibility import HOUSEHOLD
+
         async with self._session_factory() as session:
             stmt = select(Account).where(
                 Account.tenant_id == self._tenant_id,  # type: ignore[attr-defined]
                 Account.is_active.is_(True),  # type: ignore[attr-defined]
+                Account.visibility == HOUSEHOLD,  # type: ignore[attr-defined]
             )
             if account_ids:
                 stmt = stmt.where(

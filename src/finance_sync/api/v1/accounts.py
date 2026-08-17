@@ -7,7 +7,7 @@ because FastAPI needs runtime type introspection for OpenAPI generation.
 from datetime import datetime
 from typing import Any, NoReturn
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,13 +16,19 @@ from finance_sync.api.deps.auth import (
     get_read_scope,
     require_permission,
 )
-from finance_sync.dependencies import get_db
+from finance_sync.dependencies import get_container, get_db
 from finance_sync.models.enums import TransactionType
 from finance_sync.services.account_sharing import (
     AccountSharingError,
     claim_account,
     set_account_visibility,
     share_preview,
+)
+from finance_sync.services.export_cleanup import (
+    ERR_CONFIRMATION_REQUIRED,
+    delete_export_artifacts,
+    describe_export_artifacts,
+    quarantine_export_artifacts,
 )
 from finance_sync.services.read_api import (
     AccountDetailResponse,
@@ -182,6 +188,30 @@ class SharePreviewResponse(BaseModel):
     impact: dict[str, Any]
 
 
+class ExportArtifactsResponse(BaseModel):
+    """What was already exported for an account (read-only description)."""
+
+    account_id: str
+    account_name: str
+    has_mapping: bool
+    wf_account_name: str | None
+    has_delivery_cursor: bool
+    last_exported_at: str | None
+    csv_file_count: int
+    csv_files: list[str]
+    quarantined_file_count: int
+
+
+class ExportCleanupRequest(BaseModel):
+    confirm: bool = Field(
+        default=False,
+        description=(
+            "Must be true to permanently delete already-exported data. "
+            "False (default) rejects the request and touches nothing."
+        ),
+    )
+
+
 def _raise_sharing_error(exc: AccountSharingError) -> NoReturn:
     raise HTTPException(
         status_code=(
@@ -192,6 +222,17 @@ def _raise_sharing_error(exc: AccountSharingError) -> NoReturn:
             else status.HTTP_422_UNPROCESSABLE_ENTITY
         ),
         detail=exc.message,
+    )
+
+
+def _export_output_dir(request: Request) -> Any:
+    """Resolve the Wealthfolio exporter output dir from settings."""
+    from pathlib import Path
+
+    settings = get_container(request).settings
+    return Path(
+        getattr(settings, "wealthfolio_output_dir", "")
+        or "/tmp/finance_sync_wealthfolio_exports"
     )
 
 
@@ -229,6 +270,7 @@ async def get_share_preview(
 async def update_account_visibility(
     account_id: str,
     body: SetVisibilityRequest,
+    request: Request,
     auth: AuthContext = Depends(require_permission("accounts", "write")),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
@@ -237,6 +279,13 @@ async def update_account_visibility(
     ``household`` makes the account visible to every household member and
     eligible for the shared Wealthfolio export; ``private`` restricts it
     to the owner (and tenant admins).  Every transition is audit-logged.
+
+    Unsharing (→ ``private``) an account that had already been exported
+    does **not** delete anything: the response carries
+    ``export_cleanup_required`` plus an ``export_artifacts`` description
+    so the UI can ask the owner to explicitly quarantine or delete the
+    previously exported data (see ``GET /export-artifacts``,
+    ``POST /export-quarantine``, ``POST /export-cleanup``).
     """
     if auth.user is None:
         raise HTTPException(
@@ -254,7 +303,8 @@ async def update_account_visibility(
     except AccountSharingError as exc:
         _raise_sharing_error(exc)
     await db.commit()
-    return {
+
+    response: dict[str, Any] = {
         "id": str(account.id),
         "name": account.name,
         "account_type": account.account_type,
@@ -268,7 +318,140 @@ async def update_account_visibility(
         "owner_user_id": account.owner_user_id,
         "created_at": account.created_at,
         "updated_at": account.updated_at,
+        "export_cleanup_required": False,
+        "export_artifacts": None,
     }
+
+    # Unsharing an account with prior exports → report what the owner
+    # must explicitly quarantine/delete.  Never delete silently here.
+    if account.visibility == "private":
+        try:
+            artifacts = await describe_export_artifacts(
+                db,
+                tenant_id=auth.tenant_id,
+                account_id=account_id,
+                actor=auth.user,
+                output_dir=_export_output_dir(request),
+            )
+        except AccountSharingError as exc:
+            _raise_sharing_error(exc)
+        cleanup_required = bool(
+            artifacts["has_mapping"]
+            or artifacts["has_delivery_cursor"]
+            or artifacts["csv_file_count"] > 0
+            or artifacts["quarantined_file_count"] > 0
+        )
+        response["export_cleanup_required"] = cleanup_required
+        if cleanup_required:
+            response["export_artifacts"] = artifacts
+    return response
+
+
+@router.get(
+    "/{account_id}/export-artifacts",
+    response_model=ExportArtifactsResponse,
+)
+async def get_export_artifacts(
+    account_id: str,
+    request: Request,
+    auth: AuthContext = Depends(require_permission("accounts", "read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Describe what was already exported for an account (owner-only).
+
+    Lists the Wealthfolio mapping row, the delivery cursor and the CSV
+    files the exporter wrote for this account — read-only, nothing is
+    modified.  The UI shows this before asking the owner to confirm
+    quarantine or deletion.
+    """
+    if auth.user is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="API keys cannot manage account sharing",
+        )
+    try:
+        return await describe_export_artifacts(
+            db,
+            tenant_id=auth.tenant_id,
+            account_id=account_id,
+            actor=auth.user,
+            output_dir=_export_output_dir(request),
+        )
+    except AccountSharingError as exc:
+        _raise_sharing_error(exc)
+
+
+@router.post("/{account_id}/export-quarantine")
+async def quarantine_export(
+    account_id: str,
+    request: Request,
+    auth: AuthContext = Depends(require_permission("accounts", "write")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Quarantine the account's already-exported CSV files (owner-only).
+
+    Non-destructive: files are moved into the exporter's quarantine
+    directory and the mapping/delivery rows are kept, so a future
+    re-share resumes cleanly.  Audited as ``account_export_quarantine``.
+    """
+    if auth.user is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="API keys cannot manage account sharing",
+        )
+    try:
+        result = await quarantine_export_artifacts(
+            db,
+            tenant_id=auth.tenant_id,
+            account_id=account_id,
+            actor=auth.user,
+            output_dir=_export_output_dir(request),
+        )
+    except AccountSharingError as exc:
+        _raise_sharing_error(exc)
+    await db.commit()
+    return result
+
+
+@router.post("/{account_id}/export-cleanup")
+async def cleanup_export(
+    account_id: str,
+    body: ExportCleanupRequest,
+    request: Request,
+    auth: AuthContext = Depends(require_permission("accounts", "write")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Permanently delete the account's already-exported data (owner-only).
+
+    Destructive: removes the CSV files (including quarantined copies)
+    and the Wealthfolio mapping/delivery rows.  **Requires explicit
+    ``confirm: true``** — a request without confirmation is rejected
+    with 422 and touches nothing.  Audited as
+    ``account_export_quarantine`` (decision=delete).
+    """
+    if auth.user is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="API keys cannot manage account sharing",
+        )
+    try:
+        result = await delete_export_artifacts(
+            db,
+            tenant_id=auth.tenant_id,
+            account_id=account_id,
+            actor=auth.user,
+            output_dir=_export_output_dir(request),
+            confirm=body.confirm,
+        )
+    except AccountSharingError as exc:
+        if exc.code == ERR_CONFIRMATION_REQUIRED:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=exc.message,
+            ) from exc
+        _raise_sharing_error(exc)
+    await db.commit()
+    return result
 
 
 @router.post("/{account_id}/claim", response_model=AccountSummary)
