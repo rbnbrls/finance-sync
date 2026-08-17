@@ -423,22 +423,30 @@ class WealthfolioExporter:
     ) -> list[Account]:
         """Load finance-sync accounts, optionally filtered.
 
-        The tenant's per-connection account selection is applied: a
+        **Visibility policy:** only accounts with ``visibility ==
+        'household'`` are exported to the shared Wealthfolio instance.
+        Private accounts are never created or updated there, so revoking
+        a share (visibility → private) stops further export immediately —
+        the next run simply excludes the account.
+
+        The tenant's per-connection account selection is applied too: a
         connection that pinned ``selected_accounts`` only exports the
         accounts in that selection (deselected accounts are never
         exported), while connections without a selection export
         everything they synced.  Legacy rows without a connection scope
-        keep exporting.
+        keep exporting (when household-visible).
         """
         from finance_sync.services.account_selection import (
             account_is_selected,
             load_account_selection,
         )
+        from finance_sync.services.visibility import HOUSEHOLD
 
         async with self._session_factory() as session:
             stmt = select(Account).where(
                 Account.tenant_id == self._tenant_id,  # type: ignore[attr-defined]
                 Account.is_active.is_(True),  # type: ignore[attr-defined]
+                Account.visibility == HOUSEHOLD,  # type: ignore[attr-defined]
                 Account.account_type.in_(["investment", "brokerage"]),  # type: ignore[attr-defined]
             )
             if account_ids:
@@ -816,6 +824,17 @@ class WealthfolioExporter:
         try:
             _since = since or await self._last_export_time()
             fs_accounts = accounts or await self._load_accounts(None)
+            # Defense-in-depth: even an explicit account list must obey
+            # the household visibility policy — private accounts are
+            # never pushed to the shared Wealthfolio instance.
+            from finance_sync.services.visibility import HOUSEHOLD
+
+            fs_accounts = [
+                acct
+                for acct in fs_accounts
+                if isinstance(getattr(acct, "visibility", None), str)
+                and acct.visibility == HOUSEHOLD  # type: ignore[attr-defined]
+            ]
             security_map = await self._load_securities()
 
             for fs_acct in fs_accounts:

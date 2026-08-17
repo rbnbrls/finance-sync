@@ -570,7 +570,7 @@ class TestExportSelectionPg:
         from finance_sync.exporter.wealthfolio.exporter import (
             WealthfolioExporter,
         )
-        from finance_sync.models.enums import AccountType
+        from finance_sync.models.enums import AccountType, AccountVisibility
 
         tenant = Tenant(name="multi-conn-export", slug="multi-conn-export")
         session.add(tenant)
@@ -596,6 +596,9 @@ class TestExportSelectionPg:
         session.add_all([conn_sel, conn_all])
         await session.flush()
 
+        # All accounts are household-visible so this test exercises the
+        # per-connection selection policy in isolation (visibility is
+        # covered separately by test_household_exporter_pg.py).
         accounts = [
             Account(
                 tenant_id=tenant.id,
@@ -605,6 +608,7 @@ class TestExportSelectionPg:
                 name="Selected",
                 account_type=AccountType.BROKERAGE,
                 currency_code="EUR",
+                visibility=AccountVisibility.HOUSEHOLD.value,
             ),
             Account(
                 tenant_id=tenant.id,
@@ -614,6 +618,7 @@ class TestExportSelectionPg:
                 name="Deselected",
                 account_type=AccountType.BROKERAGE,
                 currency_code="EUR",
+                visibility=AccountVisibility.HOUSEHOLD.value,
             ),
             Account(
                 tenant_id=tenant.id,
@@ -623,6 +628,7 @@ class TestExportSelectionPg:
                 name="Unrestricted",
                 account_type=AccountType.BROKERAGE,
                 currency_code="EUR",
+                visibility=AccountVisibility.HOUSEHOLD.value,
             ),
             Account(
                 tenant_id=tenant.id,
@@ -632,6 +638,7 @@ class TestExportSelectionPg:
                 name="Legacy",
                 account_type=AccountType.BROKERAGE,
                 currency_code="EUR",
+                visibility=AccountVisibility.HOUSEHOLD.value,
             ),
         ]
         session.add_all(accounts)
