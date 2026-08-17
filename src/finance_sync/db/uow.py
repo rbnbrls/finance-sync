@@ -162,9 +162,7 @@ class UnitOfWork:
 
     @property
     def connection_audit_logs(self) -> ConnectionAuditLogRepository:
-        return self._repo(
-            "connection_audit_logs", ConnectionAuditLogRepository
-        )  # type: ignore[return-value]
+        return self._repo("connection_audit_logs", ConnectionAuditLogRepository)  # type: ignore[return-value]
 
     @property
     def security_metadata_observations(
