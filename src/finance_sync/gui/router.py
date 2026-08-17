@@ -49,3 +49,19 @@ async def gui_register(request: Request) -> HTMLResponse:
         request=request,
         name="register.html",
     )
+
+
+@router.get(
+    "/accept-invite", response_class=HTMLResponse, include_in_schema=False
+)
+async def gui_accept_invite(request: Request) -> HTMLResponse:
+    """Serve the household invitation acceptance page.
+
+    The invitee lands here (optionally with ``?token=...`` from the
+    admin's shared link) and posts to ``/api/v1/household/invitations/
+    accept`` with the one-time token, their email and a new password.
+    """
+    return templates.TemplateResponse(
+        request=request,
+        name="accept-invite.html",
+    )
