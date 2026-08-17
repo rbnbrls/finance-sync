@@ -26,6 +26,7 @@ class Account(TimestampMixin, Base):
         UniqueConstraint(
             "tenant_id",
             "provider_key",
+            "connection_id",
             "external_account_id",
             name="uq_accounts_provider",
         ),
@@ -39,6 +40,16 @@ class Account(TimestampMixin, Base):
     # ── Provider identity ────────────────────────────────────────────
     provider_key: Mapped[str] = mapped_column(
         String(64), nullable=False, comment="e.g. 'plaid', 'teller', 'openbb'"
+    )
+    connection_id: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+        index=True,
+        comment=(
+            "Stable connection (credential) id this account was fetched "
+            "with; keeps accounts from different connections isolated "
+            "even when the provider reuses external account ids"
+        ),
     )
     external_account_id: Mapped[str] = mapped_column(
         String(256), nullable=False, comment="Provider's account ID"

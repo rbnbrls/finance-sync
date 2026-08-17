@@ -37,6 +37,7 @@ class CardTransaction(TimestampMixin, Base):
         UniqueConstraint(
             "tenant_id",
             "provider_key",
+            "connection_id",
             "external_card_transaction_id",
             name="uq_card_transactions_provider",
         ),
@@ -49,6 +50,15 @@ class CardTransaction(TimestampMixin, Base):
 
     provider_key: Mapped[str] = mapped_column(
         String(64), nullable=False, comment="Ingestion connector name"
+    )
+    connection_id: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+        index=True,
+        comment=(
+            "Stable connection (credential) id this card transaction was "
+            "fetched with; scopes the external id per connection"
+        ),
     )
     external_card_transaction_id: Mapped[str] = mapped_column(
         String(256),
