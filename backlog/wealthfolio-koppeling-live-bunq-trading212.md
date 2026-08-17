@@ -1,6 +1,6 @@
 ---
 title: "Wealthfolio-koppeling live maken: bunq + Trading212 data beschikbaar in Wealthfolio"
-status: todo
+status: done
 priority: 30
 ---
 
