@@ -21,7 +21,7 @@ import json
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import MagicMock
 from uuid import uuid4
 
@@ -731,3 +731,19 @@ def test_acceptance_two_bunq_connections_lifecycle(monkeypatch: Any) -> None:
         assert "secret-bunq-a" not in joined
         assert "secret-bunq-b" not in joined
         assert "encrypted_payload" not in joined
+
+
+def test_credential_response_stringifies_uuid_ids() -> None:
+    """On PostgreSQL the ORM returns ``uuid.UUID`` objects for
+    ``Credential.id``; the public response has ``str`` fields, so the
+    serialiser must stringify.  Regression for the PG-only 500 that hit
+    every connector-config endpoint (list/get/create/update/pause/resume/
+    accounts/test) before the fix — the aiosqlite unit suite masked it
+    because SQLite stores UUIDs as text."""
+    cred = _make_cred("bunq", connection_id=str(uuid4()))
+    cred.id = cast("Any", uuid4())  # simulate a real PostgreSQL row
+    resp = cc._credential_response(cred)
+    assert isinstance(resp.id, str)
+    assert isinstance(resp.connection_id, str)
+    assert resp.id == str(cred.id)
+    assert resp.connection_id == str(cred.id)

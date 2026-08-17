@@ -645,6 +645,85 @@
             font-size: 0.85rem;
             margin-bottom: 20px;
         }
+
+        /* ── Connection control panel ─────────────────────────────── */
+        .connector-toolbar {
+            display: flex;
+            justify-content: flex-end;
+            margin-bottom: 20px;
+        }
+        .provider-group-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 12px;
+        }
+        .provider-group-header h2 {
+            font-size: 1.05rem;
+            font-weight: 600;
+        }
+        .conn-meta {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            margin-bottom: 12px;
+            line-height: 1.6;
+        }
+        .conn-meta .meta-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px 14px;
+        }
+        .conn-error {
+            font-size: 0.8rem;
+            color: var(--red);
+            background: rgba(248, 113, 113, 0.08);
+            border: 1px solid rgba(248, 113, 113, 0.25);
+            border-radius: 6px;
+            padding: 8px 10px;
+            margin-bottom: 12px;
+            word-break: break-word;
+        }
+        .account-row {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            padding: 10px 12px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            margin-bottom: 8px;
+            background: var(--bg);
+        }
+        .account-row input[type="checkbox"] {
+            margin-top: 3px;
+            accent-color: var(--accent);
+            flex-shrink: 0;
+        }
+        .account-row .account-label { font-size: 0.9rem; }
+        .account-row .account-sub {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            font-family: monospace;
+        }
+        .wizard-accounts {
+            margin-top: 16px;
+            border-top: 1px solid var(--border);
+            padding-top: 16px;
+        }
+        .selection-warning {
+            font-size: 0.8rem;
+            color: var(--yellow);
+            background: rgba(251, 191, 36, 0.08);
+            border: 1px solid rgba(251, 191, 36, 0.25);
+            border-radius: 6px;
+            padding: 8px 12px;
+            margin-bottom: 12px;
+        }
+        .field-hint {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            margin-top: 4px;
+            line-height: 1.4;
+        }
     </style>
 </head>
 <body>
@@ -681,7 +760,10 @@
     <main class="main" id="main-content">
         <div id="section-connectors" role="region" aria-labelledby="connectors-title">
             <h1 class="page-title" id="connectors-title">Connectors</h1>
-            <p class="page-subtitle" id="connectors-subtitle">Configure data source connections for syncing financial data.</p>
+            <p class="page-subtitle" id="connectors-subtitle">Manage your provider connections — each connection has its own credentials, status and account selection. Multiple bunq or Trading212 connections are supported side by side.</p>
+            <div class="connector-toolbar">
+                <button type="button" class="btn btn-primary" id="add-connection-btn" onclick="openCreateWizard()" aria-haspopup="dialog">&#43; Add connection</button>
+            </div>
             <div id="connector-list" aria-live="polite" aria-busy="true"></div>
         </div>
         <div id="section-exporters" class="hidden" role="region" aria-labelledby="exporters-title">
@@ -720,8 +802,10 @@
         let API_BASE = '/api/v1';
         let token = localStorage.getItem('fs_token');
         let connectors = [];     // available connector types
-        let configs = [];        // saved configs
+        let configs = [];        // saved configs (one entry per connection)
         let degiroRuns = [];     // path-free DEGIRO import status
+        let wizardAccounts = [];      // accounts returned by the create-wizard inline test
+        let connTestAccounts = {};    // cache: connectionId -> accounts from last test
 
         // ── Feedback submission guard ────────────────────────────────────
         let __feedbackSubmitting = false;  // state machine: prevents double-submit
@@ -970,7 +1054,7 @@
             connectors = avail || [];
             configs = cfgs || [];
             degiroRuns = imports || [];
-            renderConnectors();
+            renderConnections();
 
             // Friendly inline notice for any endpoint that failed, each
             // with its own Retry action.
@@ -999,77 +1083,128 @@
                 : 'You can retry to load the missing part.';
         }
 
-        function renderConnectors() {
+        function renderConnections() {
             const container = document.getElementById('connector-list');
-            if (!connectors.length) {
-                container.innerHTML = `<div class="empty-state"><div class="icon">&#9881;</div><p>No connectors available.</p></div>`;
+            if (!configs.length) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <div class="icon">&#128279;</div>
+                        <p>No connections yet. Add a bunq or Trading212 connection to start syncing.</p>
+                        <button type="button" class="btn btn-primary" style="margin-top:16px;" onclick="openCreateWizard()">&#43; Add connection</button>
+                    </div>`;
                 container.setAttribute('aria-busy', 'false');
                 return;
             }
 
-            let html = '<div class="connector-grid">';
-            for (const c of connectors) {
-                const cfg = configs.find(x => x.provider_type === c.name);
-                const isStagingChoice = c.configuration_mode === 'staging_choice';
-                const dataSource = cfg && cfg.options ? (cfg.options.data_source || 'static') : 'static';
-                const usesTestData = isStagingChoice && dataSource === 'static';
-                const usesTestApi = isStagingChoice && dataSource === 'test_api';
-                const isConfigured = cfg && cfg.is_configured;
-                const badgeClass = isConfigured ? 'connected' : 'unconfigured';
-                const badgeText = usesTestData ? 'Static Test Data' : (usesTestApi ? 'Test API' : (isConfigured ? 'Connected' : 'Not Configured'));
-                const caps = c.capabilities || [];
-                const lastImport = c.name === 'degiro_pension' ? degiroRuns.find(r => r.status === 'completed') : null;
-                const latestAttempt = c.name === 'degiro_pension' ? degiroRuns[0] : null;
-                const displayName = escapeHtml(String(c.display_name || c.name));
-                const apiName = escapeHtml(String(c.name));
-                let descText;
-                if (usesTestData) descText = `${displayName} uses the synthetic July 2026 staging dataset.`;
-                else if (usesTestApi) descText = `${displayName} uses the provider's official ${c.name === 'bunq' ? 'sandbox' : 'paper-trading'} API.`;
-                else if (c.name === 'degiro_pension') descText = 'Import official DEGIRO CSV/Excel exports.';
-                else descText = `${displayName} API connector.`;
-                const desc = escapeHtml(descText + ` SDK v${c.sdk_version}.`);
-                const capChips = (caps.map(cap => `<span class="cap">${escapeHtml(String(cap))}</span>`)).join('');
-                let degiroInfo = '';
-                if (c.name === 'degiro_pension') {
-                    const lastAt = lastImport ? (lastImport.completed_at || lastImport.created_at) : 'never';
-                    let extra = '';
-                    if (latestAttempt && latestAttempt.preview) {
-                        const missing = latestAttempt.preview.missing_report_types
-                            ? latestAttempt.preview.missing_report_types.join(', ') : 'none';
-                        extra += `<br>Missing reports: ${escapeHtml(missing)}`;
-                        if (latestAttempt.warnings && latestAttempt.warnings.length) {
-                            extra += `<br>Warnings: ${escapeHtml(latestAttempt.warnings.join('; '))}`;
-                        }
-                    }
-                    degiroInfo = `<div class="desc">Last snapshot: ${escapeHtml(lastAt)}<br>Period: ${escapeHtml((lastImport && (lastImport.period_start || lastImport.period_end)) ? `${lastImport.period_start || '—'} – ${lastImport.period_end || '—'}` : '—')}${extra}</div>`;
-                }
-
-                html += `
-                    <div class="connector-card" data-provider="${apiName}">
-                        <div class="top">
-                            <div class="name">${displayName}</div>
-                            <span class="badge ${badgeClass}" id="badge-${apiName}">${escapeHtml(badgeText)}</span>
-                        </div>
-                        <div class="desc">${desc}</div>
-                        <div class="capabilities">
-                            ${capChips}
-                        </div>
-                        ${degiroInfo}
-                        <div class="actions">
-                            <button class="btn btn-primary btn-sm" onclick="openConfigModal('${apiName}')" aria-haspopup="dialog">
-                                ${isConfigured ? '&#9998; Edit' : '&#43; Configure'}
-                            </button>
-                            ${isConfigured && cfg ? `<button class="btn btn-success btn-sm" onclick="testConnection('${escapeHtml(String(cfg.id))}', '${apiName}')">&#10003; Test</button>` : ''}
-                            ${c.name === 'degiro_pension' && cfg ? `<button class="btn btn-success btn-sm" onclick="openDegiroImport('${escapeHtml(String(cfg.id))}')">&#8679; Import</button>` : ''}
-                            ${cfg && !isStagingChoice ? `<button class="btn btn-danger btn-sm" onclick="deleteConfig('${escapeHtml(String(cfg.id))}', '${apiName}')">&#10005; Remove</button>` : ''}
-                        </div>
-                        <div id="test-result-${apiName}" style="margin-top: 12px;" aria-live="polite"></div>
-                    </div>
-                `;
+            // Group connections by provider — a tenant may hold several
+            // connections for the same provider (e.g. two bunq logins).
+            const byProvider = {};
+            for (const cfg of configs) {
+                (byProvider[cfg.provider_type] = byProvider[cfg.provider_type] || []).push(cfg);
             }
-            html += '</div>';
+            const known = new Set(connectors.map(c => c.name));
+            const providerOrder = [
+                ...connectors.map(c => c.name),
+                ...Object.keys(byProvider).filter(p => !known.has(p)),
+            ];
+
+            let html = '';
+            for (const provider of providerOrder) {
+                const conns = byProvider[provider];
+                if (!conns) continue;
+                const meta = connectors.find(c => c.name === provider);
+                const displayName = escapeHtml(String((meta && meta.display_name) || provider));
+                html += `
+                    <div class="provider-group" style="margin-bottom:24px;">
+                        <div class="provider-group-header">
+                            <h2>${displayName}
+                                <span style="color:var(--text-muted);font-size:0.8rem;font-weight:500;">(${conns.length} connection${conns.length === 1 ? '' : 's'})</span>
+                            </h2>
+                            <button type="button" class="btn btn-secondary btn-sm" onclick="openCreateWizard('${escapeHtml(String(provider))}')" aria-haspopup="dialog">&#43; Add ${displayName}</button>
+                        </div>
+                        <div class="connector-grid">`;
+                for (const cfg of conns) {
+                    html += renderConnectionCard(cfg, meta);
+                }
+                html += '</div></div>';
+            }
             container.innerHTML = html;
             container.setAttribute('aria-busy', 'false');
+        }
+
+        function findConfig(connectionId) {
+            return configs.find(x => String(x.id || x.connection_id) === String(connectionId));
+        }
+
+        function fmtDate(value) {
+            if (!value) return 'never';
+            const d = new Date(value);
+            return isNaN(d.getTime()) ? String(value) : d.toLocaleString();
+        }
+
+        function truncateText(text, max) {
+            text = String(text || '');
+            return text.length > max ? text.slice(0, max) + '…' : text;
+        }
+
+        function renderConnectionCard(cfg, meta) {
+            const connectionId = escapeHtml(String(cfg.id || cfg.connection_id));
+            const provider = escapeHtml(String(cfg.provider_type));
+            const displayName = escapeHtml(String((meta && meta.display_name) || cfg.provider_type));
+            const label = escapeHtml(String(cfg.description || `${displayName} connection`));
+            const isPaused = cfg.status === 'paused';
+            const isConfigured = !!cfg.is_configured;
+            const selected = cfg.selected_accounts;
+            const selectedCount = (selected && selected.length) || 0;
+            const selectedText = selected === null || selected === undefined || selected.length === 0
+                ? 'All accounts'
+                : `${selectedCount} selected`;
+            const statusBadge = isPaused
+                ? '<span class="badge pending">Paused</span>'
+                : (isConfigured
+                    ? '<span class="badge connected">Active</span>'
+                    : '<span class="badge unconfigured">Not configured</span>');
+            // Credentials are never rendered — only a masked "stored" hint.
+            const credCap = isConfigured
+                ? '<span class="cap">&#128274; Credentials stored</span>'
+                : '<span class="cap">&#10005; No credentials set</span>';
+            const lastError = cfg.last_error
+                ? `<div class="conn-error" role="alert" title="${escapeHtml(String(cfg.last_error))}">&#9888; ${escapeHtml(truncateText(cfg.last_error, 160))}</div>`
+                : '';
+            const isDegiro = cfg.provider_type === 'degiro_pension';
+
+            return `
+                <div class="connector-card" data-connection="${connectionId}" data-provider="${provider}">
+                    <div class="top">
+                        <div class="name">${label}</div>
+                        ${statusBadge}
+                    </div>
+                    <div class="desc">${displayName} · ${escapeHtml(String(cfg.id || cfg.connection_id))}</div>
+                    <div class="conn-meta">
+                        <div class="meta-row">
+                            <span>Accounts: <strong>${selectedText}</strong></span>
+                            ${credCap}
+                        </div>
+                        <div class="meta-row">
+                            <span>Last attempt: ${escapeHtml(fmtDate(cfg.last_attempt_at))}</span>
+                            <span>Last success: ${escapeHtml(fmtDate(cfg.last_success_at))}</span>
+                        </div>
+                    </div>
+                    ${lastError}
+                    <div class="actions">
+                        <button class="btn btn-success btn-sm" onclick="syncConnection('${connectionId}')">&#8635; Sync now</button>
+                        <button class="btn btn-secondary btn-sm" onclick="testConnection('${connectionId}', '${provider}')">&#10003; Test</button>
+                        <button class="btn btn-secondary btn-sm" onclick="openAccountsModal('${connectionId}')">&#128193; Accounts</button>
+                        <button class="btn btn-secondary btn-sm" onclick="openConfigModal('${provider}', '${connectionId}')">&#9998; Edit</button>
+                        <button class="btn btn-secondary btn-sm" onclick="openRenameModal('${connectionId}')">&#128221; Rename</button>
+                        ${isPaused
+                            ? `<button class="btn btn-success btn-sm" onclick="resumeConnection('${connectionId}')">&#9654; Resume</button>`
+                            : `<button class="btn btn-secondary btn-sm" onclick="pauseConnection('${connectionId}')">&#10074;&#10074; Pause</button>`}
+                        ${!isDegiro ? `<button class="btn btn-danger btn-sm" onclick="deleteConfig('${connectionId}', '${provider}')">&#10005; Delete</button>` : ''}
+                        ${isDegiro ? `<button class="btn btn-success btn-sm" onclick="openDegiroImport('${connectionId}')">&#8679; Import</button>` : ''}
+                    </div>
+                    <div id="test-result-${connectionId}" style="margin-top: 12px;" aria-live="polite"></div>
+                </div>`;
         }
 
         function openDegiroImport(connectionId) {
@@ -1166,17 +1301,43 @@
             }
         }
 
-        // ── Configuration Modal ─────────────────────────────────────────
-        function openConfigModal(providerType) {
+        // ── Configuration Wizard ────────────────────────────────────────
+        // Supports creating a brand-new connection (multiple connections
+        // per provider are allowed) and editing an existing one.  Stored
+        // credentials are never rendered back: password fields in edit
+        // mode show a masked placeholder and stay untouched when blank.
+
+        function wizardProviders() {
+            return connectors.filter(c => c.configuration_mode !== 'staging_choice'
+                && ((c.credential_fields && c.credential_fields.length) || (c.option_fields && c.option_fields.length)));
+        }
+
+        function openCreateWizard(presetProvider) {
+            const candidates = wizardProviders();
+            if (!candidates.length) {
+                toast('No configurable connectors are available', 'error');
+                return;
+            }
+            const defaultProvider = presetProvider && candidates.some(c => c.name === presetProvider)
+                ? presetProvider : candidates[0].name;
+            openConfigModal(defaultProvider, null);
+        }
+
+        function openConfigModal(providerType, connectionId) {
+            const isEdit = !!connectionId;
             const c = connectors.find(x => x.name === providerType);
             if (!c) return;
-            const cfg = configs.find(x => x.provider_type === providerType);
-            const isEdit = !!cfg;
+            const cfg = isEdit ? findConfig(connectionId) : null;
+            const candidates = wizardProviders();
 
             let fieldsHtml = '';
             for (const f of c.credential_fields || []) {
                 const label = escapeHtml(String(f.label || f.key));
-                const requiredStr = f.required ? 'required aria-required="true"' : '';
+                const isPassword = f.type === 'password';
+                // In edit mode password fields are masked and optional: a
+                // blank value keeps the stored credentials untouched.
+                const required = !isEdit || !isPassword;
+                const requiredStr = (f.required && required) ? 'required aria-required="true"' : '';
                 const descHtml = f.description ? `<span class="field-hint" id="cred-hint-${escapeHtml(String(f.key))}">${escapeHtml(String(f.description))}</span>` : '';
                 const hintFor = f.description ? ` aria-describedby="cred-hint-${escapeHtml(String(f.key))}"` : '';
                 if (f.type === 'boolean') {
@@ -1189,13 +1350,20 @@
                             ${descHtml}
                         </div>`;
                 } else {
-                    const placeholder = f.placeholder ? ` placeholder="${escapeHtml(String(f.placeholder))}"` : '';
-                    const isPassword = f.type === 'password';
+                    const maskedPlaceholder = '••••••••  (leave blank to keep the stored credentials)';
+                    const placeholder = isEdit && isPassword
+                        ? ` placeholder="${maskedPlaceholder}"`
+                        : (f.placeholder ? ` placeholder="${escapeHtml(String(f.placeholder))}"` : '');
                     const autoComplete = isPassword ? ' autocomplete="new-password"' : '';
+                    const maskedHint = isEdit && isPassword
+                        ? '<div class="field-hint" id="cred-mask-hint">Stored credentials are never shown — enter new values only to replace them.</div>'
+                        : '';
+                    const describedBy = ((hintFor ? 'cred-hint-' + escapeHtml(String(f.key)) : '') + (maskedHint ? ' cred-mask-hint' : '')).trim();
                     fieldsHtml += `
                         <div class="form-group">
-                            <label for="cred-${escapeHtml(String(f.key))}">${label}${f.required ? ' <span style="color:var(--red)">*</span>' : ''}</label>
-                            <input type="${escapeHtml(String(f.type))}" id="cred-${escapeHtml(String(f.key))}"${placeholder}${requiredStr}${autoComplete}${hintFor}>
+                            <label for="cred-${escapeHtml(String(f.key))}">${label}${(f.required && required) ? ' <span style="color:var(--red)">*</span>' : ''}</label>
+                            <input type="${isPassword ? 'password' : escapeHtml(String(f.type))}" id="cred-${escapeHtml(String(f.key))}"${placeholder}${requiredStr}${autoComplete}${describedBy ? ` aria-describedby="${describedBy}"` : ''}>
+                            ${maskedHint}
                             ${descHtml}
                         </div>`;
                 }
@@ -1236,39 +1404,148 @@
                 }
             }
 
+            const providerSelect = isEdit ? '' : `
+                <div class="form-group">
+                    <label for="config-provider">Provider <span style="color:var(--red)">*</span></label>
+                    <select id="config-provider" onchange="onWizardProviderChange()">
+                        ${candidates.map(p => `<option value="${escapeHtml(String(p.name))}" ${p.name === providerType ? 'selected' : ''}>${escapeHtml(String(p.display_name || p.name))}</option>`).join('')}
+                    </select>
+                </div>`;
+
             const modal = document.createElement('div');
             modal.className = 'modal-overlay';
             modal.id = 'config-modal';
             modal.innerHTML = `
-                <div class="modal">
-                    <h2 id="config-modal-title">${isEdit ? 'Edit' : 'Configure'} ${escapeHtml(String(c.display_name || c.name))}</h2>
-                    <form id="config-form" novalidate onsubmit="saveConfig(event, '${escapeHtml(String(providerType))}', ${!!isEdit})">
+                <div class="modal" style="width:540px;">
+                    <h2 id="config-modal-title">${isEdit ? 'Edit' : 'New'} ${escapeHtml(String(c.display_name || c.name))} connection</h2>
+                    <form id="config-form" novalidate onsubmit="saveConfig(event, '${escapeHtml(String(providerType))}', ${!!isEdit}, '${connectionId ? escapeHtml(String(connectionId)) : ''}')">
+                        ${providerSelect}
                         <div class="form-group">
-                            <label for="config-desc">Description <span style="color:var(--text-muted);font-size:0.8rem;">(optional label)</span></label>
+                            <label for="config-desc">Label <span style="color:var(--text-muted);font-size:0.8rem;">(friendly name for this connection)</span></label>
                             <input type="text" id="config-desc" placeholder="My ${escapeHtml(String(c.display_name || c.name))} connection" value="${cfg ? escapeHtml(String(cfg.description || '')) : ''}">
                         </div>
                         ${fieldsHtml ? `<h3 style="font-size:0.9rem;font-weight:600;margin-bottom:12px;margin-top:4px;">Credentials</h3>${fieldsHtml}` : ''}
                         ${optsHtml ? `<h3 style="font-size:0.9rem;font-weight:600;margin:16px 0 12px;">Options</h3>${optsHtml}` : ''}
                         <div id="config-error" class="hidden alert alert-error" role="alert"></div>
+                        <div id="wizard-test-result" aria-live="polite"></div>
+                        <div id="wizard-accounts" class="wizard-accounts hidden"></div>
                         <div class="modal-footer">
                             <button type="button" class="btn btn-secondary" onclick="closeModal()">Cancel</button>
-                            <button type="submit" class="btn btn-primary" id="config-submit">Save Configuration</button>
+                            ${!isEdit ? `<button type="button" class="btn btn-secondary" id="wizard-test-btn" onclick="testWizardConnection()">&#10003; Test connection</button>` : ''}
+                            <button type="submit" class="btn btn-primary" id="config-submit">${isEdit ? 'Save Changes' : 'Save Connection'}</button>
                         </div>
                     </form>
-                </div>
-            `;
+                </div>`;
             document.getElementById('modal-container').appendChild(modal);
             modal.setAttribute('aria-labelledby', 'config-modal-title');
             openModal(modal);
             modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
+            wizardAccounts = [];
         }
 
-        async function saveConfig(event, providerType, isEdit) {
+        function onWizardProviderChange() {
+            const sel = document.getElementById('config-provider');
+            if (!sel) return;
+            const chosen = sel.value;
+            const c = connectors.find(x => x.name === chosen);
+            if (!c) return;
+            closeModal();
+            openConfigModal(chosen, null);
+        }
+
+        async function testWizardConnection() {
+            const sel = document.getElementById('config-provider');
+            const providerName = sel ? sel.value : '';
+            const c = connectors.find(x => x.name === providerName);
+            if (!c) return;
+            const errorEl = document.getElementById('config-error');
+            const resultEl = document.getElementById('wizard-test-result');
+            const credentials = {};
+            for (const f of c.credential_fields || []) {
+                const el = document.getElementById(`cred-${f.key}`);
+                if (!el) continue;
+                if (f.type === 'boolean') credentials[f.key] = el.checked;
+                else if (String(el.value || '').trim()) credentials[f.key] = el.value.trim();
+            }
+            const options = {};
+            for (const f of c.option_fields || []) {
+                const el = document.getElementById(`opt-${f.key}`);
+                if (!el) continue;
+                if (f.type === 'boolean') options[f.key] = el.checked;
+                else if (String(el.value || '').trim()) options[f.key] = el.value.trim();
+            }
+            const btn = document.getElementById('wizard-test-btn');
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner"></span> Testing...';
+            resultEl.innerHTML = '<div class="alert alert-info"><span class="spinner"></span> Testing connection...</div>';
+            try {
+                const result = await api('POST', `/connectors/${encodeURIComponent(providerName)}/test`, { credentials, options });
+                if (result.success) {
+                    wizardAccounts = result.accounts || [];
+                    resultEl.innerHTML = `<div class="alert alert-success">&#10003; ${escapeHtml(result.message)}</div>`;
+                    const accountsBox = document.getElementById('wizard-accounts');
+                    if (wizardAccounts.length) {
+                        accountsBox.classList.remove('hidden');
+                        accountsBox.innerHTML = renderAccountCheckboxes(wizardAccounts, wizardAccounts.map(a => String(a.id)));
+                    } else {
+                        accountsBox.classList.add('hidden');
+                    }
+                } else {
+                    wizardAccounts = [];
+                    document.getElementById('wizard-accounts').classList.add('hidden');
+                    resultEl.innerHTML = `<div class="alert alert-error">&#10005; ${escapeHtml(result.message)}</div>`;
+                }
+            } catch (e) {
+                wizardAccounts = [];
+                resultEl.innerHTML = `
+                    <div class="alert alert-error inline-error" role="alert">
+                        <div class="inline-error-msg">
+                            <strong>Connection test failed</strong>
+                            <span>${escapeHtml(e.message || 'The connector did not respond.')}</span>
+                        </div>
+                        <button type="button" class="btn btn-secondary btn-sm" onclick="testWizardConnection()">&#8635; Retry</button>
+                    </div>`;
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '&#10003; Test connection';
+            }
+        }
+
+        function accountInputId(accountId) {
+            return 'acc-' + String(accountId).replace(/[^A-Za-z0-9_-]/g, '_');
+        }
+
+        function renderAccountCheckboxes(accounts, selectedIds) {
+            const selectedSet = new Set((selectedIds || []).map(String));
+            let html = '<h3 style="font-size:0.9rem;font-weight:600;margin-bottom:10px;">Accounts to sync</h3>';
+            html += '<p style="font-size:0.8rem;color:var(--text-muted);margin-bottom:12px;">Choose which provider accounts this connection should sync. Only selected accounts are synchronised and exported.</p>';
+            for (const acc of accounts) {
+                const inputId = accountInputId(acc.id);
+                const label = escapeHtml(String(acc.label || acc.id));
+                const sub = acc.iban ? escapeHtml(String(acc.iban)) : escapeHtml(String(acc.id));
+                html += `
+                    <div class="account-row">
+                        <input type="checkbox" id="${inputId}" class="wizard-account-cb" value="${escapeHtml(String(acc.id))}" ${selectedSet.has(String(acc.id)) ? 'checked' : ''}>
+                        <div>
+                            <div class="account-label"><label for="${inputId}" style="margin:0;color:var(--text);">${label}</label></div>
+                            <div class="account-sub">${sub}</div>
+                        </div>
+                    </div>`;
+            }
+            return html;
+        }
+
+        async function saveConfig(event, providerType, isEdit, connectionId) {
             event.preventDefault();
             const submitBtn = document.getElementById('config-submit');
             const errorEl = document.getElementById('config-error');
             errorEl.classList.add('hidden');
 
+            // In create mode the provider may have been changed in the select.
+            if (!isEdit) {
+                const sel = document.getElementById('config-provider');
+                if (sel && sel.value) providerType = sel.value;
+            }
             const c = connectors.find(x => x.name === providerType);
             if (!c) {
                 errorEl.innerHTML = '<strong>Configuration error</strong> Unknown connector. Please reload the page and try again.';
@@ -1281,6 +1558,8 @@
             const missing = [];
             for (const f of c.credential_fields || []) {
                 if (!f.required || f.type === 'boolean') continue;
+                const isPassword = f.type === 'password';
+                if (isEdit && isPassword) continue; // masked fields are optional in edit mode
                 const el = document.getElementById(`cred-${f.key}`);
                 if (el && !String(el.value || '').trim()) missing.push(f.label || f.key);
             }
@@ -1293,10 +1572,7 @@
                 errorEl.innerHTML = `<strong>Please fill in the required fields:</strong> ${escapeHtml(missing.join(', '))}.`;
                 errorEl.classList.remove('hidden');
                 submitBtn.disabled = false;
-                submitBtn.textContent = 'Save Configuration';
-                const firstMissing = document.getElementById(`cred-${(c.credential_fields || []).find(f => f.required && f.type !== 'boolean')?.key}`)
-                    || document.getElementById(`opt-${(c.option_fields || []).find(f => f.required)?.key}`);
-                if (firstMissing) firstMissing.focus();
+                submitBtn.textContent = isEdit ? 'Save Changes' : 'Save Connection';
                 return;
             }
 
@@ -1308,7 +1584,10 @@
                 if (f.type === 'boolean') {
                     credentials[f.key] = document.getElementById(`cred-${f.key}`).checked;
                 } else {
-                    credentials[f.key] = document.getElementById(`cred-${f.key}`).value;
+                    const val = String(document.getElementById(`cred-${f.key}`).value || '').trim();
+                    // Blank password fields in edit mode keep stored credentials.
+                    if (isEdit && f.type === 'password' && !val) continue;
+                    credentials[f.key] = val;
                 }
             }
             const options = {};
@@ -1320,15 +1599,19 @@
                     if (val) options[f.key] = val;
                 }
             }
-            const description = document.getElementById('config-desc').value || null;
+            const description = document.getElementById('config-desc').value.trim() || null;
 
             try {
                 let result;
                 if (isEdit) {
-                    const cfg = configs.find(x => x.provider_type === providerType);
-                    result = await api('PUT', `/connectors/configs/${cfg.id}`, { credentials, options, description });
+                    result = await api('PUT', `/connectors/configs/${connectionId}`, { credentials, options, description });
                 } else {
                     result = await api('POST', '/connectors/configs', { provider_type: providerType, credentials, options, description });
+                    // Apply the account selection chosen from the test result.
+                    const checked = Array.from(document.querySelectorAll('.wizard-account-cb:checked')).map(el => el.value);
+                    if (wizardAccounts.length && checked.length && checked.length !== wizardAccounts.length) {
+                        await api('POST', `/connectors/configs/${result.id}/accounts`, { account_ids: checked, purge_unselected: false });
+                    }
                 }
                 closeModal();
                 toast(`Configuration saved for ${c.display_name}`, 'success');
@@ -1341,6 +1624,208 @@
                 submitBtn.disabled = false;
                 submitBtn.innerHTML = '&#8635; Retry Save';
                 submitBtn.setAttribute('aria-label', 'Retry saving configuration');
+            }
+        }
+
+        // ── Rename connection ────────────────────────────────────────────
+        function openRenameModal(connectionId) {
+            const cfg = findConfig(connectionId);
+            if (!cfg) return;
+            const modal = document.createElement('div');
+            modal.className = 'modal-overlay';
+            modal.innerHTML = `
+                <div class="modal">
+                    <h2 id="rename-modal-title">Rename connection</h2>
+                    <form id="rename-form" novalidate onsubmit="renameConnection(event, '${escapeHtml(String(connectionId))}')">
+                        <div class="form-group">
+                            <label for="rename-label">Label</label>
+                            <input type="text" id="rename-label" required aria-required="true" maxlength="120">
+                        </div>
+                        <div id="rename-error" class="hidden alert alert-error" role="alert"></div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+                            <button type="submit" class="btn btn-primary" id="rename-submit">Save Label</button>
+                        </div>
+                    </form>
+                </div>`;
+            document.getElementById('modal-container').appendChild(modal);
+            modal.setAttribute('aria-labelledby', 'rename-modal-title');
+            document.getElementById('rename-label').value = cfg.description || '';
+            openModal(modal);
+            modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
+            document.getElementById('rename-label').focus();
+        }
+
+        async function renameConnection(event, connectionId) {
+            event.preventDefault();
+            const label = document.getElementById('rename-label').value.trim();
+            const errorEl = document.getElementById('rename-error');
+            const submitBtn = document.getElementById('rename-submit');
+            if (!label) {
+                errorEl.textContent = 'Please enter a label.';
+                errorEl.classList.remove('hidden');
+                return;
+            }
+            submitBtn.disabled = true;
+            try {
+                await api('PUT', `/connectors/configs/${connectionId}`, { description: label });
+                closeModal();
+                toast('Connection renamed', 'success');
+                await loadConnectors();
+            } catch (e) {
+                errorEl.textContent = e.message || 'Could not rename the connection.';
+                errorEl.classList.remove('hidden');
+                submitBtn.disabled = false;
+            }
+        }
+
+        // ── Account selection ────────────────────────────────────────────
+        // Changing the selection never deletes already-imported history:
+        // removal only happens after an explicit confirmation dialog.
+        async function openAccountsModal(connectionId) {
+            const cfg = findConfig(connectionId);
+            if (!cfg) return;
+            let accounts = connTestAccounts[connectionId];
+            const modal = document.createElement('div');
+            modal.className = 'modal-overlay';
+            modal.innerHTML = `
+                <div class="modal" style="width:540px;">
+                    <h2 id="accounts-modal-title">Accounts — ${escapeHtml(String(cfg.description || cfg.provider_type))}</h2>
+                    <div id="accounts-body" aria-live="polite"><div class="alert alert-info"><span class="spinner"></span> Loading accounts…</div></div>
+                </div>`;
+            document.getElementById('modal-container').appendChild(modal);
+            modal.setAttribute('aria-labelledby', 'accounts-modal-title');
+            openModal(modal);
+            modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
+
+            const render = () => {
+                const body = document.getElementById('accounts-body');
+                if (!accounts || !accounts.length) {
+                    body.innerHTML = `
+                        <p style="color:var(--text-muted);font-size:0.9rem;margin-bottom:16px;">
+                            No account list available for this connection yet. Run a connection test to fetch the accounts the provider offers.
+                        </p>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" onclick="closeModal()">Close</button>
+                            <button type="button" class="btn btn-primary" onclick="refreshAccounts('${escapeHtml(String(connectionId))}')">&#8635; Refresh accounts</button>
+                        </div>`;
+                    return;
+                }
+                const previous = (cfg.selected_accounts || null);
+                const previousSet = new Set(previous === null || previous === undefined
+                    ? accounts.map(a => String(a.id)) : previous.map(String));
+                const preselected = accounts.map(a => String(a.id)).filter(id => previousSet.has(id));
+                const checkedSet = new Set(preselected);
+                const hasDeselected = accounts.some(a => previousSet.has(String(a.id)) && !checkedSet.has(String(a.id)));
+                let html = '<div class="selection-warning">&#9888; Changing the account selection never removes already-imported history.</div>';
+                html += `<div id="accounts-list">${renderAccountCheckboxes(accounts, preselected)}</div>`;
+                html += `
+                    <div class="form-group" style="margin-top:12px;">
+                        <div class="checkbox-wrap">
+                            <input type="checkbox" id="accounts-purge" ${hasDeselected ? '' : 'disabled'}>
+                            <label for="accounts-purge" style="margin:0;">Remove locally stored history for deselected accounts</label>
+                        </div>
+                        <div class="field-hint" id="accounts-purge-hint">Checked only when you explicitly want to delete the imported data of accounts you are about to deselect. This cannot be undone.</div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+                        <button type="button" class="btn btn-primary" id="accounts-save" onclick="saveAccounts('${escapeHtml(String(connectionId))}')">Save Selection</button>
+                    </div>`;
+                body.innerHTML = html;
+            };
+            render();
+            if (accounts) return;
+            try {
+                const result = await api('POST', `/connectors/configs/${connectionId}/test`);
+                if (result.success) {
+                    accounts = result.accounts || [];
+                    connTestAccounts[connectionId] = accounts;
+                } else {
+                    accounts = [];
+                }
+            } catch {
+                accounts = [];
+            }
+            render();
+        }
+
+        async function refreshAccounts(connectionId) {
+            const body = document.getElementById('accounts-body');
+            body.innerHTML = '<div class="alert alert-info"><span class="spinner"></span> Testing connection…</div>';
+            try {
+                const result = await api('POST', `/connectors/configs/${connectionId}/test`);
+                connTestAccounts[connectionId] = (result.success ? (result.accounts || []) : []);
+            } catch {
+                connTestAccounts[connectionId] = [];
+            }
+            closeModal();
+            openAccountsModal(connectionId);
+        }
+
+        async function saveAccounts(connectionId) {
+            const cfg = findConfig(connectionId);
+            const accounts = connTestAccounts[connectionId] || [];
+            const checked = Array.from(document.querySelectorAll('.wizard-account-cb:checked')).map(el => el.value);
+            const previous = (cfg && cfg.selected_accounts) || null;
+            const previousSet = new Set(previous === null || previous === undefined
+                ? accounts.map(a => String(a.id)) : previous.map(String));
+            const checkedSet = new Set(checked.map(String));
+            const hasDeselected = accounts.some(a => previousSet.has(String(a.id)) && !checkedSet.has(String(a.id)));
+            const purgeEl = document.getElementById('accounts-purge');
+            const purge = !!(purgeEl && !purgeEl.disabled && purgeEl.checked);
+            // Explicit confirmation dialog before any history is removed.
+            if (purge && hasDeselected
+                && !confirm('Remove the locally stored history for the deselected accounts? This cannot be undone.')) {
+                return;
+            }
+            const btn = document.getElementById('accounts-save');
+            btn.disabled = true;
+            try {
+                await api('POST', `/connectors/configs/${connectionId}/accounts`, { account_ids: checked, purge_unselected: purge });
+                connTestAccounts[connectionId] = null; // force a fresh fetch next time
+                closeModal();
+                toast('Account selection saved', 'success');
+                await loadConnectors();
+            } catch (e) {
+                toast(`Could not save the selection: ${e.message}`, 'error');
+                btn.disabled = false;
+            }
+        }
+
+        // ── Connection lifecycle actions ─────────────────────────────────
+        async function pauseConnection(connectionId) {
+            try {
+                await api('POST', `/connectors/configs/${connectionId}/pause`);
+                toast('Connection paused', 'info');
+                await loadConnectors();
+            } catch (e) {
+                toast(`Could not pause: ${e.message}`, 'error');
+            }
+        }
+
+        async function resumeConnection(connectionId) {
+            try {
+                await api('POST', `/connectors/configs/${connectionId}/resume`);
+                toast('Connection resumed', 'success');
+                await loadConnectors();
+            } catch (e) {
+                toast(`Could not resume: ${e.message}`, 'error');
+            }
+        }
+
+        async function syncConnection(connectionId) {
+            try {
+                const result = await api('POST', `/sync/connections/${connectionId}`, {});
+                if (result.status === 'error') {
+                    toast(`Sync failed: ${result.error_message || 'unknown error'}`, 'error');
+                } else {
+                    let msg = `Sync ${result.status}`;
+                    if (result.transactions_synced > 0) msg += ` · ${result.transactions_synced} transactions`;
+                    toast(msg, 'success');
+                }
+                await loadConnectors();
+            } catch (e) {
+                toast(`Could not start sync: ${e.message}`, 'error');
             }
         }
 
@@ -1506,18 +1991,21 @@
         }
 
         // ── Test connection ─────────────────────────────────────────────
+        // Tests one connection and, on success, caches the accounts the
+        // provider offers so the Accounts modal can drive the selection.
         async function testConnection(configId, providerName) {
-            const resultEl = document.getElementById(`test-result-${providerName}`);
+            const resultEl = document.getElementById(`test-result-${configId}`);
             resultEl.innerHTML = '<div class="alert alert-info"><span class="spinner"></span> Testing connection...</div>';
             try {
                 const result = await api('POST', `/connectors/configs/${configId}/test`);
                 if (result.success) {
-                    resultEl.innerHTML = `<div class="alert alert-success">&#10003; ${escapeHtml(result.message)}</div>`;
-                    const badge = document.getElementById(`badge-${providerName}`);
-                    if (badge) {
-                        badge.className = 'badge connected';
-                        badge.textContent = 'Connected';
+                    let html = `<div class="alert alert-success">&#10003; ${escapeHtml(result.message)}</div>`;
+                    const accounts = result.accounts || [];
+                    connTestAccounts[configId] = accounts;
+                    if (accounts.length) {
+                        html += `<div style="margin-top:8px;"><button type="button" class="btn btn-secondary btn-sm" onclick="openAccountsModal('${escapeHtml(String(configId))}')">&#128193; Select accounts (${accounts.length} available)</button></div>`;
                     }
+                    resultEl.innerHTML = html;
                 } else {
                     resultEl.innerHTML = `<div class="alert alert-error">&#10005; ${escapeHtml(result.message)}</div>`;
                 }
@@ -1535,12 +2023,13 @@
             }
         }
 
-        // ── Delete configuration ────────────────────────────────────────
+        // ── Delete connection ───────────────────────────────────────────
         async function deleteConfig(configId, providerName) {
-            if (!confirm(`Remove the ${providerName} configuration?`)) return;
+            if (!confirm(`Delete the ${providerName} connection? Already-imported history is kept.`)) return;
             try {
                 await api('DELETE', `/connectors/configs/${configId}`);
-                toast(`Configuration removed for ${providerName}`, 'info');
+                toast(`Connection removed for ${providerName}`, 'info');
+                delete connTestAccounts[configId];
                 await loadConnectors();
             } catch (e) {
                 toast(`Failed to remove: ${e.message}`, 'error');
