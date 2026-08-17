@@ -218,6 +218,7 @@ Built images are published to GitHub Container Registry:
 - [Upgrade notes](docs/UPGRADE.md)
 - [Releases & rollback](docs/RELEASING.md)
 - [Implementation roadmap](docs/ROADMAP.md)
+- [Wealthfolio multi-device access](docs/wealthfolio-multi-device-access.md)
 
 ## Health monitoring
 

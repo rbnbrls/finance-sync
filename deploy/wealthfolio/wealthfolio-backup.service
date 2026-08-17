@@ -1,0 +1,16 @@
+[Unit]
+Description=Wealthfolio encrypted backup bundle (Proxmox host)
+After=network.target
+
+[Service]
+Type=oneshot
+# Pulls the LXC 104 snapshot, optionally dumps the finance-sync delivery
+# cursors, bundles + encrypts (AES-256-CBC, local key), prunes retention
+# and verifies the fresh bundle by restoring it to a temp dir.
+ExecStart=/usr/bin/python3 /opt/wealthfolio-backup/backup.py backup \
+    --backup-dir /var/backups/wealthfolio \
+    --key-file /root/.wealthfolio-backup.key \
+    --snapshot-file /var/backups/wealthfolio/staging/wealthfolio-snapshot.db \
+    --pg-dump-cmd "pct exec 100 -- docker exec sxhp9cilwdw277krqq4affkc pg_dump -U finance_sync -d finance_sync --data-only -t wealthfolio_deliveries -t wealthfolio_account_mappings -t export_runs"
+Nice=10
+IOSchedulingClass=idle

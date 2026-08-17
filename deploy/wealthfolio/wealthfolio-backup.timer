@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily Wealthfolio encrypted backup (Proxmox host)
+
+[Timer]
+OnCalendar=*-*-* 03:47:00
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

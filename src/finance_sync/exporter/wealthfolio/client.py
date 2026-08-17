@@ -19,9 +19,12 @@ Usage::
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import httpx
+
+if TYPE_CHECKING:
+    from httpx import AsyncBaseTransport
 
 # ═══════════════════════════════════════════════════════════════════════
 # Exceptions
@@ -87,16 +90,32 @@ class WealthfolioClient:
 
     API_PREFIX = "/api/v1"
 
-    def __init__(self, config: WealthfolioClientConfig) -> None:
+    def __init__(
+        self,
+        config: WealthfolioClientConfig,
+        transport: AsyncBaseTransport | None = None,
+    ) -> None:
+        """Create the client.
+
+        Args:
+            config:    Connection configuration (base URL + password).
+            transport: Optional httpx transport to inject (used by tests
+                       and the network-privacy audit to record every
+                       outbound request).  Defaults to the standard
+                       httpx async transport.
+        """
         self._config = config
         self._is_authenticated: bool = False
 
         # Build the httpx async client
-        self._client = httpx.AsyncClient(
-            base_url=config.base_url.rstrip("/"),
-            timeout=config.request_timeout,
-            verify=config.verify_ssl,
-        )
+        kwargs: dict[str, Any] = {
+            "base_url": config.base_url.rstrip("/"),
+            "timeout": config.request_timeout,
+            "verify": config.verify_ssl,
+        }
+        if transport is not None:
+            kwargs["transport"] = transport
+        self._client = httpx.AsyncClient(**kwargs)
 
     # ── Properties ──────────────────────────────────────────────────
 

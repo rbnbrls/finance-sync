@@ -1,6 +1,6 @@
 ---
 title: "Bied veilige multi-device toegang tot de self-hosted Wealthfolio-instance"
-status: todo
+status: done
 priority: 20
 ---
 
@@ -23,39 +23,39 @@ in de documentatie.
 
 ## Acceptance criteria
 
-- [ ] De Wealthfolio-container op Proxmox LXC 104 is vanaf minimaal een
+- [x] De Wealthfolio-container op Proxmox LXC 104 is vanaf minimaal een
   desktopbrowser en een mobiel/PWA-apparaat via één stabiele HTTPS-URL
   bereikbaar en beide tonen aantoonbaar dezelfde bunq- en Trading212-data.
-- [ ] De containerpoort is niet rechtstreeks vanaf internet bereikbaar. Een
+- [x] De containerpoort is niet rechtstreeks vanaf internet bereikbaar. Een
   gedocumenteerde reverse-proxy-, VPN- of private-tunnelconfiguratie verzorgt
   TLS, veilige cookie-forwarding en correcte `WF_CORS_ALLOW_ORIGINS`-instelling.
-- [ ] Authenticatie gebruikt Wealthfolio's ondersteunde password- of
+- [x] Authenticatie gebruikt Wealthfolio's ondersteunde password- of
   OIDC-configuratie. Standaardcredentials zijn verwijderd, brute-force-risico
   is beperkt en sessies kunnen centraal worden ingetrokken.
-- [ ] `WF_SECRET_KEY`, Wealthfolio-authenticatiegegevens en finance-sync-secrets
+- [x] `WF_SECRET_KEY`, Wealthfolio-authenticatiegegevens en finance-sync-secrets
   staan alleen in de secret store/environment van de deployment, nooit in git,
   images, client-side code, logs of documentatie.
-- [ ] De Wealthfolio-data, secrets en finance-sync-database worden uitsluitend
+- [x] De Wealthfolio-data, secrets en finance-sync-database worden uitsluitend
   op opslag onder beheer van de gebruiker bewaard. Backups zijn versleuteld met
   een lokaal beheerde sleutel en bevatten geen plaintext secrets buiten de
   Proxmox-omgeving.
-- [ ] Er is een automatische backup met retentie en een geteste restore naar
+- [x] Er is een automatische backup met retentie en een geteste restore naar
   een tijdelijke instance. De restoretest bewijst dat accounts, activiteiten,
   holdings en de finance-sync delivery-cursors behouden blijven.
-- [ ] Een netwerk-/privacytest bewijst dat finance-sync geen portfolio- of
+- [x] Een netwerk-/privacytest bewijst dat finance-sync geen portfolio- of
   credentialpayloads naar Wealthfolio Connect, SnapTrade of andere niet
   geconfigureerde derden verstuurt. Benodigde marktdata- en providerrequests
   zijn gedocumenteerd.
-- [ ] De PWA is installeerbaar op ondersteunde mobiele browsers en een korte
+- [x] De PWA is installeerbaar op ondersteunde mobiele browsers en een korte
   runbook beschrijft installatie, login, sleutelbackup, certificaatvernieuwing,
   apparaatverlies en herstel.
-- [ ] Monitoring controleert HTTPS-bereikbaarheid, certificaatverval,
+- [x] Monitoring controleert HTTPS-bereikbaarheid, certificaatverval,
   Wealthfolio-health en de versheid van bunq/Trading212-export zonder financiële
   waarden of secrets als metriclabels te publiceren.
-- [ ] Een end-to-end-test of geautomatiseerde smoke-run verifieert de route
+- [x] Een end-to-end-test of geautomatiseerde smoke-run verifieert de route
   `provider -> finance-sync -> Wealthfolio -> twee clients` en faalt wanneer
   één client verouderde data ziet.
-- [ ] De documentatie legt expliciet het verschil uit met Wealthfolio Connect:
+- [x] De documentatie legt expliciet het verschil uit met Wealthfolio Connect:
   online clients delen één self-hosted database; onafhankelijke native/offline
   databases worden niet door deze oplossing gerepliceerd.
 
