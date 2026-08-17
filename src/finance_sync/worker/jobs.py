@@ -270,7 +270,7 @@ async def sync_connector_job(
             orchestrator = SyncOrchestrator(
                 session_factory=container.session_factory,
                 registry=registry,
-                tenant_id=_tenant.id,
+                tenant_id=str(_tenant.id),
                 settings=container.settings,
             )
             result = await orchestrator.run_sync(
@@ -426,7 +426,7 @@ async def sync_bunq_cards_job(container: Container) -> dict[str, Any]:
             orchestrator = SyncOrchestrator(
                 session_factory=container.session_factory,
                 registry=registry,
-                tenant_id=_tenant.id,
+                tenant_id=str(_tenant.id),
                 settings=settings,
             )
             result = await orchestrator.run_bunq_cards_sync(
