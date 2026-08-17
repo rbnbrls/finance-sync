@@ -39,6 +39,7 @@ async def _create_account(
     provider_key: str = "mock_provider",
     name: str = "Main Checking",
     metadata_: dict | None = None,
+    connection_id: str | None = None,
 ) -> Account:
     async with session_factory() as session, UnitOfWork(session) as uow:
         return await uow.accounts.add(
@@ -53,6 +54,7 @@ async def _create_account(
                 available_balance=Decimal("1480.00"),
                 provider_metadata=metadata_
                 or {"iban": "NL00BANK0123456789", "bic": "BANKNL2A"},
+                connection_id=connection_id,
             )
         )
 
@@ -223,10 +225,20 @@ class TestPgConstraints:
     """PostgreSQL-specific constraint behaviour."""
 
     async def test_unique_provider_constraint(self, session_factory) -> None:
-        """Two accounts with the same (tenant, provider, external) id are
-        rejected by ``uq_accounts_provider``."""
+        """Accounts are unique per (tenant, provider, connection, external id).
+
+        Migration 0017 extended ``uq_accounts_provider`` with
+        ``connection_id``: the same external id within one connection is
+        still rejected, while the same external id in a *different*
+        connection coexists (multi-connection support).
+        """
         tenant = await _create_tenant(session_factory)
-        await _create_account(session_factory, tenant, external_id="dup-1")
+        await _create_account(
+            session_factory,
+            tenant,
+            external_id="dup-1",
+            connection_id="conn-1",
+        )
 
         async with session_factory() as session:
             with pytest.raises(IntegrityError):
@@ -238,9 +250,19 @@ class TestPgConstraints:
                             external_account_id="dup-1",
                             name="Duplicate",
                             account_type=AccountType.CHECKING,
+                            connection_id="conn-1",
                         )
                     )
                     await uow.commit()
+
+        # Same external id under a DIFFERENT connection is allowed.
+        second = await _create_account(
+            session_factory,
+            tenant,
+            external_id="dup-1",
+            connection_id="conn-2",
+        )
+        assert second.id is not None
 
     async def test_fk_violation(self, session_factory) -> None:
         """Account referencing a non-existent tenant violates the FK."""

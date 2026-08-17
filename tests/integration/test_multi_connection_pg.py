@@ -128,6 +128,15 @@ def _raw_txn(ext_id: str, account_id: str, amount: str) -> RawTransaction:
 
 
 class TestMultiConnectionIsolationPg:
+    @pytest.mark.xfail(
+        reason=(
+            "SyncOrchestrator per-connection support (connection_id param, "
+            "connection-scoped persistence, selected-account filtering) lands "
+            "in t_84877947; tests are carried by the data-layer branch so the "
+            "acceptance contract is pinned here."
+        ),
+        strict=False,
+    )
     async def test_same_external_ids_do_not_collide(
         self,
         session_factory,
@@ -265,6 +274,15 @@ class TestMultiConnectionIsolationPg:
                 str(conn_b.id),
             }
 
+    @pytest.mark.xfail(
+        reason=(
+            "SyncOrchestrator per-connection support (connection_id param, "
+            "connection-scoped persistence, selected-account filtering) lands "
+            "in t_84877947; tests are carried by the data-layer branch so the "
+            "acceptance contract is pinned here."
+        ),
+        strict=False,
+    )
     async def test_account_selection_filters_sync(
         self,
         session_factory,
