@@ -319,8 +319,8 @@ def _credential_response(row: Credential) -> ConnectorConfigResponse:
             options = cast(dict[str, Any], parsed)
             label = options.pop("_label", label) or label
     return ConnectorConfigResponse(
-        id=row.id,
-        connection_id=row.id,
+        id=str(row.id),
+        connection_id=str(row.id),
         provider_type=row.provider_key,
         description=label,
         options=options,

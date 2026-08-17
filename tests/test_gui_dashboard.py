@@ -247,3 +247,136 @@ def test_dashboard_init_never_blank_screens(client: TestClient) -> None:
     html = _dashboard_html(client)
     assert "Could not fetch profile" in html
     assert "await loadConnectors();" in html
+
+
+# ══════════════════════════════════════════════════════════════════
+# Multi-connection control panel (t_0de46e87)
+# ══════════════════════════════════════════════════════════════════
+
+
+def test_dashboard_ships_add_connection_wizard(client: TestClient) -> None:
+    """AC: the user can create a brand-new bunq or Trading212 connection
+    next to existing ones — the page ships a wizard entry point with a
+    provider selector, a label field and per-provider credential fields."""
+    html = _dashboard_html(client)
+    assert "Add connection" in html
+    assert "openCreateWizard" in html
+    assert 'id="config-provider"' in html
+    assert "onWizardProviderChange" in html
+    assert 'id="config-desc"' in html
+
+
+def test_dashboard_renders_connections_per_provider_group(
+    client: TestClient,
+) -> None:
+    """AC: the list renders every connection independently and groups them
+    by provider, so two bunq connections show up side by side instead of
+    overwriting each other."""
+    html = _dashboard_html(client)
+    assert "renderConnections()" in html
+    assert "renderConnectionCard" in html
+    assert "byProvider" in html
+    assert "data-connection=" in html
+    assert (
+        "${conns.length} connection" in html
+    )  # "(N connection(s))" group header
+
+
+def test_dashboard_connection_card_shows_status_fields(
+    client: TestClient,
+) -> None:
+    """AC: per connection the UI shows provider, label, status, selected
+    account count, last attempt, last successful sync and the last error
+    in cleaned form."""
+    html = _dashboard_html(client)
+    assert "Last attempt" in html
+    assert "Last success" in html
+    assert "Accounts:" in html
+    assert "All accounts" in html
+    assert "Paused" in html
+    assert "Resume" in html
+    assert "Not configured" in html
+    # Sanitised last-error surface with the full message only as tooltip
+    assert "conn-error" in html
+    assert "cfg.last_error" in html
+
+
+def test_dashboard_never_renders_credentials(client: TestClient) -> None:
+    """AC: credentials are never rendered back — stored credentials are
+    shown as a masked hint and edit-mode password fields use a masked
+    placeholder that keeps the stored value when left blank."""
+    html = _dashboard_html(client)
+    assert "Credentials stored" in html
+    assert "leave blank to keep the stored credentials" in html
+    assert "Stored credentials are never shown" in html
+    # No decrypted value or ciphertext surface in the page.
+    assert "encrypted_payload" not in html
+    assert "api_key" not in html
+
+
+def test_dashboard_ships_per_connection_manual_sync(
+    client: TestClient,
+) -> None:
+    """AC: a manual sync action targets a single connection via the
+    per-connection manual sync API."""
+    html = _dashboard_html(client)
+    assert "syncConnection(" in html
+    assert "Sync now" in html
+    assert "api('POST', `/sync/connections/" in html
+
+
+def test_dashboard_ships_connection_lifecycle_actions(
+    client: TestClient,
+) -> None:
+    """AC: rename, pause, resume and delete are available per connection."""
+    html = _dashboard_html(client)
+    assert "openRenameModal(" in html
+    assert "renameConnection(" in html
+    assert "pauseConnection(" in html
+    assert "resumeConnection(" in html
+    assert "deleteConfig(" in html
+    assert "api('POST', `/connectors/configs/${connectionId}/pause`)" in html
+    assert "api('POST', `/connectors/configs/${connectionId}/resume`)" in html
+
+
+def test_dashboard_edit_wizard_targets_connection_id(
+    client: TestClient,
+) -> None:
+    """AC: editing updates the exact connection (multiple connections per
+    provider) instead of looking up a single config per provider."""
+    html = _dashboard_html(client)
+    assert "openConfigModal('${provider}', '${connectionId}')" in html
+    assert "api('PUT', `/connectors/configs/${connectionId}`" in html
+    assert "findConfig(connectionId)" in html
+
+
+def test_dashboard_account_selection_keeps_history_by_default(
+    client: TestClient,
+) -> None:
+    """AC: changing the account selection never automatically removes
+    already-imported history — the UI only purges after an explicit
+    confirmation dialog, and the default save sends purge_unselected: false."""
+    html = _dashboard_html(client)
+    assert (
+        "Changing the account selection never removes already-imported history"
+        in html
+    )
+    assert "purge_unselected: false" in html
+    assert "Remove locally stored history for deselected accounts" in html
+    assert "confirm('Remove the locally stored history" in html
+    assert "hasDeselected" in html
+
+
+def test_dashboard_test_result_drives_account_selection(
+    client: TestClient,
+) -> None:
+    """AC: after a successful connection test the returned account list is
+    offered for selection, both on the card and inside the create wizard."""
+    html = _dashboard_html(client)
+    assert "openAccountsModal(" in html
+    assert "Select accounts" in html
+    assert "testWizardConnection" in html
+    assert "renderAccountCheckboxes" in html
+    assert "wizard-account-cb" in html
+    assert "/test`" in html  # inline test + saved-config test paths
+    assert "account_ids" in html
