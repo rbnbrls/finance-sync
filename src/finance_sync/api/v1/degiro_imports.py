@@ -21,7 +21,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from finance_sync.api.deps.auth import AuthContext, require_role
+from finance_sync.api.deps.auth import AuthContext, require_permission
 from finance_sync.connectors.exceptions import PermanentError
 from finance_sync.dependencies import get_container, get_db
 from finance_sync.models.credential import Credential
@@ -131,7 +131,7 @@ async def preview_import(
     request: Request,
     connection_id: str = Form(...),
     files: list[UploadFile] = File(...),
-    auth: AuthContext = Depends(require_role("admin")),
+    auth: AuthContext = Depends(require_permission("connectors", "write")),
     db: AsyncSession = Depends(get_db),
 ) -> ImportRunResponse:
     """Stream, validate and preview files without writing financial data."""
@@ -260,10 +260,22 @@ async def confirm_import(
     run_id: str,
     body: ConfirmRequest,
     request: Request,
-    auth: AuthContext = Depends(require_role("admin")),
+    auth: AuthContext = Depends(require_permission("connectors", "write")),
     db: AsyncSession = Depends(get_db),
 ) -> ImportRunResponse:
     """Confirm exactly the staged and hashed files from a prior preview."""
+    # ``force_reimport`` re-ingests an already-completed content hash, so it
+    # stays an explicit admin-only override even though the endpoint itself is
+    # now open to every principal holding ``connectors:write``.
+    if (
+        body.force_reimport
+        and auth.user is not None
+        and auth.user.role != "admin"
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="force_reimport is restricted to admin users",
+        )
     run = (
         await db.execute(
             select(ImportRun).where(
@@ -351,7 +363,7 @@ async def _record_failed_preview(
 async def list_import_runs(
     request: Request,
     connection_id: str | None = Query(default=None),
-    auth: AuthContext = Depends(require_role("admin")),
+    auth: AuthContext = Depends(require_permission("connectors", "read")),
     db: AsyncSession = Depends(get_db),
 ) -> list[ImportRunResponse]:
     """List tenant-scoped status/freshness without exposing server paths."""
@@ -375,7 +387,7 @@ async def list_import_runs(
 async def delete_import_files(
     run_id: str,
     request: Request,
-    auth: AuthContext = Depends(require_role("admin")),
+    auth: AuthContext = Depends(require_permission("connectors", "write")),
     db: AsyncSession = Depends(get_db),
 ) -> ImportRunResponse:
     """Explicitly remove staged/retained files while preserving the audit row."""
@@ -432,7 +444,7 @@ async def delete_import_files(
 @router.post("/{run_id}/retry", response_model=ImportRunResponse)
 async def retry_quarantined_import(
     run_id: str,
-    auth: AuthContext = Depends(require_role("admin")),
+    auth: AuthContext = Depends(require_permission("connectors", "write")),
     db: AsyncSession = Depends(get_db),
 ) -> ImportRunResponse:
     """Queue a quarantined batch for one explicit, audited worker retry."""
