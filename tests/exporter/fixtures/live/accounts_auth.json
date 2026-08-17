@@ -1,0 +1,41 @@
+{
+  "status_code": 200,
+  "body": [
+    {
+      "id": "d70e1d85-44f8-4102-aaf9-e32f4a47a862",
+      "name": "Smoke Test Brokerage",
+      "accountType": "SECURITIES",
+      "group": "Investments",
+      "currency": "EUR",
+      "isDefault": false,
+      "isActive": true,
+      "isArchived": false,
+      "trackingMode": "TRANSACTIONS",
+      "createdAt": "2026-08-16T15:25:33",
+      "updatedAt": "2026-08-16T15:25:33",
+      "platformId": null,
+      "accountNumber": null,
+      "meta": "{\"accounting\":{\"costBasisMethod\":\"FIFO\",\"costBasisProfile\":\"GENERIC\",\"createdAt\":\"2026-08-16T15:25:33.716Z\",\"lotSelectionStrategy\":null,\"poolingScope\":\"ACCOUNT\",\"settingsJson\":{},\"updatedAt\":\"2026-08-16T15:25:33.716Z\"},\"managedBy\":\"finance-sync\"}",
+      "provider": "FINANCE_SYNC",
+      "providerAccountId": "finance-sync:085231ce-564e-4cc9-a111-624618e8dec5:22222222-2222-4222-8222-222222222222"
+    },
+    {
+      "id": "186a6234-e131-47f2-8b6c-e53ed84e9d5e",
+      "name": "snap-test-f83d67",
+      "accountType": "SECURITIES",
+      "group": "Investments",
+      "currency": "EUR",
+      "isDefault": false,
+      "isActive": true,
+      "isArchived": false,
+      "trackingMode": "TRANSACTIONS",
+      "createdAt": "2026-08-16T15:36:49",
+      "updatedAt": "2026-08-16T15:36:49",
+      "platformId": null,
+      "accountNumber": null,
+      "meta": "{\"accounting\":{\"costBasisMethod\":\"FIFO\",\"costBasisProfile\":\"GENERIC\",\"createdAt\":\"2026-08-16T15:36:49.645Z\",\"lotSelectionStrategy\":null,\"poolingScope\":\"ACCOUNT\",\"settingsJson\":{},\"updatedAt\":\"2026-08-16T15:36:49.645Z\"},\"managedBy\":\"finance-sync-test\"}",
+      "provider": "FINANCE_SYNC",
+      "providerAccountId": "test:snap-test-f83d67"
+    }
+  ]
+}

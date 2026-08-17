@@ -1,0 +1,72 @@
+{
+  "status_code": 200,
+  "body": [
+    {
+      "id": "CASH-d70e1d85-44f8-4102-aaf9-e32f4a47a862-EUR",
+      "accountId": "d70e1d85-44f8-4102-aaf9-e32f4a47a862",
+      "holdingType": "cash",
+      "instrument": {
+        "id": "cash:EUR",
+        "symbol": "EUR",
+        "name": "Cash (EUR)",
+        "currency": "EUR",
+        "quoteMode": "MANUAL"
+      },
+      "assetKind": null,
+      "quantity": 525.0,
+      "openDate": null,
+      "contractMultiplier": 1.0,
+      "localCurrency": "EUR",
+      "baseCurrency": "EUR",
+      "fxRate": 1.0,
+      "marketValue": {
+        "local": 525.0,
+        "base": 525.0
+      },
+      "costBasis": {
+        "local": 525.0,
+        "base": 525.0
+      },
+      "price": 1.0,
+      "unrealizedGain": {
+        "local": 0.0,
+        "base": 0.0
+      },
+      "unrealizedGainPct": 0.0,
+      "realizedGain": {
+        "local": 0.0,
+        "base": 0.0
+      },
+      "realizedGainPct": 0.0,
+      "totalGain": {
+        "local": 0.0,
+        "base": 0.0
+      },
+      "totalGainPct": 0.0,
+      "income": {
+        "local": 0.0,
+        "base": 0.0
+      },
+      "totalReturn": {
+        "local": 0.0,
+        "base": 0.0
+      },
+      "totalReturnPct": 0.0,
+      "returnBasis": {
+        "local": 525.0,
+        "base": 0.0
+      },
+      "dayChange": {
+        "local": 0.0,
+        "base": 0.0
+      },
+      "dayChangePct": 0.0,
+      "prevCloseValue": {
+        "local": 525.0,
+        "base": 525.0
+      },
+      "weight": 1.0,
+      "asOfDate": "2026-08-17"
+    }
+  ]
+}
