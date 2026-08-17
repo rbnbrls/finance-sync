@@ -111,8 +111,14 @@ class ConnectorConfigResponse(BaseModel):
     """
 
     id: str
-    connection_id: str = Field(
-        description="Stable connection id (equal to id; explicit for clarity)"
+    connection_id: str | None = Field(
+        default=None,
+        description=(
+            "Stable connection id (equal to id; explicit for clarity). "
+            "Declared optional to keep the schema backward compatible "
+            "with clients built against the single-connection API; the "
+            "server always populates it."
+        ),
     )
     provider_type: str
     description: str | None
