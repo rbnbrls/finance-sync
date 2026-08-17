@@ -13,7 +13,10 @@ from typing import Any
 import httpx
 import pytest
 
-from finance_sync.services.github_issue import GitHubIssueService
+from finance_sync.services.github_issue import (
+    GitHubIssueService,
+    check_github_issue_access,
+)
 
 # ── Helpers ────────────────────────────────────────────────────────────
 
@@ -334,3 +337,111 @@ class TestCreateIssue:
 
         assert result.success is False
         assert "network" in (result.error or "").lower()
+
+
+class TestCheckGithubIssueAccess:
+    """Tests for ``check_github_issue_access`` (feedback health probe)."""
+
+    async def test_check_access_success(self) -> None:
+        """A 200 response means the token can access the repository."""
+
+        async def handler(request: httpx.Request) -> httpx.Response:
+            assert request.url.path == "/repos/rbnbrls/finance-sync"
+            auth = request.headers.get("Authorization", "")
+            assert "Bearer ghp_test_valid_token_12345" in str(auth)
+            return httpx.Response(
+                200, json={"full_name": "rbnbrls/finance-sync"}
+            )
+
+        client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        result = await check_github_issue_access(
+            token="ghp_test_valid_token_12345",
+            repo_full="rbnbrls/finance-sync",
+            http_client=client,
+        )
+
+        assert result["status"] == "ok"
+
+    async def test_check_access_auth_failure(self) -> None:
+        """A 401 response reports the token as invalid — this is the
+        exact misconfiguration that broke the feedback button."""
+
+        async def handler(_: httpx.Request) -> httpx.Response:
+            return httpx.Response(401, json={"message": "Bad credentials"})
+
+        client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        result = await check_github_issue_access(
+            token="ghp_stale_invalid_token",
+            repo_full="rbnbrls/finance-sync",
+            http_client=client,
+        )
+
+        assert result["status"] == "error"
+        assert "authenticat" in (result.get("detail") or "")
+
+    async def test_check_access_repo_not_found(self) -> None:
+        """A 404 response reports the repository as unreachable."""
+
+        async def handler(_: httpx.Request) -> httpx.Response:
+            return httpx.Response(404, json={"message": "Not Found"})
+
+        client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        result = await check_github_issue_access(
+            token="ghp_test_valid_token_12345",
+            repo_full="rbnbrls/finance-sync",
+            http_client=client,
+        )
+
+        assert result["status"] == "error"
+        assert "repo" in (result.get("detail") or "").lower()
+
+    async def test_check_access_not_configured_without_token(self) -> None:
+        """An empty token is reported without making any HTTP call."""
+
+        async def handler(_: httpx.Request) -> httpx.Response:
+            msg = "no HTTP call expected without a token"
+            raise AssertionError(msg)
+
+        client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        result = await check_github_issue_access(
+            token="",
+            repo_full="rbnbrls/finance-sync",
+            http_client=client,
+        )
+
+        assert result["status"] == "not_configured"
+        assert "token" in (result.get("detail") or "").lower()
+
+    async def test_check_access_invalid_repo_format(self) -> None:
+        """A malformed GITHUB_REPO is reported without an HTTP call."""
+
+        async def handler(_: httpx.Request) -> httpx.Response:
+            msg = "no HTTP call expected for malformed repo format"
+            raise AssertionError(msg)
+
+        client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        result = await check_github_issue_access(
+            token="ghp_test_valid_token_12345",
+            repo_full="not-a-valid-repo",
+            http_client=client,
+        )
+
+        assert result["status"] == "error"
+        assert "GITHUB_REPO" in (result.get("detail") or "")
+
+    async def test_check_access_network_error(self) -> None:
+        """A network failure reports an error without crashing."""
+
+        def handler(_: httpx.Request) -> httpx.Response:
+            msg = "connection refused"
+            raise httpx.ConnectError(msg)
+
+        client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        result = await check_github_issue_access(
+            token="ghp_test_valid_token_12345",
+            repo_full="rbnbrls/finance-sync",
+            http_client=client,
+        )
+
+        assert result["status"] == "error"
+        assert "network" in (result.get("detail") or "").lower()
