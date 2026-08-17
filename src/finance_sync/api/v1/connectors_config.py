@@ -14,12 +14,14 @@ from typing import Any, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
+from sqlalchemy import delete as sa_delete
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from finance_sync.api.deps.auth import (
     AuthContext,
     require_permission,
+    require_role,
 )
 from finance_sync.connectors.environment import (
     STAGING_STATIC,
@@ -32,8 +34,25 @@ from finance_sync.connectors.models import (
 )
 from finance_sync.connectors.registry import ConnectorRegistry
 from finance_sync.dependencies import get_container, get_db
-from finance_sync.models.credential import Credential
+from finance_sync.models.credential import (
+    CONNECTION_STATUS_ACTIVE,
+    CONNECTION_STATUS_PAUSED,
+    Credential,
+)
+from finance_sync.models.transaction import Transaction
 from finance_sync.services.auth import decrypt_credential, encrypt_credential
+from finance_sync.services.connection_audit import (
+    AUDIT_ACCOUNTS,
+    AUDIT_CREATE,
+    AUDIT_DELETE,
+    AUDIT_PAUSE,
+    AUDIT_RESUME,
+    AUDIT_TEST,
+    AUDIT_UPDATE,
+    list_connection_audit_events,
+    log_connection_event,
+)
+from finance_sync.utils.redaction import sanitize_error
 
 router = APIRouter(prefix="/connectors", tags=["connectors"])
 
@@ -85,14 +104,49 @@ class ConnectorInfo(BaseModel):
 
 
 class ConnectorConfigResponse(BaseModel):
-    """A stored connector configuration (without sensitive credentials)."""
+    """A stored connector configuration (without sensitive credentials).
+
+    One entry per **connection**.  ``id`` is the stable ``connection_id``
+    used to scope syncs, cursors and audit entries for this connection.
+    """
 
     id: str
+    connection_id: str | None = Field(
+        default=None,
+        description=(
+            "Stable connection id (equal to id; explicit for clarity). "
+            "Declared optional to keep the schema backward compatible "
+            "with clients built against the single-connection API; the "
+            "server always populates it."
+        ),
+    )
     provider_type: str
     description: str | None
     options: dict[str, Any]
     is_configured: bool = Field(
         description="Whether required credentials are populated"
+    )
+    status: str = Field(
+        default="active",
+        description="Connection state: 'active' or 'paused'",
+    )
+    selected_accounts: list[str] | None = Field(
+        default=None,
+        description=(
+            "Provider account IDs selected for sync; null/empty = sync all"
+        ),
+    )
+    last_attempt_at: datetime | None = Field(
+        default=None,
+        description="When the last sync attempt for this connection started",
+    )
+    last_success_at: datetime | None = Field(
+        default=None,
+        description="When the last successful sync completed",
+    )
+    last_error: str | None = Field(
+        default=None,
+        description="Sanitised error of the last failed sync / connection test",
     )
     created_at: datetime
     updated_at: datetime
@@ -119,11 +173,69 @@ class ConnectorConfigCreate(BaseModel):
     )
 
 
+class InlineTestAccount(BaseModel):
+    """A single account returned by an inline connection test."""
+
+    id: str = Field(description="Provider account ID")
+    label: str = Field(description="Human-readable account label")
+    iban: str | None = Field(default=None, description="IBAN if available")
+
+
 class ConnectorTestResult(BaseModel):
     """Result of a connection test."""
 
     success: bool
     message: str
+    accounts: list[InlineTestAccount] = Field(
+        default_factory=list[InlineTestAccount],
+        description=(
+            "Accounts accessible via this connection; empty when the "
+            "provider does not support account enumeration or the test failed"
+        ),
+    )
+
+
+class ConnectorAccountsUpdate(BaseModel):
+    """Payload for selecting the accounts a connection should sync."""
+
+    account_ids: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Provider account IDs to sync for this connection; an empty "
+            "list resets the selection so all offered accounts are synced"
+        ),
+    )
+    purge_unselected: bool = Field(
+        default=False,
+        description=(
+            "When true, locally stored accounts (and their transactions) "
+            "that are no longer selected are deleted.  Defaults to false: "
+            "changing a selection never removes already-imported history "
+            "without this explicit confirmation."
+        ),
+    )
+
+
+class ConnectionStatusUpdate(BaseModel):
+    """Payload for pause/resume requests."""
+
+    status: str = Field(
+        ...,
+        description="'paused' pauses the connection; 'active' resumes it",
+    )
+
+
+class ConnectionAuditEntry(BaseModel):
+    """One sanitised entry from the tenant-scoped connection audit log."""
+
+    id: str
+    connection_id: str | None
+    provider_key: str
+    action: str
+    detail: dict[str, Any]
+    actor_user_id: str | None
+    actor_role: str | None
+    created_at: datetime
 
 
 class InlineTestRequest(BaseModel):
@@ -137,14 +249,6 @@ class InlineTestRequest(BaseModel):
         default_factory=dict,
         description="Non-secret configuration (sandbox mode, custom endpoints)",
     )
-
-
-class InlineTestAccount(BaseModel):
-    """A single account returned by an inline connection test."""
-
-    id: str = Field(description="Provider account ID")
-    label: str = Field(description="Human-readable account label")
-    iban: str | None = Field(default=None, description="IBAN if available")
 
 
 class InlineTestResult(BaseModel):
@@ -173,6 +277,81 @@ class ConnectorConfigUpdate(BaseModel):
         default=None,
         description="Human-readable label",
     )
+
+
+# ── Response helpers ───────────────────────────────────────────────────
+
+# Providers whose configs count as configured without encrypted payloads
+_NON_SECRET_PROVIDERS = {"degiro_pension", "csv_import", "manual_expense"}
+
+
+def _credential_secrets(cred: Credential, settings: Any) -> list[str]:
+    """Return the decrypted secret values of a credential for redaction.
+
+    Used to scrub error messages before persisting them on the
+    connection row / audit log.  Never returns ciphertext.
+    """
+    if not cred.encrypted_payload:
+        return []
+    try:
+        plaintext = decrypt_credential(
+            cred.encrypted_payload, cred.nonce, settings
+        )
+        secrets = json.loads(plaintext)
+        if isinstance(secrets, dict):
+            parsed = cast("dict[str, Any]", secrets)
+            return [str(v) for v in parsed.values() if isinstance(v, str)]
+    except Exception:
+        pass
+    return []
+
+
+def _credential_response(row: Credential) -> ConnectorConfigResponse:
+    """Build the public response for a credential row (no secrets)."""
+    options: Any = {}
+    is_configured = bool(row.encrypted_payload) or row.provider_key in (
+        _NON_SECRET_PROVIDERS
+    )
+    label = row.description
+    with contextlib.suppress(json.JSONDecodeError, TypeError):
+        parsed = json.loads(row.description or "{}")
+        if isinstance(parsed, dict):
+            options = cast(dict[str, Any], parsed)
+            label = options.pop("_label", label) or label
+    return ConnectorConfigResponse(
+        id=row.id,
+        connection_id=row.id,
+        provider_type=row.provider_key,
+        description=label,
+        options=options,
+        is_configured=is_configured,
+        status=row.status or "active",
+        selected_accounts=row.selected_accounts,
+        last_attempt_at=row.last_attempt_at,
+        last_success_at=row.last_success_at,
+        last_error=row.last_error,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    )
+
+
+async def _load_tenant_credential(
+    db: AsyncSession, auth: AuthContext, config_id: str
+) -> Credential:
+    """Load a tenant-scoped credential row or raise 404."""
+    result = await db.execute(
+        select(Credential).where(
+            Credential.id == config_id,
+            Credential.tenant_id == auth.tenant_id,
+        )
+    )
+    cred = result.scalar_one_or_none()
+    if cred is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Connector configuration not found",
+        )
+    return cred
 
 
 # ── Credential field definitions per connector ──────────────────────────
@@ -391,37 +570,33 @@ async def list_connector_configs(
     auth: AuthContext = Depends(require_permission("connectors", "read")),
     db: AsyncSession = Depends(get_db),
 ) -> list[ConnectorConfigResponse]:
-    """List all saved connector configurations for the current tenant."""
+    """List all saved connector configurations (connections) for the tenant.
+
+    Multiple connections per provider are returned; credentials are never
+    included.  Each entry carries its connection status, selected
+    accounts and last sync outcome.
+    """
     result = await db.execute(
         select(Credential).where(Credential.tenant_id == auth.tenant_id)
     )
     rows = result.scalars().all()
-    configs: list[ConnectorConfigResponse] = []
-    for row in rows:
-        options: Any = {}
-        is_configured = bool(row.encrypted_payload) or row.provider_key in {
-            "degiro_pension",
-            "csv_import",
-            "manual_expense",
-        }
-        label = row.description
-        with contextlib.suppress(json.JSONDecodeError, TypeError):
-            parsed = json.loads(row.description or "{}")
-            if isinstance(parsed, dict):
-                options = cast(dict[str, Any], parsed)
-                label = options.pop("_label", label) or label
-        configs.append(
-            ConnectorConfigResponse(
-                id=row.id,
-                provider_type=row.provider_key,
-                description=label,
-                options=options,
-                is_configured=is_configured,
-                created_at=row.created_at,
-                updated_at=row.updated_at,
-            )
-        )
-    return configs
+    return [_credential_response(row) for row in rows]
+
+
+@router.get("/configs/{config_id}", response_model=ConnectorConfigResponse)
+async def get_connector_config(
+    config_id: str,
+    auth: AuthContext = Depends(require_permission("connectors", "read")),
+    db: AsyncSession = Depends(get_db),
+) -> ConnectorConfigResponse:
+    """Return a single connection by its ``connection_id`` (tenant-scoped).
+
+    Credentials are never included; the response carries the connection's
+    status, selected accounts and last sync outcome so the UI can render
+    one connection without re-fetching the full list.
+    """
+    cred = await _load_tenant_credential(db, auth, config_id)
+    return _credential_response(cred)
 
 
 @router.post(
@@ -469,22 +644,8 @@ async def create_connector_config(
             ),
         )
 
-    # Check for existing config of same provider for this tenant
-    existing = await db.execute(
-        select(Credential).where(
-            Credential.tenant_id == auth.tenant_id,
-            Credential.provider_key == body.provider_type,
-        )
-    )
-    if existing.scalar_one_or_none() is not None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=(
-                "A configuration for "
-                f"'{body.provider_type}' already exists. "
-                "Use PUT to update it, or DELETE first."
-            ),
-        )
+    # Multiple connections per provider are allowed — no uniqueness check
+    # on (tenant, provider).  Each create call adds a new connection.
 
     # Encrypt credentials if provided
     encrypted_payload: bytes = b""
@@ -515,25 +676,29 @@ async def create_connector_config(
         encrypted_payload=encrypted_payload,
         nonce=nonce,
         description=merged_json,
+        status="active",
         created_at=now,
         updated_at=now,
     )
     db.add(cred)
     await db.flush()
 
-    label = body.description or merged_options.get("_label", "")
-
-    return ConnectorConfigResponse(
-        id=cred.id,
-        provider_type=cred.provider_key,
-        description=label,
-        options=options,
-        is_configured=bool(credentials)
-        or body.provider_type
-        in {"degiro_pension", "csv_import", "manual_expense"},
-        created_at=cred.created_at,
-        updated_at=cred.updated_at,
+    await log_connection_event(
+        db,
+        tenant_id=auth.tenant_id,
+        action=AUDIT_CREATE,
+        provider_key=cred.provider_key,
+        connection_id=str(cred.id),
+        detail={
+            "label": body.description or merged_options.get("_label", ""),
+            "is_configured": bool(credentials),
+        },
+        actor_user_id=auth.principal_id,
+        actor_role=auth.user.role if auth.user else None,
+        secrets=list(credentials.values()),
     )
+
+    return _credential_response(cred)
 
 
 @router.put("/configs/{config_id}", response_model=ConnectorConfigResponse)
@@ -548,18 +713,7 @@ async def update_connector_config(
     container = get_container(request)
     settings = container.settings
 
-    result = await db.execute(
-        select(Credential).where(
-            Credential.id == config_id,
-            Credential.tenant_id == auth.tenant_id,
-        )
-    )
-    cred = result.scalar_one_or_none()
-    if cred is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Connector configuration not found",
-        )
+    cred = await _load_tenant_credential(db, auth, config_id)
 
     credentials_update = body.credentials
     options_update = body.options
@@ -641,25 +795,23 @@ async def update_connector_config(
     cred.updated_at = datetime.now(UTC)
     await db.flush()
 
-    options: Any = {}
-    label = cred.description
-    with contextlib.suppress(json.JSONDecodeError, TypeError):
-        parsed = json.loads(cred.description or "{}")
-        if isinstance(parsed, dict):
-            options = cast(dict[str, Any], parsed)
-            label = options.pop("_label", label) or label
-
-    return ConnectorConfigResponse(
-        id=cred.id,
-        provider_type=cred.provider_key,
-        description=label,
-        options=options,
-        is_configured=bool(cred.encrypted_payload)
-        or cred.provider_key
-        in {"degiro_pension", "csv_import", "manual_expense"},
-        created_at=cred.created_at,
-        updated_at=cred.updated_at,
+    await log_connection_event(
+        db,
+        tenant_id=auth.tenant_id,
+        action=AUDIT_UPDATE,
+        provider_key=cred.provider_key,
+        connection_id=str(cred.id),
+        detail={
+            "label": body.description,
+            "credentials_updated": bool(body.credentials),
+            "options_updated": bool(body.options),
+        },
+        actor_user_id=auth.principal_id,
+        actor_role=auth.user.role if auth.user else None,
+        secrets=list(body.credentials.values()) if body.credentials else [],
     )
+
+    return _credential_response(cred)
 
 
 @router.delete("/configs/{config_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -669,19 +821,13 @@ async def delete_connector_config(
     auth: AuthContext = Depends(require_permission("connectors", "write")),
     db: AsyncSession = Depends(get_db),
 ) -> None:
-    """Delete a connector configuration."""
-    result = await db.execute(
-        select(Credential).where(
-            Credential.id == config_id,
-            Credential.tenant_id == auth.tenant_id,
-        )
-    )
-    cred = result.scalar_one_or_none()
-    if cred is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Connector configuration not found",
-        )
+    """Delete a connector configuration (connection).
+
+    Deleting a connection stops future syncs for it but never removes
+    already-imported accounts, transactions or holdings — history is
+    kept (with the connection id retained for traceability).
+    """
+    cred = await _load_tenant_credential(db, auth, config_id)
     settings = get_container(request).settings
     if is_staging_managed(cred.provider_key, settings):
         raise HTTPException(
@@ -691,8 +837,21 @@ async def delete_connector_config(
                 "removed; edit it to switch data source"
             ),
         )
+    provider_key = cred.provider_key
+    connection_id = str(cred.id)
     await db.delete(cred)
     await db.flush()
+
+    await log_connection_event(
+        db,
+        tenant_id=auth.tenant_id,
+        action=AUDIT_DELETE,
+        provider_key=provider_key,
+        connection_id=connection_id,
+        detail={"deleted": True},
+        actor_user_id=auth.principal_id,
+        actor_role=auth.user.role if auth.user else None,
+    )
 
 
 @router.post("/configs/{config_id}/test", response_model=ConnectorTestResult)
@@ -702,22 +861,20 @@ async def test_connector_connection(
     auth: AuthContext = Depends(require_permission("connectors", "write")),
     db: AsyncSession = Depends(get_db),
 ) -> ConnectorTestResult:
-    """Test a connector configuration by calling its ``health`` method."""
+    """Test a connection by calling the connector's ``health`` method.
+
+    On success the returned payload includes the accounts the provider
+    offers so the frontend can drive account selection.  The connection's
+    ``last_attempt_at`` / ``last_success_at`` / ``last_error`` fields
+    are updated and the attempt is recorded in the tenant audit log.
+    Error messages are sanitised before being stored or returned.
+    """
     container = get_container(request)
     settings = container.settings
 
-    result = await db.execute(
-        select(Credential).where(
-            Credential.id == config_id,
-            Credential.tenant_id == auth.tenant_id,
-        )
-    )
-    cred = result.scalar_one_or_none()
-    if cred is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Connector configuration not found",
-        )
+    cred = await _load_tenant_credential(db, auth, config_id)
+    secrets = _credential_secrets(cred, settings)
+    now = datetime.now(UTC)
 
     # Decrypt credentials
     credentials: dict[str, str] = {}
@@ -728,10 +885,25 @@ async def test_connector_connection(
             )
             credentials = json.loads(plaintext)
         except Exception as exc:
-            return ConnectorTestResult(
-                success=False,
-                message=f"Failed to decrypt credentials: {exc}",
+            failure = sanitize_error(
+                f"Failed to decrypt credentials: {exc}", secrets
             )
+            cred.last_attempt_at = now
+            cred.last_error = failure
+            cred.updated_at = now
+            await db.flush()
+            await log_connection_event(
+                db,
+                tenant_id=auth.tenant_id,
+                action=AUDIT_TEST,
+                provider_key=cred.provider_key,
+                connection_id=str(cred.id),
+                detail={"success": False, "error": failure},
+                actor_user_id=auth.principal_id,
+                actor_role=auth.user.role if auth.user else None,
+                secrets=secrets,
+            )
+            return ConnectorTestResult(success=False, message=failure)
 
     # Parse options
     options: dict[str, Any] = {}
@@ -748,15 +920,241 @@ async def test_connector_connection(
         )
         connector = registry.get_connector(connector_config)
         health = await connector.health()
+
+        accounts: list[InlineTestAccount] = []
+        if health.healthy:
+            # Offer the provider's accounts for the selection UI.
+            try:
+                raw_accounts = await connector.fetch_accounts()
+                for acc in raw_accounts:
+                    iban = None
+                    if acc.provider_metadata:
+                        iban = acc.provider_metadata.get("iban")
+                    accounts.append(
+                        InlineTestAccount(
+                            id=acc.external_account_id,
+                            label=acc.name,
+                            iban=iban,
+                        )
+                    )
+            except Exception:
+                # Account enumeration is optional — don't fail the test.
+                pass
+
+        cred.last_attempt_at = now
+        cred.updated_at = now
+        if health.healthy:
+            cred.last_success_at = now
+            cred.last_error = None
+            message = health.message or "Connection successful"
+        else:
+            cred.last_error = sanitize_error(
+                health.message or "Connection test failed", secrets
+            )
+            message = cred.last_error or "Connection test failed"
+        await db.flush()
+        await log_connection_event(
+            db,
+            tenant_id=auth.tenant_id,
+            action=AUDIT_TEST,
+            provider_key=cred.provider_key,
+            connection_id=str(cred.id),
+            detail={"success": health.healthy, "message": message},
+            actor_user_id=auth.principal_id,
+            actor_role=auth.user.role if auth.user else None,
+            secrets=secrets,
+        )
         return ConnectorTestResult(
             success=health.healthy,
-            message=health.message or "Connection successful",
+            message=message,
+            accounts=accounts,
         )
     except Exception as exc:
-        return ConnectorTestResult(
-            success=False,
-            message=str(exc),
+        failure = sanitize_error(str(exc), secrets)
+        cred.last_attempt_at = now
+        cred.last_error = failure
+        cred.updated_at = now
+        await db.flush()
+        await log_connection_event(
+            db,
+            tenant_id=auth.tenant_id,
+            action=AUDIT_TEST,
+            provider_key=cred.provider_key,
+            connection_id=str(cred.id),
+            detail={"success": False, "error": failure},
+            actor_user_id=auth.principal_id,
+            actor_role=auth.user.role if auth.user else None,
+            secrets=secrets,
         )
+        return ConnectorTestResult(success=False, message=failure)
+
+
+@router.post(
+    "/configs/{config_id}/pause",
+    response_model=ConnectorConfigResponse,
+)
+async def pause_connector_connection(
+    config_id: str,
+    auth: AuthContext = Depends(require_permission("connectors", "write")),
+    db: AsyncSession = Depends(get_db),
+) -> ConnectorConfigResponse:
+    """Pause a connection: the scheduler will skip it until resumed.
+
+    Existing data is kept untouched; only future automatic syncs stop.
+    """
+    cred = await _load_tenant_credential(db, auth, config_id)
+    if cred.status != CONNECTION_STATUS_PAUSED:
+        cred.status = CONNECTION_STATUS_PAUSED
+        cred.updated_at = datetime.now(UTC)
+        await db.flush()
+        await log_connection_event(
+            db,
+            tenant_id=auth.tenant_id,
+            action=AUDIT_PAUSE,
+            provider_key=cred.provider_key,
+            connection_id=str(cred.id),
+            detail={"status": CONNECTION_STATUS_PAUSED},
+            actor_user_id=auth.principal_id,
+            actor_role=auth.user.role if auth.user else None,
+        )
+    return _credential_response(cred)
+
+
+@router.post(
+    "/configs/{config_id}/resume",
+    response_model=ConnectorConfigResponse,
+)
+async def resume_connector_connection(
+    config_id: str,
+    auth: AuthContext = Depends(require_permission("connectors", "write")),
+    db: AsyncSession = Depends(get_db),
+) -> ConnectorConfigResponse:
+    """Resume a paused connection: automatic syncs restart."""
+    cred = await _load_tenant_credential(db, auth, config_id)
+    if cred.status != CONNECTION_STATUS_ACTIVE:
+        cred.status = CONNECTION_STATUS_ACTIVE
+        cred.updated_at = datetime.now(UTC)
+        await db.flush()
+        await log_connection_event(
+            db,
+            tenant_id=auth.tenant_id,
+            action=AUDIT_RESUME,
+            provider_key=cred.provider_key,
+            connection_id=str(cred.id),
+            detail={"status": CONNECTION_STATUS_ACTIVE},
+            actor_user_id=auth.principal_id,
+            actor_role=auth.user.role if auth.user else None,
+        )
+    return _credential_response(cred)
+
+
+@router.post(
+    "/configs/{config_id}/accounts",
+    response_model=ConnectorConfigResponse,
+)
+async def set_connection_accounts(
+    config_id: str,
+    body: ConnectorAccountsUpdate,
+    auth: AuthContext = Depends(require_permission("connectors", "write")),
+    db: AsyncSession = Depends(get_db),
+) -> ConnectorConfigResponse:
+    """Select the provider accounts a connection should sync.
+
+    Only selected accounts are synced and exported to Wealthfolio
+    afterwards.  Changing the selection never deletes already-imported
+    history unless ``purge_unselected`` is explicitly set to true — the
+    purge then removes the locally stored accounts (and their
+    transactions) that are no longer selected.
+    """
+    cred = await _load_tenant_credential(db, auth, config_id)
+    previous = list(cred.selected_accounts or [])
+    cred.selected_accounts = body.account_ids or None
+    cred.updated_at = datetime.now(UTC)
+    await db.flush()
+
+    if body.purge_unselected:
+        deselected = [
+            acc for acc in previous if acc not in (body.account_ids or [])
+        ]
+        if deselected:
+            from finance_sync.models.account import Account
+
+            # Remove the no-longer-selected accounts and their data.
+            # Transactions/balances referencing them cascade is NOT
+            # automatic — explicit deletes keep the operation auditable.
+            accounts = await db.scalars(
+                select(Account).where(
+                    Account.tenant_id == auth.tenant_id,
+                    Account.connection_id == str(cred.id),
+                    Account.external_account_id.in_(deselected),
+                )
+            )
+            for account in accounts:
+                await db.execute(
+                    sa_delete(Transaction).where(
+                        Transaction.account_id == account.id
+                    )
+                )
+                await db.delete(account)
+            await db.flush()
+
+    await log_connection_event(
+        db,
+        tenant_id=auth.tenant_id,
+        action=AUDIT_ACCOUNTS,
+        provider_key=cred.provider_key,
+        connection_id=str(cred.id),
+        detail={
+            "selected_accounts": body.account_ids,
+            "purged_unselected": body.purge_unselected,
+            "removed_accounts": [
+                acc for acc in previous if acc not in (body.account_ids or [])
+            ]
+            if body.purge_unselected
+            else [],
+        },
+        actor_user_id=auth.principal_id,
+        actor_role=auth.user.role if auth.user else None,
+    )
+    return _credential_response(cred)
+
+
+@router.get(
+    "/audit-log",
+    response_model=list[ConnectionAuditEntry],
+)
+async def list_connection_audit(
+    auth: AuthContext = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_db),
+    connection_id: str | None = None,
+    provider_key: str | None = None,
+    limit: int = 100,
+) -> list[ConnectionAuditEntry]:
+    """Return the tenant's connection-lifecycle audit trail (admin only).
+
+    Entries are sanitised at write time and never contain credentials or
+    financial payloads.
+    """
+    entries = await list_connection_audit_events(
+        db,
+        tenant_id=auth.tenant_id,
+        connection_id=connection_id,
+        provider_key=provider_key,
+        limit=min(max(limit, 1), 500),
+    )
+    return [
+        ConnectionAuditEntry(
+            id=str(e.id),
+            connection_id=e.connection_id,
+            provider_key=e.provider_key,
+            action=e.action,
+            detail=dict(e.detail or {}),
+            actor_user_id=e.actor_user_id,
+            actor_role=e.actor_role,
+            created_at=e.created_at,
+        )
+        for e in entries
+    ]
 
 
 @router.post(
@@ -853,5 +1251,5 @@ async def test_connector_inline(
     except Exception as exc:
         return InlineTestResult(
             success=False,
-            message=str(exc),
+            message=sanitize_error(str(exc), list(body.credentials.values())),
         )
