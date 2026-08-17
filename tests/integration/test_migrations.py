@@ -71,6 +71,9 @@ EXPECTED_TABLES = {
     "wealthfolio_account_mappings",
     # multi-connection + per-connection audit trail (migration 0017)
     "connection_audit_log",
+    # household sharing: ownership/visibility + invitations + audit (0018)
+    "household_invitations",
+    "household_audit_log",
 }
 
 

@@ -50,6 +50,19 @@ class Credential(Base):
     tenant_id: Mapped[str] = mapped_column(
         ForeignKey("tenants.id"), nullable=False
     )
+    # The user that configured this connection. Accounts synced through
+    # this connection inherit the owner (provenance chain user →
+    # connection → account). Plain string, no FK, so the row survives
+    # user deletion.
+    owner_user_id: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+        index=True,
+        comment=(
+            "User id that configured this connection; NULL = legacy/"
+            "system-owned"
+        ),
+    )
     provider_key: Mapped[str] = mapped_column(
         String(64),
         nullable=False,

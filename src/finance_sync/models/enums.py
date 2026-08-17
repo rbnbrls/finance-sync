@@ -143,6 +143,28 @@ class UserRole(StrEnum):
     VIEWER = "viewer"
 
 
+class AccountVisibility(StrEnum):
+    """Visibility policy of a financial account within its tenant.
+
+    ``PRIVATE`` accounts are only visible to their owner (``owner_user_id``)
+    and to the tenant admins; ``HOUSEHOLD`` accounts are visible to every
+    member of the tenant and are the only accounts the shared Wealthfolio
+    export may contain.
+    """
+
+    PRIVATE = "private"
+    HOUSEHOLD = "household"
+
+
+class InvitationStatus(StrEnum):
+    """Lifecycle state of a household invitation."""
+
+    PENDING = "pending"
+    ACCEPTED = "accepted"
+    EXPIRED = "expired"
+    REVOKED = "revoked"
+
+
 class WebhookEventType(StrEnum):
     """Event types that can trigger webhook notifications."""
 

@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from finance_sync.models.enums import (
     AccountType,
+    AccountVisibility,
     BalanceKind,
     BalanceSource,
     ConnectorProvider,
     HoldingSource,
+    InvitationStatus,
     OutboxMessageStatus,
     SecurityType,
     SyncRunStatus,
@@ -122,3 +124,30 @@ class TestConnectorProvider:
         assert ConnectorProvider.BUNQ.value == "bunq"
         assert ConnectorProvider.YODLEE.value == "yodlee"
         assert ConnectorProvider.MANUAL.value == "manual"
+
+
+class TestAccountVisibility:
+    def test_members(self) -> None:
+        """Visibility policy is explicitly 'private' or 'household'."""
+        assert AccountVisibility.PRIVATE.value == "private"
+        assert AccountVisibility.HOUSEHOLD.value == "household"
+
+    def test_str_is_value(self) -> None:
+        """Enum stringification matches the DB-stored value."""
+        assert str(AccountVisibility.PRIVATE) == "private"
+        assert str(AccountVisibility.HOUSEHOLD) == "household"
+
+    def test_private_is_default(self) -> None:
+        """Private-by-default: the documented safe default comes first."""
+        assert AccountVisibility.PRIVATE is AccountVisibility("private")
+
+
+class TestInvitationStatus:
+    def test_members(self) -> None:
+        assert InvitationStatus.PENDING.value == "pending"
+        assert InvitationStatus.ACCEPTED.value == "accepted"
+        assert InvitationStatus.EXPIRED.value == "expired"
+        assert InvitationStatus.REVOKED.value == "revoked"
+
+    def test_str_is_value(self) -> None:
+        assert str(InvitationStatus.PENDING) == "pending"
