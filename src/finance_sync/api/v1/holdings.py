@@ -14,21 +14,29 @@ from typing import Any
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from finance_sync.api.deps.auth import AuthContext, require_permission
+from finance_sync.api.deps.auth import (
+    AuthContext,
+    get_read_scope,
+    require_permission,
+)
 from finance_sync.dependencies import get_db
 from finance_sync.services.read_api import HoldingsListResponse, ReadService
+from finance_sync.services.visibility import ReadScope
 
 router = APIRouter(prefix="/holdings", tags=["holdings"])
 
 
-def _get_service(session: AsyncSession) -> ReadService:
-    return ReadService(session)
+def _get_service(
+    session: AsyncSession, scope: ReadScope | None = None
+) -> ReadService:
+    return ReadService(session, scope=scope)
 
 
 @router.get("", response_model=HoldingsListResponse)
 async def list_holdings(
     auth: AuthContext = Depends(require_permission("holdings", "read")),
     db: AsyncSession = Depends(get_db),
+    scope: ReadScope = Depends(get_read_scope),
     limit: int = Query(default=50, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
     account_id: str | None = Query(default=None, alias="accountId"),
@@ -36,7 +44,7 @@ async def list_holdings(
     as_of: datetime | None = Query(default=None, alias="asOf"),
 ) -> dict[str, Any]:
     """List the tenant's latest (or as-of) aggregated holdings."""
-    svc = _get_service(db)
+    svc = _get_service(db, scope=scope)
     result = await svc.get_holdings(
         tenant_id=auth.tenant_id,
         account_id=account_id,

@@ -156,10 +156,16 @@ class AISummaryService:
         self,
         session: AsyncSession,
         settings: Settings,
+        *,
+        scope: Any | None = None,
     ) -> None:
         self._session = session
         self._settings = settings
-        self._read_service = ReadService(session)
+        # The household visibility scope restricts the underlying
+        # ReadService to the principal's visible accounts, so the AI
+        # summary can never describe private accounts of other
+        # household members.
+        self._read_service = ReadService(session, scope=scope)
         self._http_client: httpx.AsyncClient | None = None
         self._log = logger.bind(service="ai_summary")
 

@@ -285,3 +285,24 @@ def require_role(*allowed_roles: str) -> Any:
         raise _forbidden(_MSG_ROLE_CHECK_FAILED)
 
     return _role_check
+
+
+# ── Read scope (household visibility) ────────────────────────────────
+
+
+def get_read_scope(
+    auth: AuthContext = Depends(get_auth_context),
+) -> Any:
+    """Resolve the household visibility scope for the authenticated
+    principal.
+
+    JWT users get their user scope (household + own private + admin
+    unowned); API-key principals get the machine scope (household +
+    system-owned only).  Pass the result to ``ReadService`` /
+    derived services to enforce the visibility policy.
+    """
+    from finance_sync.services.visibility import ReadScope
+
+    if auth.user is not None:
+        return ReadScope.for_user(auth.user)
+    return ReadScope.for_api_key(auth.tenant_id)

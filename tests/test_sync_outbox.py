@@ -75,6 +75,7 @@ class TestOutboxEntityCreated:
         """Creates a {entity_type}.created outbox message."""
         msg = await outbox_entity_created(
             uow,
+            tenant_id="tenant-1",
             entity_type="account",
             entity_id="acct-uuid-1",
             entity_data={"name": "Test Account", "provider_key": "bunq"},
@@ -85,6 +86,7 @@ class TestOutboxEntityCreated:
         assert msg.aggregate_type == "account"
         assert msg.event_type == "account.created"
         assert msg.idempotency_key == "account:acct-uuid-1:created"
+        assert msg.payload["tenant_id"] == "tenant-1"
         assert msg.payload["entity_id"] == "acct-uuid-1"
         assert msg.payload["entity_type"] == "account"
         assert msg.payload["data"]["name"] == "Test Account"
@@ -94,6 +96,7 @@ class TestOutboxEntityCreated:
         """entity_data defaults to empty dict."""
         msg = await outbox_entity_created(
             uow,
+            tenant_id="tenant-1",
             entity_type="transaction",
             entity_id="txn-uuid-1",
             provider_key="bunq",
@@ -108,6 +111,7 @@ class TestOutboxEntityUpdated:
         """Creates a {entity_type}.updated outbox message."""
         msg = await outbox_entity_updated(
             uow,
+            tenant_id="tenant-1",
             entity_type="account",
             entity_id="acct-uuid-1",
             changed_fields={"name": "New Name", "current_balance": "1500.00"},
@@ -118,6 +122,7 @@ class TestOutboxEntityUpdated:
         assert msg.aggregate_type == "account"
         assert msg.event_type == "account.updated"
         assert msg.idempotency_key == "account:acct-uuid-1:updated"
+        assert msg.payload["tenant_id"] == "tenant-1"
         assert msg.payload["changed_fields"]["name"] == "New Name"
         assert msg.payload["provider_key"] == "bunq"
 
@@ -125,6 +130,7 @@ class TestOutboxEntityUpdated:
         """changed_fields defaults to empty dict."""
         msg = await outbox_entity_updated(
             uow,
+            tenant_id="tenant-1",
             entity_type="transaction",
             entity_id="txn-uuid-1",
             provider_key="trading212",

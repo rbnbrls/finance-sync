@@ -106,10 +106,16 @@ class HomeAssistantService:
     in the HA REST sensor format.
     """
 
-    def __init__(self, session: Any, settings: Any) -> None:
+    def __init__(
+        self, session: Any, settings: Any, *, scope: Any = None
+    ) -> None:
         self._session = session
         self._settings = settings
-        self._read_service = ReadService(session)
+        # The household visibility scope restricts the underlying
+        # ReadService to the principal's visible accounts, so the HA
+        # sensors never expose net worth / portfolio figures that
+        # include private accounts of other household members.
+        self._read_service = ReadService(session, scope=scope)
         self._log = logger.bind(service="ha_integration")
 
     async def get_sensors(self, tenant_id: str) -> list[HASensor]:

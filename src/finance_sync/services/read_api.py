@@ -35,6 +35,8 @@ from finance_sync.schemas.freshness import (
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
+    from finance_sync.services.visibility import ReadScope
+
 # ── Response DTOs ─────────────────────────────────────────────────────
 
 E = Decimal
@@ -50,6 +52,8 @@ class AccountSummary(BaseModel):
     available_balance: E | None = None
     provider_key: str
     is_active: bool
+    visibility: str = "private"
+    owner_user_id: str | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
@@ -515,10 +519,41 @@ class ReadService:
 
     Each method returns Pydantic response models directly so that
     route handlers can return them verbatim.
+
+    When constructed with a ``ReadScope``
+    (from :mod:`finance_sync.services.visibility`),
+    every query enforces the household visibility policy: private
+    accounts are only visible to their owner (plus admins for unowned
+    accounts), and all derived tables (transactions, holdings, balances,
+    …) are scoped to the visible accounts.  Without a scope the service
+    behaves exactly as before (tenant-wide reads) — used by tests and
+    legacy callers.
     """
 
-    def __init__(self, session: AsyncSession) -> None:
+    def __init__(
+        self,
+        session: AsyncSession,
+        *,
+        scope: ReadScope | None = None,
+    ) -> None:
         self._session = session
+        self._scope = scope
+
+    # ── Visibility helpers ────────────────────────────────────────────
+
+    def _account_scope_condition(self) -> Any:
+        """Return the Account predicate when a scope is set (else True)."""
+        if self._scope is None:
+            return True
+        return self._scope.account_filter()
+
+    def _derived_scope_condition(self, model: Any) -> Any:
+        """Return ``model.account_id IN (visible ids)`` when scoped."""
+        if self._scope is None:
+            return True
+        return model.account_id.in_(  # type: ignore[attr-defined]
+            self._scope.account_ids_subquery()
+        )
 
     # ── Accounts ──────────────────────────────────────────────────────
 
@@ -534,7 +569,10 @@ class ReadService:
         is_active: bool | None = None,
     ) -> AccountDetailResponse:
         """List accounts for a tenant with optional filters."""
-        conditions = [Account.tenant_id == tenant_id]  # type: ignore[attr-defined]
+        conditions = [
+            Account.tenant_id == tenant_id,  # type: ignore[attr-defined]
+            self._account_scope_condition(),
+        ]
 
         if account_type is not None:
             conditions.append(Account.account_type == account_type)  # type: ignore[attr-defined]
@@ -570,10 +608,11 @@ class ReadService:
     async def get_account(
         self, tenant_id: str, account_id: str
     ) -> AccountSummary | None:
-        """Fetch a single account by ID (scoped to tenant)."""
+        """Fetch a single account by ID (scoped to tenant + visibility)."""
         stmt = select(Account).where(
             Account.id == account_id,  # type: ignore[attr-defined]
             Account.tenant_id == tenant_id,  # type: ignore[attr-defined]
+            self._account_scope_condition(),
         )
         result = await self._session.execute(stmt)
         account: Account | None = result.scalar_one_or_none()  # type: ignore[assignment]
@@ -591,6 +630,8 @@ class ReadService:
             available_balance=a.available_balance,
             provider_key=a.provider_key,
             is_active=a.is_active,
+            visibility=a.visibility or "private",
+            owner_user_id=a.owner_user_id,
             created_at=a.created_at,
             updated_at=a.updated_at,
         )
@@ -615,6 +656,7 @@ class ReadService:
         conditions = [
             Transaction.tenant_id == tenant_id,  # type: ignore[attr-defined]
             Transaction.account_id == account_id,  # type: ignore[attr-defined]
+            self._derived_scope_condition(Transaction),
         ]
 
         if date_from is not None:
@@ -701,6 +743,7 @@ class ReadService:
         """
         conditions: list[Any] = [
             Transaction.tenant_id == tenant_id,  # type: ignore[attr-defined]
+            self._derived_scope_condition(Transaction),
         ]
 
         if account_id is not None:
@@ -776,6 +819,7 @@ class ReadService:
         conditions: list[Any] = [
             Transaction.tenant_id == tenant_id,  # type: ignore[attr-defined]
             Transaction.transaction_type == TransactionType.DIVIDEND,  # type: ignore[attr-defined]
+            self._derived_scope_condition(Transaction),
         ]
 
         if account_id is not None:
@@ -839,6 +883,7 @@ class ReadService:
         """List scheduled payments with optional account/provider filters."""
         conditions = [
             ScheduledPayment.tenant_id == tenant_id,  # type: ignore[attr-defined]
+            self._derived_scope_condition(ScheduledPayment),
         ]
 
         if account_id is not None:
@@ -920,6 +965,7 @@ class ReadService:
         """List card transactions with optional account/provider filters."""
         conditions = [
             CardTransaction.tenant_id == tenant_id,  # type: ignore[attr-defined]
+            self._derived_scope_condition(CardTransaction),
         ]
 
         if account_id is not None:
@@ -1007,6 +1053,7 @@ class ReadService:
         conditions = [
             Balance.tenant_id == tenant_id,  # type: ignore[attr-defined]
             Balance.account_id == account_id,  # type: ignore[attr-defined]
+            self._derived_scope_condition(Balance),
         ]
 
         if date_from is not None:
@@ -1070,7 +1117,10 @@ class ReadService:
                 Holding.security_id,
                 func.max(Holding.observed_at).label("latest_ts"),
             )
-            .where(Holding.tenant_id == tenant_id)  # type: ignore[attr-defined]
+            .where(
+                Holding.tenant_id == tenant_id,  # type: ignore[attr-defined]
+                self._derived_scope_condition(Holding),
+            )
             .group_by(Holding.account_id, Holding.security_id)  # type: ignore[attr-defined]
         ).subquery()
 
@@ -1084,7 +1134,10 @@ class ReadService:
                     Holding.observed_at == latest_holding_subq.c.latest_ts,  # type: ignore[attr-defined]
                 ),
             )
-            .where(Holding.tenant_id == tenant_id)  # type: ignore[attr-defined]
+            .where(
+                Holding.tenant_id == tenant_id,  # type: ignore[attr-defined]
+                self._derived_scope_condition(Holding),
+            )
             .order_by(Holding.account_id)  # type: ignore[attr-defined]
         )
         result = await self._session.execute(holdings_q)
@@ -1104,6 +1157,7 @@ class ReadService:
             select(Account).where(
                 Account.id.in_(account_ids),  # type: ignore[attr-defined]
                 Account.tenant_id == tenant_id,  # type: ignore[attr-defined]
+                self._account_scope_condition(),
             )
         )
         account_map: dict[str, Account] = {
@@ -1240,6 +1294,7 @@ class ReadService:
         """
         subq_conditions: list[Any] = [
             Holding.tenant_id == tenant_id,  # type: ignore[attr-defined]
+            self._derived_scope_condition(Holding),
         ]
         if as_of is not None:
             subq_conditions.append(Holding.observed_at <= as_of)  # type: ignore[attr-defined]
@@ -1259,6 +1314,7 @@ class ReadService:
             Holding.account_id == latest_holding_subq.c.account_id,  # type: ignore[attr-defined]
             Holding.security_id == latest_holding_subq.c.security_id,  # type: ignore[attr-defined]
             Holding.observed_at == latest_holding_subq.c.latest_ts,  # type: ignore[attr-defined]
+            self._derived_scope_condition(Holding),
         ]
         if account_id is not None:
             conditions.append(Holding.account_id == account_id)  # type: ignore[attr-defined]
@@ -1298,6 +1354,7 @@ class ReadService:
             select(Account).where(
                 Account.id.in_(account_ids),  # type: ignore[attr-defined]
                 Account.tenant_id == tenant_id,  # type: ignore[attr-defined]
+                self._account_scope_condition(),
             )
         )
         account_map: dict[str, Account] = {
@@ -1382,7 +1439,10 @@ class ReadService:
         across all holdings for the tenant.  This gives a daily view
         of total investment portfolio value.
         """
-        conditions = [Holding.tenant_id == tenant_id]  # type: ignore[attr-defined]
+        conditions = [
+            Holding.tenant_id == tenant_id,  # type: ignore[attr-defined]
+            self._derived_scope_condition(Holding),
+        ]
 
         if date_from is not None:
             conditions.append(Holding.observed_at >= date_from)  # type: ignore[attr-defined]
@@ -1709,6 +1769,7 @@ class ReadService:
             select(Account).where(
                 Account.tenant_id == tenant_id,  # type: ignore[attr-defined]
                 Account.is_active,
+                self._account_scope_condition(),
             )
         )
         accounts: list[Account] = list(result.scalars().all())  # type: ignore[assignment]
@@ -1755,6 +1816,7 @@ class ReadService:
         conditions: list[Any] = [
             Balance.tenant_id == tenant_id,  # type: ignore[attr-defined]
             Balance.balance_kind.in_(["booked", "available"]),  # type: ignore[attr-defined]
+            self._derived_scope_condition(Balance),
         ]
 
         if date_from is not None:
@@ -1830,6 +1892,7 @@ class ReadService:
         conditions: list[Any] = [
             Transaction.tenant_id == tenant_id,  # type: ignore[attr-defined]
             Transaction.status == "booked",  # type: ignore[attr-defined]
+            self._derived_scope_condition(Transaction),
         ]
 
         if date_from is not None:
@@ -1914,6 +1977,7 @@ class ReadService:
         conditions: list[Any] = [
             Transaction.tenant_id == tenant_id,  # type: ignore[attr-defined]
             Transaction.status == "booked",  # type: ignore[attr-defined]
+            self._derived_scope_condition(Transaction),
         ]
 
         if date_from is not None:

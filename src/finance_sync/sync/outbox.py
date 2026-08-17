@@ -47,6 +47,7 @@ async def add_outbox_message(
 async def outbox_entity_created(
     uow: UnitOfWork,
     *,
+    tenant_id: str,
     entity_type: str,
     entity_id: str,
     entity_data: dict[str, Any] | None = None,
@@ -56,6 +57,10 @@ async def outbox_entity_created(
 
     The idempotency key is derived from ``{entity_type}:{entity_id}:created``
     so the same creation event can be safely re-published.
+
+    ``tenant_id`` is embedded in the payload so the webhook dispatcher can
+    scope deliveries to the owning tenant's webhooks (outbox messages have
+    no tenant column).
     """
     return await add_outbox_message(
         uow,
@@ -63,6 +68,7 @@ async def outbox_entity_created(
         aggregate_type=entity_type,
         event_type=f"{entity_type}.created",
         payload={
+            "tenant_id": tenant_id,
             "entity_id": entity_id,
             "entity_type": entity_type,
             "data": entity_data or {},
@@ -103,6 +109,7 @@ async def outbox_reconciliation_completed(
 async def outbox_sync_completed(
     uow: UnitOfWork,
     *,
+    tenant_id: str,
     run_id: str,
     provider_key: str,
     accounts: int,
@@ -117,6 +124,7 @@ async def outbox_sync_completed(
         aggregate_type="sync_run",
         event_type="sync.completed",
         payload={
+            "tenant_id": tenant_id,
             "provider_key": provider_key,
             "accounts": accounts,
             "transactions": transactions,
@@ -130,18 +138,24 @@ async def outbox_sync_completed(
 async def outbox_entity_updated(
     uow: UnitOfWork,
     *,
+    tenant_id: str,
     entity_type: str,
     entity_id: str,
     changed_fields: dict[str, Any] | None = None,
     provider_key: str | None = None,
 ) -> OutboxMessage:
-    """Convenience: emit an outbox message for ``{entity_type}.updated``."""
+    """Convenience: emit an outbox message for ``{entity_type}.updated``.
+
+    ``tenant_id`` is embedded in the payload so the webhook dispatcher can
+    scope deliveries to the owning tenant's webhooks.
+    """
     return await add_outbox_message(
         uow,
         aggregate_id=entity_id,
         aggregate_type=entity_type,
         event_type=f"{entity_type}.updated",
         payload={
+            "tenant_id": tenant_id,
             "entity_id": entity_id,
             "entity_type": entity_type,
             "changed_fields": changed_fields or {},

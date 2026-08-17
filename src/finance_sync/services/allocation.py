@@ -158,15 +158,31 @@ class AllocationService:
     Each method returns Pydantic response models.  Methods are async and
     operate on an async SQLAlchemy session.  Multi-currency conversion is
     supported via an optional ``FxService`` dependency.
+
+    When constructed with a ``ReadScope`` (from
+    :mod:`finance_sync.services.visibility`), the holding queries are
+    restricted to the visible accounts so private accounts of other
+    household members never leak into the allocation breakdown.
     """
 
     def __init__(
         self,
         session: AsyncSession,
         fx_service: FxService | None = None,
+        *,
+        scope: Any | None = None,
     ) -> None:
         self._session = session
         self._fx_service = fx_service
+        self._scope = scope
+
+    def _derived_scope_condition(self, model: Any) -> Any:
+        """Return ``model.account_id IN (visible ids)`` when scoped."""
+        if self._scope is None:
+            return True
+        return model.account_id.in_(  # type: ignore[attr-defined]
+            self._scope.account_ids_subquery()
+        )
 
     # ── Public API ────────────────────────────────────────────────────
 
@@ -381,12 +397,16 @@ class AllocationService:
                 Holding.security_id,
                 func.max(Holding.observed_at).label("latest_ts"),
             )
-            .where(Holding.tenant_id == tenant_id)
+            .where(
+                Holding.tenant_id == tenant_id,
+                self._derived_scope_condition(Holding),
+            )
             .group_by(Holding.account_id, Holding.security_id)
         ).subquery()
 
         conditions: list[Any] = [
             Holding.tenant_id == tenant_id,
+            self._derived_scope_condition(Holding),
         ]
         if account_id is not None:
             conditions.append(Holding.account_id == account_id)
