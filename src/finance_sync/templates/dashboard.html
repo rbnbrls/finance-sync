@@ -187,6 +187,63 @@
         .badge.disconnected { background: rgba(248, 113, 113, 0.15); color: var(--red); }
         .badge.pending { background: rgba(251, 191, 36, 0.15); color: var(--yellow); }
         .badge.unconfigured { background: rgba(139, 143, 163, 0.15); color: var(--text-muted); }
+        .badge.household { background: rgba(52, 211, 153, 0.15); color: var(--green); }
+        .badge.private { background: rgba(139, 143, 163, 0.15); color: var(--text-muted); }
+        .badge.role-admin { background: rgba(251, 191, 36, 0.15); color: var(--yellow); }
+        .badge.role-user { background: rgba(99, 102, 241, 0.15); color: var(--accent); }
+        .badge.role-readonly, .badge.role-viewer { background: rgba(139, 143, 163, 0.15); color: var(--text-muted); }
+
+        /* ── Household sharing ───────────────────────────────────────── */
+        .household-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.9rem;
+        }
+        .household-table th {
+            text-align: left;
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            color: var(--text-muted);
+            padding: 8px 10px;
+            border-bottom: 1px solid var(--border);
+        }
+        .household-table td {
+            padding: 10px;
+            border-bottom: 1px solid var(--border);
+            vertical-align: middle;
+        }
+        .household-table tr:last-child td { border-bottom: none; }
+        .household-table select {
+            background: var(--bg);
+            color: var(--text);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 4px 8px;
+            font-size: 0.85rem;
+        }
+        .token-box {
+            background: var(--bg);
+            border: 1px dashed var(--border);
+            border-radius: 6px;
+            padding: 10px 12px;
+            font-family: monospace;
+            font-size: 0.85rem;
+            word-break: break-all;
+            margin: 12px 0;
+        }
+        .impact-list { margin: 12px 0 12px 18px; line-height: 1.7; }
+        .impact-list strong { color: var(--text); }
+        .household-inline-form { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
+        .household-inline-form .form-group { margin: 0; }
+        .visually-hidden {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            overflow: hidden;
+            clip: rect(0 0 0 0);
+            white-space: nowrap;
+        }
         .connector-card .desc {
             font-size: 0.85rem;
             color: var(--text-muted);
@@ -746,6 +803,9 @@
             <a href="#" data-section="sync" data-perm="sync:read" onclick="switchSection('sync')">
                 <span class="icon" aria-hidden="true">&#8635;</span> Sync Runs
             </a>
+            <a href="#" data-section="household" onclick="switchSection('household')">
+                <span class="icon" aria-hidden="true">&#127968;</span> Household
+            </a>
             <a href="#" data-section="settings" onclick="switchSection('settings')">
                 <span class="icon" aria-hidden="true">&#9879;</span> Settings
             </a>
@@ -777,6 +837,58 @@
             <p class="page-subtitle">View recent synchronization activity.</p>
             <div class="card">
                 <p style="color: var(--text-muted);">Sync run history will be available here in a future update. Use the API at <code>/api/v1/sync-runs</code>.</p>
+            </div>
+        </div>
+        <div id="section-household" class="hidden" role="region" aria-labelledby="household-title">
+            <h1 class="page-title" id="household-title">Household</h1>
+            <p class="page-subtitle">Share selected accounts with the household and manage members. Only accounts you explicitly share are visible to other members or exported to the shared Wealthfolio instance — everything else stays private.</p>
+
+            <div class="card">
+                <div class="card-header">
+                    <h2 id="household-accounts-title">Account sharing</h2>
+                </div>
+                <p class="field-hint" style="margin-bottom:14px;">Share or make private the accounts you own. Before any change you will see exactly which transactions, holdings and balance snapshots would enter or leave the household view.</p>
+                <div id="household-accounts-list" aria-live="polite" aria-busy="true"></div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <h2 id="household-members-title">Members</h2>
+                </div>
+                <p class="field-hint" style="margin-bottom:14px;">Everyone in this household. Admins can change roles and remove members; removed members keep their private accounts (or leave them claimable by an admin).</p>
+                <div id="household-members-list" aria-live="polite" aria-busy="true"></div>
+            </div>
+
+            <div class="card hidden" id="household-invitations">
+                <div class="card-header">
+                    <h2 id="household-invitations-title">Invitations</h2>
+                </div>
+                <form class="household-inline-form" id="invite-form" onsubmit="inviteMember(event)" aria-label="Invite a new member">
+                    <div class="form-group">
+                        <label for="invite-email">Email address</label>
+                        <input type="email" id="invite-email" required aria-required="true" placeholder="partner@example.com" autocomplete="off">
+                    </div>
+                    <div class="form-group">
+                        <label for="invite-role">Role</label>
+                        <select id="invite-role" aria-label="Role to grant">
+                            <option value="user">user</option>
+                            <option value="readonly">readonly</option>
+                            <option value="viewer">viewer</option>
+                            <option value="admin">admin</option>
+                        </select>
+                    </div>
+                    <button type="submit" class="btn btn-primary" id="invite-submit">&#43; Invite member</button>
+                </form>
+                <p class="field-hint" style="margin-top:10px;">Invitations are single-use, expire after 7 days and the token is shown exactly once.</p>
+                <div id="household-invitations-list" aria-live="polite" style="margin-top:14px;"></div>
+            </div>
+
+            <div class="card hidden" id="household-audit-log">
+                <div class="card-header">
+                    <h2 id="household-audit-title">Audit log</h2>
+                </div>
+                <p class="field-hint" style="margin-bottom:14px;">Security-relevant household events — invitations, role changes, sharing decisions and removals.</p>
+                <div id="household-audit-list" aria-live="polite"></div>
             </div>
         </div>
         <div id="section-settings" class="hidden" role="region" aria-labelledby="settings-title">
@@ -1014,6 +1126,7 @@
             if (name === 'connectors') loadConnectors();
             if (name === 'exporters') loadExporters();
             if (name === 'sync') loadSyncRuns();
+            if (name === 'household') loadHousehold();
         }
 
         // ── API calls ────────────────────────────────────────────────────
@@ -2243,6 +2356,464 @@
         document.addEventListener('open-feedback-form', function () {
             openFeedbackModal();
         });
+
+        // ── Household sharing (t_a4ba9d6a) ─────────────────────────────
+        // Selective sharing: owners share/unshare their own accounts. The
+        // UI always shows a preview of what would enter or leave the
+        // household view before asking for confirmation, and unsharing an
+        // account with prior exports surfaces the explicit quarantine /
+        // delete cleanup flow — nothing is ever deleted silently.
+        let householdMembers = [];
+
+        const HOUSEHOLD_ROLES = ['admin', 'user', 'readonly', 'viewer'];
+        const isHouseholdAdmin = () => !!(currentUser && currentUser.role === 'admin');
+
+        function canManageAccount(acc) {
+            if (!currentUser) return false;
+            if (String(acc.owner_user_id) === String(currentUser.id)) return true;
+            return isHouseholdAdmin() && !acc.owner_user_id;
+        }
+
+        function memberLabel(userId) {
+            const m = (householdMembers || []).find(x => String(x.id) === String(userId));
+            return m ? (m.display_name || m.email) : null;
+        }
+
+        async function loadHousehold() {
+            const container = document.getElementById('household-accounts-list');
+            if (container) container.setAttribute('aria-busy', 'true');
+            // Admin-only surfaces are never fetched or rendered for plain
+            // members — the API would 403 on them anyway.
+            const invitesP = isHouseholdAdmin()
+                ? api('GET', '/household/invitations') : Promise.resolve(null);
+            const auditP = isHouseholdAdmin()
+                ? api('GET', '/household/audit-log?limit=50') : Promise.resolve(null);
+            const settled = await Promise.allSettled([
+                api('GET', '/accounts?limit=200'),
+                api('GET', '/household/members'),
+                invitesP,
+                auditP,
+            ]);
+            const [accountsRes, membersRes, invitesRes, auditRes] = settled.map(
+                r => r.status === 'fulfilled' ? r.value : null
+            );
+
+            householdMembers = membersRes || [];
+            renderHouseholdAccounts(accountsRes);
+            renderHouseholdMembers(membersRes);
+
+            // Admin-only cards: shown only for admins (defense in depth).
+            const invitesCard = document.getElementById('household-invitations');
+            const auditCard = document.getElementById('household-audit-log');
+            if (invitesCard) invitesCard.classList.toggle('hidden', !isHouseholdAdmin());
+            if (auditCard) auditCard.classList.toggle('hidden', !isHouseholdAdmin());
+            if (isHouseholdAdmin()) {
+                renderHouseholdInvitations(invitesRes);
+                renderHouseholdAudit(auditRes);
+            }
+
+            // Per-part friendly notices so one failure never blanks the
+            // section; each carries its own Retry action.
+            const failed = settled.filter(r => r.status === 'rejected').length;
+            if (failed > 0) {
+                const notices = [];
+                if (!accountsRes) notices.push(['accounts', 'Failed to load the account visibility list.']);
+                if (!membersRes) notices.push(['members', 'Failed to load the household members.']);
+                if (isHouseholdAdmin() && !invitesRes) notices.push(['invitations', 'Failed to load the invitations.']);
+                if (isHouseholdAdmin() && !auditRes) notices.push(['audit log', 'Failed to load the audit log.']);
+                const noticeEl = document.createElement('div');
+                noticeEl.innerHTML = `
+                    <div class="alert alert-error inline-error" role="alert">
+                        <div class="inline-error-msg">
+                            <strong>Could not load the household view</strong>
+                            <span>${escapeHtml(notices.map(n => n[0]).join(', '))} failed. ${escapeHtml(detailHint(failed))}</span>
+                        </div>
+                        <button type="button" class="btn btn-secondary btn-sm" onclick="loadHousehold()">&#8635; Retry</button>
+                    </div>`;
+                container.prepend(noticeEl);
+            }
+            if (container) container.setAttribute('aria-busy', 'false');
+        }
+
+        function renderHouseholdAccounts(accountsRes) {
+            const container = document.getElementById('household-accounts-list');
+            const items = (accountsRes && accountsRes.items) || [];
+            if (!items.length) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <div class="icon">&#128176;</div>
+                        <p>No accounts yet. Once accounts are synced you can share them with the household here.</p>
+                    </div>`;
+                container.setAttribute('aria-busy', 'false');
+                return;
+            }
+            let html = `
+                <table class="household-table">
+                    <thead>
+                        <tr>
+                            <th scope="col">Account</th>
+                            <th scope="col">Type</th>
+                            <th scope="col">Owner</th>
+                            <th scope="col">Visibility</th>
+                            <th scope="col">Balance</th>
+                            <th scope="col"><span class="visually-hidden">Actions</span></th>
+                        </tr>
+                    </thead>
+                    <tbody>`;
+            for (const acc of items) {
+                const visibility = acc.visibility === 'household' ? 'household' : 'private';
+                const ownerLabel = acc.owner_user_id
+                    ? (memberLabel(acc.owner_user_id)
+                        || (String(acc.owner_user_id) === String(currentUser.id) ? 'You' : 'Another member'))
+                    : 'Unclaimed';
+                let action = '<span class="field-hint">—</span>';
+                if (canManageAccount(acc)) {
+                    if (acc.owner_user_id) {
+                        const label = visibility === 'household' ? 'Make private' : 'Share with household';
+                        action = `<button type="button" class="btn btn-secondary btn-sm" onclick="openSharePreview('${escapeHtml(String(acc.id))}')">${label}</button>`;
+                    } else {
+                        action = `<button type="button" class="btn btn-secondary btn-sm" onclick="claimAccount('${escapeHtml(String(acc.id))}')">Claim</button>`;
+                    }
+                }
+                html += `
+                    <tr>
+                        <td>${escapeHtml(acc.name)}</td>
+                        <td>${escapeHtml(String(acc.account_type || ''))}</td>
+                        <td>${escapeHtml(ownerLabel)}</td>
+                        <td><span class="badge ${visibility}">${visibility}</span></td>
+                        <td>${acc.current_balance != null ? escapeHtml(String(acc.current_balance)) + ' ' + escapeHtml(String(acc.currency_code || '')) : '—'}</td>
+                        <td>${action}</td>
+                    </tr>`;
+            }
+            html += '</tbody></table>';
+            container.innerHTML = html;
+            container.setAttribute('aria-busy', 'false');
+        }
+
+        function renderHouseholdMembers(membersRes) {
+            const container = document.getElementById('household-members-list');
+            const items = membersRes || [];
+            if (!items.length) {
+                container.innerHTML = '<p style="color:var(--text-muted);">No household members.</p>';
+                return;
+            }
+            let html = `
+                <table class="household-table">
+                    <thead>
+                        <tr>
+                            <th scope="col">Member</th>
+                            <th scope="col">Role</th>
+                            <th scope="col"><span class="visually-hidden">Actions</span></th>
+                        </tr>
+                    </thead>
+                    <tbody>`;
+            for (const m of items) {
+                const isSelf = String(m.id) === String(currentUser.id);
+                const roleBadge = `<span class="badge role-${escapeHtml(String(m.role))}">${escapeHtml(String(m.role))}</span>`;
+                let actions = '';
+                if (isHouseholdAdmin() && !isSelf) {
+                    actions = `
+                        <div class="household-inline-form">
+                            <select aria-label="Role for ${escapeHtml(m.email)}" onchange="changeMemberRole('${escapeHtml(String(m.id))}', this.value)">
+                                ${HOUSEHOLD_ROLES.map(r => `<option value="${r}" ${r === m.role ? 'selected' : ''}>${r}</option>`).join('')}
+                            </select>
+                            <button type="button" class="btn btn-secondary btn-sm" onclick="removeMember('${escapeHtml(String(m.id))}')">Remove</button>
+                        </div>`;
+                } else if (isSelf) {
+                    actions = '<span class="field-hint">You</span>';
+                } else {
+                    actions = '<span class="field-hint">—</span>';
+                }
+                html += `
+                    <tr>
+                        <td><strong>${escapeHtml(m.display_name || m.email)}</strong>${isSelf ? '' : `<div class="field-hint">${escapeHtml(m.email)}</div>`}</td>
+                        <td>${roleBadge}</td>
+                        <td>${actions}</td>
+                    </tr>`;
+            }
+            html += '</tbody></table>';
+            container.innerHTML = html;
+        }
+
+        function renderHouseholdInvitations(invitesRes) {
+            const container = document.getElementById('household-invitations-list');
+            const items = invitesRes || [];
+            if (!items.length) {
+                container.innerHTML = '<p style="color:var(--text-muted);font-size:0.9rem;">No pending invitations.</p>';
+                return;
+            }
+            let html = `
+                <table class="household-table">
+                    <thead>
+                        <tr>
+                            <th scope="col">Email</th>
+                            <th scope="col">Role</th>
+                            <th scope="col">Status</th>
+                            <th scope="col">Expires</th>
+                            <th scope="col"><span class="visually-hidden">Actions</span></th>
+                        </tr>
+                    </thead>
+                    <tbody>`;
+            for (const inv of items) {
+                const pending = inv.status === 'pending';
+                html += `
+                    <tr>
+                        <td>${escapeHtml(inv.email)}</td>
+                        <td>${escapeHtml(String(inv.role))}</td>
+                        <td>${escapeHtml(String(inv.status))}</td>
+                        <td>${escapeHtml(fmtDate(inv.expires_at))}</td>
+                        <td>${pending ? `<button type="button" class="btn btn-secondary btn-sm" onclick="revokeInvitation('${escapeHtml(String(inv.id))}')">Revoke</button>` : ''}</td>
+                    </tr>`;
+            }
+            html += '</tbody></table>';
+            container.innerHTML = html;
+        }
+
+        async function inviteMember(event) {
+            event.preventDefault();
+            const emailEl = document.getElementById('invite-email');
+            const roleEl = document.getElementById('invite-role');
+            const email = (emailEl.value || '').trim();
+            if (!email) { toast('Please fill in the invitee email.', 'error'); return; }
+            const btn = document.getElementById('invite-submit');
+            btn.disabled = true;
+            try {
+                const result = await api('POST', '/household/invitations', { email, role: roleEl.value });
+                showInviteToken(result);
+                emailEl.value = '';
+                await loadHousehold();
+            } catch (e) {
+                toast(`Invitation failed: ${e.message}`, 'error');
+            } finally {
+                btn.disabled = false;
+            }
+        }
+
+        function showInviteToken(invite) {
+            const modal = document.createElement('div');
+            modal.className = 'modal-overlay';
+            const acceptUrl = `${location.origin}/accept-invite?token=${encodeURIComponent(invite.token)}`;
+            modal.innerHTML = `
+                <div class="modal" style="width:560px;">
+                    <h2 id="invite-token-title">Invitation created</h2>
+                    <div id="invite-token-body">
+                        <p>Send this single-use invitation to <strong>${escapeHtml(invite.email)}</strong> (role: ${escapeHtml(String(invite.role))}). It expires ${escapeHtml(fmtDate(invite.expires_at))} and can only be used once.</p>
+                        <p class="field-hint" style="margin-bottom:4px;">Share this link with the invitee:</p>
+                        <div class="token-box" id="invite-token-value">${escapeHtml(acceptUrl)}</div>
+                        <p class="field-hint">Or share the raw token — it is shown only once. Copy it now and send it out-of-band.</p>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" onclick="closeModal()">Close</button>
+                        </div>
+                    </div>
+                </div>`;
+            document.getElementById('modal-container').appendChild(modal);
+            modal.setAttribute('aria-labelledby', 'invite-token-title');
+            openModal(modal);
+            modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
+        }
+
+        async function revokeInvitation(invitationId) {
+            if (!confirm('Revoke this invitation? The invitee can no longer use it.')) return;
+            try {
+                await api('POST', `/household/invitations/${invitationId}/revoke`);
+                toast('Invitation revoked.', 'success');
+                await loadHousehold();
+            } catch (e) {
+                toast(`Could not revoke the invitation: ${e.message}`, 'error');
+            }
+        }
+
+        async function changeMemberRole(userId, newRole) {
+            try {
+                await api('PATCH', `/household/members/${userId}/role`, { role: newRole });
+                toast(`Role updated to ${newRole}.`, 'success');
+                await loadHousehold();
+            } catch (e) {
+                toast(`Could not change the role: ${e.message}`, 'error');
+            }
+        }
+
+        async function removeMember(userId) {
+            if (!confirm('Remove this member from the household? Their private accounts stay private (or become claimable by an admin).')) return;
+            try {
+                await api('DELETE', `/household/members/${userId}`);
+                toast('Member removed.', 'success');
+                await loadHousehold();
+            } catch (e) {
+                toast(`Could not remove the member: ${e.message}`, 'error');
+            }
+        }
+
+        function renderHouseholdAudit(auditRes) {
+            const container = document.getElementById('household-audit-list');
+            const items = auditRes || [];
+            if (!items.length) {
+                container.innerHTML = '<p style="color:var(--text-muted);font-size:0.9rem;">No household events recorded yet.</p>';
+                return;
+            }
+            let html = `
+                <table class="household-table">
+                    <thead>
+                        <tr>
+                            <th scope="col">When</th>
+                            <th scope="col">Action</th>
+                            <th scope="col">Actor</th>
+                            <th scope="col">Details</th>
+                        </tr>
+                    </thead>
+                    <tbody>`;
+            for (const ev of items) {
+                const detail = ev.detail && Object.keys(ev.detail).length
+                    ? escapeHtml(JSON.stringify(ev.detail))
+                    : '<span class="field-hint">—</span>';
+                html += `
+                    <tr>
+                        <td>${escapeHtml(fmtDate(ev.created_at))}</td>
+                        <td><code>${escapeHtml(String(ev.action))}</code></td>
+                        <td>${escapeHtml(ev.actor_role ? String(ev.actor_role) : '—')}</td>
+                        <td style="font-size:0.75rem;color:var(--text-muted);font-family:monospace;word-break:break-all;">${detail}</td>
+                    </tr>`;
+            }
+            html += '</tbody></table>';
+            container.innerHTML = html;
+        }
+
+        async function openSharePreview(accountId) {
+            const modal = document.createElement('div');
+            modal.className = 'modal-overlay';
+            modal.innerHTML = `
+                <div class="modal" style="width:560px;">
+                    <h2 id="share-preview-title">Sharing preview</h2>
+                    <div id="share-preview-body" aria-live="polite"><div class="alert alert-info"><span class="spinner"></span> Computing the impact…</div></div>
+                </div>`;
+            document.getElementById('modal-container').appendChild(modal);
+            modal.setAttribute('aria-labelledby', 'share-preview-title');
+            openModal(modal);
+            modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
+
+            const body = document.getElementById('share-preview-body');
+            let preview = null;
+            try {
+                preview = await api('GET', `/accounts/${accountId}/share-preview`);
+            } catch (e) {
+                body.innerHTML = `<div class="alert alert-error">Could not load the sharing preview: ${escapeHtml(e.message)}</div>`;
+                return;
+            }
+            const entering = preview.target_visibility === 'household';
+            const verb = entering ? 'appear in the household view' : 'disappear from the household view';
+            const impact = preview.impact || {};
+            const balanceLine = impact.current_balance != null
+                ? `<p class="field-hint" style="margin-top:10px;">Current balance: <strong>${escapeHtml(String(impact.current_balance))} ${escapeHtml(String(impact.currency_code || ''))}</strong></p>`
+                : '';
+            body.innerHTML = `
+                <p style="margin-bottom:6px;">
+                    <strong>${escapeHtml(preview.account_name)}</strong> is currently
+                    <span class="badge ${escapeHtml(String(preview.current_visibility))}">${escapeHtml(String(preview.current_visibility))}</span>.
+                    Changing it to <span class="badge ${escapeHtml(String(preview.target_visibility))}">${escapeHtml(String(preview.target_visibility))}</span> means:
+                </p>
+                <ul class="impact-list">
+                    <li><strong>${impact.transactions ?? 0}</strong> transactions will ${verb}</li>
+                    <li><strong>${impact.holdings ?? 0}</strong> holdings will ${verb}</li>
+                    <li><strong>${impact.balance_snapshots ?? 0}</strong> balance snapshots will ${verb}</li>
+                </ul>
+                ${balanceLine}
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+                    <button type="button" class="btn btn-primary" onclick="confirmVisibilityChange('${escapeHtml(String(preview.account_id))}', '${escapeHtml(String(preview.target_visibility))}')">Confirm — make ${escapeHtml(String(preview.target_visibility))}</button>
+                </div>`;
+        }
+
+        async function confirmVisibilityChange(accountId, visibility) {
+            const body = document.getElementById('share-preview-body');
+            if (!body) return;
+            body.innerHTML = '<div class="alert alert-info"><span class="spinner"></span> Applying…</div>';
+            try {
+                const result = await api('PATCH', `/accounts/${accountId}/visibility`, { visibility });
+                closeModal();
+                toast(`Account is now ${visibility}.`, 'success');
+                // Unsharing an account that had already been exported never
+                // deletes silently — surface the explicit cleanup flow.
+                if (result && result.visibility === 'private' && result.export_cleanup_required) {
+                    openExportCleanupModal(accountId, result.export_artifacts || {});
+                }
+                await loadHousehold();
+            } catch (e) {
+                body.innerHTML = `<div class="alert alert-error">Could not change visibility: ${escapeHtml(e.message)}</div>`;
+            }
+        }
+
+        function openExportCleanupModal(accountId, artifacts) {
+            const modal = document.createElement('div');
+            modal.className = 'modal-overlay';
+            const csvCount = artifacts.csv_file_count || 0;
+            modal.innerHTML = `
+                <div class="modal" style="width:580px;">
+                    <h2 id="export-cleanup-title">Previously exported data</h2>
+                    <div id="export-cleanup-body">
+                        <p>This account had already been exported to the shared Wealthfolio instance before you made it private. <strong>Nothing has been deleted.</strong> Choose how to handle the exported data:</p>
+                        <ul class="impact-list">
+                            <li>Wealthfolio mapping: ${artifacts.has_mapping ? 'present' : 'none'}</li>
+                            <li>Delivery cursor: ${artifacts.has_delivery_cursor ? 'present' : 'none'}</li>
+                            <li>CSV files: ${csvCount}${artifacts.quarantined_file_count ? ` (${artifacts.quarantined_file_count} already quarantined)` : ''}</li>
+                            ${artifacts.last_exported_at ? `<li>Last exported: ${escapeHtml(String(artifacts.last_exported_at))}</li>` : ''}
+                        </ul>
+                        <div class="form-group" style="margin-top:12px;">
+                            <div class="checkbox-wrap">
+                                <input type="checkbox" id="export-delete-confirm" onchange="document.getElementById('export-delete-btn').disabled = !this.checked;">
+                                <label for="export-delete-confirm" style="margin:0;">I understand this permanently deletes the exported data and cannot be undone</label>
+                            </div>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" onclick="closeModal()">Not now</button>
+                            <button type="button" class="btn btn-secondary" onclick="quarantineExport('${escapeHtml(String(accountId))}')">Quarantine files</button>
+                            <button type="button" class="btn btn-danger" id="export-delete-btn" disabled onclick="deleteExportData('${escapeHtml(String(accountId))}')">Permanently delete</button>
+                        </div>
+                    </div>
+                </div>`;
+            document.getElementById('modal-container').appendChild(modal);
+            modal.setAttribute('aria-labelledby', 'export-cleanup-title');
+            openModal(modal);
+            modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
+        }
+
+        async function quarantineExport(accountId) {
+            const body = document.getElementById('export-cleanup-body');
+            if (!body) return;
+            body.innerHTML = '<div class="alert alert-info"><span class="spinner"></span> Quarantining…</div>';
+            try {
+                await api('POST', `/accounts/${accountId}/export-quarantine`);
+                closeModal();
+                toast('Exported files quarantined (non-destructive).', 'success');
+                await loadHousehold();
+            } catch (e) {
+                body.innerHTML = `<div class="alert alert-error">${escapeHtml(e.message)}</div>`;
+            }
+        }
+
+        async function deleteExportData(accountId) {
+            const body = document.getElementById('export-cleanup-body');
+            if (!body) return;
+            body.innerHTML = '<div class="alert alert-info"><span class="spinner"></span> Deleting…</div>';
+            try {
+                await api('POST', `/accounts/${accountId}/export-cleanup`, { confirm: true });
+                closeModal();
+                toast('Previously exported data deleted.', 'success');
+                await loadHousehold();
+            } catch (e) {
+                body.innerHTML = `<div class="alert alert-error">${escapeHtml(e.message)}</div>`;
+            }
+        }
+
+        async function claimAccount(accountId) {
+            if (!confirm('Claim this unowned account? You become its owner and can share it with the household or keep it private.')) return;
+            try {
+                await api('POST', `/accounts/${accountId}/claim`);
+                toast('Account claimed.', 'success');
+                await loadHousehold();
+            } catch (e) {
+                toast(`Could not claim the account: ${e.message}`, 'error');
+            }
+        }
 
         // ── Init ─────────────────────────────────────────────────────────
         (async function init() {
