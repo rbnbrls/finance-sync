@@ -15,8 +15,8 @@ from finance_sync.api.v1.cashflow import router as cashflow_router
 from finance_sync.api.v1.connectors_config import (
     router as connectors_config_router,
 )
-from finance_sync.api.v1.degiro_imports import router as degiro_imports_router
 from finance_sync.api.v1.datamarts import router as datamarts_router
+from finance_sync.api.v1.degiro_imports import router as degiro_imports_router
 from finance_sync.api.v1.dividends import router as dividends_router
 from finance_sync.api.v1.enrichment import router as enrichment_router
 from finance_sync.api.v1.exporters import router as exporters_router
