@@ -485,6 +485,7 @@ class TestWorkerScheduler:
             worker_job_outbox_enabled=False,
             worker_job_degiro_watch_enabled=False,
             worker_job_schedules_enabled=False,
+            worker_job_intel_enabled=False,
         )
         container = Container.from_settings(settings)
         monitor = JobMonitor()
@@ -724,6 +725,7 @@ class TestJobstoreSyncDriver:
             worker_job_outbox_enabled=False,
             worker_job_degiro_watch_enabled=False,
             worker_job_schedules_enabled=False,
+            worker_job_intel_enabled=False,
         )
 
     def test_sync_jobstore_url_converts_asyncpg_to_psycopg(self) -> None:

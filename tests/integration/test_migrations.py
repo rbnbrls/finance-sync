@@ -80,6 +80,10 @@ EXPECTED_TABLES = {
     "datamart_grants",
     # tenant-scoped sync schedules (migration 0020)
     "sync_schedules",
+    # market-intelligence source layer (migrations 0021/0022)
+    "market_intelligence_items",
+    "market_intelligence_provider_states",
+    "market_intelligence_review_queue",
 }
 
 

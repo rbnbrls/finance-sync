@@ -794,7 +794,6 @@ async def enrich_prices_job(container: Container) -> dict[str, Any]:
     """
     log = logger.bind()
     log.info("enrich_prices_job_starting")
-
     gateway = container.enrichment_gateway
     async with container.session_factory() as session:
         from finance_sync.db.uow import UnitOfWork as _UoW
@@ -1141,3 +1140,18 @@ async def export_wealthfolio_job(container: Container) -> dict[str, Any]:
         "failed": len(failed),
         "results": summary,
     }
+
+
+async def intel_refresh_job(container: Container) -> dict[str, Any]:
+    """Refresh the market-intelligence source layer for all tenants.
+
+    Runs on its own cadence (WORKER_JOB_INTEL_INTERVAL_MINUTES, default
+    60m), independent of the bunq/Trading212/Wealthfolio sync jobs: a
+    provider outage is isolated per provider (bounded timeout) and can
+    never block the other syncs.  Each provider is only refreshed when
+    its own freshness policy is due; failures are recorded in the
+    provider-state table with sanitised errors (never credentials).
+    """
+    from finance_sync.intel.scheduler import intel_refresh_job as _run
+
+    return await _run(container)

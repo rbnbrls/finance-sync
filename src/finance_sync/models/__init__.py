@@ -62,6 +62,15 @@ from finance_sync.models.holding import Holding
 from finance_sync.models.household_audit_log import HouseholdAuditLog
 from finance_sync.models.household_invitation import HouseholdInvitation
 from finance_sync.models.import_run import ImportRun
+from finance_sync.models.market_intelligence_item import (
+    MarketIntelligenceItem,
+)
+from finance_sync.models.market_intelligence_provider_state import (
+    MarketIntelligenceProviderState,
+)
+from finance_sync.models.market_intelligence_review_queue import (
+    MarketIntelligenceReviewQueue,
+)
 from finance_sync.models.mixins import TenantAwareMixin, TimestampMixin
 from finance_sync.models.outbox import OutboxMessage
 from finance_sync.models.reconciliation import (
@@ -180,6 +189,9 @@ __all__ = [
     "HouseholdInvitation",
     "ImportRun",
     "InvitationStatus",
+    "MarketIntelligenceItem",
+    "MarketIntelligenceProviderState",
+    "MarketIntelligenceReviewQueue",
     "OutboxMessage",
     "OutboxMessageStatus",
     "ReconciliationResult",

@@ -20,6 +20,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 from finance_sync.worker.jobs import (
     enrich_prices_job,
     export_wealthfolio_job,
+    intel_refresh_job,
     nightly_reconciliation_job,
     process_degiro_watchfolders_job,
     process_outbox_job,
@@ -263,6 +264,20 @@ class WorkerScheduler:
                 "run_scheduled_syncs",
                 run_scheduled_syncs_job,
                 trigger=IntervalTrigger(minutes=1),
+            )
+
+        # ── Market-intelligence refresh job ────────────────────────
+        # Refreshes the intel providers (SEC EDGAR public data,
+        # optionally OpenBB) on their own cadence.  Independent of the
+        # bunq/Trading212/Wealthfolio sync jobs — a provider outage
+        # never blocks those.  Gated by WORKER_JOB_INTEL_ENABLED.
+        if settings.worker_job_intel_enabled:
+            self._add_job(
+                "intel_refresh",
+                intel_refresh_job,
+                trigger=IntervalTrigger(
+                    minutes=settings.worker_job_intel_interval_minutes,
+                ),
             )
 
         # ── bunq sync job ───────────────────────────────────────────

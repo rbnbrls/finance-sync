@@ -195,6 +195,7 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
         "webhooks:delete",
         "connectors:read",
         "connectors:write",
+        "market-intelligence:read",
     },
     "readonly": {
         "transactions:read",
@@ -204,6 +205,7 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
         "securities:read",
         "sync:read",
         "webhooks:read",
+        "market-intelligence:read",
     },
     "viewer": {
         "transactions:read",
