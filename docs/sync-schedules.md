@@ -111,6 +111,13 @@ die bij de gekozen frequentie horen.
   limits (de connectors' `RateLimiter`) en de operationele feature flags.
 - Een uitgeschakeld schema start geen nieuwe geplande runs; handmatige
   sync/export blijft expliciet mogelijk en verandert het schema niet.
+- Provenance: een *geplande* run is herkenbaar aan de schedule-rij zelf
+  (`last_scheduled_at` / `last_run_at` / `last_run_status` worden
+  uitsluitend door de worker-claim + uitvoering geschreven, nooit door
+  een handmatige sync). Handmatige runs (via `POST /sync/...` of de
+  exporter-knoppen) muteren de schedule-rij niet en schrijven geen
+  schedule-level uitkomst; de runhistorie (`sync_runs`) toont beide
+  soorten runs zonder private configuratie-inhoud.
 - Een verweesd schema (verbinding verwijderd) wordt overgeslagen en
   gereset — geen ghost-runs, geen fout-rijen in de historie.
 
