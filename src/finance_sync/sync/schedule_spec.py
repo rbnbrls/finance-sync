@@ -51,6 +51,33 @@ MAX_INTERVAL_HOURS = 168  # weekly ceiling
 
 SUPPORTED_FREQUENCIES = frozenset({"daily", "weekdays", "weekly", "hourly"})
 
+#: The only schedule fields the API response and audit snapshots ever
+#: expose.  A stray field stored in the JSONB (legacy/corrupt data)
+#: must never leak past this allowlist — unknown keys are dropped
+#: before the dict leaves the trust boundary (holdout H5).
+ALLOWED_SCHEDULE_FIELDS = frozenset(
+    {"frequency", "time", "weekdays", "interval_hours"}
+)
+
+
+def sanitise_schedule(schedule: object) -> dict[str, Any]:
+    """Keep only the known schedule fields (allowlist, not blacklist).
+
+    Returns a new dict containing at most the keys in
+    :data:`ALLOWED_SCHEDULE_FIELDS`; non-dict values (corrupt JSONB)
+    collapse to ``{}`` so nothing stored in the column can leak through
+    serialisation or audit snapshots.
+    """
+    if not isinstance(schedule, dict):
+        return {}
+    raw = cast("dict[str, Any]", schedule)
+    return {
+        key: value
+        for key, value in raw.items()
+        if key in ALLOWED_SCHEDULE_FIELDS
+    }
+
+
 #: Monday = 0 … Sunday = 6 (matches ``datetime.weekday()``).
 WEEKDAY_NAMES = [
     "maandag",

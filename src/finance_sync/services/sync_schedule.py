@@ -49,6 +49,7 @@ from finance_sync.sync.schedule_spec import (
     ScheduleValidationError,
     human_readable,
     next_run_instants,
+    sanitise_schedule,
     validate_schedule,
     validate_timezone,
 )
@@ -161,26 +162,31 @@ def _default_schedule_payload() -> dict[str, Any]:
 def _sanitise_audit_detail(detail: dict[str, Any]) -> dict[str, Any]:
     """Scrub secret-like values from an audit detail payload.
 
-    The schedule JSON is versioned and validated, but defence in depth:
-    any string value is passed through the shared secret redactor so a
-    stray token in a label or schedule field can never reach the audit
-    log.
+    Recurses through nested dicts/lists: every string value is passed
+    through the shared secret redactor and dict values are recursed, so
+    a stray token in a label or schedule field can never reach the
+    audit log.  Schedule sub-dicts are additionally allowlist-filtered
+    by the caller (``sanitise_schedule``) so unknown fields are dropped
+    before this pass.
     """
     sanitised: dict[str, Any] = {}
     for key, value in detail.items():
-        if isinstance(value, str):
-            sanitised[key] = redact_text(value)
-        elif isinstance(value, list):
-            items: list[Any] = []
-            for item in cast("list[Any]", value):
-                if isinstance(item, str):
-                    items.append(redact_text(item))
-                else:
-                    items.append(item)
-            sanitised[key] = items
-        else:
-            sanitised[key] = value
+        sanitised[key] = _sanitise_value(value)
     return sanitised
+
+
+def _sanitise_value(value: Any) -> Any:
+    """Recursively redact secret-like strings inside *value*."""
+    if isinstance(value, str):
+        return redact_text(value)
+    if isinstance(value, list):
+        return [_sanitise_value(item) for item in cast("list[Any]", value)]
+    if isinstance(value, dict):
+        return {
+            k: _sanitise_value(v)
+            for k, v in cast("dict[str, Any]", value).items()
+        }
+    return value
 
 
 # ── Service ───────────────────────────────────────────────────────────
@@ -447,9 +453,9 @@ class SyncScheduleService:
                 "scope": schedule.scope,
                 "target_id": schedule.target_id,
                 "changed": changed_fields,
-                "old_schedule": old.get("schedule"),
+                "old_schedule": sanitise_schedule(old.get("schedule")),
                 "old_timezone": old.get("timezone"),
-                "new_schedule": new.get("schedule"),
+                "new_schedule": sanitise_schedule(new.get("schedule")),
                 "new_timezone": new.get("timezone"),
                 "enabled": schedule.enabled,
             }

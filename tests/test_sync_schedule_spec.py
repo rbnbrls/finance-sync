@@ -20,6 +20,7 @@ from finance_sync.sync.schedule_spec import (
     default_schedule,
     human_readable,
     next_run_instants,
+    sanitise_schedule,
     validate_schedule,
 )
 
@@ -357,6 +358,46 @@ class TestDefaultSchedule:
         }
         # Must pass its own validation.
         assert validate_schedule(spec) == spec
+
+
+# ── Allowlist sanitisation (holdout H5) ──────────────────────────────
+
+
+class TestSanitiseSchedule:
+    def test_keeps_only_known_fields(self) -> None:
+        dirty = {
+            "frequency": "daily",
+            "time": "07:00",
+            "weekdays": [0, 1, 2],
+            "interval_hours": 12,
+            "leaked_secret": "super-secret-token-123",
+            "credentials": {"api_key": "sk_live_x"},
+        }
+        assert sanitise_schedule(dirty) == {
+            "frequency": "daily",
+            "time": "07:00",
+            "weekdays": [0, 1, 2],
+            "interval_hours": 12,
+        }
+
+    def test_drops_unknown_fields_for_every_frequency_shape(self) -> None:
+        for dirty in (
+            {"frequency": "daily", "time": "07:00", "stray": 1},
+            {"frequency": "hourly", "interval_hours": 4, "stray": "x"},
+            {"frequency": "weekly", "weekdays": [1], "stray": ["a"]},
+        ):
+            cleaned = sanitise_schedule(dirty)
+            assert set(cleaned) <= {
+                "frequency",
+                "time",
+                "weekdays",
+                "interval_hours",
+            }
+
+    def test_non_dict_collapses_to_empty(self) -> None:
+        assert sanitise_schedule(None) == {}
+        assert sanitise_schedule("garbage") == {}
+        assert sanitise_schedule([1, 2]) == {}
 
 
 from zoneinfo import ZoneInfo
