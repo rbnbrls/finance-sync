@@ -96,9 +96,8 @@ def build_intel_registry(settings: Settings) -> IntelProviderRegistry:
     registered after explicit configuration (future work; none are
     shipped yet).
     """
-    from finance_sync.intel.adapters.sec import SecEdgarProvider
-
     from finance_sync.intel.adapters.openbb import OpenBBIntelProvider
+    from finance_sync.intel.adapters.sec import SecEdgarProvider
 
     registry = IntelProviderRegistry()
     registry.register(
