@@ -29,6 +29,7 @@ if TYPE_CHECKING:
     from finance_sync.enrichment.price_store import PriceStore
     from finance_sync.enrichment.security_resolver import SecurityResolver
     from finance_sync.identity.resolver import IdentityResolutionService
+    from finance_sync.intel.registry import IntelProviderRegistry
     from finance_sync.services.fx_service import FxService
 
 
@@ -56,6 +57,7 @@ class Container:
             None
         )
         self._fx_service: FxService | None = None
+        self._intel_registry: IntelProviderRegistry | None = None
 
     # ── Initialisation ───────────────────────────────────────────────
 
@@ -221,6 +223,15 @@ class Container:
                 uow=self._make_uow(),
             )
         return self._fx_service
+
+    @property
+    def intel_registry(self) -> IntelProviderRegistry:
+        """Lazy-init the market-intelligence provider registry."""
+        if self._intel_registry is None:
+            from finance_sync.intel.registry import build_intel_registry
+
+            self._intel_registry = build_intel_registry(self.settings)
+        return self._intel_registry
 
     def _make_uow(self) -> UnitOfWork:
         """Create a UoW for the enrichment services."""

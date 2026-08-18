@@ -351,6 +351,40 @@ class Settings(BaseSettings):
         "minutes (ARCHITECTURE.md §5: 5-minute sweep).",
     )
 
+    # ── Worker: market-intelligence source layer ───────────────────
+    # The "legale self-hosted bronlaag" story (backlog/plus-market-
+    # intelligence-bronnen.md).  Refreshes the configured intel
+    # providers (SEC EDGAR public data, optionally OpenBB) on their own
+    # cadence, independent of the bunq/Trading212/Wealthfolio sync jobs.
+    worker_job_intel_enabled: bool = Field(
+        default=True,
+        validation_alias="WORKER_JOB_INTEL_ENABLED",
+        description=(
+            "Enable the market-intelligence provider refresh job "
+            "(per-provider cadence).  When false, no intel source is "
+            "refreshed and the REST/MCP surfaces report the providers "
+            "as never-run."
+        ),
+    )
+    worker_job_intel_interval_minutes: int = Field(
+        default=60,
+        ge=5,
+        validation_alias="WORKER_JOB_INTEL_INTERVAL_MINUTES",
+        description=(
+            "Master cadence of the intel refresh job in minutes.  Each "
+            "provider is still only refreshed when its own freshness "
+            "policy is due."
+        ),
+    )
+    intel_sec_enabled: bool = Field(
+        default=True,
+        validation_alias="INTEL_SEC_ENABLED",
+        description=(
+            "Register the SEC EDGAR provider (public domain, no API "
+            "key).  Set false to disable the source entirely."
+        ),
+    )
+
     # ── Worker / APScheduler ───────────────────────────────────────
     worker_enabled: bool = Field(
         default=True,
