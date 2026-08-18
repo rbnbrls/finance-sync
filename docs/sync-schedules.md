@@ -73,7 +73,8 @@ die bij de gekozen frequentie horen.
 |----------|---------|---------|--------------|
 | `/api/v1/sync-schedules` | GET | `sync:read` | lijst (filter `?scope=`) |
 | `/api/v1/sync-schedules/{id}` | GET | `sync:read` | detail |
-| `/api/v1/sync-schedules/{id}/preview` | GET | `sync:read` | volgende 3 momenten (serverberekend) |
+| `/api/v1/sync-schedules/preview` | POST | `sync:read` | preview van een *voorgesteld* (nog niet opgeslagen) schema — stateless, geen rij nodig |
+| `/api/v1/sync-schedules/{id}/preview` | GET | `sync:read` | volgende 3 momenten van het opgeslagen schema (serverberekend) |
 | `/api/v1/sync-schedules/{id}` | PATCH | `sync:write` | wijzig schema/tijdzone/enabled; `version` → 409 bij conflict |
 | `/api/v1/sync-schedules/{id}/reset` | POST | `sync:write` | standaard herstellen |
 | `/api/v1/sync-schedules/{id}/disable` | POST | `sync:write` | uitschakelen |
@@ -87,6 +88,11 @@ die bij de gekozen frequentie horen.
 - Elke wijziging wordt geaudit (actor, oud/nieuw schema, tijdstip) met
   secret-redactie; de preview gebruikt dezelfde pure berekening als de
   worker.
+- `POST /sync-schedules/preview` valideert het voorgestelde schema en
+  de tijdzone server-side en retourneert de volgende drie momenten plus
+  een leesbare samenvatting (`human_readable`), zonder iets te
+  persisteren — de UI live-preview in de editor gebruikt dit endpoint
+  in plaats van een client-side benadering.
 
 ## Worker
 
@@ -131,7 +137,8 @@ gebruikersinstelling, de globale jobs de vangnetten.
 De Planning-sectie toont per rij: naam (herkenbaar uit de verbindings-
 configuratie), status, menselijke schemaweergave (bijv. `Elke werkdag om
 07:00`), tijdzone, volgende run en laatste resultaat. De editor biedt
-frequentie, tijd, dagen, tijdzone, live preview (drie momenten), opslaan,
+frequentie, tijd, dagen, tijdzone, live preview (drie momenten,
+serverberekend via `POST /sync-schedules/preview`), opslaan,
 annuleren en standaard herstellen; laden/opslaan/fouten worden met
 zichtbare tekst gecommuniceerd. De pagina blijft mobiel bruikbaar en
 volledig via toetsenbord bedienbaar.

@@ -519,4 +519,63 @@ def test_dashboard_ships_claim_for_unowned_accounts(client: TestClient) -> None:
     keep them private under explicit ownership."""
     html = _dashboard_html(client)
     assert "claimAccount(" in html
+
+
+# ══════════════════════════════════════════════════════════════════
+# Sync-schedule planning UI (t_5a064a23)
+# ══════════════════════════════════════════════════════════════════
+
+
+def test_dashboard_ships_planning_section(client: TestClient) -> None:
+    """The Sync Runs page ships the Planning section with Ingestion /
+    Export tabs and per-row schedule management actions."""
+    html = _dashboard_html(client)
+    assert 'id="sync-schedules"' in html
+    assert "loadSyncRuns()" in html
+    assert "api('GET', '/sync-schedules?limit=500')" in html
+    assert "openScheduleEditor(" in html
+    assert "toggleSchedule(" in html
+
+
+def test_dashboard_schedule_editor_has_live_server_preview(
+    client: TestClient,
+) -> None:
+    """The editor's live preview is server-computed: the proposed values
+    are POSTed to /sync-schedules/preview (the same pure function the
+    worker uses), never approximated client-side."""
+    html = _dashboard_html(client)
+    assert "api('POST', '/sync-schedules/preview'" in html
+    assert "schedule: vals.schedule" in html
+    assert "timezone: vals.timezone" in html
+    # The old client-side approximation is gone.
+    assert "localPreviewHtml" not in html
+    assert "Volgende momenten:" in html
+
+
+def test_dashboard_schedule_editor_covers_frequencies(
+    client: TestClient,
+) -> None:
+    """The editor supports every workday, every day, weekly with selected
+    days and every N hours, showing only the fields that apply."""
+    html = _dashboard_html(client)
+    for option in (
+        "Elke werkdag (ma",
+        "Elke dag",
+        "Wekelijks (bepaalde dagen)",
+        "Elke N uur",
+    ):
+        assert option in html
+    assert "sched-weekdays-block" in html
+    assert "sched-interval-block" in html
+    assert "sched-time-block" in html
+
+
+def test_dashboard_schedule_editor_explains_disabling(
+    client: TestClient,
+) -> None:
+    """Disabling a schedule stops scheduled runs but manual runs stay
+    available — explained in plain language in the UI."""
+    html = _dashboard_html(client)
+    assert "handmatig uitvoeren blijft mogelijk" in html
+    assert "Uitgeschakeld" in html
     assert "api('POST', `/accounts/${accountId}/claim`" in html
