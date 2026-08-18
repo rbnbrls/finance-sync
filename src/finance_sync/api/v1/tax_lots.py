@@ -15,7 +15,11 @@ from typing import TYPE_CHECKING, Any
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 
-from finance_sync.api.deps.auth import AuthContext, require_permission
+from finance_sync.api.deps.auth import (
+    AuthContext,
+    get_read_scope,
+    require_permission,
+)
 from finance_sync.db.repositories import TaxLotRepository
 from finance_sync.dependencies import get_db
 from finance_sync.models.tax_lot import TaxLot
@@ -23,6 +27,7 @@ from finance_sync.services.tax_lot_service import (
     compute_all_tax_lots,
     get_tax_lot_summary,
 )
+from finance_sync.services.visibility import ReadScope
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -84,15 +89,21 @@ class ComputeResult(BaseModel):
 async def list_tax_lots(
     auth: AuthContext = Depends(require_permission("holdings", "read")),
     db: AsyncSession = Depends(get_db),
+    scope: ReadScope = Depends(get_read_scope),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     account_id: str | None = Query(default=None),
     security_id: str | None = Query(default=None),
     is_open: bool | None = Query(default=None),
 ) -> dict[str, Any]:
-    """List tax lots for the tenant with optional filters."""
+    """List tax lots for the tenant with optional filters.
+
+    Scoped to the principal's visible accounts: tax lots of another
+    household member's *private* accounts are never returned.
+    """
     repo = TaxLotRepository(db)
     conditions: list[Any] = [TaxLot.tenant_id == auth.tenant_id]  # type: ignore[attr-defined]
+    conditions.append(TaxLot.account_id.in_(scope.account_ids_subquery()))  # type: ignore[attr-defined]
 
     if account_id:
         conditions.append(TaxLot.account_id == account_id)  # type: ignore[attr-defined]
@@ -129,15 +140,20 @@ async def list_tax_lots(
 async def tax_lot_summary(
     auth: AuthContext = Depends(require_permission("holdings", "read")),
     db: AsyncSession = Depends(get_db),
+    scope: ReadScope = Depends(get_read_scope),
     account_id: str | None = Query(default=None),
     security_id: str | None = Query(default=None),
 ) -> dict[str, Any]:
-    """Return aggregate summary of tax lots."""
+    """Return aggregate summary of tax lots.
+
+    Scoped to the principal's visible accounts.
+    """
     return await get_tax_lot_summary(
         db,
         tenant_id=auth.tenant_id,
         account_id=account_id,
         security_id=security_id,
+        visible_account_ids=scope.account_ids_subquery(),
     )
 
 

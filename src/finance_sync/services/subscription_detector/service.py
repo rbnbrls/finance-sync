@@ -249,6 +249,7 @@ class SubscriptionDetectionService:
         transactions: list[dict[str, Any]] | None = None,
         date_from: datetime | None = None,
         date_to: datetime | None = None,
+        account_ids: Any | None = None,
     ) -> list[Subscription]:
         """Run subscription detection for a user.
 
@@ -261,6 +262,11 @@ class SubscriptionDetectionService:
                 construction).
             date_from: Earliest transaction date (default 365 days ago).
             date_to: Latest transaction date (default now).
+            account_ids: Optional SQL predicate over ``Account.id`` (e.g.
+                ``ReadScope.account_ids_subquery()``) restricting the
+                analysis to visible accounts (household visibility
+                scoping).  Only outgoing transactions on those accounts
+                are considered.
 
         Returns:
             List of detected :class:`Subscription` objects, sorted by
@@ -282,6 +288,7 @@ class SubscriptionDetectionService:
                 user_id,
                 date_from=date_from,
                 date_to=date_to,
+                account_ids=account_ids,
             )
 
         if not transactions:
@@ -1082,11 +1089,14 @@ class SubscriptionDetectionService:
         *,
         date_from: datetime | None = None,
         date_to: datetime | None = None,
+        account_ids: Any | None = None,
     ) -> list[dict[str, Any]]:
         """Fetch outgoing transactions from the database for a user.
 
         Requires ``session_factory`` to have been provided at
-        construction.
+        construction.  When ``account_ids`` is given (a SQL predicate
+        such as ``scope.account_ids_subquery()``), only transactions on
+        those accounts are returned (household visibility scoping).
         """
         if date_from is None:
             date_from = datetime.now(UTC) - timedelta(days=_DEFAULT_DAYS_BACK)
@@ -1121,8 +1131,8 @@ class SubscriptionDetectionService:
                     Transaction.amount < 0,  # type: ignore[attr-defined]
                     Transaction.occurred_at >= date_from,  # type: ignore[attr-defined]
                     Transaction.occurred_at <= date_to,  # type: ignore[attr-defined]
-                    Transaction.status.in_(
-                        [  # type: ignore[attr-defined]
+                    Transaction.status.in_(  # type: ignore[attr-defined]
+                        [
                             "booked",
                             "pending",
                         ]
@@ -1130,6 +1140,12 @@ class SubscriptionDetectionService:
                 )
                 .order_by(Transaction.occurred_at.asc())  # type: ignore[attr-defined]
             )
+            if account_ids is not None:
+                stmt = stmt.where(
+                    Transaction.account_id.in_(  # type: ignore[attr-defined]
+                        account_ids
+                    )
+                )
 
             result = await session.execute(stmt)
             rows = result.all()

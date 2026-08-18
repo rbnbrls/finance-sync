@@ -9,12 +9,17 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any
+from uuid import UUID
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 
-from finance_sync.api.deps.auth import AuthContext, require_permission
+from finance_sync.api.deps.auth import (
+    AuthContext,
+    get_read_scope,
+    require_permission,
+)
 from finance_sync.dependencies import get_container, get_db
 from finance_sync.schemas.freshness import (
     AggregateMeta,
@@ -28,6 +33,7 @@ from finance_sync.services.subscription_detector.service import (
 from finance_sync.services.subscription_detector.service import (
     SubscriptionDetectionService,
 )
+from finance_sync.services.visibility import ReadScope
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -35,6 +41,33 @@ if TYPE_CHECKING:
 logger = structlog.get_logger("finance_sync.api.v1.subscriptions")
 
 router = APIRouter(prefix="/subscriptions", tags=["subscriptions"])
+
+
+async def _subscription_visible(
+    sub: Any, scope: ReadScope, request: Request
+) -> bool:
+    """Return whether a subscription row belongs to a visible account.
+
+    Subscriptions without an account link (``account_id`` NULL) are
+    treated as visible to keep legacy rows working; subscriptions tied
+    to a private account of another member are hidden (404-equivalent).
+    Applies the same visibility policy to user and machine (API-key)
+    principals.
+    """
+    account_id = getattr(sub, "account_id", None)
+    if account_id is None:
+        return True
+    try:
+        account_uuid = UUID(str(account_id))
+    except ValueError:
+        return True
+    from finance_sync.models.account import Account
+
+    async with get_container(request).session_factory() as session:
+        account = await session.get(Account, account_uuid)
+    if account is None:
+        return True
+    return scope.is_visible(account)
 
 
 # ── Request / Response DTOs ───────────────────────────────────────────
@@ -329,6 +362,7 @@ async def detect_subscriptions(
     body: DetectionTriggerRequest,
     request: Request,
     auth: AuthContext = Depends(require_permission("subscriptions", "write")),
+    scope: ReadScope = Depends(get_read_scope),
 ) -> list[DetectionResultItem]:
     """Run integrated subscription detection on transaction history.
 
@@ -336,6 +370,10 @@ async def detect_subscriptions(
     service (``SubscriptionDetectionService``) to analyse outgoing
     transactions and return newly detected subscriptions with cross-
     validated confidence scores.
+
+    The analysis is scoped to the principal's visible accounts — outgoing
+    transactions on another household member's *private* accounts never
+    enter detection.
 
     Response items do **not** include database IDs — the results are
     ephemeral detection outputs.  Use ``POST /{id}/confirm`` on an
@@ -352,6 +390,7 @@ async def detect_subscriptions(
             user_id=auth.tenant_id,
             date_from=body.date_from,
             date_to=body.date_to,
+            account_ids=scope.account_ids_subquery(),
         )
     except ValueError as exc:
         logger.error(
@@ -385,6 +424,7 @@ async def analyze_subscriptions(
     body: AnalysisTriggerRequest,
     request: Request,
     auth: AuthContext = Depends(require_permission("subscriptions", "write")),
+    scope: ReadScope = Depends(get_read_scope),
 ) -> list[DetectionResultItem]:
     """Dry-run subscription detection without persisting results.
 
@@ -392,6 +432,8 @@ async def analyze_subscriptions(
     pattern recognition, and cross-validation — but returns ephemeral
     results instead of saving them to the database.  Useful for previewing
     what would be detected.
+
+    The analysis is scoped to the principal's visible accounts.
 
     The ``use_merchant_classifier`` parameter is accepted for backward
     compatibility; the integrated service always applies merchant
@@ -408,6 +450,7 @@ async def analyze_subscriptions(
             user_id=auth.tenant_id,
             date_from=body.date_from,
             date_to=body.date_to,
+            account_ids=scope.account_ids_subquery(),
         )
     except ValueError as exc:
         logger.error(
@@ -440,6 +483,7 @@ async def analyze_subscriptions(
 async def get_detected_subscriptions(
     request: Request,
     auth: AuthContext = Depends(require_permission("subscriptions", "read")),
+    scope: ReadScope = Depends(get_read_scope),
     date_from: datetime | None = Query(
         default=None,
         description="Earliest transaction date (default 365 days ago)",
@@ -462,6 +506,10 @@ async def get_detected_subscriptions(
     and pattern-recognition service (SubscriptionDetectionService) to analyse
     outgoing transactions and return currently detected subscriptions.
 
+    The analysis is scoped to the principal's visible accounts — outgoing
+    transactions on another household member's *private* accounts never
+    enter detection.
+
     Response items do **not** include database IDs — the results are
     ephemeral detection outputs.  Use ``POST /{id}/confirm`` on an
     existing subscription to persist it.
@@ -477,6 +525,7 @@ async def get_detected_subscriptions(
             user_id=auth.tenant_id,
             date_from=date_from,
             date_to=date_to,
+            account_ids=scope.account_ids_subquery(),
         )
     except ValueError as exc:
         logger.error(
@@ -506,6 +555,7 @@ async def get_detected_subscriptions(
 async def list_subscriptions(
     request: Request,
     auth: AuthContext = Depends(require_permission("subscriptions", "read")),
+    scope: ReadScope = Depends(get_read_scope),
     status_filter: str | None = Query(
         default=None, alias="status", description="Filter by status"
     ),
@@ -515,7 +565,11 @@ async def list_subscriptions(
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
 ) -> dict[str, Any]:
-    """List detected subscriptions for the tenant."""
+    """List detected subscriptions for the tenant.
+
+    Scoped to the principal's visible accounts: subscriptions detected
+    from another household member's *private* accounts are never listed.
+    """
     container = get_container(request)
     svc = SubscriptionDetector(
         session_factory=container.session_factory,
@@ -527,6 +581,7 @@ async def list_subscriptions(
         confidence=confidence,
         limit=limit,
         offset=offset,
+        account_ids=scope.account_ids_subquery(),
     )
 
     # As-of / freshness / coverage metadata: the list reflects the DB
@@ -555,7 +610,9 @@ async def list_subscriptions(
 @router.get("/{subscription_id}", response_model=SubscriptionResponse)
 async def get_subscription(
     subscription_id: str,
+    request: Request,
     auth: AuthContext = Depends(require_permission("subscriptions", "read")),
+    scope: ReadScope = Depends(get_read_scope),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     """Get a single detected subscription by ID."""
@@ -578,7 +635,12 @@ async def get_subscription(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Subscription {subscription_id!r} not found",
         )
-    if sub.tenant_id != auth.tenant_id:
+    if str(sub.tenant_id) != auth.tenant_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Not found",
+        )
+    if not await _subscription_visible(sub, scope, request):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Not found",
@@ -593,6 +655,7 @@ async def update_subscription(
     body: SubscriptionUpdateRequest,
     request: Request,
     auth: AuthContext = Depends(require_permission("subscriptions", "write")),
+    scope: ReadScope = Depends(get_read_scope),
 ) -> dict[str, Any]:
     """Update a detected subscription (status, category, notes)."""
     container = get_container(request)
@@ -613,6 +676,11 @@ async def update_subscription(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Subscription {subscription_id!r} not found",
         )
+    if not await _subscription_visible(sub, scope, request):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Not found",
+        )
 
     return _sub_to_response(sub).model_dump()
 
@@ -627,6 +695,7 @@ async def confirm_subscription(
     body: ConfirmSubscriptionRequest,
     request: Request,
     auth: AuthContext = Depends(require_permission("subscriptions", "write")),
+    scope: ReadScope = Depends(get_read_scope),
 ) -> dict[str, Any]:
     """Confirm a detected subscription as legitimate.
 
@@ -650,6 +719,11 @@ async def confirm_subscription(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Subscription {subscription_id!r} not found",
         )
+    if not await _subscription_visible(sub, scope, request):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Not found",
+        )
 
     return _sub_to_response(sub).model_dump()
 
@@ -664,6 +738,7 @@ async def ignore_subscription(
     body: IgnoreSubscriptionRequest,
     request: Request,
     auth: AuthContext = Depends(require_permission("subscriptions", "write")),
+    scope: ReadScope = Depends(get_read_scope),
 ) -> dict[str, Any]:
     """Ignore a detected subscription.
 
@@ -687,6 +762,11 @@ async def ignore_subscription(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Subscription {subscription_id!r} not found",
         )
+    if not await _subscription_visible(sub, scope, request):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Not found",
+        )
 
     return _sub_to_response(sub).model_dump()
 
@@ -700,6 +780,7 @@ async def delete_subscription(
     subscription_id: str,
     request: Request,
     auth: AuthContext = Depends(require_permission("subscriptions", "write")),
+    scope: ReadScope = Depends(get_read_scope),
 ) -> dict[str, Any]:
     """Permanently delete a detected subscription record.
 
@@ -711,6 +792,18 @@ async def delete_subscription(
         session_factory=container.session_factory,
         tenant_id=auth.tenant_id,
     )
+
+    sub = await svc.get_subscription(subscription_id)
+    if sub is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Subscription {subscription_id!r} not found",
+        )
+    if not await _subscription_visible(sub, scope, request):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Not found",
+        )
 
     deleted = await svc.delete_subscription(subscription_id)
 

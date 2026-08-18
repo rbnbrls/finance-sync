@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import ANY, AsyncMock, MagicMock
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -237,7 +237,11 @@ class TestListSubscriptionsEndpoint:
         assert data["total"] == 1
 
         mock_detector.list_subscriptions.assert_called_once_with(
-            status="active", confidence=None, limit=50, offset=0
+            status="active",
+            confidence=None,
+            limit=50,
+            offset=0,
+            account_ids=ANY,
         )
 
     def test_list_filters_by_confidence(
@@ -256,7 +260,11 @@ class TestListSubscriptionsEndpoint:
         assert data["total"] == 1
 
         mock_detector.list_subscriptions.assert_called_once_with(
-            status=None, confidence="high", limit=50, offset=0
+            status=None,
+            confidence="high",
+            limit=50,
+            offset=0,
+            account_ids=ANY,
         )
 
     def test_list_pagination(
@@ -277,7 +285,11 @@ class TestListSubscriptionsEndpoint:
         assert len(data["items"]) == 3
 
         mock_detector.list_subscriptions.assert_called_once_with(
-            status=None, confidence=None, limit=3, offset=2
+            status=None,
+            confidence=None,
+            limit=3,
+            offset=2,
+            account_ids=ANY,
         )
 
     def test_list_response_shape(
@@ -526,6 +538,7 @@ class TestDetectSubscriptionEndpoint:
             user_id="tenant_1",
             date_from=datetime(2025, 1, 1, tzinfo=UTC),
             date_to=datetime(2025, 12, 31, 23, 59, 59, tzinfo=UTC),
+            account_ids=ANY,
         )
 
     def test_detect_requires_auth(self, client: TestClient) -> None:
@@ -700,6 +713,7 @@ class TestGetDetectedSubscriptionsEndpoint:
             user_id="tenant_1",
             date_from=datetime(2025, 1, 1, tzinfo=UTC),
             date_to=datetime(2025, 12, 31, 23, 59, 59, tzinfo=UTC),
+            account_ids=ANY,
         )
 
     def test_detected_uses_default_min_occurrences(
@@ -716,6 +730,7 @@ class TestGetDetectedSubscriptionsEndpoint:
             user_id="tenant_1",
             date_from=None,
             date_to=None,
+            account_ids=ANY,
         )
         # Also verify the service was constructed with min_occurrences=2
         # by checking the factory call args

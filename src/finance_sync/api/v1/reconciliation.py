@@ -11,9 +11,14 @@ from typing import Any, cast
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 
-from finance_sync.api.deps.auth import AuthContext, require_permission
+from finance_sync.api.deps.auth import (
+    AuthContext,
+    get_read_scope,
+    require_permission,
+)
 from finance_sync.dependencies import get_container
 from finance_sync.services.reconciliation import ReconciliationService
+from finance_sync.services.visibility import ReadScope
 
 router = APIRouter(prefix="/reconciliation", tags=["reconciliation"])
 
@@ -431,12 +436,18 @@ async def get_reconciliation_run(
     run_id: str,
     request: Request,
     auth: AuthContext = Depends(require_permission("reconciliation", "read")),
+    scope: ReadScope = Depends(get_read_scope),
     result_limit: int = Query(default=100, ge=1, le=500),
     result_offset: int = Query(default=0, ge=0),
     kind: str | None = Query(default=None),
     severity: str | None = Query(default=None),
 ) -> dict[str, Any]:
-    """Get a reconciliation run with its findings."""
+    """Get a reconciliation run with its findings.
+
+    Findings referencing accounts outside the principal's household
+    visibility scope are hidden (404-equivalent for private accounts of
+    other members).
+    """
     container = get_container(request)
     svc = ReconciliationService(
         session_factory=container.session_factory,
@@ -449,6 +460,7 @@ async def get_reconciliation_run(
         result_offset=result_offset,
         kind_filter=kind,
         severity_filter=severity,
+        visible_account_ids=scope.account_ids_subquery(),
     )
 
     if run is None:
@@ -457,7 +469,7 @@ async def get_reconciliation_run(
             detail=f"Reconciliation run {run_id!r} not found",
         )
 
-    if run.tenant_id != auth.tenant_id:
+    if str(run.tenant_id) != auth.tenant_id:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Not found"
         )

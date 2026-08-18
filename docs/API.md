@@ -73,7 +73,21 @@ Authentication is `Authorization: Bearer <JWT>` or `X-API-Key`. Mutations requir
 | `GET /sync-runs/{id}` | `sync:read` | Status, cursors, counts, warnings, error code. |
 | `POST /reconciliation` | `reconciliation:write` | Trigger a reconciliation analysis synchronously. Returns the run summary. |
 | `GET /reconciliation` | `reconciliation:read` | List reconciliation runs for the tenant. |
-| `GET /reconciliation/{id}` | `reconciliation:read` | Get a reconciliation run with its findings. |
+| `GET /reconciliation/{id}` | `reconciliation:read` | Get a reconciliation run with its findings. Findings referencing accounts outside the principal's visibility scope are hidden. |
+| `GET /household/members` | `household:read` | List household members and their roles. Visible to every member. |
+| `PATCH /household/members/{id}/role` | `household:write` | Change a member's role (`admin` / `user`). Admin only. |
+| `DELETE /household/members/{id}` | `household:write` | Remove a member from the household. Admin only. |
+| `POST /household/invitations` | `household:write` | Create a single-use, expiring invitation. Admin only. |
+| `GET /household/invitations` | `household:read` | List pending invitations. Admin only. |
+| `POST /household/invitations/accept` | public (token) | Accept an invitation with `{token}`; signs the new member in. |
+| `POST /household/invitations/{id}/revoke` | `household:write` | Revoke a pending invitation. Admin only. |
+| `GET /household/audit-log` | `household:read` | Household audit trail (invitations, role changes, visibility changes, cleanup decisions) — no financial payloads. Admin only. |
+| `GET /accounts/{id}/share-preview` | `finance:read` | Impact preview of sharing an account: transactions, holdings, balance snapshots and current balance that enter/leave the household view. |
+| `PATCH /accounts/{id}/visibility` | `finance:write` | Set `private` or `household` visibility. Owner only; reports `export_cleanup_required` + `export_artifacts` when unsharing an account with prior exports. |
+| `POST /accounts/{id}/claim` | `finance:write` | Claim a system-owned (unowned) account. Admin only. |
+| `GET /accounts/{id}/export-artifacts` | `finance:read` | Describe previously exported data for an account (files, mappings, deliveries) — drives the unshare cleanup flow. Owner only. |
+| `POST /accounts/{id}/export-quarantine` | `finance:write` | Non-destructively move the account's export CSVs aside (mapping/delivery kept). Owner only. |
+| `POST /accounts/{id}/export-cleanup` | `finance:write` | Permanently delete export files + mapping + delivery, only with `{confirm: true}`. Owner only. |
 | `GET /health` | public/internal | Liveness/readiness/dependency checks; redact details publicly. |
 | `GET /metrics` | internal | Prometheus exposition, network-restricted. |
 
@@ -97,6 +111,80 @@ Example response shape:
 ```
 
 Version only breaking changes in `/api/v2`; add optional fields and endpoints without a major version. Publish OpenAPI at `/openapi.json`, Swagger at `/docs`, and a generated client only after API contract tests are established.
+
+## Household & account sharing
+
+Every financial account belongs to exactly one household (tenant) and has an
+owner plus an explicit visibility policy. The model is **private by default**:
+accounts migrated from before household sharing stay system-owned and are only
+visible to tenant admins until claimed.
+
+### Visibility policy
+
+A principal may read an account when **any** of the following holds:
+
+| Principal | May read |
+|---|---|
+| Owner of the account | Always (incl. `private` accounts) |
+| Any household member | `household`-visible (shared) accounts |
+| Tenant admin | `household` accounts, own accounts, and system-owned (unclaimed) accounts |
+| API key / machine principal | `household` accounts and system-owned accounts — never a user's `private` accounts |
+
+`PATCH /accounts/{id}/visibility` accepts `private` (only the owner sees the
+account) or `household` (every household member sees it). Only the owner may
+change visibility; admins can claim system-owned accounts so every account
+eventually has an owner.
+
+### Side-channel guarantees
+
+The same policy is enforced — with automated multi-user integration tests —
+across every surface derived from accounts, so a member can never infer another
+member's private data through a totals column, a filter, an export, a webhook
+event, an MCP tool, or an error message:
+
+- **Read APIs & aggregates** — accounts, transactions, holdings, balances, net
+  worth, cashflow, dividends, portfolio, allocation, performance all scope to
+  the principal's visible accounts (SQL subquery, applied inside the query).
+- **Subscriptions** — `GET /subscriptions`, `GET /subscriptions/{id}`,
+  `PATCH/POST/DELETE` row operations, and detection/analysis runs only see
+  subscriptions detected from visible accounts. Detection never reads
+  transactions of another member's private accounts.
+- **Tax lots** — list and summary are scoped; explicit `account_id` filters for
+  invisible accounts return nothing.
+- **Reconciliation** — run detail hides findings that reference accounts
+  outside the principal's scope (404-equivalent).
+- **Derived rows** — scheduled payments and card transactions are scoped like
+  transactions.
+- **AI summaries** — the prompt context only contains the principal's visible
+  accounts; private names, balances and transactions never reach the model.
+- **Exports** — the Wealthfolio/Actual Budget exporters only export
+  `household`-visible accounts; revoking a share halts export on the next run
+  (defense-in-depth filter in the push path).
+- **Webhooks** — events for private accounts are suppressed for non-owners in
+  a household; aggregate events are never suppressed.
+- **MCP** — `get_subscriptions` (and all read tools) apply the same scope.
+
+### Revocation & export cleanup
+
+Unsharing an account that was previously exported triggers a cleanup flow —
+nothing is deleted silently. `PATCH /accounts/{id}/visibility` to `private`
+returns `export_cleanup_required` plus `export_artifacts`; the owner then either
+quarantines (non-destructive CSV move, mapping kept) or permanently deletes with
+an explicit `confirm: true`. Every decision is written to the household audit
+log with sanitised payloads (no financial data).
+
+### Roles & RBAC
+
+| Action | Admin | User |
+|---|---|---|
+| View members list | ✓ | ✓ |
+| Invite / revoke invitations | ✓ | — |
+| Accept an invitation | ✓ (via token) | ✓ (via token) |
+| Change roles / remove members | ✓ | — |
+| View audit log | ✓ | — |
+| Share / unshare own accounts | ✓ (own accounts only) | ✓ (own accounts only) |
+| Claim unowned accounts | ✓ | — |
+| Export cleanup (quarantine/delete) | ✓ (own accounts only) | ✓ (own accounts only) |
 
 ## CLI: Reconciliation
 
