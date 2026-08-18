@@ -29,6 +29,7 @@ from finance_sync.worker.jobs import (
     sync_trading212_job,
 )
 from finance_sync.worker.monitoring import JobRunContext
+from finance_sync.worker.schedule_runner import run_scheduled_syncs_job
 
 if TYPE_CHECKING:
     from finance_sync.config.settings import Settings
@@ -250,6 +251,19 @@ class WorkerScheduler:
     def _register_jobs(self) -> None:
         """Register all scheduled jobs based on settings."""
         settings = self._settings
+
+        # ── Tenant schedule dispatch (minute tick) ──────────────────
+        # The per-tenant sync_schedules drive *when* each connection /
+        # export target runs.  A minute tick checks due schedules and
+        # claims them atomically (idempotent across replicas/restarts).
+        # Gated by WORKER_JOB_SCHEDULES_ENABLED so operators can disable
+        # the whole tenant scheduling layer.
+        if settings.worker_job_schedules_enabled:
+            self._add_job(
+                "run_scheduled_syncs",
+                run_scheduled_syncs_job,
+                trigger=IntervalTrigger(minutes=1),
+            )
 
         # ── bunq sync job ───────────────────────────────────────────
         if settings.worker_job_bunq_sync_enabled:

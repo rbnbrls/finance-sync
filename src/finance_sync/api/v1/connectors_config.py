@@ -684,6 +684,27 @@ async def create_connector_config(
     db.add(cred)
     await db.flush()
 
+    # New active connections receive an enabled default schedule
+    # atomically (same transaction) so they are schedulable immediately.
+    # Only schedulable providers (bunq/trading212) get a row; the others
+    # keep their own triggers.
+    from finance_sync.models.sync_schedule import (
+        INGESTION_SCHEDULABLE_PROVIDERS,
+        SCOPE_INGESTION,
+    )
+    from finance_sync.services.sync_schedule import (
+        SyncScheduleService,
+    )
+
+    if body.provider_type in INGESTION_SCHEDULABLE_PROVIDERS:
+        svc = SyncScheduleService(db)
+        await svc.ensure_for_scope(
+            auth.tenant_id,
+            scope=SCOPE_INGESTION,
+            target_id=str(cred.id),
+            actor_user_id=auth.principal_id,
+        )
+
     await log_connection_event(
         db,
         tenant_id=auth.tenant_id,
@@ -841,6 +862,28 @@ async def delete_connector_config(
     provider_key = cred.provider_key
     connection_id = str(cred.id)
     await db.delete(cred)
+
+    # Disable any schedule for this connection atomically with the
+    # deletion: a dangling enabled schedule must never be planned by the
+    # worker against a dead source (no ghost runs, no failure rows).
+    from finance_sync.models.sync_schedule import (
+        SCOPE_INGESTION,
+        SyncSchedule,
+    )
+
+    schedule = (
+        await db.execute(
+            select(SyncSchedule).where(
+                SyncSchedule.tenant_id == auth.tenant_id,
+                SyncSchedule.scope == SCOPE_INGESTION,
+                SyncSchedule.target_id == connection_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if schedule is not None:
+        schedule.enabled = False
+        schedule.next_run_at = None
+        schedule.updated_at = datetime.now(UTC)
     await db.flush()
 
     await log_connection_event(
@@ -1007,6 +1050,27 @@ async def pause_connector_connection(
     if cred.status != CONNECTION_STATUS_PAUSED:
         cred.status = CONNECTION_STATUS_PAUSED
         cred.updated_at = datetime.now(UTC)
+        # Disable the connection's schedule so no scheduled run is
+        # planned while paused (the worker also skips paused
+        # connections — this keeps next_run_at honest).
+        from finance_sync.models.sync_schedule import (
+            SCOPE_INGESTION,
+            SyncSchedule,
+        )
+
+        schedule = (
+            await db.execute(
+                select(SyncSchedule).where(
+                    SyncSchedule.tenant_id == auth.tenant_id,
+                    SyncSchedule.scope == SCOPE_INGESTION,
+                    SyncSchedule.target_id == str(cred.id),
+                )
+            )
+        ).scalar_one_or_none()
+        if schedule is not None:
+            schedule.enabled = False
+            schedule.next_run_at = None
+            schedule.updated_at = datetime.now(UTC)
         await db.flush()
         await log_connection_event(
             db,
@@ -1035,6 +1099,28 @@ async def resume_connector_connection(
     if cred.status != CONNECTION_STATUS_ACTIVE:
         cred.status = CONNECTION_STATUS_ACTIVE
         cred.updated_at = datetime.now(UTC)
+        # Re-enable the connection's schedule (and recompute next_run_at)
+        # so scheduled runs resume after resume.
+        from finance_sync.models.sync_schedule import (
+            SCOPE_INGESTION,
+            SyncSchedule,
+        )
+        from finance_sync.services.sync_schedule import compute_next_run
+
+        schedule = (
+            await db.execute(
+                select(SyncSchedule).where(
+                    SyncSchedule.tenant_id == auth.tenant_id,
+                    SyncSchedule.scope == SCOPE_INGESTION,
+                    SyncSchedule.target_id == str(cred.id),
+                )
+            )
+        ).scalar_one_or_none()
+        if schedule is not None:
+            schedule.enabled = True
+            instants = compute_next_run(schedule, count=1)
+            schedule.next_run_at = instants[0] if instants else None
+            schedule.updated_at = datetime.now(UTC)
         await db.flush()
         await log_connection_event(
             db,
