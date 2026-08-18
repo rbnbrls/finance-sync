@@ -150,6 +150,7 @@ class TestEnsureForScope:
             )
             await session.commit()
 
+        assert first is not None and second is not None
         assert str(first.id) == str(second.id)
         async with session_factory() as session:
             rows = (
@@ -246,6 +247,7 @@ class TestEnsureForScope:
                 provider_key="bunq",
             )
         # The row has no credential/payload columns at all.
+        assert row is not None
         assert not hasattr(row, "encrypted_payload")
         assert not hasattr(row, "nonce")
         assert not hasattr(row, "credentials")

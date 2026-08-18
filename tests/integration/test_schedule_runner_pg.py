@@ -240,6 +240,7 @@ class TestRunnerPg:
 
         row = await _get_row(session_factory, str(sched.id))
         assert row.last_run_at is not None
+        assert row.next_run_at is not None
         assert row.next_run_at > datetime.now(UTC)
 
         # A brand-new tick (as if another replica started later) sees
