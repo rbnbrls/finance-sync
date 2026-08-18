@@ -92,6 +92,16 @@ CVE-2026-41992
 # release; advisory remains flagged with no fixed version.
 # expiry="2026-12-31"
 CVE-2024-23342
+# openssl/libssl3: unbounded memory growth in QUIC server listener
+# (CVE-2026-14456, HIGH).  Added 2026-08-18 after CI #501/#502/#504
+# (Build & Push Trivy gate).  NO fixed version exists in ANY Debian
+# release as of 2026-08-18 (bookworm & bookworm-security 3.0.20-1~deb12u2
+# vulnerable, trixie postponed, sid unfixed per security-tracker), so
+# there is nothing to upgrade to; the app does not use QUIC server
+# listeners.  Re-review at expiry; when bookworm ships a fixed openssl,
+# DELETE this entry and let the gate enforce the upgrade.
+# expiry="2026-12-31"
+CVE-2026-14456
 
 # ── wget (added 2026-08-16, issue #233 healthcheck hardening) ─────────
 # wget was added to the production image (issue #233): Coolify's own
