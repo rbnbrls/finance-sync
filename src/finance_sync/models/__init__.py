@@ -59,6 +59,15 @@ from finance_sync.models.fundamental_observation import FundamentalObservation
 from finance_sync.models.fx_rate import FxRate
 from finance_sync.models.holding import Holding
 from finance_sync.models.import_run import ImportRun
+from finance_sync.models.market_intelligence_item import (
+    MarketIntelligenceItem,
+)
+from finance_sync.models.market_intelligence_provider_state import (
+    MarketIntelligenceProviderState,
+)
+from finance_sync.models.market_intelligence_review_queue import (
+    MarketIntelligenceReviewQueue,
+)
 from finance_sync.models.mixins import TenantAwareMixin, TimestampMixin
 from finance_sync.models.outbox import OutboxMessage
 from finance_sync.models.reconciliation import (

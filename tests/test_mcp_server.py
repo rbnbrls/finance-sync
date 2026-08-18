@@ -118,7 +118,7 @@ class TestMCPTools:
         assert "get_allocation" in tool_names
         assert "get_cashflow" in tool_names
         assert "list_sync_runs" in tool_names
-        assert len(tool_names) == 9
+        assert len(tool_names) == 11
 
     def test_tool_input_schemas(self) -> None:
         """Tools have the expected input parameters."""

@@ -782,6 +782,121 @@ async def tool_list_sync_runs(
 
 
 # ═════════════════════════════════════════════════════════════════════════
+# Tools — market intelligence (source layer)
+# ═════════════════════════════════════════════════════════════════════════
+
+
+class MarketIntelligenceQueryInput(BaseModel):
+    """Input for ``list_market_intelligence`` tool."""
+
+    provider: str | None = Field(
+        default=None,
+        description=(
+            "Filter by provider key, e.g. 'sec' (SEC EDGAR public data) "
+            "or 'openbb'."
+        ),
+    )
+    kind: str | None = Field(
+        default=None,
+        description=(
+            "Filter by item kind: news_article, corporate_event, "
+            "earnings_report, earnings_call_transcript, analyst_estimate."
+        ),
+    )
+    review_required: bool | None = Field(
+        default=None,
+        description=(
+            "Only return items flagged for identity review when True."
+        ),
+    )
+    limit: int = Field(
+        default=20,
+        ge=1,
+        le=100,
+        description="Maximum number of items to return.",
+    )
+
+
+@mcp.tool(
+    name="list_market_intelligence",
+    title="List Market Intelligence",
+    description=(
+        "List stored market-intelligence observations (news, corporate "
+        "events, earnings, analyst estimates) from the self-hosted "
+        "source layer.  Tenant-scoped.  Never returns provider "
+        "credentials; restricted items never include full article text."
+    ),
+)
+async def tool_list_market_intelligence(
+    ctx: ServerContext,
+    provider: str | None = None,
+    kind: str | None = None,
+    review_required: bool | None = None,
+    limit: int = 20,
+) -> str:
+    """List stored market-intelligence observations for the tenant."""
+    from finance_sync.services.market_intelligence_read import (
+        MarketIntelligenceReadService as _ReadSvc,
+    )
+
+    tenant_id = _get_tenant_id(ctx)
+    container = _get_container(ctx)
+    session = container.session_factory()
+    service = _ReadSvc(session)
+    try:
+        result = await service.list_items(
+            tenant_id,
+            provider=provider,
+            kind=kind,
+            review_required=review_required,
+            limit=limit,
+        )
+        return _serialise(result.model_dump())
+    finally:
+        await session.aclose()
+
+
+class ProviderStateInput(BaseModel):
+    """Input for ``list_intel_provider_states`` tool."""
+
+    provider: str | None = Field(
+        default=None,
+        description="Optional provider key filter.",
+    )
+
+
+@mcp.tool(
+    name="list_intel_provider_states",
+    title="List Intel Provider States",
+    description=(
+        "Return run/freshness/availability state of every market-"
+        "intelligence provider for the tenant, including sanitised last "
+        "errors (never credentials) and explicit unavailable statuses."
+    ),
+)
+async def tool_list_intel_provider_states(
+    ctx: ServerContext,
+    provider: str | None = None,
+) -> str:
+    """Return per-provider run/freshness state for the tenant."""
+    from finance_sync.services.market_intelligence_read import (
+        MarketIntelligenceReadService as _ReadSvc,
+    )
+
+    tenant_id = _get_tenant_id(ctx)
+    container = _get_container(ctx)
+    session = container.session_factory()
+    service = _ReadSvc(session)
+    try:
+        states = await service.list_provider_states(tenant_id)
+        if provider:
+            states = [s for s in states if s.provider == provider]
+        return _serialise([s.model_dump() for s in states])
+    finally:
+        await session.aclose()
+
+
+# ═════════════════════════════════════════════════════════════════════════
 # ASGI app factory
 # ═════════════════════════════════════════════════════════════════════════
 

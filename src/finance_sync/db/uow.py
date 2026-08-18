@@ -17,6 +17,9 @@ from finance_sync.db.repositories import (
     FundamentalObservationRepository,
     FxRateRepository,
     HoldingRepository,
+    MarketIntelligenceItemRepository,
+    MarketIntelligenceProviderStateRepository,
+    MarketIntelligenceReviewQueueRepository,
     OutboxMessageRepository,
     ReconciliationResultRepository,
     ReconciliationRunRepository,
@@ -163,6 +166,30 @@ class UnitOfWork:
     @property
     def connection_audit_logs(self) -> ConnectionAuditLogRepository:
         return self._repo("connection_audit_logs", ConnectionAuditLogRepository)  # type: ignore[return-value]
+
+    @property
+    def market_intelligence_items(self) -> MarketIntelligenceItemRepository:
+        return self._repo(
+            "market_intelligence_items", MarketIntelligenceItemRepository
+        )  # type: ignore[return-value]
+
+    @property
+    def market_intelligence_provider_states(
+        self,
+    ) -> MarketIntelligenceProviderStateRepository:
+        return self._repo(
+            "market_intelligence_provider_states",
+            MarketIntelligenceProviderStateRepository,
+        )  # type: ignore[return-value]
+
+    @property
+    def market_intelligence_review_queue(
+        self,
+    ) -> MarketIntelligenceReviewQueueRepository:
+        return self._repo(
+            "market_intelligence_review_queue",
+            MarketIntelligenceReviewQueueRepository,
+        )  # type: ignore[return-value]
 
     @property
     def security_metadata_observations(
