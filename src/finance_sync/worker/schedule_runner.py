@@ -72,6 +72,18 @@ def _now() -> datetime:
     return datetime.now(UTC)
 
 
+def _ensure_aware(value: datetime | None) -> datetime | None:
+    """Coerce a naive datetime to UTC (SQLite returns naive DATETIME).
+
+    PostgreSQL's ``timestamptz`` always round-trips aware, so this is a
+    no-op in production; it exists so the runner cannot crash on a naive
+    value (the misfire check compares against the aware ``now``).
+    """
+    if value is None or value.tzinfo is not None:
+        return value
+    return value.replace(tzinfo=UTC)
+
+
 async def _load_due_schedules(
     session: Any,
     *,
@@ -89,7 +101,10 @@ async def _load_due_schedules(
         .limit(200)
     )
     rows = await session.scalars(stmt)
-    return list(rows.all())
+    result = list(rows.all())
+    for row in result:
+        row.next_run_at = _ensure_aware(row.next_run_at)
+    return result
 
 
 async def _claim_schedule(
@@ -320,6 +335,14 @@ async def run_due_schedules(container: Container) -> dict[str, Any]:
                     }
                 )
                 continue
+
+            # Persist the claim BEFORE executing: the guarded UPDATE is
+            # the idempotency key against concurrent replicas/retries.
+            # If the claim is left uncommitted in this session and the
+            # run opens its own sessions (it does), the rollback on
+            # session close would silently undo it — a second replica
+            # ticking the same window would claim and run again.
+            await session.commit()
 
             # Misfire coalescing: an overdue schedule older than the
             # catch-up window is reset, not run.

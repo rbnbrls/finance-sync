@@ -96,7 +96,10 @@ die bij de gekozen frequentie horen.
 - Het claimen is een guarded `UPDATE ... WHERE last_scheduled_at <
   cutoff`: meerdere replicas, scheduler-restarts en misfires kunnen een
   geplande uitvoering nooit dubbel starten (de claim-update is de
-  idempotentiesleutel).
+  idempotentiesleutel). De claim wordt **gecommit vóór** de uitvoering
+  begint — een rollback bij sessie-sluiting zou de guard anders
+  stilletjes ongedaan maken en een tweede replica zou hetzelfde venster
+  alsnog claimen en draaien.
 - Uitvoering gebruikt de bestaande connector-/exporterflows
   (`SyncOrchestrator`, `WealthfolioExporter`), respecteert provider-rate
   limits (de connectors' `RateLimiter`) en de operationele feature flags.
