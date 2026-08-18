@@ -1,8 +1,18 @@
 ---
 title: "Voeg een gedeeld huishouden met selectieve accountdeling toe"
-status: todo
+status: done
 priority: 15
 ---
+
+> **Done** — implemented in PRs #293 (schema/domain), #294 (visibility
+> enforcement across APIs, services, MCP, webhooks), #295 (exporter
+> visibility filter + revocation cleanup), #296 (control-panel UI +
+> invite flow), and the multi-user integration test / OpenAPI / docs
+> follow-up. Acceptance criteria are covered by automated integration
+> tests: private-by-default, selective sharing, revocation, RBAC and
+> side-channel leak prevention in aggregations/exports. See
+> `docs/API.md` → "Household & account sharing".
+
 
 ## Context
 

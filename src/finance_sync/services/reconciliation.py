@@ -582,8 +582,16 @@ class ReconciliationService:
         result_offset: int = 0,
         kind_filter: str | None = None,
         severity_filter: str | None = None,
+        visible_account_ids: Any | None = None,
     ) -> tuple[ReconciliationRun | None, list[ReconciliationResult], int]:
-        """Return a reconciliation run and its findings."""
+        """Return a reconciliation run and its findings.
+
+        When ``visible_account_ids`` is given (a SQL predicate such as
+        ``scope.account_ids_subquery()``), only findings referencing
+        one of those accounts are returned (household visibility
+        scoping); findings on other members' private accounts are
+        hidden.
+        """
         from sqlalchemy import desc, func, select
 
         async with self._session_factory() as session:
@@ -592,6 +600,10 @@ class ReconciliationService:
                 return (None, [], 0)
 
             conditions = [ReconciliationResult.run_id == run_id]  # type: ignore[attr-defined]
+            if visible_account_ids is not None:
+                conditions.append(  # type: ignore[attr-defined]
+                    ReconciliationResult.account_id.in_(visible_account_ids)
+                )
             if kind_filter:
                 conditions.append(ReconciliationResult.kind == kind_filter)  # type: ignore[attr-defined]
             if severity_filter:

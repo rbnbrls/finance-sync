@@ -545,12 +545,15 @@ async def tool_get_subscriptions(
         SubscriptionDetector as _SubDetector,
     )
 
+    scope = await _get_read_scope(ctx)
+
     detector = _SubDetector(
         session_factory=container.session_factory,
         tenant_id=tenant_id,
     )
     subscriptions = await detector.list_subscriptions(
         status="active" if active_only else None,
+        account_ids=scope.account_ids_subquery(),
     )
     return _serialise(
         [

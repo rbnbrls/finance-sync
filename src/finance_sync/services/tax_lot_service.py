@@ -422,14 +422,20 @@ async def get_tax_lot_summary(
     account_id: str | None = None,
     security_id: str | None = None,
     include_closed: bool = True,
+    visible_account_ids: Any | None = None,
 ) -> dict[str, Any]:
     """Get a summary of tax lots for a tenant.
 
-    Returns counts and totals for open and closed lots.
+    Returns counts and totals for open and closed lots.  When
+    ``visible_account_ids`` (a SQL predicate over ``Account.id``) is
+    given, only lots on those accounts are included (household
+    visibility scoping).
     """
 
     repo = TaxLotRepository(session)
     conditions: list[Any] = [TaxLot.tenant_id == tenant_id]  # type: ignore[attr-defined]
+    if visible_account_ids is not None:
+        conditions.append(TaxLot.account_id.in_(visible_account_ids))  # type: ignore[attr-defined]
 
     if account_id:
         conditions.append(TaxLot.account_id == account_id)  # type: ignore[attr-defined]

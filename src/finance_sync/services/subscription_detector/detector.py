@@ -781,10 +781,13 @@ class SubscriptionDetector:
         confidence: str | None = None,
         limit: int = 50,
         offset: int = 0,
+        account_ids: Any | None = None,
     ) -> list[DetectedSubscription]:
         """Return detected subscriptions for the tenant.
 
-        Supports optional filtering by status and confidence.
+        Supports optional filtering by status and confidence.  When
+        ``account_ids`` is given, only subscriptions linked to one of
+        those accounts are returned (household visibility scoping).
         """
         from sqlalchemy import select
 
@@ -799,6 +802,12 @@ class SubscriptionDetector:
                 )  # type: ignore[attr-defined]
             )
 
+            if account_ids is not None:
+                stmt = stmt.where(
+                    DetectedSubscription.account_id.in_(  # type: ignore[attr-defined]
+                        account_ids
+                    )
+                )
             if status:
                 stmt = stmt.where(
                     DetectedSubscription.status == status  # type: ignore[attr-defined]
@@ -818,6 +827,23 @@ class SubscriptionDetector:
 
             result = await session.execute(stmt)
             return list(result.scalars().all())
+
+    async def get_subscription(
+        self, subscription_id: str
+    ) -> DetectedSubscription | None:
+        """Return a subscription by id (tenant-scoped)."""
+        async with self._session_factory() as session:
+            from finance_sync.db.repositories import (
+                DetectedSubscriptionRepository,
+            )
+
+            repo = DetectedSubscriptionRepository(session)
+            sub = await repo.get(subscription_id)
+            if sub is None:
+                return None
+            if sub.tenant_id != self._tenant_id:
+                return None
+            return sub
 
     async def update_subscription(
         self,
@@ -955,10 +981,14 @@ class SubscriptionDetector:
         self,
         date_from: datetime,
         date_to: datetime,
+        account_ids: Any | None = None,
     ) -> list[dict[str, Any]]:
         """Fetch outgoing (negative amount) transactions from the DB.
 
         Returns plain dicts for analysis — we don't need full ORM objects.
+        When ``account_ids`` is given (a SQL predicate such as
+        ``scope.account_ids_subquery()``), only transactions on those
+        accounts are returned (household visibility scoping).
         """
         from sqlalchemy import select
 
@@ -985,6 +1015,12 @@ class SubscriptionDetector:
                 )
                 .order_by(Transaction.occurred_at.asc())  # type: ignore[attr-defined]
             )
+            if account_ids is not None:
+                stmt = stmt.where(
+                    Transaction.account_id.in_(  # type: ignore[attr-defined]
+                        account_ids
+                    )
+                )
 
             result = await session.execute(stmt)
             rows = result.all()
