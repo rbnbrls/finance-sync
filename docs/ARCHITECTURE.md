@@ -124,6 +124,7 @@ enable flag and its cadence is env-configurable (settings in
 
 | Job (scheduler id) | Cadence (default) | Notes |
 |---|---:|---|
+| `run_scheduled_syncs` | every 1 min | tenant-scoped sync-schedule dispatch (`WORKER_JOB_SCHEDULES_ENABLED`): selects due `sync_schedules` rows and claims them atomically (guarded UPDATE), so replicas/restarts/misfires never double-run a scheduled execution. Runs through the same connector/exporter flows as manual syncs; the global `WORKER_JOB_*` flags remain operational gates. See `docs/sync-schedules.md`. |
 | `sync_bunq` | every 15 min | bunq balances and transactions; incremental plus pending-to-booked reconciliation (`worker_job_bunq_sync_interval_minutes`) |
 | `sync_bunq_cards` | every 1 h | bunq card transactions and scheduled payments; independent of the main transaction sync (`worker_job_bunq_cards_interval_hours`) |
 | `sync_trading212` | every 1 h | Trading212 portfolio/cash/orders/dividends; respects provider limits and market status (`worker_job_trading212_sync_interval_hours`) |

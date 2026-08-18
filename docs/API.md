@@ -70,7 +70,17 @@ Authentication is `Authorization: Bearer <JWT>` or `X-API-Key`. Mutations requir
 | `GET /dividends` | `investments:read` | Dividend-type transactions. Filters: accountId, securityId, from, to. |
 | `POST /sync` | `sync:write` | Starts allowed connections; `{providers?, resources?, force?}`. Returns 202 sync-run links. |
 | `POST /sync/{provider}` | `sync:write` | Starts one configured provider; provider is registry key, not a URL. |
+| `POST /sync/connections/{connection_id}` | `sync:write` | Manually syncs exactly one connection (works for paused connections too; never modifies its schedule). |
+| `GET /sync-runs` | `sync:read` | Run history with filters `connector`, `status`, pagination `limit`/`offset` and per-status `status_counts`. |
 | `GET /sync-runs/{id}` | `sync:read` | Status, cursors, counts, warnings, error code. |
+| `GET /sync-schedules` | `sync:read` | List the tenant's schedules (Planning rows); filter `?scope=ingestion|export`, pagination. |
+| `GET /sync-schedules/{id}` | `sync:read` | One schedule. Foreign-tenant ids behave like missing ids (uniform 404). |
+| `POST /sync-schedules/preview` | `sync:read` | Server-computed next `count` instants (default 3) for a *proposed* schedule — stateless, nothing persisted, same pure computation the worker uses. 422 on invalid frequency/time/weekdays/interval/IANA zone. |
+| `GET /sync-schedules/{id}/preview` | `sync:read` | Next `count` instants of the *stored* schedule (server-computed). |
+| `PATCH /sync-schedules/{id}` | `sync:write` | Update `schedule`/`timezone`/`enabled`; optimistic `version` → 409 on stale; recomputes `next_run_at`; audited. 422 on invalid input. |
+| `POST /sync-schedules/{id}/reset` | `sync:write` | Restore the default schedule (weekdays 07:00, tenant timezone, enabled). |
+| `POST /sync-schedules/{id}/disable` | `sync:write` | Stop new scheduled runs (`next_run_at` cleared); manual sync/export stays available. |
+| `POST /sync-schedules/{id}/enable` | `sync:write` | Re-enable; `next_run_at` recomputed immediately. |
 | `POST /reconciliation` | `reconciliation:write` | Trigger a reconciliation analysis synchronously. Returns the run summary. |
 | `GET /reconciliation` | `reconciliation:read` | List reconciliation runs for the tenant. |
 | `GET /reconciliation/{id}` | `reconciliation:read` | Get a reconciliation run with its findings. Findings referencing accounts outside the principal's visibility scope are hidden. |

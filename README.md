@@ -212,6 +212,7 @@ Built images are published to GitHub Container Registry:
 - [Architecture](docs/ARCHITECTURE.md)
 - [Architecture decisions](docs/adr/)
 - [API specification](docs/API.md)
+- [Sync scheduling (Planning on Sync Runs)](docs/sync-schedules.md)
 - [Connector connections (multi-connection model)](docs/connections.md)
 - [Data model](docs/DATABASE.md)
 - [Database migrations](docs/MIGRATIONS.md)
