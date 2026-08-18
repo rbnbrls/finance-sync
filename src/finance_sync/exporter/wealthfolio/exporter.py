@@ -143,10 +143,12 @@ class WealthfolioExporter:
         session_factory: async_sessionmaker[AsyncSession],
         wf_config: WealthfolioConfig,
         tenant_id: str,
+        target_id: str = "legacy",
     ) -> None:
         self._session_factory = session_factory
         self._wf_config = wf_config
         self._tenant_id = tenant_id
+        self._target_id = target_id
         self._log = logger.bind(tenant_id=tenant_id)
 
     # ── Public API ───────────────────────────────────────────────────
@@ -423,30 +425,27 @@ class WealthfolioExporter:
     ) -> list[Account]:
         """Load finance-sync accounts, optionally filtered.
 
-        **Visibility policy:** only accounts with ``visibility ==
-        'household'`` are exported to the shared Wealthfolio instance.
-        Private accounts are never created or updated there, so revoking
-        a share (visibility → private) stops further export immediately —
-        the next run simply excludes the account.
+        A destination belongs to the application's single owner.  All active
+        investment accounts selected for that destination are therefore
+        eligible for export; sharing visibility is not an export permission
+        boundary.
 
         The tenant's per-connection account selection is applied too: a
         connection that pinned ``selected_accounts`` only exports the
         accounts in that selection (deselected accounts are never
         exported), while connections without a selection export
         everything they synced.  Legacy rows without a connection scope
-        keep exporting (when household-visible).
+        keep exporting (owner-scoped).
         """
         from finance_sync.services.account_selection import (
             account_is_selected,
             load_account_selection,
         )
-        from finance_sync.services.visibility import HOUSEHOLD
 
         async with self._session_factory() as session:
             stmt = select(Account).where(
                 Account.tenant_id == self._tenant_id,  # type: ignore[attr-defined]
                 Account.is_active.is_(True),  # type: ignore[attr-defined]
-                Account.visibility == HOUSEHOLD,  # type: ignore[attr-defined]
                 Account.account_type.in_(["investment", "brokerage"]),  # type: ignore[attr-defined]
             )
             if account_ids:
@@ -630,6 +629,7 @@ class WealthfolioExporter:
         async with self._session_factory() as session:
             stmt = select(WealthfolioDelivery).where(
                 WealthfolioDelivery.tenant_id == self._tenant_id,  # type: ignore[attr-defined]
+                WealthfolioDelivery.target_id == self._target_id,  # type: ignore[attr-defined]
                 WealthfolioDelivery.account_id == account_id,  # type: ignore[attr-defined]
             )
             result = await session.execute(stmt)
@@ -656,6 +656,7 @@ class WealthfolioExporter:
         async with self._session_factory() as session:
             stmt = select(WealthfolioDelivery).where(
                 WealthfolioDelivery.tenant_id == self._tenant_id,  # type: ignore[attr-defined]
+                WealthfolioDelivery.target_id == self._target_id,  # type: ignore[attr-defined]
                 WealthfolioDelivery.account_id == account_id,  # type: ignore[attr-defined]
             )
             result = await session.execute(stmt)
@@ -664,6 +665,7 @@ class WealthfolioExporter:
             if delivery is None:
                 delivery = WealthfolioDelivery(
                     tenant_id=self._tenant_id,
+                    target_id=self._target_id,
                     account_id=account_id,
                     last_exported_transaction_id=str(last.id),
                     last_exported_at=last.occurred_at,
@@ -824,17 +826,6 @@ class WealthfolioExporter:
         try:
             _since = since or await self._last_export_time()
             fs_accounts = accounts or await self._load_accounts(None)
-            # Defense-in-depth: even an explicit account list must obey
-            # the household visibility policy — private accounts are
-            # never pushed to the shared Wealthfolio instance.
-            from finance_sync.services.visibility import HOUSEHOLD
-
-            fs_accounts = [
-                acct
-                for acct in fs_accounts
-                if isinstance(getattr(acct, "visibility", None), str)
-                and acct.visibility == HOUSEHOLD  # type: ignore[attr-defined]
-            ]
             security_map = await self._load_securities()
 
             for fs_acct in fs_accounts:
@@ -1073,6 +1064,7 @@ class WealthfolioExporter:
             result = await session.execute(
                 select(WealthfolioAccountMapping).where(
                     WealthfolioAccountMapping.tenant_id == self._tenant_id,
+                    WealthfolioAccountMapping.target_id == self._target_id,
                     WealthfolioAccountMapping.account_id == account.id,
                 )
             )
@@ -1080,6 +1072,7 @@ class WealthfolioExporter:
             if mapping is None:
                 mapping = WealthfolioAccountMapping(
                     tenant_id=self._tenant_id,
+                    target_id=self._target_id,
                     account_id=account.id,
                     wf_account_name=str(remote.get("name") or name),
                     wf_account_id=str(remote["id"]),

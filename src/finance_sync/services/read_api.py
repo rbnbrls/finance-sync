@@ -52,15 +52,9 @@ class AccountSummary(BaseModel):
     available_balance: E | None = None
     provider_key: str
     is_active: bool
-    visibility: str = "private"
     owner_user_id: str | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
-    # Revocation cleanup hint (set on unshare responses only): whether
-    # the account had previously exported data that the owner must
-    # explicitly quarantine or delete — never deleted silently.
-    export_cleanup_required: bool = False
-    export_artifacts: dict[str, Any] | None = None
 
 
 class AccountDetailResponse(BaseModel):
@@ -527,9 +521,9 @@ class ReadService:
 
     When constructed with a ``ReadScope``
     (from :mod:`finance_sync.services.visibility`),
-    every query enforces the household visibility policy: private
-    accounts are only visible to their owner (plus admins for unowned
-    accounts), and all derived tables (transactions, holdings, balances,
+    every query enforces the account-scope policy: a JWT user reads every
+    account in the tenant, a machine principal is restricted to its account
+    allowlist, and all derived tables (transactions, holdings, balances,
     …) are scoped to the visible accounts.  Without a scope the service
     behaves exactly as before (tenant-wide reads) — used by tests and
     legacy callers.
@@ -635,7 +629,6 @@ class ReadService:
             available_balance=a.available_balance,
             provider_key=a.provider_key,
             is_active=a.is_active,
-            visibility=a.visibility or "private",
             owner_user_id=a.owner_user_id,
             created_at=a.created_at,
             updated_at=a.updated_at,

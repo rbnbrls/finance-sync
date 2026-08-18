@@ -428,8 +428,8 @@ async def get_tax_lot_summary(
 
     Returns counts and totals for open and closed lots.  When
     ``visible_account_ids`` (a SQL predicate over ``Account.id``) is
-    given, only lots on those accounts are included (household
-    visibility scoping).
+    given, only lots on those accounts are included (account-scope
+    scoping).
     """
 
     repo = TaxLotRepository(session)

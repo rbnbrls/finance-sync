@@ -98,8 +98,8 @@ async def list_tax_lots(
 ) -> dict[str, Any]:
     """List tax lots for the tenant with optional filters.
 
-    Scoped to the principal's visible accounts: tax lots of another
-    household member's *private* accounts are never returned.
+    Scoped to the principal's visible accounts: tax lots outside the
+    account scope are never returned.
     """
     repo = TaxLotRepository(db)
     conditions: list[Any] = [TaxLot.tenant_id == auth.tenant_id]  # type: ignore[attr-defined]

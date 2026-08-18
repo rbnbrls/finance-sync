@@ -127,10 +127,12 @@ class ActualBudgetExporter:
         session_factory: async_sessionmaker[AsyncSession],
         ab_config: ActualBudgetConfig,
         tenant_id: str,
+        target_id: str = "legacy",
     ) -> None:
         self._session_factory = session_factory
         self._ab_config = ab_config
         self._tenant_id = tenant_id
+        self._target_id = target_id
         self._log = logger.bind(tenant_id=tenant_id)
 
     # ── Public API ───────────────────────────────────────────────────
@@ -376,6 +378,7 @@ class ActualBudgetExporter:
         # 1. Check persisted mapping
         stmt = select(ActualBudgetAccountMapping).where(
             ActualBudgetAccountMapping.tenant_id == self._tenant_id,  # type: ignore[attr-defined]
+            ActualBudgetAccountMapping.target_id == self._target_id,  # type: ignore[attr-defined]
             ActualBudgetAccountMapping.account_id == fs_acct.id,  # type: ignore[attr-defined]
         )
         result = await session.execute(stmt)
@@ -402,6 +405,7 @@ class ActualBudgetExporter:
         # 4. Persist the mapping
         new_mapping = ActualBudgetAccountMapping(
             tenant_id=self._tenant_id,
+            target_id=self._target_id,
             account_id=fs_acct.id,
             ab_account_id=ab_acct["id"],
             ab_account_name=ab_acct["name"],
@@ -419,19 +423,14 @@ class ActualBudgetExporter:
     ) -> list[Account]:
         """Load finance-sync accounts, optionally filtered.
 
-        **Visibility policy:** only accounts with ``visibility ==
-        'household'`` are exported to the shared ActualBudget instance
-        (mirroring the Wealthfolio exporter), so private accounts of
-        household members are never created or updated there.  Revoking
-        a share (visibility → private) stops further export immediately.
+        A destination belongs to the application's single owner.  All active
+        accounts selected for that destination are therefore eligible for
+        export; sharing visibility is not an export permission boundary.
         """
-        from finance_sync.services.visibility import HOUSEHOLD
-
         async with self._session_factory() as session:
             stmt = select(Account).where(
                 Account.tenant_id == self._tenant_id,  # type: ignore[attr-defined]
                 Account.is_active.is_(True),  # type: ignore[attr-defined]
-                Account.visibility == HOUSEHOLD,  # type: ignore[attr-defined]
             )
             if account_ids:
                 stmt = stmt.where(
@@ -514,6 +513,7 @@ class ActualBudgetExporter:
 
         stmt = select(ExportDelivery).where(
             ExportDelivery.tenant_id == self._tenant_id,  # type: ignore[attr-defined]
+            ExportDelivery.target_id == self._target_id,  # type: ignore[attr-defined]
             ExportDelivery.account_id == account_id,  # type: ignore[attr-defined]
         )
         result = await session.execute(stmt)
@@ -524,6 +524,7 @@ class ActualBudgetExporter:
         if delivery is None:
             delivery = ExportDelivery(
                 tenant_id=self._tenant_id,
+                target_id=self._target_id,
                 account_id=account_id,
                 last_exported_transaction_id=transaction_ids[-1],
                 last_exported_at=now,
@@ -545,6 +546,7 @@ class ActualBudgetExporter:
         """Retrieve the ExportDelivery cursor for *account_id*."""
         stmt = select(ExportDelivery).where(
             ExportDelivery.tenant_id == self._tenant_id,  # type: ignore[attr-defined]
+            ExportDelivery.target_id == self._target_id,  # type: ignore[attr-defined]
             ExportDelivery.account_id == account_id,  # type: ignore[attr-defined]
         )
         result = await session.execute(stmt)

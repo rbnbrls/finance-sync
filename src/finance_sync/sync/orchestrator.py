@@ -1242,7 +1242,7 @@ class SyncOrchestrator:
 
         # Provenance: a newly imported account inherits its owner from the
         # connection (credential) it was fetched with, so the chain
-        # user → connection → account stays intact for household sharing.
+        # user → connection → account stays intact.
         owner_user_id = await self._connection_owner_id(uow, connection_id)
 
         account = Account(

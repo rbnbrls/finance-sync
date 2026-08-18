@@ -1118,15 +1118,10 @@ class TestWealthfolioPushCursor:
         assert fetch_mock.await_args.kwargs["since"] == fallback
 
     @pytest.mark.asyncio
-    async def test_push_filters_private_accounts_from_explicit_list(
+    async def test_push_includes_all_owner_accounts_from_explicit_list(
         self, exporter: WealthfolioExporter
     ) -> None:
-        """Even an explicit account list cannot push private accounts.
-
-        The visibility policy is enforced as defense-in-depth on the
-        explicit ``accounts`` argument: only ``household``-visible
-        accounts are pushed to the shared Wealthfolio instance.
-        """
+        """An explicit destination scope can contain every owner account."""
         shared = _make_mock_account(name="Shared", visibility="household")
         private = _make_mock_account(name="Private", visibility="private")
 
@@ -1145,14 +1140,13 @@ class TestWealthfolioPushCursor:
             }
             await exporter.push_to_wealthfolio(wf_client)
 
-        # Only the household account was pushed; the private one is
-        # never fetched, mapped or delivered.
+        # Single-owner destinations consider every selected owner account;
+        # there is no sharing-visibility permission boundary.
         fetched_ids = {
             call.kwargs["account_id"] for call in fetch_mock.await_args_list
         }
-        assert fetched_ids == {shared.id}
-        assert private.id not in fetched_ids
-        assert exporter._ensure_wf_account.await_count == 1
+        assert fetched_ids == {shared.id, private.id}
+        assert exporter._ensure_wf_account.await_count == 2
 
     @pytest.mark.asyncio
     async def test_push_advances_cursor_after_success(

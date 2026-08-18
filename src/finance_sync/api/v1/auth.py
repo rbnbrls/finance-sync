@@ -127,11 +127,14 @@ async def register(
     request: Request,
     db: AsyncSession = Depends(get_db),
 ) -> RegisterResponse:
-    """Register a new user account and return JWT tokens.
-
-    Creates the user under the default tenant. Requires a password
-    of at least 8 characters.
-    """
+    """Registration is disabled: finance-sync is a single-owner datalake."""
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail=(
+            "Self-registration is disabled. This installation has one local "
+            "owner; sign in with the provisioned owner account."
+        ),
+    )
     from sqlalchemy import text as sa_text
 
     container = get_container(request)

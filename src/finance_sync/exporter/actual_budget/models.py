@@ -40,6 +40,7 @@ class ActualBudgetAccountMapping(Base):
     __table_args__: ClassVar = (
         UniqueConstraint(
             "tenant_id",
+            "target_id",
             "account_id",
             name="uq_ab_mapping_account",
         ),
@@ -48,6 +49,9 @@ class ActualBudgetAccountMapping(Base):
     id: Mapped[str] = pk_uuid()
     tenant_id: Mapped[str] = mapped_column(
         ForeignKey("tenants.id"), nullable=False, index=True
+    )
+    target_id: Mapped[str] = mapped_column(
+        String(64), nullable=False, default="legacy", server_default="legacy"
     )
 
     # ── Finance-sync side ────────────────────────────────────────────
@@ -90,6 +94,7 @@ class ExportDelivery(Base):
     __table_args__: ClassVar = (
         UniqueConstraint(
             "tenant_id",
+            "target_id",
             "account_id",
             name="uq_export_delivery_account",
         ),
@@ -98,6 +103,9 @@ class ExportDelivery(Base):
     id: Mapped[str] = pk_uuid()
     tenant_id: Mapped[str] = mapped_column(
         ForeignKey("tenants.id"), nullable=False, index=True
+    )
+    target_id: Mapped[str] = mapped_column(
+        String(64), nullable=False, default="legacy", server_default="legacy"
     )
 
     # ── Finance-sync side ────────────────────────────────────────────

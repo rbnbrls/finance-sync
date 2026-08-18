@@ -83,21 +83,20 @@ Authentication is `Authorization: Bearer <JWT>` or `X-API-Key`. Mutations requir
 | `POST /sync-schedules/{id}/enable` | `sync:write` | Re-enable; `next_run_at` recomputed immediately. |
 | `POST /reconciliation` | `reconciliation:write` | Trigger a reconciliation analysis synchronously. Returns the run summary. |
 | `GET /reconciliation` | `reconciliation:read` | List reconciliation runs for the tenant. |
-| `GET /reconciliation/{id}` | `reconciliation:read` | Get a reconciliation run with its findings. Findings referencing accounts outside the principal's visibility scope are hidden. |
-| `GET /household/members` | `household:read` | List household members and their roles. Visible to every member. |
-| `PATCH /household/members/{id}/role` | `household:write` | Change a member's role (`admin` / `user`). Admin only. |
-| `DELETE /household/members/{id}` | `household:write` | Remove a member from the household. Admin only. |
-| `POST /household/invitations` | `household:write` | Create a single-use, expiring invitation. Admin only. |
-| `GET /household/invitations` | `household:read` | List pending invitations. Admin only. |
-| `POST /household/invitations/accept` | public (token) | Accept an invitation with `{token}`; signs the new member in. |
-| `POST /household/invitations/{id}/revoke` | `household:write` | Revoke a pending invitation. Admin only. |
-| `GET /household/audit-log` | `household:read` | Household audit trail (invitations, role changes, visibility changes, cleanup decisions) — no financial payloads. Admin only. |
-| `GET /accounts/{id}/share-preview` | `finance:read` | Impact preview of sharing an account: transactions, holdings, balance snapshots and current balance that enter/leave the household view. |
-| `PATCH /accounts/{id}/visibility` | `finance:write` | Set `private` or `household` visibility. Owner only; reports `export_cleanup_required` + `export_artifacts` when unsharing an account with prior exports. |
-| `POST /accounts/{id}/claim` | `finance:write` | Claim a system-owned (unowned) account. Admin only. |
-| `GET /accounts/{id}/export-artifacts` | `finance:read` | Describe previously exported data for an account (files, mappings, deliveries) — drives the unshare cleanup flow. Owner only. |
-| `POST /accounts/{id}/export-quarantine` | `finance:write` | Non-destructively move the account's export CSVs aside (mapping/delivery kept). Owner only. |
-| `POST /accounts/{id}/export-cleanup` | `finance:write` | Permanently delete export files + mapping + delivery, only with `{confirm: true}`. Owner only. |
+| `GET /reconciliation/{id}` | `reconciliation:read` | Get a reconciliation run with its findings. Findings referencing accounts outside the principal's scope are hidden. |
+| `GET /destinations/types` | `admin` | Wizard step 1 metadata: the supported destination types (wealthfolio / actual-budget / jupyter). |
+| `GET /destinations` | `admin` | List persisted destinations with run/health metadata (never credentials). |
+| `POST /destinations` | `admin` | Create a destination draft (config without secrets + a `secret` envelope-encrypted payload). |
+| `PATCH /destinations/{id}` | `admin` | Update a destination; leaving the password blank keeps the existing secret. |
+| `POST /destinations/{id}/preview` | `admin` | Read-only account-mapping/data preview before activation (Actual Budget reads remote accounts, writes nothing). |
+| `POST /destinations/{id}/actual-budgets` | `admin` | Discover selectable Actual Budget files (metadata only — never downloads or writes). |
+| `POST /destinations/{id}/test` | `admin` | Validate connection/auth/URL against the self-hosted server without writing remote data. |
+| `POST /destinations/{id}/activate` | `admin` | Activate a destination; creates its export schedule (and, for Jupyter, a one-time read-only API key). |
+| `POST /destinations/{id}/pause` | `admin` | Pause a destination; stops scheduled runs (manual runs blocked while paused). |
+| `POST /destinations/{id}/run` | `admin` | Manually run an active app destination through its saved target. |
+| `POST /destinations/{id}/jupyter-key/rotate` | `admin` | Rotate a Jupyter consumer key; returns the new plaintext once. |
+| `GET /destinations/{id}/jupyter-notebook` | `admin` | Download the versioned, credential-free starter notebook. |
+| `DELETE /destinations/{id}` | `admin` | Delete a destination (revokes Jupyter key, removes its schedule); canonical data is untouched. |
 | `GET /health` | public/internal | Liveness/readiness/dependency checks; redact details publicly. |
 | `GET /metrics` | internal | Prometheus exposition, network-restricted. |
 
@@ -122,79 +121,42 @@ Example response shape:
 
 Version only breaking changes in `/api/v2`; add optional fields and endpoints without a major version. Publish OpenAPI at `/openapi.json`, Swagger at `/docs`, and a generated client only after API contract tests are established.
 
-## Household & account sharing
+## Single-owner & destinations (datalake-first)
 
-Every financial account belongs to exactly one household (tenant) and has an
-owner plus an explicit visibility policy. The model is **private by default**:
-accounts migrated from before household sharing stay system-owned and are only
-visible to tenant admins until claimed.
+finance-sync is a **personal, single-owner application**: one local owner and
+one personal datalake per installation. The canonical database is the only
+system of record — all banks, brokers and manual imports land here. Every
+other financial analysis tool is an *optional consumer* that reads from or
+receives a derived copy of this datalake; a consumer can never be required to
+collect, store or query data, and removing one never affects canonical data.
 
-### Visibility policy
+### Account scope
 
-A principal may read an account when **any** of the following holds:
+A principal may read an account under the following policy:
 
 | Principal | May read |
 |---|---|
-| Owner of the account | Always (incl. `private` accounts) |
-| Any household member | `household`-visible (shared) accounts |
-| Tenant admin | `household` accounts, own accounts, and system-owned (unclaimed) accounts |
-| API key / machine principal | `household` accounts and system-owned accounts — never a user's `private` accounts |
+| JWT user (the tenant's owner) | Every account in the tenant |
+| API key / machine principal | Only the accounts in its `account_scope` allowlist when one is set; otherwise the whole tenant datalake |
 
-`PATCH /accounts/{id}/visibility` accepts `private` (only the owner sees the
-account) or `household` (every household member sees it). Only the owner may
-change visibility; admins can claim system-owned accounts so every account
-eventually has an owner.
+The technical tenant boundary remains as isolation, not a sharing/household
+concept: there are no invitations, members, or shared external destinations.
 
-### Side-channel guarantees
+### Destinations (optional consumers)
 
-The same policy is enforced — with automated multi-user integration tests —
-across every surface derived from accounts, so a member can never infer another
-member's private data through a totals column, a filter, an export, a webhook
-event, an MCP tool, or an error message:
+Wealthfolio, Actual Budget and Jupyter Notebook are configured through the
+**Bestemmingen** wizard (`/api/v1/destinations`), not global environment
+variables. Each destination stores only non-secret configuration plus an
+envelope-encrypted secret, gets its own replay-safe delivery cursor, and runs
+on its own export schedule. A test or preview never writes to the remote app;
+activation creates the schedule; pausing or deleting stops delivery without
+touching canonical data or other destinations. The Jupyter route provisions a
+least-privilege, read-only API key and a downloadable versioned starter
+notebook — no admin, write or database credentials.
 
-- **Read APIs & aggregates** — accounts, transactions, holdings, balances, net
-  worth, cashflow, dividends, portfolio, allocation, performance all scope to
-  the principal's visible accounts (SQL subquery, applied inside the query).
-- **Subscriptions** — `GET /subscriptions`, `GET /subscriptions/{id}`,
-  `PATCH/POST/DELETE` row operations, and detection/analysis runs only see
-  subscriptions detected from visible accounts. Detection never reads
-  transactions of another member's private accounts.
-- **Tax lots** — list and summary are scoped; explicit `account_id` filters for
-  invisible accounts return nothing.
-- **Reconciliation** — run detail hides findings that reference accounts
-  outside the principal's scope (404-equivalent).
-- **Derived rows** — scheduled payments and card transactions are scoped like
-  transactions.
-- **AI summaries** — the prompt context only contains the principal's visible
-  accounts; private names, balances and transactions never reach the model.
-- **Exports** — the Wealthfolio/Actual Budget exporters only export
-  `household`-visible accounts; revoking a share halts export on the next run
-  (defense-in-depth filter in the push path).
-- **Webhooks** — events for private accounts are suppressed for non-owners in
-  a household; aggregate events are never suppressed.
-- **MCP** — `get_subscriptions` (and all read tools) apply the same scope.
-
-### Revocation & export cleanup
-
-Unsharing an account that was previously exported triggers a cleanup flow —
-nothing is deleted silently. `PATCH /accounts/{id}/visibility` to `private`
-returns `export_cleanup_required` plus `export_artifacts`; the owner then either
-quarantines (non-destructive CSV move, mapping kept) or permanently deletes with
-an explicit `confirm: true`. Every decision is written to the household audit
-log with sanitised payloads (no financial data).
-
-### Roles & RBAC
-
-| Action | Admin | User |
-|---|---|---|
-| View members list | ✓ | ✓ |
-| Invite / revoke invitations | ✓ | — |
-| Accept an invitation | ✓ (via token) | ✓ (via token) |
-| Change roles / remove members | ✓ | — |
-| View audit log | ✓ | — |
-| Share / unshare own accounts | ✓ (own accounts only) | ✓ (own accounts only) |
-| Claim unowned accounts | ✓ | — |
-| Export cleanup (quarantine/delete) | ✓ (own accounts only) | ✓ (own accounts only) |
+The legacy global exporter settings are migrated at startup into one
+equivalent active destination, and the retired `/exporters/*` surface returns
+`410 Gone` pointing at the destinations API.
 
 ## CLI: Reconciliation
 

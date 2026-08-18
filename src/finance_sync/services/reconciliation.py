@@ -588,9 +588,8 @@ class ReconciliationService:
 
         When ``visible_account_ids`` is given (a SQL predicate such as
         ``scope.account_ids_subquery()``), only findings referencing
-        one of those accounts are returned (household visibility
-        scoping); findings on other members' private accounts are
-        hidden.
+        one of those accounts are returned (account-scope scoping);
+        findings outside the scope are hidden.
         """
         from sqlalchemy import desc, func, select
 

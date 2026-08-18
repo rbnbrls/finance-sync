@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/rbnbrls/finance-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/rbnbrls/finance-sync/actions/workflows/ci.yml)
 
-|Self-hosted, API-first financial data platform. It imports provider data, normalizes it into a provider-independent ledger and portfolio model, enriches securities through OpenBB, and serves downstream applications such as Actual Budget and Wealthfolio.
+|Self-hosted, API-first persoonlijke financiële datalake. Het importeert providerdata, normaliseert die naar een provider-onafhankelijk ledger- en portfoliomodel, verrijkt securities via OpenBB en kan optioneel consumenten zoals Actual Budget, Wealthfolio en Jupyter-notebooks bedienen.
 
 ## CI/CD Pipeline
 

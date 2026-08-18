@@ -65,7 +65,7 @@ The migration history is a **single linear chain** — every revision has
 exactly one parent and there is exactly one head:
 
 ```text
-<base> -> 0001 -> 0002 -> 0003 -> 0004 -> 0005 -> 0006 -> 0007 -> 0008 -> 0009 -> 0010 -> 0011 -> 0012 -> 0013 -> 0014 -> 0015 -> 0016 -> 0017 -> 0018 -> 0019 -> 0020 (head)
+<base> -> 0001 -> 0002 -> 0003 -> 0004 -> 0005 -> 0006 -> 0007 -> 0008 -> 0009 -> 0010 -> 0011 -> 0012 -> 0013 -> 0014 -> 0015 -> 0016 -> 0017 -> 0018 -> 0019 -> 0020 -> 0021 -> 0022 -> 0023 -> 0024 (head)
 ```
 
 | Revision | Contents |
@@ -87,9 +87,14 @@ exactly one parent and there is exactly one head:
 | 0015 | Wealthfolio E2E fields (`wealthfolio_account_mappings` table; legacy `transactions.fee_*` / `unit_price` columns dropped) |
 | 0016 | `connector_state` table — per-tenant bunq installation material (RSA keypair + installation token) so syncs reuse one device |
 | 0017 | Multi-connection model: `credentials.status` (active/paused), `selected_accounts`, `last_attempt_at` / `last_success_at` / `last_error`; drop the `(tenant_id, provider_key)` unique index (multiple connections per provider); nullable `connection_id` on accounts / transactions / card_transactions / sync_cursor / sync_runs / connector_state with connection-scoped unique constraints; `connection_audit_log` table |
-| 0018 | Household sharing: `household_members`, invitations, account visibility/claim columns and sharing audit (see the household story docs) |
+| 0018 | Household sharing (owned/visibility columns, invitations, sharing audit) — **retired** in 0025; see `docs/destinations.md` |
 | 0019 | Governed datamarts: datamart consumer policies (see `docs/datamarts.md`) |
 | 0020 | Tenant-scoped sync schedules: `sync_schedules` table with unique `(tenant_id, scope, target_id)`; idempotent backfill of the default schedule (weekdays 07:00 in `Europe/Amsterdam`, `next_run_at` strictly in the future so no run fires on migration day) for active schedulable connections (`bunq`, `trading212`) and tenants with export evidence (`wealthfolio`, `actual-budget`). See `docs/sync-schedules.md`. |
+| 0021 | Persistent `export_targets`: optional Wealthfolio, Actual Budget and Jupyter destinations with non-secret configuration, envelope-encrypted secret fields, selected account/dataset scope, health state and linked schedule/key identifiers. |
+| 0022 | Adds `target_id` to Wealthfolio and Actual Budget account mappings and delivery cursors. Existing records are assigned `legacy`; all new cursors are unique per tenant, destination and account. |
+| 0023 | Adds an optimistic `version` field to `export_targets` for safe destination updates. |
+| 0024 | Adds nullable `api_keys.account_scope`. Jupyter consumer keys use it as an account-id allowlist; existing keys remain unrestricted (`NULL`). |
+| 0025 | Removes the retired household interface: drops `household_invitations`, `household_audit_log` and the `accounts.visibility` column. `owner_user_id` stays as provenance (user → connection → account). |
 
 > **History note:** revisions 0004–0007 were originally four files that all
 > declared `revision="0004"` (duplicate heads), and the export tables

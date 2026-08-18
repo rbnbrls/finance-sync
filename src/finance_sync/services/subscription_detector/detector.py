@@ -787,7 +787,7 @@ class SubscriptionDetector:
 
         Supports optional filtering by status and confidence.  When
         ``account_ids`` is given, only subscriptions linked to one of
-        those accounts are returned (household visibility scoping).
+        those accounts are returned (account-scope scoping).
         """
         from sqlalchemy import select
 
@@ -988,7 +988,7 @@ class SubscriptionDetector:
         Returns plain dicts for analysis — we don't need full ORM objects.
         When ``account_ids`` is given (a SQL predicate such as
         ``scope.account_ids_subquery()``), only transactions on those
-        accounts are returned (household visibility scoping).
+        accounts are returned (account-scope scoping).
         """
         from sqlalchemy import select
 

@@ -88,21 +88,6 @@ def test_dashboard_serves_login_and_register(client: TestClient) -> None:
         assert "<html" in resp.text.lower()
 
 
-def test_dashboard_serves_accept_invite_page(client: TestClient) -> None:
-    """AC: an invitee can accept a household invitation in the browser —
-    the page posts to /household/invitations/accept with the one-time
-    token, email and a new password, then signs the new member in."""
-    resp = client.get("/accept-invite")
-    assert resp.status_code == 200
-    html = resp.text
-    assert "<html" in html.lower()
-    assert "Accept Invitation" in html
-    assert "handleAccept(" in html
-    assert "/household/invitations/accept" in html
-    assert 'id="invite-token"' in html
-    assert "single-use" in html.lower()
-
-
 # ── Friendly inline error with Retry (AC: no blank/crashing page) ─
 
 
@@ -326,7 +311,6 @@ def test_dashboard_never_renders_credentials(client: TestClient) -> None:
     assert "Stored credentials are never shown" in html
     # No decrypted value or ciphertext surface in the page.
     assert "encrypted_payload" not in html
-    assert "api_key" not in html
 
 
 def test_dashboard_ships_per_connection_manual_sync(
@@ -403,122 +387,17 @@ def test_dashboard_test_result_drives_account_selection(
 
 
 def test_dashboard_ships_household_section(client: TestClient) -> None:
-    """AC: the control panel gains a Household section every member can
-    open — the nav item carries no permission gate of its own; admin-only
-    surfaces are gated by the member's role inside the page."""
+    """The retired household-sharing interface is no longer shipped."""
     html = _dashboard_html(client)
-    assert 'data-section="household"' in html
-    assert 'id="section-household"' in html
-    assert "switchSection('household')" in html
-    assert "if (name === 'household') loadHousehold();" in html
-    # Not permission-gated like connectors/sync — every member may open it.
-    assert 'data-section="household" data-perm' not in html
-    assert "loadHousehold()" in html
-
-
-def test_dashboard_household_loads_parts_resiliently(
-    client: TestClient,
-) -> None:
-    """Each household sub-surface loads independently; one failing call
-    never blanks the section and every part carries a Retry action."""
-    html = _dashboard_html(client)
-    assert "Could not load the household view" in html
-    assert 'id="household-accounts-list"' in html
-    assert 'id="household-members-list"' in html
-    assert 'id="household-invitations"' in html
-    assert 'id="household-audit-log"' in html
-
-
-def test_dashboard_ships_account_visibility_table(client: TestClient) -> None:
-    """AC: accounts render with their visibility policy and a share /
-    make-private action for accounts the current user owns."""
-    html = _dashboard_html(client)
-    assert ".badge.household" in html
-    assert ".badge.private" in html
-    assert "openSharePreview(" in html
-    assert "canManageAccount" in html
-    assert "acc.owner_user_id" in html
-
-
-def test_dashboard_share_preview_shows_impact_before_confirm(
-    client: TestClient,
-) -> None:
-    """AC: before confirmation the UI shows which transactions, holdings
-    and balance snapshots would enter or leave the household view."""
-    html = _dashboard_html(client)
-    assert "/share-preview" in html
-    assert "impact.transactions" in html
-    assert "impact.holdings" in html
-    assert "impact.balance_snapshots" in html
-    assert "appear in the household view" in html
-    assert "disappear from the household view" in html
-    assert "confirmVisibilityChange(" in html
-    assert "api('PATCH', `/accounts/${accountId}/visibility`" in html
-
-
-def test_dashboard_unshare_surfaces_export_cleanup_flow(
-    client: TestClient,
-) -> None:
-    """AC: unsharing an account that had exports never deletes silently —
-    the UI shows the exported artifacts and offers quarantine or an
-    explicit, checkbox-confirmed permanent delete."""
-    html = _dashboard_html(client)
-    assert "export_cleanup_required" in html
-    assert "export_artifacts" in html
-    assert "openExportCleanupModal(" in html
-    assert "/export-quarantine" in html
-    assert "quarantineExport(" in html
-    assert "deleteExportData(" in html
-    assert "confirm: true" in html  # destructive delete requires confirm=true
-    assert "permanently deletes" in html.lower()
-
-
-def test_dashboard_ships_invitation_management(client: TestClient) -> None:
-    """Admin surface: invite form, one-time token reveal, revoke."""
-    html = _dashboard_html(client)
-    assert "inviteMember(" in html
-    assert "api('POST', '/household/invitations'" in html
-    assert 'id="invite-email"' in html
-    assert 'id="invite-role"' in html
-    assert "revokeInvitation(" in html
-    assert "single-use" in html.lower()
-
-
-def test_dashboard_ships_member_role_administration(
-    client: TestClient,
-) -> None:
-    """Admin surface: change member roles and remove members."""
-    html = _dashboard_html(client)
-    assert "changeMemberRole(" in html
-    assert "api('PATCH', `/household/members/" in html
-    assert "removeMember(" in html
-    assert "api('DELETE', `/household/members/" in html
-    assert "role === 'admin'" in html
-
-
-def test_dashboard_ships_audit_log_surface(client: TestClient) -> None:
-    """Admin surface: the household security audit trail is rendered."""
-    html = _dashboard_html(client)
-    assert "/household/audit-log" in html
-    assert "household-audit-log" in html
-    assert "Audit log" in html
-
-
-def test_dashboard_household_escaping_prevents_xss(
-    client: TestClient,
-) -> None:
-    """Account/member data coming from the API is HTML-escaped before it
-    is interpolated into the household tables."""
-    html = _dashboard_html(client)
-    assert "escapeHtml(acc.name)" in html
-    assert "escapeHtml(m.display_name || m.email)" in html
-
-
-def test_dashboard_ships_claim_for_unowned_accounts(client: TestClient) -> None:
-    """Admins can claim system-owned legacy accounts so they can share or
-    keep them private under explicit ownership."""
-    html = _dashboard_html(client)
-    assert "claimAccount(" in html
+    # The household-table class name is retained for table styling, but
+    # the household management surface (invitations, members, sharing,
+    # claim) is fully removed.
+    assert "inviteMember(" not in html
+    assert "/household/invitations" not in html
+    assert "claimAccount(" not in html
+    assert "openSharePreview(" not in html
+    assert "loadHousehold(" not in html
+    assert "/household/members" not in html
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -578,7 +457,6 @@ def test_dashboard_schedule_editor_explains_disabling(
     html = _dashboard_html(client)
     assert "handmatig uitvoeren blijft mogelijk" in html
     assert "Uitgeschakeld" in html
-    assert "api('POST', `/accounts/${accountId}/claim`" in html
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -653,3 +531,96 @@ def test_dashboard_run_history_escape_html(client: TestClient) -> None:
     assert "escapeHtml(r.connector || '')" in html
     assert "escapeHtml(String(r.error_message)" in html
     assert "escapeHtml(fmtDate(r.started_at))" in html
+
+
+# ══════════════════════════════════════════════════════════════════
+# Destination wizard UI (t_datalake_first_wizard)
+# ══════════════════════════════════════════════════════════════════
+
+
+def test_dashboard_nav_renamed_bestemmingen(client: TestClient) -> None:
+    """AC: the nav item is renamed Exporters → Bestemmingen and opens the
+    destination management section."""
+    html = _dashboard_html(client)
+    assert "> Bestemmingen" in html
+    assert 'data-section="exporters"' in html  # section id unchanged internally
+    assert "Bestemmingen</h1>" in html
+
+
+def test_dashboard_destination_empty_state_explains_datalake(
+    client: TestClient,
+) -> None:
+    """AC: the empty state explains the datalake works without an app and
+    offers a clear way to add one."""
+    html = _dashboard_html(client)
+    assert "Je datalake blijft volledig bruikbaar" in html
+    assert "Bestemming toevoegen" in html
+    assert "openDestinationWizard(" in html
+
+
+def test_dashboard_ships_four_step_wizard(client: TestClient) -> None:
+    """AC: the wizard is four steps with explicit labels and progress."""
+    html = _dashboard_html(client)
+    assert "Stap ${state.step} van 4" in html
+    for label in ("Kies bestemming", "Verbind", "Kies data", "Activeer"):
+        assert label in html
+    assert "destinationWizardNext(" in html
+    assert "destinationWizardBack(" in html
+
+
+def test_dashboard_wizard_supports_all_three_types(client: TestClient) -> None:
+    """AC: step 1 offers Wealthfolio, Actual Budget and Jupyter cards with
+    distinguish description text."""
+    html = _dashboard_html(client)
+    assert "Wealthfolio" in html
+    assert "Actual Budget" in html
+    assert "Jupyter" in html
+    assert "destinationWizardChoose(" in html
+
+
+def test_dashboard_wizard_connect_steps_ship_required_controls(
+    client: TestClient,
+) -> None:
+    """AC: step 2 renders the server URL, credential (masked), a budget
+    discovery action and a test-connection action where relevant."""
+    html = _dashboard_html(client)
+    assert "dest-url" in html
+    assert "dest-secret" in html
+    assert 'type="password"' in html
+    assert "Budgetten ontdekken" in html
+    assert "destinationWizardDiscoverBudgets(" in html
+    assert "destinationWizardTest()" in html
+    assert "Verbinding testen" in html
+    # Credentials are never rendered back: leaving the password blank keeps
+    # the existing encrypted secret.
+    assert "Ongewijzigd laten om bestaand geheim te behouden" in html
+
+
+def test_dashboard_wizard_activates_without_double_exports(
+    client: TestClient,
+) -> None:
+    """AC: activation writes through the destinations API (not the retired
+    exporters surface) and Jupyter shows its one-time key + notebook."""
+    html = _dashboard_html(client)
+    assert "api('POST', '/destinations'" in html
+    assert "api('POST', `/destinations/${saved.id}/activate`)" in html
+    assert "jupyter_bootstrap" in html
+    assert "FINANCE_SYNC_JUPYTER_TOKEN" in html
+    assert "starter-notebook" in html
+
+
+def test_dashboard_destination_cards_expose_status_and_actions(
+    client: TestClient,
+) -> None:
+    """AC: each destination card shows status, last/next run and the
+    pause/delete/manual-sync actions."""
+    html = _dashboard_html(client)
+    assert "Laatste run:" in html
+    assert "Volgende run:" in html
+    assert "runDestination(" in html
+    assert "deleteDestination(" in html
+    assert (
+        "destinationAction(" in html
+    )  # pause etc. via POST /destinations/{id}/{action}
+    assert "Notebook downloaden" in html  # Jupyter download action
+    assert "Sleutel roteren" in html

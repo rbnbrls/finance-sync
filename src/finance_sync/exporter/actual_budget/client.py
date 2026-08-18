@@ -144,6 +144,22 @@ class ActualBudgetClient:
             for a in accts
         ]
 
+    @classmethod
+    async def discover_budgets(
+        cls, config: ActualBudgetConfig
+    ) -> list[dict[str, Any]]:
+        """Authenticate and list selectable Actual budgets without opening one.
+
+        This intentionally uses Actual's ``list_user_files`` API rather than
+        entering an ``Actual`` context.  Entering a context downloads a budget;
+        discovery must remain a metadata-only wizard operation.
+        """
+        try:
+            return await asyncio.to_thread(_discover_budgets_sync, config)
+        except Exception as exc:
+            msg = f"Failed to discover Actual Budget budgets: {exc}"
+            raise ActualBudgetConnectionError(msg) from exc
+
     async def get_account_by_name(
         self,
         name: str,
@@ -382,3 +398,30 @@ def _init_sync(
         pass
 
     return actual
+
+
+def _discover_budgets_sync(config: ActualBudgetConfig) -> list[dict[str, Any]]:
+    """Log in and return remote budget metadata, without downloading files."""
+    import actual as actual_module
+
+    actual = actual_module.Actual(
+        base_url=config.server_url,
+        password=config.password,
+        cert=config.verify_ssl,
+        timeout=config.request_timeout,
+    )
+    try:
+        actual.login()
+        files = actual.list_user_files()
+        return [
+            {
+                "id": item.file_id,
+                "sync_id": item.group_id or item.file_id,
+                "name": item.name,
+                "encrypted": item.encrypt_key_id is not None,
+            }
+            for item in files.data
+            if not item.deleted
+        ]
+    finally:
+        actual.cleanup()

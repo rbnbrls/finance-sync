@@ -161,8 +161,8 @@ class AllocationService:
 
     When constructed with a ``ReadScope`` (from
     :mod:`finance_sync.services.visibility`), the holding queries are
-    restricted to the visible accounts so private accounts of other
-    household members never leak into the allocation breakdown.
+    restricted to the principal's visible accounts so the allocation
+    breakdown honors the account scope.
     """
 
     def __init__(

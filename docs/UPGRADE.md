@@ -8,8 +8,8 @@ deployment, and follow the **Operator action** for each step you cross.
   new application version starts (the release pipeline runs a dedicated
   migration job; see `docs/MIGRATIONS.md`). The application itself never
   creates or alters schema at runtime.
-- **Current head:** `0010`
-- **Chain:** `0001 → 0002 → … → 0010` (single linear chain, verified by CI)
+- **Current head:** `0024`
+- **Chain:** `0001 → 0002 → … → 0024` (single linear chain, verified by CI)
 
 | Quick reference | |
 |---|---|
@@ -285,6 +285,24 @@ Upgrade order for a running deployment:
    dedicated migration job).
 2. Roll out the new application image(s).
 3. Verify `/health/ready` (checks DB reachability) and a sync run.
+
+### 0021–0024 — Destination wizard and target-scoped delivery
+
+- **Schema changes:** `0021` adds `export_targets`; `0022` scopes Actual
+  Budget and Wealthfolio mappings/cursors by destination, with current rows
+  backfilled as `legacy`; `0023` adds the destination version field; `0024`
+  adds an optional account allowlist to API keys for Jupyter consumers.
+- **Operator action:** run `alembic upgrade head` before deploying. Existing
+  `WEALTHFOLIO_*` and `ACTUAL_BUDGET_*` settings are read once at startup to
+  bootstrap an equivalent legacy destination when no destination of that type
+  exists. Afterwards manage new connections in **Bestemmingen**; do not set a
+  second global schedule, as each active destination owns its own schedule.
+- **Secrets:** retain `MASTER_ENCRYPTION_KEY`. It decrypts the migrated
+  destination credential; rotating or losing it makes the connection
+  unrecoverable until the credential is re-entered.
+- **Rollback:** application-image rollback is safe because the migrations are
+  additive. Do not run a production downgrade: it drops destination records
+  and removes per-destination delivery scope.
 
 ### Config additions since `0001` (breaking only where noted)
 
