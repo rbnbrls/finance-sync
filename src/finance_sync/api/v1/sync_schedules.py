@@ -50,6 +50,7 @@ from finance_sync.sync.schedule_spec import (
     ScheduleValidationError,
     human_readable,
     next_run_instants,
+    sanitise_schedule,
     validate_schedule,
     validate_timezone,
 )
@@ -166,7 +167,7 @@ def _to_response(row: Any) -> ScheduleResponse:
         scope=str(row.scope),
         target_id=str(row.target_id),
         enabled=bool(row.enabled),
-        schedule=dict(row.schedule or {}),
+        schedule=sanitise_schedule(row.schedule),
         schema_version=int(row.schema_version or 1),
         timezone=str(row.timezone),
         version=int(row.version or 1),
