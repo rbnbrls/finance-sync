@@ -222,6 +222,88 @@
             padding: 4px 8px;
             font-size: 0.85rem;
         }
+
+        /* ── Sync run history: status overview, filters, pagination ──── */
+        .run-status-overview {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-bottom: 14px;
+        }
+        .run-status-chip {
+            cursor: pointer;
+            border: 1px solid var(--border);
+            background: var(--bg);
+            color: var(--text-muted);
+            font-size: 0.75rem;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-weight: 600;
+            transition: all 0.15s;
+        }
+        .run-status-chip:hover {
+            border-color: var(--accent);
+            color: var(--text);
+        }
+        .run-status-chip-active {
+            background: rgba(108, 99, 255, 0.18);
+            border-color: var(--accent);
+            color: var(--accent-hover);
+        }
+        .run-history-filters {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 14px;
+        }
+        .run-filter-field select {
+            background: var(--bg);
+            color: var(--text);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 6px 10px;
+            font-size: 0.85rem;
+            font-family: var(--font);
+            cursor: pointer;
+        }
+        .run-error-line {
+            color: var(--red);
+            font-size: 0.75rem;
+            margin-top: 2px;
+            cursor: help;
+            word-break: break-word;
+        }
+        .run-pagination {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            margin-top: 14px;
+            padding-top: 14px;
+            border-top: 1px solid var(--border);
+        }
+        .run-pagination-info {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+        }
+        .run-pagination-controls {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .run-pagination-page {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            white-space: nowrap;
+        }
+        @media (max-width: 560px) {
+            .run-pagination { flex-direction: column; align-items: flex-start; }
+            .run-pagination-controls { width: 100%; justify-content: space-between; }
+            .run-history-filters { flex-direction: column; align-items: stretch; }
+            .run-filter-field select { width: 100%; }
+        }
         .token-box {
             background: var(--bg);
             border: 1px dashed var(--border);
@@ -2159,6 +2241,15 @@
         let syncSchedules = [];
         let syncRunHistory = [];
         let scheduleTab = 'ingestion';
+        // Run-history view state: filters + pagination, mirroring the
+        // /sync-runs API query contract (connector/status/limit/offset).
+        let syncRunState = { connector: '', status: '', offset: 0, limit: 20, total: 0 };
+        const RUN_STATUS_LABELS = {
+            running: 'Bezig',
+            completed: 'Voltooid',
+            failed: 'Mislukt',
+            cancelled: 'Geannuleerd',
+        };
 
         async function loadSyncRuns() {
             const container = document.getElementById('sync-schedules');
@@ -2167,10 +2258,14 @@
             try {
                 const [schedules, history] = await Promise.allSettled([
                     api('GET', '/sync-schedules?limit=500'),
-                    api('GET', '/sync-runs?limit=20'),
+                    api('GET', syncRunQueryString()),
                 ]);
                 syncSchedules = (schedules.status === 'fulfilled' && schedules.value && schedules.value.items) || [];
                 syncRunHistory = (history.status === 'fulfilled' && history.value && history.value.items) || [];
+                if (history.status === 'fulfilled' && history.value) {
+                    syncRunState.total = history.value.total ?? syncRunState.total;
+                    syncRunHistory._statusCounts = history.value.status_counts || [];
+                }
                 if (schedules.status === 'rejected') {
                     renderInlineError('sync-schedules', 'Could not load planning', schedules.reason && schedules.reason.message ? schedules.reason.message : 'The planning service did not respond.', loadSyncRuns);
                     return;
@@ -2187,6 +2282,16 @@
                 renderInlineError('sync-schedules', 'Could not load planning', e.message || 'The planning service did not respond.', loadSyncRuns);
                 if (container) container.setAttribute('aria-busy', 'false');
             }
+        }
+
+        // Build the /sync-runs query string from the current filter state.
+        function syncRunQueryString() {
+            const p = new URLSearchParams();
+            p.set('limit', String(syncRunState.limit));
+            if (syncRunState.offset > 0) p.set('offset', String(syncRunState.offset));
+            if (syncRunState.connector) p.set('connector', syncRunState.connector);
+            if (syncRunState.status) p.set('status', syncRunState.status);
+            return `/sync-runs?${p.toString()}`;
         }
 
         function scheduleName(s) {
@@ -2208,7 +2313,8 @@
                 const cfg = (configs || []).find(c => c.id === s.target_id);
                 return cfg ? (cfg.provider_type || 'connector') : 'connector';
             }
-            return 'export';
+            const names = { wealthfolio: 'Wealthfolio', 'actual-budget': 'Actual Budget' };
+            return names[s.target_id] || 'exporter';
         }
 
         function renderSyncSchedules() {
@@ -2269,6 +2375,7 @@
                     <td style="padding:8px 12px;border-bottom:1px solid var(--border);font-size:0.85rem;">
                         <button class="btn btn-sm btn-primary" onclick="openScheduleEditor('${escapeHtml(s.id)}')">Schema wijzigen</button>
                         <button class="btn btn-sm" onclick="toggleSchedule('${escapeHtml(s.id)}', ${s.enabled})">${s.enabled ? 'Uitschakelen' : 'Inschakelen'}</button>
+                        <div class="schedule-toggle-status field-hint" style="margin-top:6px;" aria-live="polite"></div>
                     </td>
                 </tr>
             `;
@@ -2280,12 +2387,24 @@
         }
 
         async function toggleSchedule(scheduleId, currentlyEnabled) {
+            const row = document.querySelector(`tr[data-schedule-id="${CSS.escape(scheduleId)}"]`);
+            const statusCell = row ? row.querySelector('.schedule-toggle-status') : null;
+            if (statusCell) {
+                statusCell.textContent = currentlyEnabled ? 'Uitschakelen…' : 'Inschakelen…';
+                statusCell.setAttribute('aria-live', 'polite');
+            }
             try {
                 await api('POST', `/sync-schedules/${scheduleId}/${currentlyEnabled ? 'disable' : 'enable'}`);
-                toast(currentlyEnabled ? 'Schema uitgeschakeld — geplande runs stoppen; handmatig uitvoeren blijft mogelijk.' : 'Schema ingeschakeld — de volgende run is opnieuw berekend.', 'success');
+                if (statusCell) statusCell.textContent = currentlyEnabled
+                    ? 'Uitgeschakeld — geplande runs stoppen; handmatig uitvoeren blijft mogelijk.'
+                    : 'Ingeschakeld — de volgende run is opnieuw berekend.';
                 await loadSyncRuns();
             } catch (e) {
-                toast('Kon schema niet wijzigen: ' + (e.message || 'onbekende fout'), 'error');
+                if (statusCell) {
+                    statusCell.textContent = 'Wijzigen mislukt: ' + (e.message || 'onbekende fout');
+                } else {
+                    toast('Kon schema niet wijzigen: ' + (e.message || 'onbekende fout'), 'error');
+                }
             }
         }
 
@@ -2402,6 +2521,7 @@
             const errorEl = modal.querySelector('#sched-error');
             errorEl.style.display = 'none';
             previewEl.setAttribute('aria-busy', 'true');
+            previewEl.innerHTML = '<span class="spinner"></span> Preview berekenen…';
             try {
                 // Server-side validation + computation: the proposed
                 // schedule is sent to POST /sync-schedules/preview, which
@@ -2467,35 +2587,105 @@
         function renderSyncRunHistory() {
             const container = document.getElementById('sync-run-history');
             if (!container) return;
+
+            // Status overview chips from the API's status_counts, honouring
+            // the active connector filter. Clicking a chip filters the list.
+            let statusOverview = '';
+            if (syncRunStatusCounts().length) {
+                const chips = syncRunStatusCounts().map(c => {
+                    const active = syncRunState.status === c.status;
+                    const label = RUN_STATUS_LABELS[c.status] || c.status;
+                    return `<button type="button" class="badge run-status-chip ${active ? 'run-status-chip-active' : ''}" data-status="${escapeHtml(c.status)}" onclick="setRunStatusFilter('${escapeHtml(c.status)}')" aria-pressed="${active}">${escapeHtml(label)}: ${c.count}</button>`;
+                }).join('');
+                statusOverview = `<div class="run-status-overview" role="group" aria-label="Statusoverzicht">${chips}</div>`;
+            }
+
+            // Connector filter options derived from the loaded rows; the
+            // active selection is preserved across re-renders.
+            const connectors = [...new Set((syncRunHistory || []).map(r => r.connector).filter(Boolean))].sort();
+            const connectorOptions = connectors.map(c =>
+                `<option value="${escapeHtml(c)}" ${syncRunState.connector === c ? 'selected' : ''}>${escapeHtml(c)}</option>`
+            ).join('');
+
+            const filterBar = `
+                <div class="run-history-filters" role="search" aria-label="Runhistorie filteren">
+                    <label class="run-filter-field">
+                        <span class="visually-hidden">Filter op connector</span>
+                        <select id="run-filter-connector" onchange="setRunConnectorFilter(this.value)">
+                            <option value="">Alle connectors</option>
+                            ${connectorOptions}
+                        </select>
+                    </label>
+                    <label class="run-filter-field">
+                        <span class="visually-hidden">Filter op status</span>
+                        <select id="run-filter-status" onchange="setRunStatusFilter(this.value)">
+                            <option value="">Alle statussen</option>
+                            ${Object.entries(RUN_STATUS_LABELS).map(([k, v]) =>
+                                `<option value="${k}" ${syncRunState.status === k ? 'selected' : ''}>${v}</option>`
+                            ).join('')}
+                        </select>
+                    </label>
+                    ${(syncRunState.connector || syncRunState.status) ? `<button type="button" class="btn btn-sm" onclick="resetRunFilters()">Filters wissen</button>` : ''}
+                </div>
+            `;
+
             if (!syncRunHistory.length) {
                 container.innerHTML = `
                     <div class="card">
-                        <h2 style="font-size:1.05rem;font-weight:600;margin-bottom:16px;">Runhistorie</h2>
-                        <p style="color: var(--text-muted); font-size:0.9rem;">Nog geen sync runs uitgevoerd.</p>
+                        <div class="card-header">
+                            <h2>Runhistorie</h2>
+                        </div>
+                        ${statusOverview}
+                        ${filterBar}
+                        <p style="color: var(--text-muted); font-size:0.9rem;" role="status">${syncRunState.connector || syncRunState.status ? 'Geen runs gevonden voor de gekozen filters.' : 'Nog geen sync runs uitgevoerd.'}</p>
                     </div>
                 `;
                 return;
             }
+
             let rows = '';
             for (const r of syncRunHistory) {
                 const badgeClass = r.status === 'completed' ? 'badge connected' : (r.status === 'failed' ? 'badge disconnected' : 'badge pending');
+                const statusLabel = RUN_STATUS_LABELS[r.status] || r.status;
+                const errorDetail = r.error_message
+                    ? `<div class="run-error-line" title="${escapeHtml(String(r.error_message).slice(0, 300))}">&#9888; ${escapeHtml(String(r.error_message).slice(0, 80))}</div>`
+                    : '';
                 rows += `
                     <tr>
                         <td style="padding:8px 12px;border-bottom:1px solid var(--border);font-size:0.85rem;font-family:monospace;">${escapeHtml(String(r.id).slice(0, 8))}</td>
                         <td style="padding:8px 12px;border-bottom:1px solid var(--border);font-size:0.85rem;">${escapeHtml(r.connector || '')}</td>
-                        <td style="padding:8px 12px;border-bottom:1px solid var(--border);font-size:0.85rem;"><span class="${badgeClass}">${escapeHtml(r.status || '')}</span></td>
-                        <td style="padding:8px 12px;border-bottom:1px solid var(--border);font-size:0.85rem;">${r.started_at ? new Date(r.started_at).toLocaleString() : '-'}</td>
-                        <td style="padding:8px 12px;border-bottom:1px solid var(--border);font-size:0.85rem;">${r.completed_at ? new Date(r.completed_at).toLocaleString() : '-'}</td>
+                        <td style="padding:8px 12px;border-bottom:1px solid var(--border);font-size:0.85rem;"><span class="${badgeClass}">${escapeHtml(statusLabel)}</span></td>
+                        <td style="padding:8px 12px;border-bottom:1px solid var(--border);font-size:0.85rem;">${r.started_at ? escapeHtml(fmtDate(r.started_at)) : '-'}</td>
+                        <td style="padding:8px 12px;border-bottom:1px solid var(--border);font-size:0.85rem;">${r.completed_at ? escapeHtml(fmtDate(r.completed_at)) : '-'}</td>
                         <td style="padding:8px 12px;border-bottom:1px solid var(--border);font-size:0.85rem;">${r.items_processed ?? '-'}</td>
-                        <td style="padding:8px 12px;border-bottom:1px solid var(--border);font-size:0.85rem;">${r.error_message ? `<span style="color:var(--red);cursor:pointer;" title="${escapeHtml(String(r.error_message).slice(0, 200))}">&#9888;</span>` : '-'}</td>
+                        <td style="padding:8px 12px;border-bottom:1px solid var(--border);font-size:0.85rem;">${errorDetail || '-'}</td>
                     </tr>
                 `;
             }
+
+            const total = syncRunState.total;
+            const page = Math.floor(syncRunState.offset / syncRunState.limit) + 1;
+            const pages = Math.max(1, Math.ceil(total / syncRunState.limit));
+            const from = total ? syncRunState.offset + 1 : 0;
+            const to = Math.min(total, syncRunState.offset + syncRunHistory.length);
+            const pagination = `
+                <div class="run-pagination" role="navigation" aria-label="Pagina's van de runhistorie">
+                    <span class="run-pagination-info" role="status">Runs ${from}–${to} van ${total}</span>
+                    <div class="run-pagination-controls">
+                        <button type="button" class="btn btn-sm" onclick="setRunPage(${syncRunState.offset - syncRunState.limit})" ${syncRunState.offset === 0 ? 'disabled' : ''}>&#8592; Vorige</button>
+                        <span class="run-pagination-page" aria-current="page">Pagina ${page} van ${pages}</span>
+                        <button type="button" class="btn btn-sm" onclick="setRunPage(${syncRunState.offset + syncRunState.limit})" ${syncRunState.offset + syncRunHistory.length >= total ? 'disabled' : ''}>Volgende &#8594;</button>
+                    </div>
+                </div>
+            `;
+
             container.innerHTML = `
                 <div class="card">
                     <div class="card-header">
                         <h2>Runhistorie</h2>
                     </div>
+                    ${statusOverview}
+                    ${filterBar}
                     <div style="overflow-x:auto;">
                         <table class="household-table" style="width:100%;border-collapse:collapse;">
                             <thead>
@@ -2512,8 +2702,48 @@
                             <tbody>${rows}</tbody>
                         </table>
                     </div>
+                    ${pagination}
                 </div>
             `;
+        }
+
+        // Aggregate status counts from the loaded run history. The API
+        // returns per-connector status_counts; collapse to per-status totals
+        // for the overview chips.
+        function syncRunStatusCounts() {
+            const counts = {};
+            const apiCounts = (syncRunHistory._statusCounts) || [];
+            for (const c of apiCounts) {
+                counts[c.status] = (counts[c.status] || 0) + c.count;
+            }
+            return Object.entries(counts).map(([status, count]) => ({ status, count }));
+        }
+
+        // Filter actions — all re-render through loadSyncRuns() so the
+        // same loading/error state machinery applies.
+        function setRunConnectorFilter(connector) {
+            syncRunState.connector = connector || '';
+            syncRunState.offset = 0;
+            loadSyncRuns();
+        }
+
+        function setRunStatusFilter(status) {
+            syncRunState.status = status || '';
+            syncRunState.offset = 0;
+            loadSyncRuns();
+        }
+
+        function resetRunFilters() {
+            syncRunState.connector = '';
+            syncRunState.status = '';
+            syncRunState.offset = 0;
+            loadSyncRuns();
+        }
+
+        function setRunPage(offset) {
+            if (offset < 0) return;
+            syncRunState.offset = offset;
+            loadSyncRuns();
         }
 
         async function loadExporters() {

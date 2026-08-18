@@ -579,3 +579,77 @@ def test_dashboard_schedule_editor_explains_disabling(
     assert "handmatig uitvoeren blijft mogelijk" in html
     assert "Uitgeschakeld" in html
     assert "api('POST', `/accounts/${accountId}/claim`" in html
+
+
+# ══════════════════════════════════════════════════════════════════
+# Run history filters, status overview & pagination (t_eb085c3d)
+# ══════════════════════════════════════════════════════════════════
+
+
+def test_dashboard_run_history_ships_status_overview(
+    client: TestClient,
+) -> None:
+    """The run history renders a status overview (from the API's
+    status_counts) with clickable chips that filter the list."""
+    html = _dashboard_html(client)
+    assert "run-status-overview" in html
+    assert "run-status-chip" in html
+    assert "setRunStatusFilter(" in html
+    assert "aria-pressed" in html
+
+
+def test_dashboard_run_history_ships_filters(client: TestClient) -> None:
+    """Connector + status filters are wired to the /sync-runs query and
+    reset, preserving pagination state."""
+    html = _dashboard_html(client)
+    assert "run-filter-connector" in html
+    assert "run-filter-status" in html
+    assert "setRunConnectorFilter(" in html
+    assert "resetRunFilters()" in html
+    assert "syncRunQueryString()" in html
+    assert "connector" in html and "status" in html
+    assert "Alle connectors" in html
+    assert "Alle statussen" in html
+
+
+def test_dashboard_run_history_ships_pagination(client: TestClient) -> None:
+    """The run history has paging controls honouring the API's
+    total/limit/offset contract."""
+    html = _dashboard_html(client)
+    assert "run-pagination" in html
+    assert "setRunPage(" in html
+    assert "syncRunState.offset" in html
+    assert "syncRunState.limit" in html
+    assert "Vorige" in html and "Volgende" in html
+
+
+def test_dashboard_run_history_status_labels_are_readable(
+    client: TestClient,
+) -> None:
+    """Run statuses render as Dutch labels (Bezig/Voltooid/Mislukt/
+    Geannuleerd), not raw enum values."""
+    html = _dashboard_html(client)
+    for label in ("Bezig", "Voltooid", "Mislukt", "Geannuleerd"):
+        assert label in html
+
+
+def test_dashboard_run_history_visible_text_states(client: TestClient) -> None:
+    """Loading, saving and error states for the planning + run history
+    use visible text, not colour or toast only."""
+    html = _dashboard_html(client)
+    assert "Preview berekenen" in html  # live preview loading
+    assert "Opslaan…" in html  # editor save in progress
+    assert "Uitschakelen…" in html  # toggle in progress
+    assert "Inschakelen…" in html
+    assert "Wijzigen mislukt:" in html  # toggle failure as text
+    assert "schedule-toggle-status" in html  # inline toggle status cell
+    assert 'aria-live="polite"' in html
+
+
+def test_dashboard_run_history_escape_html(client: TestClient) -> None:
+    """Run-history cells escape API values (connector, error message,
+    datetimes) before interpolation."""
+    html = _dashboard_html(client)
+    assert "escapeHtml(r.connector || '')" in html
+    assert "escapeHtml(String(r.error_message)" in html
+    assert "escapeHtml(fmtDate(r.started_at))" in html
