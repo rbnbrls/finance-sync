@@ -26,6 +26,9 @@ from finance_sync.api.v1.holdings import router as holdings_router
 from finance_sync.api.v1.legacy_exporters import (
     router as legacy_exporters_router,
 )
+from finance_sync.api.v1.market_intelligence import (
+    router as market_intelligence_router,
+)
 from finance_sync.api.v1.net_worth import router as net_worth_router
 from finance_sync.api.v1.performance import router as performance_router
 from finance_sync.api.v1.portfolio import router as portfolio_router
@@ -76,6 +79,7 @@ router.include_router(scheduled_payments_router)
 router.include_router(card_transactions_router)
 router.include_router(transactions_router)
 router.include_router(holdings_router)
+router.include_router(market_intelligence_router)
 router.include_router(dividends_router)
 router.include_router(prices_router)
 router.include_router(sync_router)
