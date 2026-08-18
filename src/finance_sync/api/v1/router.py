@@ -40,6 +40,7 @@ from finance_sync.api.v1.staging_providers import (
 from finance_sync.api.v1.subscriptions import router as subscriptions_router
 from finance_sync.api.v1.sync import router as sync_router
 from finance_sync.api.v1.sync_runs import router as sync_runs_router
+from finance_sync.api.v1.sync_schedules import router as sync_schedules_router
 from finance_sync.api.v1.tax_lots import router as tax_lots_router
 from finance_sync.api.v1.transactions import router as transactions_router
 from finance_sync.api.v1.webhooks import router as webhooks_router
@@ -65,6 +66,7 @@ router.include_router(net_worth_router)
 router.include_router(reconciliation_router)
 router.include_router(subscriptions_router)
 router.include_router(sync_runs_router)
+router.include_router(sync_schedules_router)
 router.include_router(tax_lots_router)
 router.include_router(webhooks_router)
 router.include_router(scheduled_payments_router)

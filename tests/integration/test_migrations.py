@@ -1,7 +1,7 @@
 """Alembic migration chain integration test.
 
 Runs the **full** migration chain (``upgrade head``) against a dedicated,
-freshly created PostgreSQL database — not the shared integration DB — so
+freshly created PostgreSQL database -- not the shared integration DB -- so
 the upgrade/downgrade round-trip cannot clobber other tests' data.
 
 Asserts:
@@ -78,6 +78,8 @@ EXPECTED_TABLES = {
     "datamarts",
     "datamart_consumers",
     "datamart_grants",
+    # tenant-scoped sync schedules (migration 0020)
+    "sync_schedules",
 }
 
 
@@ -218,7 +220,7 @@ class TestMigrationUpgrade:
         run_alembic("downgrade", "base", url=fresh_database_url)
 
         tables_after_downgrade = await _public_tables(fresh_database_url)
-        # Alembic leaves the (empty) alembic_version table behind — but no
+        # Alembic leaves the (empty) alembic_version table behind -- but no
         # application tables may survive.
         remaining = tables_after_downgrade - {"alembic_version"}
         assert remaining == set(), (
@@ -277,7 +279,7 @@ class TestMultiConnectionUpgrade:
     data, then proves:
 
     * existing configs remain usable (credential row intact, ciphertext
-      unchanged — decryptable with the same master key)
+      unchanged -- decryptable with the same master key)
     * ``connection_id`` is backfilled on accounts / transactions /
       cursors from the (then-unique) credential row
     * a generated label is backfilled on configs without one
@@ -346,7 +348,7 @@ class TestMultiConnectionUpgrade:
                     },
                 )
 
-                # Legacy bunq credential — ciphertext + nonce must be
+                # Legacy bunq credential -- ciphertext + nonce must be
                 # preserved byte-for-byte by the migration.
                 tenant_id = (
                     await conn.execute(
@@ -590,3 +592,400 @@ class TestMultiConnectionUpgrade:
                 assert row.description == "T212"
         finally:
             await engine.dispose()
+
+
+class TestSyncScheduleBackfill:
+    """Migration 0020: default schedule backfill for active configs.
+
+    Proves the acceptance criteria of the sync-schedule data layer:
+
+    * active schedulable ingestion connections get an enabled default
+      schedule (weekdays 07:00, tenant timezone) with ``next_run_at``
+      strictly in the future (no run fires on migration day);
+    * paused / non-schedulable connections get **no** schedule;
+    * tenants with export state get an enabled export schedule;
+    * the unique ``(tenant_id, scope, target_id)`` constraint is
+      enforced (no duplicates after a re-run);
+    * the migration is fully reversible (downgrade drops the table) and
+      idempotent (upgrade head twice yields exactly one row per scope);
+    * no credentials/provider payloads are stored in the schedule rows.
+    """
+
+    @pytest.fixture
+    async def fresh_database_url(
+        self, database_url: str
+    ) -> AsyncGenerator[str, None]:
+        """Dedicated database per test (see TestMultiConnectionUpgrade)."""
+        url = make_url(database_url)
+        db_name = f"finance_sync_migtest_{uuid.uuid4().hex[:8]}"
+
+        admin_url = url.set(database="postgres")
+        admin_engine = create_async_engine(
+            admin_url.render_as_string(hide_password=False),
+            isolation_level="AUTOCOMMIT",
+        )
+        try:
+            async with admin_engine.connect() as conn:
+                await conn.execute(sa.text(f'CREATE DATABASE "{db_name}"'))
+        finally:
+            await admin_engine.dispose()
+
+        fresh_url = url.set(database=db_name)
+        try:
+            yield fresh_url.render_as_string(hide_password=False)
+        finally:
+            drop_engine = create_async_engine(
+                admin_url.render_as_string(hide_password=False),
+                isolation_level="AUTOCOMMIT",
+            )
+            try:
+                async with drop_engine.connect() as conn:
+                    await conn.execute(
+                        sa.text(
+                            f'DROP DATABASE IF EXISTS "{db_name}" WITH (FORCE)'
+                        )
+                    )
+            finally:
+                await drop_engine.dispose()
+
+    async def _seed_tenant_and_configs(self, engine) -> uuid.UUID:
+        """Seed a tenant with active/paused/non-schedulable connections
+        and export evidence; return the tenant id."""
+        async with engine.begin() as conn:
+            tenant_id = uuid.uuid4()
+            await conn.execute(
+                sa.text(
+                    "INSERT INTO tenants (id, slug, name) "
+                    "VALUES (:id, :slug, :name)"
+                ),
+                {"id": tenant_id, "slug": "sched-tenant", "name": "Sched"},
+            )
+
+            # Active bunq connection → should get an ingestion schedule.
+            await conn.execute(
+                sa.text(
+                    "INSERT INTO credentials "
+                    "(id, tenant_id, provider_key, encrypted_payload, nonce, "
+                    "description, status, created_at, updated_at) "
+                    "VALUES (:id, :tenant, 'bunq', :payload, :nonce, "
+                    "'Bunq main', 'active', now(), now())"
+                ),
+                {
+                    "id": uuid.uuid4(),
+                    "tenant": tenant_id,
+                    "payload": b"\x01" * 16,
+                    "nonce": b"\x02" * 12,
+                },
+            )
+            # Active trading212 connection → also schedulable.
+            await conn.execute(
+                sa.text(
+                    "INSERT INTO credentials "
+                    "(id, tenant_id, provider_key, encrypted_payload, nonce, "
+                    "description, status, created_at, updated_at) "
+                    "VALUES (:id, :tenant, 'trading212', :payload, :nonce, "
+                    "'T212', 'active', now(), now())"
+                ),
+                {
+                    "id": uuid.uuid4(),
+                    "tenant": tenant_id,
+                    "payload": b"\x03" * 16,
+                    "nonce": b"\x04" * 12,
+                },
+            )
+            # Paused bunq connection → NO schedule.
+            await conn.execute(
+                sa.text(
+                    "INSERT INTO credentials "
+                    "(id, tenant_id, provider_key, encrypted_payload, nonce, "
+                    "description, status, created_at, updated_at) "
+                    "VALUES (:id, :tenant, 'bunq', :payload, :nonce, "
+                    "'Bunq paused', 'paused', now(), now())"
+                ),
+                {
+                    "id": uuid.uuid4(),
+                    "tenant": tenant_id,
+                    "payload": b"\x05" * 16,
+                    "nonce": b"\x06" * 12,
+                },
+            )
+            # Non-schedulable provider (degiro) → NO schedule.
+            await conn.execute(
+                sa.text(
+                    "INSERT INTO credentials "
+                    "(id, tenant_id, provider_key, encrypted_payload, nonce, "
+                    "description, status, created_at, updated_at) "
+                    "VALUES (:id, :tenant, 'degiro_pension', :payload, :nonce, "
+                    "'DEGIRO', 'active', now(), now())"
+                ),
+                {
+                    "id": uuid.uuid4(),
+                    "tenant": tenant_id,
+                    "payload": b"\x07" * 16,
+                    "nonce": b"\x08" * 12,
+                },
+            )
+
+            # Export evidence: one account + a wealthfolio delivery cursor.
+            account_id = uuid.uuid4()
+            await conn.execute(
+                sa.text(
+                    "INSERT INTO accounts "
+                    "(id, tenant_id, provider_key, external_account_id, "
+                    "name, account_type, currency_code, is_active, "
+                    "created_at, updated_at) "
+                    "VALUES (:id, :tenant, 'bunq', 'ext-acc-1', "
+                    "'Bunq Account', 'checking', 'EUR', true, now(), now())"
+                ),
+                {"id": account_id, "tenant": tenant_id},
+            )
+            await conn.execute(
+                sa.text(
+                    "INSERT INTO wealthfolio_deliveries "
+                    "(id, tenant_id, account_id, last_exported_at, "
+                    "created_at, updated_at) "
+                    "VALUES (:id, :tenant, :account, now(), now(), now())"
+                ),
+                {
+                    "id": uuid.uuid4(),
+                    "tenant": tenant_id,
+                    "account": account_id,
+                },
+            )
+        return tenant_id
+
+    async def test_backfill_creates_defaults_for_active_configs(
+        self, fresh_database_url: str
+    ) -> None:
+        """Active schedulable connections + export evidence get defaults;
+        paused/non-schedulable get none; no run fires on migration day."""
+        run_alembic("upgrade", "0019", url=fresh_database_url)
+
+        engine = create_async_engine(fresh_database_url)
+        try:
+            tenant_id = await self._seed_tenant_and_configs(engine)
+        finally:
+            await engine.dispose()
+
+        run_alembic("upgrade", "head", url=fresh_database_url)
+
+        engine = create_async_engine(fresh_database_url)
+        try:
+            async with engine.connect() as conn:
+                rows = (
+                    await conn.execute(
+                        sa.text(
+                            "SELECT scope, target_id, enabled, timezone, "
+                            "schedule, schema_version, next_run_at, "
+                            "created_by, updated_by "
+                            "FROM sync_schedules WHERE tenant_id=:t "
+                            "ORDER BY scope, target_id"
+                        ),
+                        {"t": tenant_id},
+                    )
+                ).all()
+                db_now = (
+                    await conn.execute(sa.text("SELECT now()"))
+                ).scalar_one()
+        finally:
+            await engine.dispose()
+
+        # 2 ingestion (bunq + trading212 active) + 1 export (wealthfolio).
+        assert len(rows) == 3
+        by_scope: dict[str, list] = {}
+        for row in rows:
+            by_scope.setdefault(row.scope, []).append(row)
+
+        ing = by_scope["ingestion"]
+        assert len(ing) == 2
+        for row in ing:
+            assert row.enabled is True
+            assert row.timezone == "Europe/Amsterdam"
+            assert row.schema_version == 1
+            # Default schedule JSON: weekdays Mon-Fri 07:00.
+            assert row.schedule["frequency"] == "weekdays"
+            assert row.schedule["time"] == "07:00"
+            assert row.schedule["weekdays"] == [0, 1, 2, 3, 4]
+            # next_run_at strictly in the future → no run on migration day.
+            assert row.next_run_at is not None
+            assert row.next_run_at > db_now
+
+        exp = by_scope["export"]
+        assert len(exp) == 1
+        assert exp[0].target_id == "wealthfolio"
+        assert exp[0].enabled is True
+
+    async def test_no_schedules_for_paused_or_other_providers(
+        self, fresh_database_url: str
+    ) -> None:
+        """Paused connections and non-schedulable providers get no row."""
+        run_alembic("upgrade", "0019", url=fresh_database_url)
+        engine = create_async_engine(fresh_database_url)
+        try:
+            # Only the paused + degiro connections (no active schedulable,
+            # no export evidence).
+            async with engine.begin() as conn:
+                tenant_id = uuid.uuid4()
+                await conn.execute(
+                    sa.text(
+                        "INSERT INTO tenants (id, slug, name) "
+                        "VALUES (:id, :slug, :name)"
+                    ),
+                    {"id": tenant_id, "slug": "no-sched", "name": "None"},
+                )
+                for provider, status in (
+                    ("bunq", "paused"),
+                    ("trading212", "paused"),
+                    ("degiro_pension", "active"),
+                ):
+                    await conn.execute(
+                        sa.text(
+                            "INSERT INTO credentials "
+                            "(id, tenant_id, provider_key, encrypted_payload, "
+                            "nonce, description, status, created_at, updated_at) "
+                            "VALUES (:id, :tenant, :provider, :payload, :nonce, "
+                            ":label, :status, now(), now())"
+                        ),
+                        {
+                            "id": uuid.uuid4(),
+                            "tenant": tenant_id,
+                            "provider": provider,
+                            "payload": b"\x00" * 16,
+                            "nonce": b"\x00" * 12,
+                            "label": provider,
+                            "status": status,
+                        },
+                    )
+        finally:
+            await engine.dispose()
+
+        run_alembic("upgrade", "head", url=fresh_database_url)
+
+        engine = create_async_engine(fresh_database_url)
+        try:
+            async with engine.connect() as conn:
+                count = (
+                    await conn.execute(
+                        sa.text(
+                            "SELECT COUNT(*) FROM sync_schedules "
+                            "WHERE tenant_id=:t"
+                        ),
+                        {"t": tenant_id},
+                    )
+                ).scalar_one()
+        finally:
+            await engine.dispose()
+        assert count == 0
+
+    async def test_unique_constraint_and_rerun_idempotency(
+        self, fresh_database_url: str
+    ) -> None:
+        """Re-running upgrade head yields exactly one row per scope."""
+        run_alembic("upgrade", "0019", url=fresh_database_url)
+        engine = create_async_engine(fresh_database_url)
+        try:
+            tenant_id = await self._seed_tenant_and_configs(engine)
+        finally:
+            await engine.dispose()
+
+        run_alembic("upgrade", "head", url=fresh_database_url)
+        # Idempotent re-run: the backfill must not duplicate rows.
+        run_alembic("upgrade", "head", url=fresh_database_url)
+
+        engine = create_async_engine(fresh_database_url)
+        try:
+            async with engine.connect() as conn:
+                rows = (
+                    await conn.execute(
+                        sa.text(
+                            "SELECT scope, target_id, COUNT(*) "
+                            "FROM sync_schedules WHERE tenant_id=:t "
+                            "GROUP BY scope, target_id"
+                        ),
+                        {"t": tenant_id},
+                    )
+                ).all()
+                # Unique constraint (tenant_id, scope, target_id) holds.
+                assert all(r[2] == 1 for r in rows)
+                # Total: 2 ingestion + 1 export.
+                assert sum(r[2] for r in rows) == 3
+
+                # Constraint is enforced at the DB level.
+                from sqlalchemy.exc import IntegrityError
+
+                dup_target = (
+                    await conn.execute(
+                        sa.text(
+                            "SELECT target_id FROM sync_schedules "
+                            "WHERE tenant_id=:t AND scope='ingestion' LIMIT 1"
+                        ),
+                        {"t": tenant_id},
+                    )
+                ).scalar_one()
+                try:
+                    await conn.execute(
+                        sa.text(
+                            "INSERT INTO sync_schedules "
+                            "(id, tenant_id, scope, target_id, enabled, "
+                            "schedule, schema_version, timezone, version, "
+                            "created_at, updated_at) "
+                            "VALUES (gen_random_uuid(), :t, 'ingestion', "
+                            ":target, true, '{}'::jsonb, 1, 'UTC', 1, "
+                            "now(), now())"
+                        ),
+                        {"t": tenant_id, "target": dup_target},
+                    )
+                    _msg = "unique constraint not enforced"
+                    raise AssertionError(_msg)
+                except IntegrityError:
+                    pass
+        finally:
+            await engine.dispose()
+
+    async def test_backfill_holds_no_secrets(
+        self, fresh_database_url: str
+    ) -> None:
+        """Schedule rows never store credentials or provider payloads."""
+        run_alembic("upgrade", "0019", url=fresh_database_url)
+        engine = create_async_engine(fresh_database_url)
+        try:
+            tenant_id = await self._seed_tenant_and_configs(engine)
+        finally:
+            await engine.dispose()
+
+        run_alembic("upgrade", "head", url=fresh_database_url)
+
+        engine = create_async_engine(fresh_database_url)
+        try:
+            async with engine.connect() as conn:
+                rows = (
+                    await conn.execute(
+                        sa.text(
+                            "SELECT schedule, created_by, updated_by "
+                            "FROM sync_schedules WHERE tenant_id=:t"
+                        ),
+                        {"t": tenant_id},
+                    )
+                ).all()
+        finally:
+            await engine.dispose()
+
+        for row in rows:
+            serialised = str(dict(row.schedule)).lower()
+            for secret in ("token", "password", "api_key", "secret", "nonce"):
+                assert secret not in serialised
+            assert row.created_by is None
+            assert row.updated_by is None
+
+    async def test_downgrade_drops_schedule_table(
+        self, fresh_database_url: str
+    ) -> None:
+        """downgrade to 0019 removes the sync_schedules table entirely."""
+        run_alembic("upgrade", "head", url=fresh_database_url)
+        tables = await _public_tables(fresh_database_url)
+        assert "sync_schedules" in tables
+
+        run_alembic("downgrade", "0019", url=fresh_database_url)
+
+        tables = await _public_tables(fresh_database_url)
+        assert "sync_schedules" not in tables

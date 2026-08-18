@@ -1,6 +1,6 @@
 ---
 title: "Maak syncschema's per connector en exporter instelbaar via Sync Runs"
-status: todo
+status: done
 priority: 26
 ---
 

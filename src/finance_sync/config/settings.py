@@ -357,6 +357,18 @@ class Settings(BaseSettings):
         validation_alias="WORKER_ENABLED",
         description="Enable the background worker process (APScheduler).",
     )
+    #: Tenant schedule dispatch tick (per-connection / per-exporter
+    #: sync_schedules).  Default on; operators can disable the whole
+    #: tenant scheduling layer independently of the legacy global jobs.
+    worker_job_schedules_enabled: bool = Field(
+        default=True,
+        validation_alias="WORKER_JOB_SCHEDULES_ENABLED",
+        description=(
+            "Enable the per-tenant sync-schedule dispatch tick "
+            "(1-minute cadence). When false, no schedule is executed; "
+            "manual syncs/exports stay available."
+        ),
+    )
     worker_health_port: int = Field(
         default=9090,
         ge=1024,

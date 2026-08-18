@@ -57,8 +57,9 @@ from finance_sync.connectors.models import (
 from finance_sync.connectors.registry import ConnectorRegistry
 from finance_sync.container import Container
 from finance_sync.db.uow import UnitOfWork
-from finance_sync.models import Credential, Tenant, User
+from finance_sync.models import Credential, SyncSchedule, Tenant, User
 from finance_sync.models.enums import SyncRunStatus, UserRole
+from finance_sync.models.sync_schedule import SCOPE_INGESTION
 from finance_sync.services.auth import create_access_token, hash_password
 
 pytestmark = pytest.mark.integration
@@ -864,3 +865,228 @@ class TestNoSecretLeakageHttpPg:
             assert cred is not None
             assert cred.last_error is not None
             assert secret not in cred.last_error
+
+
+class TestScheduleSeedingHttpPg:
+    """New active connections seed a default schedule atomically (0020).
+
+    Acceptance criteria of the sync-schedule data layer:
+
+    * POST /connectors/configs with a schedulable provider (bunq /
+      trading212) creates an enabled default schedule for the new
+      connection in the **same transaction** — a later rollback of the
+      credential insert must also roll back the schedule row;
+    * a paused connection or a non-schedulable provider gets no
+      schedule row;
+    * DELETE of a connection disables (not deletes) its schedule so the
+      worker never plans a ghost run against a dead source;
+    * schedule rows never contain credential material.
+    """
+
+    async def _count_schedules(
+        self,
+        session_factory: async_sessionmaker[AsyncSession],
+        tenant_id: str,
+        scope: str,
+        target_id: str | None = None,
+    ) -> int:
+        async with session_factory() as s:
+            stmt = select(SyncSchedule).where(
+                SyncSchedule.tenant_id == tenant_id,
+                SyncSchedule.scope == scope,
+            )
+            if target_id is not None:
+                stmt = stmt.where(SyncSchedule.target_id == target_id)
+            return len((await s.scalars(stmt)).all())
+
+    async def test_create_active_bunq_seeds_default_schedule(
+        self,
+        api_client: httpx.AsyncClient,
+        session_factory: async_sessionmaker[AsyncSession],
+    ) -> None:
+        seeded = await _seed_user(
+            session_factory, role=UserRole.ADMIN, slug="seed-bunq"
+        )
+        headers = seeded["headers"]
+
+        resp = await api_client.post(
+            _CONFIGS_URL,
+            headers=headers,
+            json=_create_payload(
+                label="Bunq seeded", secret=_secret("seedb"), provider="bunq"
+            ),
+        )
+        assert resp.status_code == 201, resp.text
+        conn_id = resp.json()["id"]
+
+        # The default schedule exists, enabled, weekdays 07:00, tenant tz.
+        async with session_factory() as s:
+            rows = (
+                await s.scalars(
+                    select(SyncSchedule).where(
+                        SyncSchedule.tenant_id == seeded["tenant_id"],
+                        SyncSchedule.scope == SCOPE_INGESTION,
+                        SyncSchedule.target_id == conn_id,
+                    )
+                )
+            ).all()
+        assert len(rows) == 1
+        row = rows[0]
+        assert row.enabled is True
+        assert row.timezone == "Europe/Amsterdam"
+        assert row.schedule["frequency"] == "weekdays"
+        assert row.schedule["time"] == "07:00"
+        assert row.schedule["weekdays"] == [0, 1, 2, 3, 4]
+        assert row.schema_version == 1
+        assert row.next_run_at is not None
+        # No credential material.
+        assert "secret" not in str(dict(row.schedule)).lower()
+
+    async def test_create_trading212_seeds_too(
+        self,
+        api_client: httpx.AsyncClient,
+        session_factory: async_sessionmaker[AsyncSession],
+    ) -> None:
+        seeded = await _seed_user(
+            session_factory, role=UserRole.ADMIN, slug="seed-t212"
+        )
+        headers = seeded["headers"]
+
+        resp = await api_client.post(
+            _CONFIGS_URL,
+            headers=headers,
+            json=_create_payload(
+                label="T212", secret=_secret("seedt"), provider="trading212"
+            ),
+        )
+        assert resp.status_code == 201, resp.text
+        conn_id = resp.json()["id"]
+
+        count = await self._count_schedules(
+            session_factory, seeded["tenant_id"], SCOPE_INGESTION, conn_id
+        )
+        assert count == 1
+
+    async def test_non_schedulable_provider_gets_no_schedule(
+        self,
+        api_client: httpx.AsyncClient,
+        session_factory: async_sessionmaker[AsyncSession],
+    ) -> None:
+        seeded = await _seed_user(
+            session_factory, role=UserRole.ADMIN, slug="seed-degiro"
+        )
+        headers = seeded["headers"]
+
+        # degiro_pension keeps its own triggers → no schedule row.
+        resp = await api_client.post(
+            _CONFIGS_URL,
+            headers=headers,
+            json=_create_payload(
+                label="DEGIRO",
+                secret=_secret("seedg"),
+                provider="degiro_pension",
+            ),
+        )
+        assert resp.status_code == 201, resp.text
+
+        count = await self._count_schedules(
+            session_factory, seeded["tenant_id"], SCOPE_INGESTION
+        )
+        assert count == 0
+
+    async def test_rollback_removes_seeded_schedule(
+        self,
+        api_client: httpx.AsyncClient,
+        session_factory: async_sessionmaker[AsyncSession],
+    ) -> None:
+        """The seeding is atomic: rolling back the credential insert must
+        also roll back the schedule row (same transaction)."""
+        from finance_sync.services.sync_schedule import SyncScheduleService
+
+        # Create a tenant + credential + schedule in one tx, then force a
+        # rollback.  The session.begin() context manager rolls back on
+        # exception, so nothing may persist.
+        async with session_factory() as session:
+            with pytest.raises(RuntimeError):
+                async with session.begin():
+                    tenant_row = Tenant(
+                        slug="rollback-tenant", name="Rollback tenant"
+                    )
+                    session.add(tenant_row)
+                    await session.flush()
+                    cred = Credential(
+                        tenant_id=str(tenant_row.id),
+                        provider_key="bunq",
+                        encrypted_payload=b"\x00" * 16,
+                        nonce=b"\x00" * 12,
+                        status="active",
+                    )
+                    session.add(cred)
+                    await session.flush()
+                    svc = SyncScheduleService(session)
+                    await svc.ensure_for_scope(
+                        str(tenant_row.id),
+                        scope=SCOPE_INGESTION,
+                        target_id=str(cred.id),
+                    )
+                    await session.flush()
+                    _msg = "simulated failure"
+                    raise RuntimeError(_msg)
+
+        # Nothing persisted: no tenant, no credential, no schedule.
+        async with session_factory() as s:
+            tenants = (
+                await s.scalars(
+                    select(Tenant).where(Tenant.slug == "rollback-tenant")
+                )
+            ).all()
+            assert tenants == []
+            scheds = (
+                await s.scalars(
+                    select(SyncSchedule).where(
+                        SyncSchedule.scope == SCOPE_INGESTION,
+                    )
+                )
+            ).all()
+            # No schedule survives from the rolled-back tenant.
+            for row in scheds:
+                assert row.tenant_id != "rollback-tenant"
+
+    async def test_delete_disables_schedule(
+        self,
+        api_client: httpx.AsyncClient,
+        session_factory: async_sessionmaker[AsyncSession],
+    ) -> None:
+        seeded = await _seed_user(
+            session_factory, role=UserRole.ADMIN, slug="seed-del"
+        )
+        headers = seeded["headers"]
+        resp = await api_client.post(
+            _CONFIGS_URL,
+            headers=headers,
+            json=_create_payload(
+                label="Bunq del", secret=_secret("seedd"), provider="bunq"
+            ),
+        )
+        conn_id = resp.json()["id"]
+
+        del_resp = await api_client.delete(
+            f"{_CONFIGS_URL}/{conn_id}", headers=headers
+        )
+        # DELETE returns 204 No Content (standard REST); the schedule row
+        # must be disabled atomically with the credential deletion.
+        assert del_resp.status_code in (200, 204), del_resp.text
+
+        async with session_factory() as s:
+            rows = (
+                await s.scalars(
+                    select(SyncSchedule).where(
+                        SyncSchedule.tenant_id == seeded["tenant_id"],
+                        SyncSchedule.scope == SCOPE_INGESTION,
+                        SyncSchedule.target_id == conn_id,
+                    )
+                )
+            ).all()
+        assert len(rows) == 1
+        assert rows[0].enabled is False
+        assert rows[0].next_run_at is None

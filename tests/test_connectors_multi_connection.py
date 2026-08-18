@@ -170,13 +170,41 @@ class _FakeSession:
                     ids.add(str(value))
         return ids
 
+    @staticmethod
+    def _targets_credentials(stmt: Any) -> bool:
+        """True when the statement reads the ``credentials`` table."""
+        where = getattr(stmt, "whereclause", None)
+        if where is not None:
+            for node in visitors.iterate(where):
+                col = getattr(node, "left", None)
+                if (
+                    getattr(getattr(col, "table", None), "name", None)
+                    == "credentials"
+                ):
+                    return True
+        # Fall back to the select entities (e.g. a bare
+        # ``select(Credential)`` without a where clause).
+        for ent in getattr(stmt, "_raw_columns", []) or []:
+            tbl = getattr(
+                getattr(ent, "entity", None) or ent, "__table__", None
+            )
+            if getattr(tbl, "name", None) == "credentials":
+                return True
+        return False
+
     # ── async session surface ────────────────────────────────────────
 
     async def execute(self, stmt: Any) -> Any:
         rows = self._all_rows()
-        wanted = self._credential_id_filters(stmt)
-        if wanted:
-            rows = [r for r in rows if r.id in wanted]
+        # Only credentials live in this fake; a query targeting another
+        # table (e.g. SyncSchedule) yields no rows — the schedule
+        # lifecycle is covered by the real-PG integration tests.
+        if not self._targets_credentials(stmt):
+            rows = []
+        else:
+            wanted = self._credential_id_filters(stmt)
+            if wanted:
+                rows = [r for r in rows if r.id in wanted]
         result = MagicMock()
         result.scalars.return_value.all.return_value = list(rows)
         result.scalar_one_or_none.return_value = rows[0] if rows else None

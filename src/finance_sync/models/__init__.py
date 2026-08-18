@@ -78,6 +78,7 @@ from finance_sync.models.security_metadata_observation import (
 from finance_sync.models.security_price import SecurityPrice
 from finance_sync.models.sync_cursor import SyncCursor
 from finance_sync.models.sync_run import SyncRun
+from finance_sync.models.sync_schedule import SyncSchedule
 from finance_sync.models.tax_lot import TaxLot
 from finance_sync.models.tenant import Tenant
 from finance_sync.models.transaction import Transaction
@@ -200,6 +201,7 @@ __all__ = [
     "SyncCursor",
     "SyncRun",
     "SyncRunStatus",
+    "SyncSchedule",
     "TaxLot",
     "Tenant",
     # Mixins
