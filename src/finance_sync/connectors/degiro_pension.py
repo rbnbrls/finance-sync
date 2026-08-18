@@ -169,12 +169,12 @@ class _Row:
     def at(self, index: int) -> Any:
         return self.values[index] if index < len(self.values) else ""
 
-    def after(self, *aliases: str) -> Any:
-        """Return the cell after a named column, often an unlabeled FX code."""
+    def after(self, *aliases: str, offset: int = 1) -> Any:
+        """Return a cell after a named column, including unlabeled columns."""
         wanted = {_key(alias) for alias in aliases}
         for index, key in enumerate(self.keys):
             if key in wanted:
-                return self.at(index + 1)
+                return self.at(index + offset)
         return ""
 
 
@@ -812,9 +812,19 @@ class DegiroPensionConnector(Connector):
                 market_value = _decimal(
                     row.get("Waarde in EUR", "Value in EUR")
                 )
-                local_value = _decimal(
-                    row.get("Lokale waarde", "Local value", "Waarde", "Value")
+                # Some current DEGIRO Portfolio CSV exports label the currency
+                # column as "Lokale waarde", leave the numeric local-value
+                # column blank, and put "Waarde in EUR" after it. In that
+                # layout the normal alias returns "EUR" or "USD".
+                local_value_raw = row.get(
+                    "Lokale waarde", "Local value", "Waarde", "Value"
                 )
+                if _currency(local_value_raw, default=""):
+                    local_value_raw = row.after(
+                        "Slotkoers", "Closing price", "Koers", "Price",
+                        offset=2,
+                    )
+                local_value = _decimal(local_value_raw)
                 market_value = (
                     market_value if market_value is not None else local_value
                 )
@@ -830,8 +840,14 @@ class DegiroPensionConnector(Connector):
                 if not product and not isin and quantity is None:
                     continue
                 cash_keys = {"eur", "cash", "geldrekening", "cashaccount"}
+                product_key = _key(product)
                 is_cash = _key(isin) in cash_keys or (
-                    not isin and _key(product) in cash_keys
+                    not isin
+                    and (
+                        product_key in cash_keys
+                        or "cash" in product_key
+                        or "geldrekening" in product_key
+                    )
                 )
                 if is_cash:
                     cash = (

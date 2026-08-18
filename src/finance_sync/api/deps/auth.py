@@ -64,21 +64,23 @@ def _forbidden(detail: str = "Not authorised") -> HTTPException:
 # ── Current user (JWT) ───────────────────────────────────────────────
 
 
-async def get_current_user(
+async def get_optional_current_user(
     request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(_bearer),
     db: AsyncSession = Depends(get_db),
-) -> UserModel:
-    """Extract and validate the current user from a JWT Bearer token.
+) -> UserModel | None:
+    """Extract and validate a JWT user when a Bearer token is present.
 
     The token payload must contain ``sub`` (user id), ``tenant_id``,
     and ``role``.  A database lookup verifies the user still exists and
     is active.
 
-    Raises 401 on missing / expired / invalid tokens.
+    Returns ``None`` when no Bearer token is supplied, allowing API-key
+    authentication to be evaluated by ``get_auth_context``. Invalid supplied
+    tokens still fail with 401.
     """
     if credentials is None:
-        raise _unauthorized(_MSG_MISSING_BEARER)
+        return None
 
     container = get_container(request)
     settings = container.settings
@@ -110,6 +112,15 @@ async def get_current_user(
     if not user.is_active:
         raise _unauthorized(_MSG_USER_DEACTIVATED)
 
+    return user
+
+
+async def get_current_user(
+    user: UserModel | None = Depends(get_optional_current_user),
+) -> UserModel:
+    """Require a validated JWT user for user-only endpoints."""
+    if user is None:
+        raise _unauthorized(_MSG_MISSING_BEARER)
     return user
 
 
@@ -204,7 +215,7 @@ class AuthContext:
 
 
 async def get_auth_context(
-    user: UserModel | None = Depends(get_current_user),
+    user: UserModel | None = Depends(get_optional_current_user),
     api_key_result: APIKeyAuthResult | None = Depends(get_current_api_key),
 ) -> AuthContext:
     """Resolve ``AuthContext`` — prefers JWT user, falls back to API key.

@@ -143,6 +143,44 @@ async def test_empty_portfolio_is_a_zero_value_snapshot() -> None:
 
 
 @pytest.mark.asyncio
+async def test_current_portfolio_csv_upload_layout_with_unlabelled_currency(
+    tmp_path: Path,
+) -> None:
+    """Accept the Portfolio.csv layout downloaded from the DEGIRO UI."""
+    portfolio = tmp_path / "Portfolio.csv"
+    portfolio.write_text(
+        "Product,Symbool/ISIN,Aantal,Slotkoers,Lokale waarde,,Waarde in EUR\n"
+        'CASH & CASH FUND & FTX CASH (EUR),,,,EUR,"9587,44","9587,44"\n'
+        'ALFEN NV,NL0012817175,100,"14,25",EUR,"1425,00","1425,00"\n'
+        'SERVICENOW INC,US81762P1021,20,"117,70",USD,"2354,00","2032,68"\n',
+        encoding="utf-8",
+    )
+    connector = DegiroPensionConnector(
+        ConnectorConfig(
+            provider_type="degiro_pension",
+            options={
+                "export_path": str(portfolio),
+                "account_key": "portfolio-upload-layout",
+                "snapshot_at": "2026-08-18",
+            },
+        )
+    )
+
+    await connector.authenticate()
+
+    account = (await connector.fetch_accounts())[0]
+    holdings = await connector.fetch_holdings()
+    assert connector.validation_report.report_types == {"portfolio"}
+    assert len(holdings) == 2
+    assert account.available_balance == Decimal("9587.44")
+    assert account.current_balance == Decimal("13045.12")
+    assert holdings[0].market_value == Decimal("1425.00")
+    assert holdings[0].currency_code == "EUR"
+    assert holdings[1].market_value == Decimal("2032.68")
+    assert holdings[1].price_currency == "USD"
+
+
+@pytest.mark.asyncio
 async def test_xlsx_export_is_supported(tmp_path: Path) -> None:
     workbook = Workbook()
     sheet = workbook.active

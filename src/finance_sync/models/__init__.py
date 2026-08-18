@@ -21,6 +21,7 @@ from finance_sync.models.card_transaction import CardTransaction
 from finance_sync.models.connection_audit_log import ConnectionAuditLog
 from finance_sync.models.connector_state import ConnectorState
 from finance_sync.models.credential import Credential
+from finance_sync.models.datamart import DataMart, DataMartConsumer, DataMartGrant
 from finance_sync.models.detected_subscription import DetectedSubscription
 from finance_sync.models.enrichment_freshness import EnrichmentFreshness
 from finance_sync.models.enums import (
@@ -160,6 +161,9 @@ __all__ = [
     "ConnectorState",
     "CostBasisMethod",
     "Credential",
+    "DataMart",
+    "DataMartConsumer",
+    "DataMartGrant",
     "DetectedSubscription",
     "DetectionMethod",
     "EnrichmentFreshness",

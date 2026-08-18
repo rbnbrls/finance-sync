@@ -74,6 +74,10 @@ EXPECTED_TABLES = {
     # household sharing: ownership/visibility + invitations + audit (0018)
     "household_invitations",
     "household_audit_log",
+    # governed consumer access policies (migration 0019)
+    "datamarts",
+    "datamart_consumers",
+    "datamart_grants",
 }
 
 

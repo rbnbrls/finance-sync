@@ -4,6 +4,8 @@
 
 finance-sync is a self-hosted integration layer for personal-finance applications. It connects to financial institutions, stores normalized financial facts in PostgreSQL, enriches securities and prices via OpenBB, and exposes stable REST, event, exporter, and AI-oriented interfaces. Actual Budget consumes banking facts; Wealthfolio consumes investment facts. Neither needs credentials for bunq, Trading212, or market-data providers.
 
+The target cross-boundary data contract is [Personal Finance Core v1](personal-finance-core-v1.md). It is provider-neutral and owns personal financial facts; OpenBB is an optional market-data enrichment adapter, not the personal-finance source of truth.
+
 The initial deployment is one asynchronous FastAPI application process plus one scheduler/worker process, backed by PostgreSQL and Redis. This is a **modular monolith**: code boundaries are strict, but deployment remains simple on Docker/Coolify/Proxmox. It can later split the API, workers, and exporters without changing public contracts.
 
 ```mermaid

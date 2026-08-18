@@ -12,6 +12,12 @@ types, account label, period, row counts, missing reports, warnings, unresolved
 instruments and possible duplicates. Confirming uses the exact staged bytes and
 hashes from that preview.
 
+A standalone **Portfolio.csv** upload from the DEGIRO portfolio screen is a
+supported daily snapshot source. It imports the cash balance and holdings;
+transaction history remains unchanged until transaction or account-statement
+exports are uploaded. The current Dutch CSV layout is supported, including the
+unlabelled local-value column following `Lokale waarde`.
+
 The API equivalents are:
 
 - `POST /api/v1/connectors/degiro-pension/imports/preview` — multipart fields

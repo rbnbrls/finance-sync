@@ -92,8 +92,10 @@ via the ``finance_sync.connectors`` entry point group in ``pyproject.toml``.
 - **Formats:** CSV (UTF-8/BOM or Windows-1252), XLSX and XLS. PDF is not
   supported.
 - **Options:**
-  - ``export_paths``: the three official export files (a single
-    ``export_path`` or an ``export_directory`` is also accepted)
+  - ``export_paths``: one or more official exports. A standalone portfolio
+    export is a valid holdings-and-cash snapshot; upload transaction and
+    account-statement exports when transaction history is also required. A
+    single ``export_path`` or an ``export_directory`` is also accepted.
   - ``account_key``: optional stable, non-personal value used to derive the
     external account ID. When omitted, a hash of the configured paths is used.
   - ``account_name``: display name (default ``DEGIRO Pensioen``)
@@ -112,9 +114,10 @@ via the ``finance_sync.connectors`` entry point group in ``pyproject.toml``.
    button, and download CSV or Excel.
 4. Open **Portefeuille**, select the export button on the right (the downward
    arrow in the app), select the snapshot date, and download CSV or Excel.
-5. Configure all three files in ``export_paths`` and run a sync. Keep the
-   portfolio export together with its original modification timestamp, or set
-   ``snapshot_at`` explicitly.
+5. Upload ``Portfolio.csv`` on its own for a holdings-and-cash snapshot, or
+   configure all three files in ``export_paths`` for a complete history. Keep
+   the portfolio export together with its original modification timestamp, or
+   set ``snapshot_at`` explicitly.
 
 These locations and formats follow DEGIRO's current
 [reporting instructions](https://www.degiro.nl/helpdesk/belasting/welke-rapportagemogelijkheden-zijn-er-en-waar-kan-ik-de-rapportages-vinden).
