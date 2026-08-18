@@ -23,6 +23,9 @@ from finance_sync.models import (
     FundamentalObservation,
     FxRate,
     Holding,
+    MarketIntelligenceItem,
+    MarketIntelligenceProviderState,
+    MarketIntelligenceReviewQueue,
     OutboxMessage,
     ReconciliationResult,
     ReconciliationRun,
@@ -428,6 +431,28 @@ class WebhookDeliveryLogRepository(Repository[WebhookDeliveryLog]):
 
 class FxRateRepository(Repository[FxRate]):
     model_class = FxRate
+
+
+class MarketIntelligenceItemRepository(Repository[MarketIntelligenceItem]):
+    """Repository for market-intelligence items."""
+
+    model_class = MarketIntelligenceItem
+
+
+class MarketIntelligenceProviderStateRepository(
+    Repository[MarketIntelligenceProviderState]
+):
+    """Repository for market-intelligence provider run state."""
+
+    model_class = MarketIntelligenceProviderState
+
+
+class MarketIntelligenceReviewQueueRepository(
+    Repository[MarketIntelligenceReviewQueue]
+):
+    """Repository for the market-intelligence review queue."""
+
+    model_class = MarketIntelligenceReviewQueue
 
 
 class DetectedSubscriptionRepository(Repository[DetectedSubscription]):
