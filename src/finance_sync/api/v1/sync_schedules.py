@@ -8,7 +8,10 @@ Endpoints
 * ``GET  /sync-schedules``          — list the tenant's schedules
   (``?scope=ingestion|export``, pagination)
 * ``GET  /sync-schedules/{id}``     — read one schedule
+* ``POST /sync-schedules/preview``  — preview next instants of a
+  *proposed* (not-yet-saved) schedule; stateless, no row required
 * ``GET  /sync-schedules/{id}/preview`` — server-computed next 3 instants
+  of the *stored* schedule
 * ``PATCH /sync-schedules/{id}``    — update schedule/timezone/enabled
   (requires ``sync:write``; optimistic ``version`` → HTTP 409 on stale)
 * ``POST /sync-schedules/{id}/reset`` — restore the default schedule
@@ -20,7 +23,7 @@ another tenant behave exactly like missing ids (uniform 404, no
 existence leak).
 """
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -29,7 +32,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from finance_sync.api.deps.auth import AuthContext, require_permission
 from finance_sync.dependencies import get_db
-from finance_sync.models.sync_schedule import SCOPE_EXPORT, SCOPE_INGESTION
+from finance_sync.models.sync_schedule import (
+    DEFAULT_TIMEZONE,
+    SCOPE_EXPORT,
+    SCOPE_INGESTION,
+)
 from finance_sync.services.sync_schedule import (
     ScheduleConflictError,
     ScheduleNotFoundError,
@@ -41,6 +48,10 @@ from finance_sync.sync.schedule_spec import (
     MIN_INTERVAL_HOURS,
     SUPPORTED_FREQUENCIES,
     ScheduleValidationError,
+    human_readable,
+    next_run_instants,
+    validate_schedule,
+    validate_timezone,
 )
 
 router = APIRouter(prefix="/sync-schedules", tags=["sync-schedules"])
@@ -118,6 +129,32 @@ class SchedulePreviewResponse(BaseModel):
     next_runs: list[datetime]
     human_readable: str
     timezone: str
+
+
+class ProposedSchedulePreviewRequest(BaseModel):
+    """Preview the next occurrences of a *proposed* schedule.
+
+    The UI editor sends the not-yet-saved values here so the live
+    preview is computed by the same pure function the worker uses —
+    never a client-side approximation.  No row is created or modified.
+    """
+
+    schedule: dict[str, Any] = Field(
+        description=(
+            "Recurrence: {frequency: daily|weekdays|weekly|hourly, "
+            "time: 'HH:MM', weekdays: [0-6], interval_hours: N}"
+        ),
+    )
+    timezone: str = Field(
+        default=DEFAULT_TIMEZONE,
+        description="IANA timezone name (e.g. Europe/Amsterdam)",
+    )
+    count: int = Field(
+        default=3,
+        ge=1,
+        le=10,
+        description="Number of next instants to return (default 3)",
+    )
 
 
 # ── Serialisation helpers ─────────────────────────────────────────────
@@ -201,6 +238,45 @@ async def list_schedules(
         total=len(rows),
         limit=limit,
         offset=offset,
+    )
+
+
+@router.post(
+    "/preview",
+    response_model=SchedulePreviewResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def preview_proposed_schedule(
+    body: ProposedSchedulePreviewRequest,
+    _auth: AuthContext = Depends(require_permission("sync", "read")),
+) -> SchedulePreviewResponse:
+    """Preview the next instants of a *proposed* schedule.
+
+    Stateless: validates the submitted recurrence + timezone with the
+    same pure function the worker uses and returns the next *count*
+    instants plus a human-readable summary.  Nothing is persisted and
+    no row is required — the UI live-preview calls this before saving.
+
+    ``id`` is empty because there is no stored schedule yet.
+    """
+    try:
+        # Validate + normalise first so invalid input yields a clear
+        # 422 (compute_next_run swallows errors and returns None).
+        normalised = validate_schedule(body.schedule, timezone=body.timezone)
+        validate_timezone(body.timezone)
+        instants = next_run_instants(
+            normalised,
+            timezone=body.timezone,
+            after=datetime.now(UTC),
+            count=body.count,
+        )
+    except ScheduleValidationError as exc:
+        raise _validation_error(exc) from None
+    return SchedulePreviewResponse(
+        id="",
+        next_runs=instants,
+        human_readable=human_readable(normalised, timezone=body.timezone),
+        timezone=body.timezone,
     )
 
 

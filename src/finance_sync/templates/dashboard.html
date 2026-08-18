@@ -2401,60 +2401,26 @@
             const previewEl = modal.querySelector('#sched-preview');
             const errorEl = modal.querySelector('#sched-error');
             errorEl.style.display = 'none';
+            previewEl.setAttribute('aria-busy', 'true');
             try {
-                // Server-side validation: POST a throwaway PATCH? No —
-                // use the preview endpoint with a body-free GET is not
-                // possible; instead validate client-side then fetch a
-                // preview via the same endpoint the UI would save with.
-                // The preview endpoint computes from the stored schedule,
-                // so for live preview we simulate locally and validate
-                // server-side on save.  For the live preview we reuse the
-                // server preview only when nothing changed; otherwise we
-                // compute the next three instants client-side in UTC.
-                previewEl.innerHTML = await localPreviewHtml(vals);
+                // Server-side validation + computation: the proposed
+                // schedule is sent to POST /sync-schedules/preview, which
+                // runs the same pure function the worker uses.  Invalid
+                // values return a clear 422 that we surface verbatim.
+                const preview = await api('POST', '/sync-schedules/preview', {
+                    schedule: vals.schedule,
+                    timezone: vals.timezone,
+                    count: 3,
+                });
+                previewEl.innerHTML = preview.next_runs.length
+                    ? `<strong>Volgende momenten:</strong><br>${preview.next_runs.map(d => new Date(d).toLocaleString()).join('<br>')}`
+                    : 'Geen geplande momenten (schema uitgeschakeld of ongeldig).';
             } catch (e) {
                 errorEl.style.display = 'block';
                 errorEl.textContent = 'Ongeldig schema: ' + (e.message || 'controleer de waarden');
+            } finally {
+                previewEl.setAttribute('aria-busy', 'false');
             }
-        }
-
-        function localPreviewHtml(vals) {
-            const { schedule, timezone } = vals;
-            // Client-side approximation of the next three instants (the
-            // server remains authoritative on save).  Weekdays map to the
-            // schedule's own timezone via Intl; DST edge cases are
-            // handled server-side.
-            const freq = schedule.frequency;
-            const now = new Date();
-            const instants = [];
-            let cursor = new Date(now);
-            if (freq === 'hourly') {
-                const iv = schedule.interval_hours || 24;
-                cursor.setHours(cursor.getHours() + iv);
-                instants.push(new Date(cursor));
-                cursor = new Date(cursor); cursor.setHours(cursor.getHours() + iv);
-                instants.push(new Date(cursor));
-                cursor = new Date(cursor); cursor.setHours(cursor.getHours() + iv);
-                instants.push(new Date(cursor));
-            } else {
-                const [h, m] = (schedule.time || '07:00').split(':').map(Number);
-                const allowed = schedule.frequency === 'weekly' ? (schedule.weekdays || []) : (schedule.frequency === 'weekdays' ? [1, 2, 3, 4, 5] : [0, 1, 2, 3, 4, 5, 6]);
-                let guard = 0;
-                while (instants.length < 3 && guard < 400) {
-                    guard++;
-                    cursor = new Date(cursor.getTime() + 86400000);
-                    const jsDay = cursor.getDay(); // 0=Sun
-                    const isoDay = jsDay === 0 ? 7 : jsDay;
-                    const allowedIso = allowed.map(d => d === 0 ? 7 : d);
-                    if (allowedIso.includes(isoDay)) {
-                        const candidate = new Date(cursor);
-                        candidate.setHours(h, m, 0, 0);
-                        if (candidate > now) instants.push(candidate);
-                    }
-                }
-            }
-            if (!instants.length) return 'Geen geplande momenten in de nabije toekomst.';
-            return `<strong>Volgende momenten:</strong><br>${instants.map(d => d.toLocaleString() + ' (lokale tijd)').join('<br>')}`;
         }
 
         async function saveSchedule(scheduleId, version) {

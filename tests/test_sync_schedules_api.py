@@ -469,6 +469,140 @@ class TestScheduleApi:
             )
             assert written.status_code == 403
 
+    # ═══════════════════════════════════════════════════════════════
+    # POST /sync-schedules/preview — proposed-schedule preview
+    # ═══════════════════════════════════════════════════════════════
+
+    def test_proposed_preview_weekdays_three_instants(
+        self, app: FastAPI, session_factory
+    ) -> None:
+        app.dependency_overrides[get_auth_context] = _auth_override(
+            str(uuid4()), permissions="sync:read"
+        )
+        with TestClient(app) as client:
+            resp = client.post(
+                "/api/v1/sync-schedules/preview",
+                json={
+                    "schedule": {
+                        "frequency": "weekdays",
+                        "time": "07:00",
+                    },
+                    "timezone": "UTC",
+                    "count": 3,
+                },
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["id"] == ""  # proposed, not stored
+        assert len(data["next_runs"]) == 3
+        parsed = [datetime.fromisoformat(d) for d in data["next_runs"]]
+        assert parsed == sorted(parsed)
+        assert all(d.tzinfo is not None for d in parsed)
+        assert data["human_readable"] == "Elke werkdag om 07:00"
+        assert data["timezone"] == "UTC"
+
+    def test_proposed_preview_hourly_interval(
+        self, app: FastAPI, session_factory
+    ) -> None:
+        app.dependency_overrides[get_auth_context] = _auth_override(
+            str(uuid4()), permissions="sync:read"
+        )
+        with TestClient(app) as client:
+            resp = client.post(
+                "/api/v1/sync-schedules/preview",
+                json={
+                    "schedule": {
+                        "frequency": "hourly",
+                        "interval_hours": 6,
+                    },
+                    "timezone": "Europe/Amsterdam",
+                },
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data["next_runs"]) == 3
+        assert data["human_readable"] == "Elke 6 uur"
+
+    def test_proposed_preview_validates_and_returns_422(
+        self, app: FastAPI, session_factory
+    ) -> None:
+        app.dependency_overrides[get_auth_context] = _auth_override(
+            str(uuid4()), permissions="sync:read"
+        )
+        bad_bodies = [
+            {"schedule": {"frequency": "bogus"}},
+            {
+                "schedule": {
+                    "frequency": "weekly",
+                    "time": "07:00",
+                    "weekdays": [],
+                }
+            },
+            {"schedule": {"frequency": "hourly", "interval_hours": 0}},
+            {"schedule": {"frequency": "daily", "time": "25:99"}},
+            {
+                "schedule": {"frequency": "daily", "time": "08:00"},
+                "timezone": "Mars/Olympus",
+            },
+        ]
+        with TestClient(app) as client:
+            for body in bad_bodies:
+                resp = client.post("/api/v1/sync-schedules/preview", json=body)
+                assert resp.status_code == 422, f"{body} -> {resp.status_code}"
+                assert resp.json()["detail"]
+
+    def test_proposed_preview_requires_sync_read(
+        self, app: FastAPI, session_factory
+    ) -> None:
+        app.dependency_overrides[get_auth_context] = _auth_override(
+            str(uuid4()), permissions="transactions:read"
+        )
+        with TestClient(app) as client:
+            resp = client.post(
+                "/api/v1/sync-schedules/preview",
+                json={
+                    "schedule": {"frequency": "daily", "time": "08:00"},
+                    "timezone": "UTC",
+                },
+            )
+        assert resp.status_code == 403
+
+    def test_proposed_preview_default_count_is_three(
+        self, app: FastAPI, session_factory
+    ) -> None:
+        app.dependency_overrides[get_auth_context] = _auth_override(
+            str(uuid4()), permissions="sync:read"
+        )
+        with TestClient(app) as client:
+            resp = client.post(
+                "/api/v1/sync-schedules/preview",
+                json={
+                    "schedule": {"frequency": "daily", "time": "09:00"},
+                    "timezone": "UTC",
+                },
+            )
+        assert resp.status_code == 200
+        assert len(resp.json()["next_runs"]) == 3
+
+    def test_proposed_preview_does_not_persist(
+        self, app: FastAPI, session_factory
+    ) -> None:
+        app.dependency_overrides[get_auth_context] = _auth_override(
+            str(uuid4()), permissions="sync:read"
+        )
+        with TestClient(app) as client:
+            resp = client.post(
+                "/api/v1/sync-schedules/preview",
+                json={
+                    "schedule": {"frequency": "daily", "time": "08:00"},
+                    "timezone": "UTC",
+                },
+            )
+            assert resp.status_code == 200
+            listed = client.get("/api/v1/sync-schedules")
+        assert listed.status_code == 200
+        assert listed.json()["total"] == 0
+
 
 async def _load_audits(factory, tenant_id: str) -> list[ConnectionAuditLog]:
     async with factory() as session:
