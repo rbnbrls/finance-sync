@@ -142,3 +142,13 @@ serverberekend via `POST /sync-schedules/preview`), opslaan,
 annuleren en standaard herstellen; laden/opslaan/fouten worden met
 zichtbare tekst gecommuniceerd. De pagina blijft mobiel bruikbaar en
 volledig via toetsenbord bedienbaar.
+
+De runhistorie eronder toont per run id, connector, status, start- en
+voltooidtijd, aantal verwerkte items en een zichtbare foutmelding.
+Boven de tabel staat een statusoverzicht (per status het aantal runs,
+gebaseerd op `status_counts` van `/sync-runs`) dat als filter werkt, een
+connector- en statusfilter (via `?connector=`/`?status=`) en paginering
+(`?limit=`/`?offset=` met `total`). Filters en paginering gebruiken
+dezelfde laad-/foutstatussen als de planning; statuslabels zijn leesbaar
+(Bezig/Voltooid/Mislukt/Geannuleerd) in plaats van ruwe enum-waarden.
+
