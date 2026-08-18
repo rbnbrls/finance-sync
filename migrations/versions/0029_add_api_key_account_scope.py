@@ -1,7 +1,7 @@
 """Add optional account scope to machine API keys.
 
-Revision ID: 0024
-Revises: 0023
+Revision ID: 0029
+Revises: 0028
 """
 
 from __future__ import annotations
@@ -10,8 +10,8 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision = "0024"
-down_revision = "0023"
+revision = "0029"
+down_revision = "0028"
 branch_labels = None
 depends_on = None
 

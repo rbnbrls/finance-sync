@@ -1,14 +1,14 @@
 """Scope exporter mappings and cursors by destination target.
 
-Revision ID: 0022
-Revises: 0021
+Revision ID: 0027
+Revises: 0026
 """
 
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0022"
-down_revision = "0021"
+revision = "0027"
+down_revision = "0026"
 branch_labels = None
 depends_on = None
 

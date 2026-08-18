@@ -120,7 +120,9 @@ class StubActualBudgetExporter:
 
 
 @pytest.fixture(autouse=True)
-def _stub_external_clients(monkeypatch: pytest.MonkeyPatch) -> None:
+def _stub_external_clients(  # pyright: ignore[reportUnusedFunction]
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Replace Wealthfolio/Actual Budget client+exporter classes with
     stubs so no live server is contacted during the wizard E2E."""
     monkeypatch.setattr(

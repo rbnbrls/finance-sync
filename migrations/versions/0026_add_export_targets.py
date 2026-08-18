@@ -1,7 +1,7 @@
 """Add stored optional downstream destinations.
 
-Revision ID: 0021
-Revises: 0020
+Revision ID: 0026
+Revises: 0022
 Create Date: 2026-08-18
 """
 
@@ -11,8 +11,8 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision = "0021"
-down_revision = "0020"
+revision = "0026"
+down_revision = "0022"
 branch_labels = None
 depends_on = None
 

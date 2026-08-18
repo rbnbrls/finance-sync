@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypedDict
 
 import httpx
 import pytest
@@ -21,11 +21,17 @@ if TYPE_CHECKING:
     from finance_sync.config.settings import Settings
 
 
+class SeededTenant(TypedDict):
+    tenant_id: str
+    user_id: str
+    headers: dict[str, str]
+
+
 @pytest.fixture
 async def seeded_destination_tenant(
     session_factory: async_sessionmaker[AsyncSession],
     e2e_settings: Settings,
-) -> dict[str, str]:
+) -> SeededTenant:
     """A single-owner tenant + admin user with valid JWT headers."""
     async with session_factory() as session, UnitOfWork(session) as uow:
         tenant = await uow.tenants.add(

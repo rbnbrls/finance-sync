@@ -1,14 +1,14 @@
 """Add an optimistic version to stored destinations.
 
-Revision ID: 0023
-Revises: 0022
+Revision ID: 0028
+Revises: 0027
 """
 
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0023"
-down_revision = "0022"
+revision = "0028"
+down_revision = "0027"
 branch_labels = None
 depends_on = None
 

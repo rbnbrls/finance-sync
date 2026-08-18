@@ -7,8 +7,8 @@ the account ``visibility`` column that only the sharing feature used.
 ``owner_user_id`` stays: it remains a provenance chain (user → connection
 → account) for the canonical datalake, not a sharing boundary.
 
-Revision ID: 0025
-Revises: 0024
+Revision ID: 0030
+Revises: 0029
 """
 
 from __future__ import annotations
@@ -16,8 +16,8 @@ from __future__ import annotations
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0025"
-down_revision = "0024"
+revision = "0030"
+down_revision = "0029"
 branch_labels = None
 depends_on = None
 

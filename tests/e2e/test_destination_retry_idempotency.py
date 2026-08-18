@@ -95,7 +95,9 @@ class FakeActualBudgetClient:
 
 
 @pytest.fixture(autouse=True)
-def _stub_ab_client(monkeypatch: pytest.MonkeyPatch) -> FakeActualBudgetClient:
+def _stub_ab_client(  # pyright: ignore[reportUnusedFunction]
+    monkeypatch: pytest.MonkeyPatch,
+) -> FakeActualBudgetClient:
     stub = FakeActualBudgetClient(object())
     monkeypatch.setattr(
         "finance_sync.exporter.actual_budget.client.ActualBudgetClient",
