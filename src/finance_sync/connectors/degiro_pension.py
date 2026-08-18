@@ -821,7 +821,10 @@ class DegiroPensionConnector(Connector):
                 )
                 if _currency(local_value_raw, default=""):
                     local_value_raw = row.after(
-                        "Slotkoers", "Closing price", "Koers", "Price",
+                        "Slotkoers",
+                        "Closing price",
+                        "Koers",
+                        "Price",
                         offset=2,
                     )
                 local_value = _decimal(local_value_raw)
