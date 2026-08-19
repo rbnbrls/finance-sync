@@ -372,8 +372,7 @@ async def detect_subscriptions(
     validated confidence scores.
 
     The analysis is scoped to the principal's visible accounts — outgoing
-    transactions on another household member's *private* accounts never
-    enter detection.
+    transactions outside the account scope never enter detection.
 
     Response items do **not** include database IDs — the results are
     ephemeral detection outputs.  Use ``POST /{id}/confirm`` on an
@@ -507,8 +506,7 @@ async def get_detected_subscriptions(
     outgoing transactions and return currently detected subscriptions.
 
     The analysis is scoped to the principal's visible accounts — outgoing
-    transactions on another household member's *private* accounts never
-    enter detection.
+    transactions outside the account scope never enter detection.
 
     Response items do **not** include database IDs — the results are
     ephemeral detection outputs.  Use ``POST /{id}/confirm`` on an
@@ -568,7 +566,7 @@ async def list_subscriptions(
     """List detected subscriptions for the tenant.
 
     Scoped to the principal's visible accounts: subscriptions detected
-    from another household member's *private* accounts are never listed.
+    from accounts outside the scope are never listed.
     """
     container = get_container(request)
     svc = SubscriptionDetector(

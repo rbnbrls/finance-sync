@@ -264,8 +264,8 @@ class SubscriptionDetectionService:
             date_to: Latest transaction date (default now).
             account_ids: Optional SQL predicate over ``Account.id`` (e.g.
                 ``ReadScope.account_ids_subquery()``) restricting the
-                analysis to visible accounts (household visibility
-                scoping).  Only outgoing transactions on those accounts
+                analysis to visible accounts (account-scope scoping).  Only outgoing
+                transactions on those accounts
                 are considered.
 
         Returns:
@@ -1096,7 +1096,7 @@ class SubscriptionDetectionService:
         Requires ``session_factory`` to have been provided at
         construction.  When ``account_ids`` is given (a SQL predicate
         such as ``scope.account_ids_subquery()``), only transactions on
-        those accounts are returned (household visibility scoping).
+        those accounts are returned (account-scope scoping).
         """
         if date_from is None:
             date_from = datetime.now(UTC) - timedelta(days=_DEFAULT_DAYS_BACK)

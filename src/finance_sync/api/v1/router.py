@@ -17,13 +17,15 @@ from finance_sync.api.v1.connectors_config import (
 )
 from finance_sync.api.v1.datamarts import router as datamarts_router
 from finance_sync.api.v1.degiro_imports import router as degiro_imports_router
+from finance_sync.api.v1.destinations import router as destinations_router
 from finance_sync.api.v1.dividends import router as dividends_router
 from finance_sync.api.v1.enrichment import router as enrichment_router
-from finance_sync.api.v1.exporters import router as exporters_router
 from finance_sync.api.v1.feedback import router as feedback_router
 from finance_sync.api.v1.ha_integration import router as ha_integration_router
 from finance_sync.api.v1.holdings import router as holdings_router
-from finance_sync.api.v1.household import router as household_router
+from finance_sync.api.v1.legacy_exporters import (
+    router as legacy_exporters_router,
+)
 from finance_sync.api.v1.market_intelligence import (
     router as market_intelligence_router,
 )
@@ -55,9 +57,10 @@ router.include_router(ai_summary_router)
 router.include_router(cashflow_router)
 router.include_router(connectors_config_router)
 router.include_router(degiro_imports_router)
+router.include_router(destinations_router)
 router.include_router(datamarts_router)
 router.include_router(enrichment_router)
-router.include_router(exporters_router)
+router.include_router(legacy_exporters_router)
 router.include_router(feedback_router)
 router.include_router(securities_router)
 router.include_router(accounts_router)
@@ -76,7 +79,6 @@ router.include_router(scheduled_payments_router)
 router.include_router(card_transactions_router)
 router.include_router(transactions_router)
 router.include_router(holdings_router)
-router.include_router(household_router)
 router.include_router(market_intelligence_router)
 router.include_router(dividends_router)
 router.include_router(prices_router)

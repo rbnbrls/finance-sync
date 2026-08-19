@@ -33,6 +33,7 @@ Redis dependency.
 
 from __future__ import annotations
 
+import json
 import traceback
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
@@ -40,12 +41,14 @@ from typing import TYPE_CHECKING, Any
 import structlog
 from sqlalchemy import select, update
 
-from finance_sync.models import Credential, SyncSchedule
+from finance_sync.models import Account, Credential, ExportTarget, SyncSchedule
+from finance_sync.models.export_target import TARGET_ACTIVE
 from finance_sync.models.sync_schedule import (
     EXPORT_SCHEDULABLE_EXPORTERS,
     SCOPE_EXPORT,
     SCOPE_INGESTION,
 )
+from finance_sync.services.auth import decrypt_credential
 from finance_sync.services.sync_schedule import (
     CATCHUP_MAX_DELAY_DAYS,
     compute_next_run,
@@ -228,22 +231,43 @@ async def _run_ingestion(
     }
 
 
-async def _run_export(
+async def run_export(
     container: Container,
     *,
     schedule: SyncSchedule,
 ) -> dict[str, Any]:
     """Run one export schedule via the existing exporter flow."""
     settings: Settings = container.settings
-    exporter_key = schedule.target_id
+    exporter_key, separator, target_id = schedule.target_id.partition(":")
     if exporter_key not in EXPORT_SCHEDULABLE_EXPORTERS:
         return {"status": "skipped", "reason": "unknown_exporter"}
+
+    target: ExportTarget | None = None
+    target_secret: dict[str, Any] = {}
+    if separator:
+        async with container.session_factory() as session:
+            target = await session.scalar(
+                select(ExportTarget).where(
+                    ExportTarget.id == target_id,
+                    ExportTarget.tenant_id == schedule.tenant_id,
+                    ExportTarget.target_type == exporter_key,
+                )
+            )
+        if target is None or target.status != TARGET_ACTIVE:
+            return {"status": "skipped", "reason": "target_inactive"}
+        if not target.encrypted_secret or not target.secret_nonce:
+            return {"status": "skipped", "reason": "target_unconfigured"}
+        target_secret = json.loads(
+            decrypt_credential(
+                target.encrypted_secret, target.secret_nonce, settings
+            )
+        )
 
     if exporter_key == "wealthfolio":
         # Reuse the same gating + flow as the historical sweep job.
         if not settings.worker_job_export_enabled:
             return {"status": "skipped", "reason": "global_gate_disabled"}
-        if (
+        if not target and (
             not settings.wealthfolio_server_url
             or not settings.wealthfolio_password
         ):
@@ -259,10 +283,30 @@ async def _run_export(
         )
 
         wf_config = WealthfolioConfig.from_settings(settings)
+        if target:
+            # Only non-secret mapper preferences are allowed in the target.
+            wf_config = WealthfolioConfig.model_validate(
+                {
+                    **wf_config.model_dump(),
+                    **{
+                        key: value
+                        for key, value in target.configuration.items()
+                        if key in WealthfolioConfig.model_fields
+                    },
+                }
+            )
         wf_client = WealthfolioClient(
             config=WealthfolioClientConfig(
-                base_url=settings.wealthfolio_server_url,
-                password=settings.wealthfolio_password,
+                base_url=(
+                    target.configuration["server_url"]
+                    if target
+                    else settings.wealthfolio_server_url
+                ),
+                password=(
+                    target_secret["password"]
+                    if target
+                    else settings.wealthfolio_password
+                ),
             ),
         )
         await wf_client.authenticate()
@@ -270,24 +314,60 @@ async def _run_export(
             session_factory=container.session_factory,
             wf_config=wf_config,
             tenant_id=str(schedule.tenant_id),
+            target_id=(str(target.id) if target else "legacy"),
         )
-        result = await exporter.push_to_wealthfolio(wf_client=wf_client)
-        status = getattr(result, "status", "completed") or "completed"
-        error = getattr(result, "error_message", None)
+        accounts = None
+        if target and target.selected_account_ids:
+            async with container.session_factory() as session:
+                accounts = list(
+                    (
+                        await session.scalars(
+                            select(Account).where(
+                                Account.tenant_id == schedule.tenant_id,
+                                Account.id.in_(target.selected_account_ids),
+                            )
+                        )
+                    ).all()
+                )
+        result = await exporter.push_to_wealthfolio(
+            wf_client=wf_client, accounts=accounts
+        )
+        errors = list(result.get("errors") or [])
+        status = "failed" if errors or result.get("failed", 0) else "completed"
+        error = str(errors[0].get("error", "Export failed")) if errors else None
         return {"status": status, "error": error}
 
     # actual-budget: run the export cycle through its exporter.
     if exporter_key == "actual-budget":
+        from finance_sync.exporter.actual_budget.config import (
+            ActualBudgetConfig,
+        )
         from finance_sync.exporter.actual_budget.exporter import (
             ActualBudgetExporter,
         )
 
+        if target:
+            ab_config = ActualBudgetConfig(
+                server_url=target.configuration["server_url"],
+                password=target_secret["password"],
+                budget_name=target.configuration.get("budget_name") or None,
+                sync_id=target.configuration.get("sync_id") or None,
+                encryption_password=target_secret.get("encryption_password"),
+                default_off_budget=bool(
+                    target.configuration.get("default_off_budget", False)
+                ),
+            )
+        else:
+            ab_config = ActualBudgetConfig.from_settings(settings)
         exporter = ActualBudgetExporter(
             session_factory=container.session_factory,
-            settings=settings,
+            ab_config=ab_config,
             tenant_id=str(schedule.tenant_id),
+            target_id=(str(target.id) if target else "legacy"),
         )
-        result = await exporter.run_export()
+        result = await exporter.run_export(
+            account_ids=(target.selected_account_ids if target else None)
+        )
         return {
             "status": getattr(result, "status", "completed") or "completed",
             "error": getattr(result, "error_message", None),
@@ -371,7 +451,7 @@ async def run_due_schedules(container: Container) -> dict[str, Any]:
                 if schedule.scope == SCOPE_INGESTION:
                     outcome = await _run_ingestion(container, schedule=schedule)
                 elif schedule.scope == SCOPE_EXPORT:
-                    outcome = await _run_export(container, schedule=schedule)
+                    outcome = await run_export(container, schedule=schedule)
                 else:
                     outcome = {"status": "skipped", "reason": "unknown_scope"}
             except Exception as exc:  # never block sibling schedules

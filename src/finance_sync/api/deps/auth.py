@@ -298,22 +298,25 @@ def require_role(*allowed_roles: str) -> Any:
     return _role_check
 
 
-# ── Read scope (household visibility) ────────────────────────────────
+# ── Read scope (single-owner account scope) ─────────────────────────
 
 
 def get_read_scope(
     auth: AuthContext = Depends(get_auth_context),
 ) -> Any:
-    """Resolve the household visibility scope for the authenticated
-    principal.
+    """Resolve the account read scope for the authenticated principal.
 
-    JWT users get their user scope (household + own private + admin
-    unowned); API-key principals get the machine scope (household +
-    system-owned only).  Pass the result to ``ReadService`` /
-    derived services to enforce the visibility policy.
+    JWT users (the tenant's sole owner) read every account in the tenant;
+    API-key principals get the machine scope (their account allowlist when
+    the key carries one, otherwise the whole tenant datalake).  Pass the
+    result to ``ReadService`` / derived services to enforce the policy.
     """
     from finance_sync.services.visibility import ReadScope
 
     if auth.user is not None:
         return ReadScope.for_user(auth.user)
-    return ReadScope.for_api_key(auth.tenant_id)
+    key = auth.api_key_result.api_key if auth.api_key_result else None
+    return ReadScope.for_api_key(
+        auth.tenant_id,
+        account_scope=key.account_scope if key is not None else None,
+    )

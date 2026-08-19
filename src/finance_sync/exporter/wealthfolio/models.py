@@ -41,6 +41,7 @@ class WealthfolioAccountMapping(Base):
     __table_args__: ClassVar = (
         UniqueConstraint(
             "tenant_id",
+            "target_id",
             "account_id",
             name="uq_wealthfolio_mapping_account",
         ),
@@ -49,6 +50,9 @@ class WealthfolioAccountMapping(Base):
     id: Mapped[str] = pk_uuid()
     tenant_id: Mapped[str] = mapped_column(
         ForeignKey("tenants.id"), nullable=False, index=True
+    )
+    target_id: Mapped[str] = mapped_column(
+        String(64), nullable=False, default="legacy", server_default="legacy"
     )
 
     # ── Finance-sync side ───────────────────────────────────────────
@@ -97,6 +101,7 @@ class WealthfolioDelivery(Base):
     __table_args__: ClassVar = (
         UniqueConstraint(
             "tenant_id",
+            "target_id",
             "account_id",
             name="uq_wealthfolio_delivery_account",
         ),
@@ -105,6 +110,9 @@ class WealthfolioDelivery(Base):
     id: Mapped[str] = pk_uuid()
     tenant_id: Mapped[str] = mapped_column(
         ForeignKey("tenants.id"), nullable=False, index=True
+    )
+    target_id: Mapped[str] = mapped_column(
+        String(64), nullable=False, default="legacy", server_default="legacy"
     )
 
     # ── Finance-sync side ────────────────────────────────────────────

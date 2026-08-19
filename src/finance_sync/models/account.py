@@ -37,12 +37,11 @@ class Account(TimestampMixin, Base):
         ForeignKey("tenants.id"), nullable=False, index=True
     )
 
-    # ── Household ownership & visibility ────────────────────────────
+    # ── Provenance ───────────────────────────────────────────────────
     # ``owner_user_id`` is the user that imported/owns this account.
     # It is stored as a plain string (no FK) so the audit trail and
-    # account survive user deletion.  NULL means the account is
-    # system-owned (legacy / not yet claimed); only tenant admins can
-    # see unowned accounts.
+    # account survive user deletion.  In the single-owner model every
+    # account belongs to the tenant's sole owner.
     owner_user_id: Mapped[str | None] = mapped_column(
         String(64),
         nullable=True,
@@ -51,15 +50,6 @@ class Account(TimestampMixin, Base):
             "User id that owns this account (plain string, no FK); "
             "NULL = system-owned/legacy"
         ),
-    )
-    # Visibility policy: 'private' (owner + admins only) or 'household'
-    # (shared with every tenant member and the shared Wealthfolio export).
-    visibility: Mapped[str] = mapped_column(
-        String(16),
-        default="private",
-        nullable=False,
-        server_default="private",
-        comment="'private' or 'household' — see AccountVisibility",
     )
 
     # ── Provider identity ────────────────────────────────────────────

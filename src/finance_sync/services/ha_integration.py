@@ -111,10 +111,9 @@ class HomeAssistantService:
     ) -> None:
         self._session = session
         self._settings = settings
-        # The household visibility scope restricts the underlying
-        # ReadService to the principal's visible accounts, so the HA
-        # sensors never expose net worth / portfolio figures that
-        # include private accounts of other household members.
+        # The scope restricts the underlying ReadService to the principal's
+        # visible accounts, so HA sensors never expose figures outside the
+        # tenant's account scope.
         self._read_service = ReadService(session, scope=scope)
         self._log = logger.bind(service="ha_integration")
 

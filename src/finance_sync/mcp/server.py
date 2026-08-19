@@ -86,9 +86,8 @@ def _get_container(ctx: ServerContext) -> Container:
 async def _get_read_service(ctx: ServerContext) -> Any:
     """Create a ``ReadService`` scoped to the current request's session.
 
-    The service is constructed with the principal's household
-    visibility scope so private accounts of other household members are
-    never readable through MCP tools/resources.
+    The service is constructed with the principal's read scope so the
+    tenant's single-owner account scope is enforced.
     """
     from finance_sync.services.read_api import ReadService
 
@@ -99,11 +98,11 @@ async def _get_read_service(ctx: ServerContext) -> Any:
 
 
 async def _get_read_scope(ctx: ServerContext) -> Any:
-    """Resolve the household visibility scope for the MCP principal.
+    """Resolve the account read scope for the MCP principal.
 
-    JWT principals get their user scope (household + own private +
-    admin unowned); API-key principals get the machine scope (household
-    + system-owned only).
+    JWT principals get the user scope (the tenant's sole owner reads every
+    account); API-key principals get the machine scope (their account
+    allowlist when set, otherwise the whole tenant datalake).
     """
     from sqlalchemy import select
 
@@ -124,7 +123,7 @@ async def _get_read_scope(ctx: ServerContext) -> Any:
             user = result.scalar_one_or_none()
             if user is not None:
                 return ReadScope.for_user(user)
-    # Machine scope (API key) or unknown user → household + system-owned.
+    # Machine scope (API key) or unknown user → tenant datalake scope.
     return ReadScope.for_api_key(auth.tenant_id)
 
 

@@ -187,19 +187,12 @@
         .badge.disconnected { background: rgba(248, 113, 113, 0.15); color: var(--red); }
         .badge.pending { background: rgba(251, 191, 36, 0.15); color: var(--yellow); }
         .badge.unconfigured { background: rgba(139, 143, 163, 0.15); color: var(--text-muted); }
-        .badge.household { background: rgba(52, 211, 153, 0.15); color: var(--green); }
-        .badge.private { background: rgba(139, 143, 163, 0.15); color: var(--text-muted); }
-        .badge.role-admin { background: rgba(251, 191, 36, 0.15); color: var(--yellow); }
-        .badge.role-user { background: rgba(99, 102, 241, 0.15); color: var(--accent); }
-        .badge.role-readonly, .badge.role-viewer { background: rgba(139, 143, 163, 0.15); color: var(--text-muted); }
-
-        /* ── Household sharing ───────────────────────────────────────── */
-        .household-table {
+        .data-table {
             width: 100%;
             border-collapse: collapse;
             font-size: 0.9rem;
         }
-        .household-table th {
+        .data-table th {
             text-align: left;
             font-size: 0.75rem;
             text-transform: uppercase;
@@ -208,13 +201,13 @@
             padding: 8px 10px;
             border-bottom: 1px solid var(--border);
         }
-        .household-table td {
+        .data-table td {
             padding: 10px;
             border-bottom: 1px solid var(--border);
             vertical-align: middle;
         }
-        .household-table tr:last-child td { border-bottom: none; }
-        .household-table select {
+        .data-table tr:last-child td { border-bottom: none; }
+        .data-table select {
             background: var(--bg);
             color: var(--text);
             border: 1px solid var(--border);
@@ -316,8 +309,6 @@
         }
         .impact-list { margin: 12px 0 12px 18px; line-height: 1.7; }
         .impact-list strong { color: var(--text); }
-        .household-inline-form { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
-        .household-inline-form .form-group { margin: 0; }
         .visually-hidden {
             position: absolute;
             width: 1px;
@@ -880,13 +871,10 @@
                 <span class="icon" aria-hidden="true">&#9881;</span> Connectors
             </a>
             <a href="#" data-section="exporters" onclick="switchSection('exporters')">
-                <span class="icon" aria-hidden="true">&#10145;</span> Exporters
+                <span class="icon" aria-hidden="true">&#10145;</span> Bestemmingen
             </a>
             <a href="#" data-section="sync" data-perm="sync:read" onclick="switchSection('sync')">
                 <span class="icon" aria-hidden="true">&#8635;</span> Sync Runs
-            </a>
-            <a href="#" data-section="household" onclick="switchSection('household')">
-                <span class="icon" aria-hidden="true">&#127968;</span> Household
             </a>
             <a href="#" data-section="settings" onclick="switchSection('settings')">
                 <span class="icon" aria-hidden="true">&#9879;</span> Settings
@@ -909,8 +897,8 @@
             <div id="connector-list" aria-live="polite" aria-busy="true"></div>
         </div>
         <div id="section-exporters" class="hidden" role="region" aria-labelledby="exporters-title">
-            <h1 class="page-title" id="exporters-title">Exporters</h1>
-            <p class="page-subtitle">Configure export destinations and trigger data exports to Wealthfolio.</p>
+            <h1 class="page-title" id="exporters-title">Bestemmingen</h1>
+            <p class="page-subtitle">Je persoonlijke datalake werkt zonder gekoppelde app. Voeg optioneel Wealthfolio, Actual Budget of Jupyter toe als consument.</p>
             <div id="exporter-list" aria-live="polite" aria-busy="true"></div>
             <div id="exporter-runs" style="margin-top: 24px;"></div>
         </div>
@@ -919,58 +907,6 @@
             <p class="page-subtitle">Plan per connector en exporttarget wanneer data wordt opgehaald of afgeleverd, en bekijk de runhistorie.</p>
             <div id="sync-schedules" aria-live="polite" aria-busy="true"></div>
             <div id="sync-run-history" style="margin-top: 24px;"></div>
-        </div>
-        <div id="section-household" class="hidden" role="region" aria-labelledby="household-title">
-            <h1 class="page-title" id="household-title">Household</h1>
-            <p class="page-subtitle">Share selected accounts with the household and manage members. Only accounts you explicitly share are visible to other members or exported to the shared Wealthfolio instance — everything else stays private.</p>
-
-            <div class="card">
-                <div class="card-header">
-                    <h2 id="household-accounts-title">Account sharing</h2>
-                </div>
-                <p class="field-hint" style="margin-bottom:14px;">Share or make private the accounts you own. Before any change you will see exactly which transactions, holdings and balance snapshots would enter or leave the household view.</p>
-                <div id="household-accounts-list" aria-live="polite" aria-busy="true"></div>
-            </div>
-
-            <div class="card">
-                <div class="card-header">
-                    <h2 id="household-members-title">Members</h2>
-                </div>
-                <p class="field-hint" style="margin-bottom:14px;">Everyone in this household. Admins can change roles and remove members; removed members keep their private accounts (or leave them claimable by an admin).</p>
-                <div id="household-members-list" aria-live="polite" aria-busy="true"></div>
-            </div>
-
-            <div class="card hidden" id="household-invitations">
-                <div class="card-header">
-                    <h2 id="household-invitations-title">Invitations</h2>
-                </div>
-                <form class="household-inline-form" id="invite-form" onsubmit="inviteMember(event)" aria-label="Invite a new member">
-                    <div class="form-group">
-                        <label for="invite-email">Email address</label>
-                        <input type="email" id="invite-email" required aria-required="true" placeholder="partner@example.com" autocomplete="off">
-                    </div>
-                    <div class="form-group">
-                        <label for="invite-role">Role</label>
-                        <select id="invite-role" aria-label="Role to grant">
-                            <option value="user">user</option>
-                            <option value="readonly">readonly</option>
-                            <option value="viewer">viewer</option>
-                            <option value="admin">admin</option>
-                        </select>
-                    </div>
-                    <button type="submit" class="btn btn-primary" id="invite-submit">&#43; Invite member</button>
-                </form>
-                <p class="field-hint" style="margin-top:10px;">Invitations are single-use, expire after 7 days and the token is shown exactly once.</p>
-                <div id="household-invitations-list" aria-live="polite" style="margin-top:14px;"></div>
-            </div>
-
-            <div class="card hidden" id="household-audit-log">
-                <div class="card-header">
-                    <h2 id="household-audit-title">Audit log</h2>
-                </div>
-                <p class="field-hint" style="margin-bottom:14px;">Security-relevant household events — invitations, role changes, sharing decisions and removals.</p>
-                <div id="household-audit-list" aria-live="polite"></div>
-            </div>
         </div>
         <div id="section-settings" class="hidden" role="region" aria-labelledby="settings-title">
             <h1 class="page-title" id="settings-title">Settings</h1>
@@ -1207,7 +1143,6 @@
             if (name === 'connectors') loadConnectors();
             if (name === 'exporters') loadExporters();
             if (name === 'sync') loadSyncRuns();
-            if (name === 'household') loadHousehold();
         }
 
         // ── API calls ────────────────────────────────────────────────────
@@ -1892,7 +1827,7 @@
             openModal(modal);
             modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
 
-            const render = () => {
+            let render = () => {
                 const body = document.getElementById('accounts-body');
                 if (!accounts || !accounts.length) {
                     body.innerHTML = `
@@ -2231,12 +2166,153 @@
         }
 
         // ══════════════════════════════════════════════════════════════════
-        // EXPORTERS
-        // ══════════════════════════════════════════════════════════════════
+        let destinations = [];
+        const DESTINATION_INFO = {
+            wealthfolio: { name: 'Wealthfolio', description: 'Portfolio- en beleggingsanalyse op je eigen server.', datasets: ['accounts', 'transactions', 'holdings'] },
+            'actual-budget': { name: 'Actual Budget', description: 'Budgetten en cashflow op je eigen server.', datasets: ['accounts', 'transactions'] },
+            jupyter: { name: 'Jupyter Notebook', description: 'Read-only analyses op je persoonlijke datalake.', datasets: ['accounts', 'transactions', 'holdings', 'securities', 'prices'] },
+        };
 
-        let exporterTypes = [];
-        let exporterConfig = null;
-        let exportRuns = [];
+        async function loadExporters() {
+            const container = document.getElementById('exporter-list');
+            if (container) container.setAttribute('aria-busy', 'true');
+            try {
+                destinations = await api('GET', '/destinations');
+                renderExporters();
+            } catch (e) {
+                renderInlineError('exporter-list', 'Kon bestemmingen niet laden', e.message || 'De bestemmingenservice reageert niet.', loadExporters);
+            } finally {
+                if (container) container.setAttribute('aria-busy', 'false');
+            }
+        }
+
+        function renderExporters() {
+            const container = document.getElementById('exporter-list');
+            if (!container) return;
+            const cards = destinations.map(d => {
+                const info = DESTINATION_INFO[d.target_type] || { name: d.target_type, description: '' };
+                const badge = d.status === 'active' ? 'connected' : (d.status === 'paused' ? 'pending' : 'unconfigured');
+                const health = d.last_health_error ? `<p class="field-hint" style="color:var(--red);">${escapeHtml(d.last_health_error)}</p>` : '';
+                const run = d.target_type === 'jupyter' ? 'Read-only API-consument' : `Laatste run: ${d.last_run_at ? new Date(d.last_run_at).toLocaleString() : 'nog niet uitgevoerd'}${d.last_run_status ? ` (${escapeHtml(d.last_run_status)})` : ''}<br>Volgende run: ${d.next_run_at ? new Date(d.next_run_at).toLocaleString() : (d.status === 'active' ? 'wordt gepland' : '—')}`;
+                const runError = d.last_run_error ? `<p class="field-hint" style="color:var(--red);">Laatste syncfout: ${escapeHtml(d.last_run_error)}. Controleer de verbinding en kies daarna Sync nu.</p>` : '';
+                return `<div class="connector-card"><div class="top"><div class="name">${escapeHtml(d.display_name)}</div><span class="badge ${badge}">${escapeHtml(d.status)}</span></div>
+                    <div class="desc">${escapeHtml(info.description)}</div>
+                    <p class="field-hint">${d.selected_account_ids.length ? `${d.selected_account_ids.length} geselecteerde rekening(en)` : 'Alle rekeningen'} · ${escapeHtml((d.datasets || []).join(', '))}</p><p class="field-hint">${run}</p>${health}${runError}
+                    <div class="actions"><button class="btn btn-sm btn-primary" onclick="openDestinationWizard('${escapeHtml(d.id)}')">Bewerken</button>
+                    <button class="btn btn-sm" onclick="previewDestination('${escapeHtml(d.id)}')">Preview</button>
+                    ${d.target_type === 'jupyter' && d.status === 'active' ? `<button class="btn btn-sm" onclick="downloadJupyterNotebook('${escapeHtml(d.id)}')">Notebook downloaden</button><button class="btn btn-sm" onclick="rotateJupyterKey('${escapeHtml(d.id)}')">Sleutel roteren</button>` : ''}
+                    ${d.target_type !== 'jupyter' && d.status === 'active' ? `<button class="btn btn-sm btn-success" onclick="runDestination('${escapeHtml(d.id)}')">Sync nu</button>` : ''}
+                    ${d.schedule_id ? `<button class="btn btn-sm" onclick="openDestinationSchedule('${escapeHtml(d.schedule_id)}')">Planning</button>` : ''}
+                    <button class="btn btn-sm" onclick="destinationAction('${escapeHtml(d.id)}', '${d.status === 'active' ? 'pause' : 'activate'}')">${d.status === 'active' ? 'Pauzeren' : 'Activeren'}</button>
+                    <button class="btn btn-sm btn-danger" onclick="deleteDestination('${escapeHtml(d.id)}')">Verwijderen</button></div></div>`;
+            }).join('');
+            container.innerHTML = `<div class="connector-toolbar"><button class="btn btn-primary" onclick="openDestinationWizard()">+ Bestemming toevoegen</button></div>
+                ${cards ? `<div class="connector-grid">${cards}</div>` : '<div class="empty-state"><div class="icon">&#128451;</div><p>Nog geen bestemmingen. Je datalake blijft volledig bruikbaar; voeg alleen een analyse-app toe wanneer je die wilt gebruiken.</p><button class="btn btn-primary" onclick="openDestinationWizard()">Bestemming toevoegen</button></div>'}`;
+            const runs = document.getElementById('exporter-runs');
+            if (runs) runs.innerHTML = '';
+        }
+
+        function openDestinationWizard(targetId) {
+            const existing = targetId ? destinations.find(d => d.id === targetId) : null;
+            const state = { step: 1, id: targetId || null, target_type: existing?.target_type || 'wealthfolio', display_name: existing?.display_name || '', configuration: existing?.configuration || {}, selected_account_ids: existing?.selected_account_ids || [], datasets: existing?.datasets || [], secret: {}, accounts: null, actualBudgets: [] };
+            const modal = document.createElement('div');
+            modal.className = 'modal-overlay'; modal.id = 'destination-wizard-modal';
+            document.getElementById('modal-container').appendChild(modal);
+            const render = () => {
+                const info = DESTINATION_INFO[state.target_type];
+                const progress = `<p class="field-hint">Stap ${state.step} van 4 — ${['Kies bestemming', 'Verbind', 'Kies data', 'Activeer'][state.step - 1]}</p>`;
+                let body = '';
+                if (state.step === 1) body = `<div class="connector-grid">${Object.entries(DESTINATION_INFO).map(([key, item]) => `<button type="button" class="connector-card" style="text-align:left;cursor:pointer;${key === state.target_type ? 'outline:2px solid var(--accent);' : ''}" onclick="destinationWizardChoose('${key}')"><div class="name">${item.name}</div><div class="desc">${item.description}</div></button>`).join('')}</div><div class="form-group"><label for="dest-name">Naam</label><input id="dest-name" value="${escapeHtml(state.display_name)}" placeholder="Bijv. Mijn Wealthfolio"></div>`;
+                if (state.step === 2) { const actualBudgetFields = state.target_type === 'actual-budget' ? `<div class="form-group"><label for="dest-budget">Gevonden Actual Budget</label><select id="dest-budget"><option value="">Kies eerst via Budgetten ontdekken</option>${state.actualBudgets.map(b => `<option value="${escapeHtml(b.id)}" ${state.configuration.sync_id === b.sync_id ? 'selected' : ''}>${escapeHtml(b.name)}${b.encrypted ? ' (versleuteld)' : ''}</option>`).join('')}</select></div><div class="form-group"><label for="dest-encryption">Budget-encryptiewachtwoord (optioneel)</label><input id="dest-encryption" type="password" placeholder="Alleen voor versleutelde budgets"></div><label class="checkbox-wrap"><input type="checkbox" id="dest-off-budget" ${state.configuration.default_off_budget ? 'checked' : ''}> Nieuwe rekeningen als off-budget aanmaken</label><button class="btn btn-sm" onclick="destinationWizardDiscoverBudgets()">Budgetten ontdekken</button>` : ''; body = state.target_type === 'jupyter' ? `<p>Jupyter draait los van finance-sync. Bij activeren maken we een eenmalige read-only sleutel en starter-notebook voor je datalake.</p>` : `<div class="form-group"><label for="dest-url">Self-hosted server-URL</label><input id="dest-url" type="url" value="${escapeHtml(state.configuration.server_url || '')}" placeholder="https://finance.example.nl"></div><div class="form-group"><label for="dest-secret">${state.target_type === 'wealthfolio' ? 'Wealthfolio-wachtwoord' : 'Actual Budget-serverwachtwoord'}</label><input id="dest-secret" type="password" placeholder="${existing?.has_secret ? 'Ongewijzigd laten om bestaand geheim te behouden' : 'Vereist voor activering'}"></div>${actualBudgetFields}<button class="btn btn-sm" onclick="destinationWizardTest()">Verbinding testen</button><span id="destination-test-result" class="field-hint" role="status"></span>`; }
+                if (state.step === 3) { const accountChoices = state.accounts === null ? '<p class="field-hint">Rekeningen laden…</p>' : (state.accounts.length ? state.accounts.map(account => `<label class="checkbox-wrap"><input type="checkbox" class="dest-account" value="${escapeHtml(account.id)}" ${state.selected_account_ids.includes(account.id) ? 'checked' : ''}> ${escapeHtml(account.name)} <span class="field-hint">${escapeHtml(account.currency || '')}</span></label>`).join('') : '<p class="field-hint">Nog geen rekeningen. De bestemming blijft klaar voor toekomstige imports.</p>'); body = `<p class="field-hint">Kies datasets en optioneel individuele rekeningen. Zonder selectie mag de consument alle eigen rekeningen gebruiken.</p><div style="margin-bottom:14px;">${info.datasets.map(ds => `<label class="checkbox-wrap"><input type="checkbox" class="dest-dataset" value="${ds}" ${(state.datasets.length ? state.datasets : info.datasets).includes(ds) ? 'checked' : ''}> ${ds}</label>`).join('')}</div><h3 style="font-size:0.95rem;">Rekeningen</h3>${accountChoices}`; }
+                if (state.step === 4) body = `<div class="alert alert-info">finance-sync blijft de bron van waarheid. Deze bestemming is optioneel en kan later veilig worden gepauzeerd of verwijderd.</div><p><strong>${escapeHtml(state.display_name || info.name)}</strong> · ${escapeHtml(info.name)}</p><p class="field-hint">Na activering kun je een exportschema instellen op Sync Runs.</p>`;
+                modal.innerHTML = `<div class="modal" style="width:620px;" role="dialog" aria-modal="true" aria-labelledby="destination-wizard-title"><h2 id="destination-wizard-title">${state.id ? 'Bestemming bewerken' : 'Bestemming toevoegen'}</h2>${progress}<div id="destination-wizard-body">${body}</div><div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal()">Annuleren</button>${state.step > 1 ? '<button class="btn" onclick="destinationWizardBack()">Terug</button>' : ''}<button class="btn btn-primary" onclick="destinationWizardNext()">${state.step === 4 ? 'Opslaan en activeren' : 'Volgende'}</button></div></div>`;
+            };
+            window.destinationWizardChoose = key => { state.target_type = key; state.datasets = DESTINATION_INFO[key].datasets.slice(); render(); };
+            window.destinationWizardBack = () => { state.step--; render(); };
+            window.destinationWizardNext = async () => {
+                if (state.step === 1) { state.display_name = document.getElementById('dest-name').value.trim(); if (!state.display_name) return toast('Geef de bestemming een naam.', 'error'); }
+                if (state.step === 2 && state.target_type !== 'jupyter') { state.configuration.server_url = document.getElementById('dest-url').value.trim(); const secret = document.getElementById('dest-secret').value; if (secret) state.secret.password = secret; const budget = document.getElementById('dest-budget'); if (budget) { const selected = state.actualBudgets.find(b => b.id === budget.value); if (!selected) return toast('Ontdek en kies eerst een Actual Budget.', 'error'); state.configuration.budget_name = selected.name; state.configuration.sync_id = selected.sync_id; state.configuration.default_off_budget = document.getElementById('dest-off-budget').checked; const encryption = document.getElementById('dest-encryption').value; if (encryption) state.secret.encryption_password = encryption; } if (!state.configuration.server_url) return toast('Vul een server-URL in.', 'error'); }
+                if (state.step === 3) { state.datasets = Array.from(document.querySelectorAll('.dest-dataset:checked')).map(el => el.value); state.selected_account_ids = Array.from(document.querySelectorAll('.dest-account:checked')).map(el => el.value); }
+                if (state.step < 4) { state.step++; render(); return; }
+                try { const payload = { target_type: state.target_type, display_name: state.display_name, configuration: state.configuration, selected_account_ids: state.selected_account_ids, datasets: state.datasets, secret: state.secret }; const saved = state.id ? await api('PATCH', `/destinations/${state.id}`, payload) : await api('POST', '/destinations', payload); const activated = await api('POST', `/destinations/${saved.id}/activate`); if (activated.jupyter_bootstrap) { document.getElementById('destination-wizard-body').innerHTML = `<div class="alert alert-success"><strong>Bewaar deze sleutel nu.</strong> Hij wordt nooit opnieuw getoond.</div><label for="jupyter-api-key">Read-only Jupyter-sleutel</label><textarea id="jupyter-api-key" readonly style="width:100%;min-height:80px;">${escapeHtml(activated.jupyter_bootstrap.api_key)}</textarea><p class="field-hint">Stel hem in als <code>FINANCE_SYNC_JUPYTER_TOKEN</code> en gebruik de downloadbare starter-notebook uit de API-respons.</p>`; document.querySelector('#destination-wizard-modal .modal-footer').innerHTML = '<button class="btn btn-primary" onclick="closeModal(); loadExporters()">Ik heb de sleutel bewaard</button>'; return; } closeModal(); await loadExporters(); } catch (e) { toast(e.message || 'Opslaan mislukt.', 'error'); }
+            };
+        window.destinationWizardDiscoverBudgets = async () => {
+            let temp = null;
+            const result = document.getElementById('destination-test-result');
+            try {
+                result.textContent = 'Budgetten veilig ontdekken…';
+                const url = document.getElementById('dest-url').value.trim();
+                const password = document.getElementById('dest-secret').value;
+                if (!url || !password) throw new Error('Vul server-URL en wachtwoord in.');
+                state.configuration.server_url = url;
+                state.secret.password = password;
+                temp = await api('POST', '/destinations', { target_type: 'actual-budget', display_name: state.display_name || 'Budgetdiscovery', configuration: { server_url: url }, secret: { password }, datasets: DESTINATION_INFO['actual-budget'].datasets });
+                const discovered = await api('POST', `/destinations/${temp.id}/actual-budgets`);
+                state.actualBudgets = discovered.budgets || [];
+                result.textContent = state.actualBudgets.length ? 'Kies een gevonden budget en test daarna de verbinding.' : 'Geen beschikbare budgets gevonden.';
+                render();
+            } catch (e) {
+                result.textContent = e.message || 'Budgetdiscovery mislukt.';
+            } finally {
+                if (temp) { try { await api('DELETE', `/destinations/${temp.id}`); } catch (_) {} }
+            }
+        };
+        window.destinationWizardTest = async () => {
+            let temp = null;
+            const result = document.getElementById('destination-test-result');
+            try {
+                result.textContent = 'Controleren…';
+                const url = document.getElementById('dest-url').value.trim();
+                const password = document.getElementById('dest-secret').value;
+                const configuration = { ...state.configuration, server_url: url };
+                const secret = { ...state.secret };
+                if (password) secret.password = password;
+                if (state.target_type === 'actual-budget') {
+                    const selected = state.actualBudgets.find(b => b.id === document.getElementById('dest-budget').value);
+                    if (!selected) throw new Error('Ontdek en kies eerst een Actual Budget.');
+                    configuration.budget_name = selected.name;
+                    configuration.sync_id = selected.sync_id;
+                    configuration.default_off_budget = document.getElementById('dest-off-budget').checked;
+                    const encryption = document.getElementById('dest-encryption').value;
+                    if (encryption) secret.encryption_password = encryption;
+                }
+                temp = await api('POST', '/destinations', { target_type: state.target_type, display_name: state.display_name || 'Testverbinding', configuration, secret, datasets: DESTINATION_INFO[state.target_type].datasets });
+                const tested = await api('POST', `/destinations/${temp.id}/test`);
+                result.textContent = tested.message;
+            } catch (e) {
+                result.textContent = e.message || 'Test mislukt.';
+            } finally {
+                if (temp) { try { await api('DELETE', `/destinations/${temp.id}`); } catch (_) {} }
+            }
+        };
+            const loadAccounts = async () => { if (state.accounts !== null) return; try { const response = await api('GET', '/accounts?limit=200'); state.accounts = response.items || []; } catch (_) { state.accounts = []; } if (state.step === 3) render(); };
+            const originalRender = render; render = () => { originalRender(); if (state.step === 3) loadAccounts(); };
+            render(); openModal(modal);
+        }
+
+        async function previewDestination(id) { try { const result = await api('POST', `/destinations/${id}/preview`); const rows = result.accounts.map(account => `<li><strong>${escapeHtml(String(account.name))}</strong>${account.action ? ` — ${account.action === 'use_existing' ? `koppelen aan ${escapeHtml(String(account.actual_budget_account_name))}` : `aanmaken bij eerste sync (${account.off_budget ? 'off-budget' : 'on-budget'})`}` : ''}</li>`).join(''); const modal = document.createElement('div'); modal.className = 'modal-overlay'; modal.innerHTML = `<div class="modal" role="dialog" aria-modal="true"><h2>Datavoorvertoning</h2><p>${result.account_count} rekening(en) · ${escapeHtml(result.datasets.join(', '))}</p>${result.remote_accounts_read ? '<p class="field-hint">Actual Budget is alleen gelezen; er is niets extern geschreven.</p>' : '<p class="field-hint">Er is niets extern geschreven.</p>'}<ul>${rows || '<li>Geen rekeningen geselecteerd.</li>'}</ul><div class="modal-footer"><button class="btn btn-primary" onclick="closeModal()">Sluiten</button></div></div>`; document.getElementById('modal-container').appendChild(modal); openModal(modal); } catch (e) { toast(e.message || 'Preview mislukt.', 'error'); } }
+        async function runDestination(id) { try { const result = await api('POST', `/destinations/${id}/run`); toast(result.status === 'completed' ? 'Export is voltooid.' : `Exportstatus: ${result.status}${result.error ? ` — ${result.error}` : ''}`, result.status === 'completed' ? 'success' : 'error'); await loadExporters(); } catch (e) { toast(e.message || 'Export mislukt.', 'error'); } }
+        function openDestinationSchedule(scheduleId) { switchSection('sync'); setTimeout(() => openScheduleEditor(scheduleId), 0); }
+        async function rotateJupyterKey(id) { if (!confirm('De huidige Jupyter-sleutel stopt direct. Doorgaan?')) return; try { const result = await api('POST', `/destinations/${id}/jupyter-key/rotate`); const modal = document.createElement('div'); modal.className = 'modal-overlay'; modal.innerHTML = `<div class="modal" role="dialog" aria-modal="true"><h2>Nieuwe Jupyter-sleutel</h2><p>Bewaar deze sleutel nu; hij wordt nooit opnieuw getoond.</p><textarea readonly style="width:100%;min-height:80px;">${escapeHtml(result.api_key)}</textarea><div class="modal-footer"><button class="btn btn-primary" onclick="closeModal()">Ik heb de sleutel bewaard</button></div></div>`; document.getElementById('modal-container').appendChild(modal); openModal(modal); } catch (e) { toast(e.message || 'Sleutel roteren mislukt.', 'error'); } }
+        async function downloadJupyterNotebook(id) { try { const response = await fetch(`${API_BASE}/destinations/${encodeURIComponent(id)}/jupyter-notebook`, { headers: authHeaders() }); if (!response.ok) throw new Error((await response.json().catch(() => ({}))).detail || 'Notebook downloaden mislukt.'); const blob = await response.blob(); const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = 'finance-sync-datalake-starter.py'; link.click(); URL.revokeObjectURL(link.href); } catch (e) { toast(e.message || 'Notebook downloaden mislukt.', 'error'); } }
+        async function destinationAction(id, action) { try { const result = await api('POST', `/destinations/${id}/${action}`); if (result.jupiter_bootstrap) toast('Jupyter-sleutel is eenmalig aangemaakt; bewaar hem direct.', 'info'); await loadExporters(); } catch (e) { toast(e.message || 'Wijziging mislukt.', 'error'); } }
+        async function deleteDestination(id) { if (!confirm('Deze bestemming verwijderen? Je canonieke datalake blijft intact.')) return; try { await api('DELETE', `/destinations/${id}`); await loadExporters(); } catch (e) { toast(e.message || 'Verwijderen mislukt.', 'error'); } }
+
+        // ── Feedback button event wiring ────────────────────────────────
+        document.addEventListener('DOMContentLoaded', function () {
+            const btn = document.getElementById('feedback-trigger');
+            if (btn) {
+                btn.addEventListener('click', function () {
+                    document.dispatchEvent(new CustomEvent('open-feedback-form'));
+                });
+            }
+        });
+
+        // Listen for the custom event and open the feedback modal
+        document.addEventListener('open-feedback-form', function () {
+            openFeedbackModal();
+        });
 
         let syncSchedules = [];
         let syncRunHistory = [];
@@ -2746,659 +2822,6 @@
             loadSyncRuns();
         }
 
-        async function loadExporters() {
-            const container = document.getElementById('exporter-list');
-            if (container) container.setAttribute('aria-busy', 'true');
-            try {
-                const [types, config, runs] = await Promise.all([
-                    api('GET', '/exporters/types'),
-                    api('GET', '/exporters/config'),
-                    api('GET', '/exporters/runs?limit=10'),
-                ]);
-                exporterTypes = types || [];
-                exporterConfig = config || null;
-                exportRuns = (runs && runs.runs) || [];
-                renderExporters();
-                if (container) container.setAttribute('aria-busy', 'false');
-            } catch (e) {
-                renderInlineError('exporter-list', 'Could not load exporters', e.message || 'The exporters service did not respond.', loadExporters);
-                renderExportRuns();
-            }
-        }
-
-        function renderExporters() {
-            const container = document.getElementById('exporter-list');
-            if (!exporterTypes.length) {
-                container.innerHTML = `<div class="empty-state"><div class="icon">&#10145;</div><p>No exporters available.</p></div>`;
-                return;
-            }
-
-            let html = '<div class="connector-grid">';
-            for (const e of exporterTypes) {
-                const isConfigured = exporterConfig && exporterConfig.exporter_type === e.name;
-                const badgeClass = isConfigured ? 'connected' : 'unconfigured';
-                const badgeText = isConfigured ? 'Configured' : 'Not Configured';
-
-                html += `
-                    <div class="connector-card" data-exporter="${e.name}">
-                        <div class="top">
-                            <div class="name">${e.display_name}</div>
-                            <span class="badge ${badgeClass}" id="exporter-badge-${e.name}">${badgeText}</span>
-                        </div>
-                        <div class="desc">${e.description}</div>
-                        <div class="actions">
-                            <button class="btn btn-primary btn-sm" onclick="showExporterConfig('${e.name}')">&#9881; View Config</button>
-                            <button class="btn btn-success btn-sm" onclick="triggerExport('${e.name}')">&#9654; Run Export</button>
-                        </div>
-                        <div id="export-result-${e.name}" style="margin-top: 12px;"></div>
-                    </div>
-                `;
-            }
-            html += '</div>';
-            container.innerHTML = html;
-
-            renderExportRuns();
-        }
-
-        function renderExportRuns() {
-            const container = document.getElementById('exporter-runs');
-            if (!exportRuns.length) {
-                container.innerHTML = `
-                    <div class="card">
-                        <h2 style="font-size:1.05rem;font-weight:600;margin-bottom:16px;">Recent Export Runs</h2>
-                        <p style="color: var(--text-muted); font-size:0.9rem;">No export runs yet. Click "Run Export" to start your first export.</p>
-                    </div>
-                `;
-                return;
-            }
-
-            let rows = '';
-            for (const r of exportRuns) {
-                const badgeClass = r.status === 'completed' ? 'badge connected' : (r.status === 'failed' ? 'badge disconnected' : 'badge pending');
-                const startedAt = new Date(r.started_at).toLocaleString();
-                rows += `
-                    <tr>
-                        <td style="padding:8px 12px;border-bottom:1px solid var(--border);font-size:0.85rem;font-family:monospace;">${r.id.slice(0, 8)}</td>
-                        <td style="padding:8px 12px;border-bottom:1px solid var(--border);font-size:0.85rem;"><span class="${badgeClass}">${r.status}</span></td>
-                        <td style="padding:8px 12px;border-bottom:1px solid var(--border);font-size:0.85rem;">${startedAt}</td>
-                        <td style="padding:8px 12px;border-bottom:1px solid var(--border);font-size:0.85rem;">${r.transactions_attempted ?? '-'}</td>
-                        <td style="padding:8px 12px;border-bottom:1px solid var(--border);font-size:0.85rem;">${r.transactions_exported ?? '-'}</td>
-                        <td style="padding:8px 12px;border-bottom:1px solid var(--border);font-size:0.85rem;">
-                            ${r.error_message ? `<span style="color:var(--red);cursor:pointer;" title="${r.error_message.slice(0, 200)}">&#9888;</span>` : '-'}
-                        </td>
-                    </tr>
-                `;
-            }
-
-            container.innerHTML = `
-                <div class="card">
-                    <div class="card-header">
-                        <h2>Recent Export Runs</h2>
-                    </div>
-                    <div style="overflow-x:auto;">
-                        <table style="width:100%;border-collapse:collapse;">
-                            <thead>
-                                <tr>
-                                    <th style="padding:8px 12px;text-align:left;font-size:0.8rem;color:var(--text-muted);font-weight:600;border-bottom:2px solid var(--border);">ID</th>
-                                    <th style="padding:8px 12px;text-align:left;font-size:0.8rem;color:var(--text-muted);font-weight:600;border-bottom:2px solid var(--border);">Status</th>
-                                    <th style="padding:8px 12px;text-align:left;font-size:0.8rem;color:var(--text-muted);font-weight:600;border-bottom:2px solid var(--border);">Started</th>
-                                    <th style="padding:8px 12px;text-align:left;font-size:0.8rem;color:var(--text-muted);font-weight:600;border-bottom:2px solid var(--border);">Attempted</th>
-                                    <th style="padding:8px 12px;text-align:left;font-size:0.8rem;color:var(--text-muted);font-weight:600;border-bottom:2px solid var(--border);">Exported</th>
-                                    <th style="padding:8px 12px;text-align:left;font-size:0.8rem;color:var(--text-muted);font-weight:600;border-bottom:2px solid var(--border);">Error</th>
-                                </tr>
-                            </thead>
-                            <tbody>${rows}</tbody>
-                        </table>
-                    </div>
-                </div>
-            `;
-        }
-
-        function showExporterConfig(exporterType) {
-            if (!exporterConfig || exporterConfig.exporter_type !== exporterType) {
-                toast('No configuration loaded for ' + exporterType, 'info');
-                return;
-            }
-
-            const modal = document.createElement('div');
-            modal.className = 'modal-overlay';
-            modal.id = 'exporter-config-modal';
-            modal.innerHTML = `
-                <div class="modal" style="width:540px;">
-                    <h2 id="exporter-config-title">${escapeHtml(exporterType.charAt(0).toUpperCase() + exporterType.slice(1))} Configuration</h2>
-                    <p style="color:var(--text-muted);font-size:0.85rem;margin-bottom:20px;">Configuration is read from environment variables.</p>
-                    <div class="form-group">
-                        <label for="exporter-output-dir">Output Directory</label>
-                        <input id="exporter-output-dir" type="text" value="${escapeHtml(String(exporterConfig.output_dir))}" readonly style="background:var(--surface-2);cursor:default;">
-                    </div>
-                    <div class="form-group">
-                        <label for="exporter-default-currency">Default Currency</label>
-                        <input id="exporter-default-currency" type="text" value="${escapeHtml(String(exporterConfig.default_currency))}" readonly style="background:var(--surface-2);cursor:default;">
-                    </div>
-                    <div class="form-group">
-                        <div class="checkbox-wrap">
-                            <input type="checkbox" ${exporterConfig.export_holdings ? 'checked' : ''} disabled id="exporter-export-holdings">
-                            <label for="exporter-export-holdings" style="margin:0;">Export Holdings</label>
-                        </div>
-                    </div>
-                    <div class="form-group">
-                        <div class="checkbox-wrap">
-                            <input type="checkbox" ${exporterConfig.include_pending ? 'checked' : ''} disabled id="exporter-include-pending">
-                            <label for="exporter-include-pending" style="margin:0;">Include Pending</label>
-                        </div>
-                    </div>
-                    ${Object.keys(exporterConfig.account_name_overrides || {}).length > 0 ? `
-                    <h3 style="font-size:0.9rem;font-weight:600;margin:16px 0 8px;">Account Name Overrides</h3>
-                    <div style="background:var(--bg);border-radius:6px;padding:10px;font-size:0.8rem;font-family:monospace;color:var(--text-muted);">
-                        ${escapeHtml(JSON.stringify(exporterConfig.account_name_overrides, null, 2))}
-                    </div>` : ''}
-                    <div class="modal-footer">
-                        <button type="button" class="btn btn-secondary" onclick="closeModal()">Close</button>
-                    </div>
-                </div>
-            `;
-            document.getElementById('modal-container').appendChild(modal);
-            modal.setAttribute('aria-labelledby', 'exporter-config-title');
-            openModal(modal);
-            modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
-        }
-
-        async function triggerExport(exporterType) {
-            const resultEl = document.getElementById(`export-result-${exporterType}`);
-            resultEl.innerHTML = '<div class="alert alert-info"><span class="spinner"></span> Running export...</div>';
-
-            try {
-                const result = await api('POST', '/exporters/export');
-                if (result.status === 'completed') {
-                    let details = `&#10003; Export completed in ${result.duration_s.toFixed(1)}s. `;
-                    details += `${result.transactions_exported}/${result.transactions_attempted} transactions exported`;
-                    if (result.holdings_exported > 0) details += `, ${result.holdings_exported} holdings`;
-                    if (result.csv_files.length > 0) details += `. ${result.csv_files.length} CSV file(s) generated.`;
-                    resultEl.innerHTML = `<div class="alert alert-success">${details}</div>`;
-                } else if (result.status === 'failed') {
-                    resultEl.innerHTML = `<div class="alert alert-error">&#10005; Export failed: ${result.error_message || 'Unknown error'}</div>`;
-                } else {
-                    resultEl.innerHTML = `<div class="alert alert-info">Export status: ${result.status}</div>`;
-                }
-                // Refresh runs
-                await loadExporters();
-            } catch (e) {
-                resultEl.innerHTML = `<div class="alert alert-error">&#10005; ${e.message}</div>`;
-            }
-        }
-
-        // ── Feedback button event wiring ────────────────────────────────
-        document.addEventListener('DOMContentLoaded', function () {
-            const btn = document.getElementById('feedback-trigger');
-            if (btn) {
-                btn.addEventListener('click', function () {
-                    document.dispatchEvent(new CustomEvent('open-feedback-form'));
-                });
-            }
-        });
-
-        // Listen for the custom event and open the feedback modal
-        document.addEventListener('open-feedback-form', function () {
-            openFeedbackModal();
-        });
-
-        // ── Household sharing (t_a4ba9d6a) ─────────────────────────────
-        // Selective sharing: owners share/unshare their own accounts. The
-        // UI always shows a preview of what would enter or leave the
-        // household view before asking for confirmation, and unsharing an
-        // account with prior exports surfaces the explicit quarantine /
-        // delete cleanup flow — nothing is ever deleted silently.
-        let householdMembers = [];
-
-        const HOUSEHOLD_ROLES = ['admin', 'user', 'readonly', 'viewer'];
-        const isHouseholdAdmin = () => !!(currentUser && currentUser.role === 'admin');
-
-        function canManageAccount(acc) {
-            if (!currentUser) return false;
-            if (String(acc.owner_user_id) === String(currentUser.id)) return true;
-            return isHouseholdAdmin() && !acc.owner_user_id;
-        }
-
-        function memberLabel(userId) {
-            const m = (householdMembers || []).find(x => String(x.id) === String(userId));
-            return m ? (m.display_name || m.email) : null;
-        }
-
-        async function loadHousehold() {
-            const container = document.getElementById('household-accounts-list');
-            if (container) container.setAttribute('aria-busy', 'true');
-            // Admin-only surfaces are never fetched or rendered for plain
-            // members — the API would 403 on them anyway.
-            const invitesP = isHouseholdAdmin()
-                ? api('GET', '/household/invitations') : Promise.resolve(null);
-            const auditP = isHouseholdAdmin()
-                ? api('GET', '/household/audit-log?limit=50') : Promise.resolve(null);
-            const settled = await Promise.allSettled([
-                api('GET', '/accounts?limit=200'),
-                api('GET', '/household/members'),
-                invitesP,
-                auditP,
-            ]);
-            const [accountsRes, membersRes, invitesRes, auditRes] = settled.map(
-                r => r.status === 'fulfilled' ? r.value : null
-            );
-
-            householdMembers = membersRes || [];
-            renderHouseholdAccounts(accountsRes);
-            renderHouseholdMembers(membersRes);
-
-            // Admin-only cards: shown only for admins (defense in depth).
-            const invitesCard = document.getElementById('household-invitations');
-            const auditCard = document.getElementById('household-audit-log');
-            if (invitesCard) invitesCard.classList.toggle('hidden', !isHouseholdAdmin());
-            if (auditCard) auditCard.classList.toggle('hidden', !isHouseholdAdmin());
-            if (isHouseholdAdmin()) {
-                renderHouseholdInvitations(invitesRes);
-                renderHouseholdAudit(auditRes);
-            }
-
-            // Per-part friendly notices so one failure never blanks the
-            // section; each carries its own Retry action.
-            const failed = settled.filter(r => r.status === 'rejected').length;
-            if (failed > 0) {
-                const notices = [];
-                if (!accountsRes) notices.push(['accounts', 'Failed to load the account visibility list.']);
-                if (!membersRes) notices.push(['members', 'Failed to load the household members.']);
-                if (isHouseholdAdmin() && !invitesRes) notices.push(['invitations', 'Failed to load the invitations.']);
-                if (isHouseholdAdmin() && !auditRes) notices.push(['audit log', 'Failed to load the audit log.']);
-                const noticeEl = document.createElement('div');
-                noticeEl.innerHTML = `
-                    <div class="alert alert-error inline-error" role="alert">
-                        <div class="inline-error-msg">
-                            <strong>Could not load the household view</strong>
-                            <span>${escapeHtml(notices.map(n => n[0]).join(', '))} failed. ${escapeHtml(detailHint(failed))}</span>
-                        </div>
-                        <button type="button" class="btn btn-secondary btn-sm" onclick="loadHousehold()">&#8635; Retry</button>
-                    </div>`;
-                container.prepend(noticeEl);
-            }
-            if (container) container.setAttribute('aria-busy', 'false');
-        }
-
-        function renderHouseholdAccounts(accountsRes) {
-            const container = document.getElementById('household-accounts-list');
-            const items = (accountsRes && accountsRes.items) || [];
-            if (!items.length) {
-                container.innerHTML = `
-                    <div class="empty-state">
-                        <div class="icon">&#128176;</div>
-                        <p>No accounts yet. Once accounts are synced you can share them with the household here.</p>
-                    </div>`;
-                container.setAttribute('aria-busy', 'false');
-                return;
-            }
-            let html = `
-                <table class="household-table">
-                    <thead>
-                        <tr>
-                            <th scope="col">Account</th>
-                            <th scope="col">Type</th>
-                            <th scope="col">Owner</th>
-                            <th scope="col">Visibility</th>
-                            <th scope="col">Balance</th>
-                            <th scope="col"><span class="visually-hidden">Actions</span></th>
-                        </tr>
-                    </thead>
-                    <tbody>`;
-            for (const acc of items) {
-                const visibility = acc.visibility === 'household' ? 'household' : 'private';
-                const ownerLabel = acc.owner_user_id
-                    ? (memberLabel(acc.owner_user_id)
-                        || (String(acc.owner_user_id) === String(currentUser.id) ? 'You' : 'Another member'))
-                    : 'Unclaimed';
-                let action = '<span class="field-hint">—</span>';
-                if (canManageAccount(acc)) {
-                    if (acc.owner_user_id) {
-                        const label = visibility === 'household' ? 'Make private' : 'Share with household';
-                        action = `<button type="button" class="btn btn-secondary btn-sm" onclick="openSharePreview('${escapeHtml(String(acc.id))}')">${label}</button>`;
-                    } else {
-                        action = `<button type="button" class="btn btn-secondary btn-sm" onclick="claimAccount('${escapeHtml(String(acc.id))}')">Claim</button>`;
-                    }
-                }
-                html += `
-                    <tr>
-                        <td>${escapeHtml(acc.name)}</td>
-                        <td>${escapeHtml(String(acc.account_type || ''))}</td>
-                        <td>${escapeHtml(ownerLabel)}</td>
-                        <td><span class="badge ${visibility}">${visibility}</span></td>
-                        <td>${acc.current_balance != null ? escapeHtml(String(acc.current_balance)) + ' ' + escapeHtml(String(acc.currency_code || '')) : '—'}</td>
-                        <td>${action}</td>
-                    </tr>`;
-            }
-            html += '</tbody></table>';
-            container.innerHTML = html;
-            container.setAttribute('aria-busy', 'false');
-        }
-
-        function renderHouseholdMembers(membersRes) {
-            const container = document.getElementById('household-members-list');
-            const items = membersRes || [];
-            if (!items.length) {
-                container.innerHTML = '<p style="color:var(--text-muted);">No household members.</p>';
-                return;
-            }
-            let html = `
-                <table class="household-table">
-                    <thead>
-                        <tr>
-                            <th scope="col">Member</th>
-                            <th scope="col">Role</th>
-                            <th scope="col"><span class="visually-hidden">Actions</span></th>
-                        </tr>
-                    </thead>
-                    <tbody>`;
-            for (const m of items) {
-                const isSelf = String(m.id) === String(currentUser.id);
-                const roleBadge = `<span class="badge role-${escapeHtml(String(m.role))}">${escapeHtml(String(m.role))}</span>`;
-                let actions = '';
-                if (isHouseholdAdmin() && !isSelf) {
-                    actions = `
-                        <div class="household-inline-form">
-                            <select aria-label="Role for ${escapeHtml(m.email)}" onchange="changeMemberRole('${escapeHtml(String(m.id))}', this.value)">
-                                ${HOUSEHOLD_ROLES.map(r => `<option value="${r}" ${r === m.role ? 'selected' : ''}>${r}</option>`).join('')}
-                            </select>
-                            <button type="button" class="btn btn-secondary btn-sm" onclick="removeMember('${escapeHtml(String(m.id))}')">Remove</button>
-                        </div>`;
-                } else if (isSelf) {
-                    actions = '<span class="field-hint">You</span>';
-                } else {
-                    actions = '<span class="field-hint">—</span>';
-                }
-                html += `
-                    <tr>
-                        <td><strong>${escapeHtml(m.display_name || m.email)}</strong>${isSelf ? '' : `<div class="field-hint">${escapeHtml(m.email)}</div>`}</td>
-                        <td>${roleBadge}</td>
-                        <td>${actions}</td>
-                    </tr>`;
-            }
-            html += '</tbody></table>';
-            container.innerHTML = html;
-        }
-
-        function renderHouseholdInvitations(invitesRes) {
-            const container = document.getElementById('household-invitations-list');
-            const items = invitesRes || [];
-            if (!items.length) {
-                container.innerHTML = '<p style="color:var(--text-muted);font-size:0.9rem;">No pending invitations.</p>';
-                return;
-            }
-            let html = `
-                <table class="household-table">
-                    <thead>
-                        <tr>
-                            <th scope="col">Email</th>
-                            <th scope="col">Role</th>
-                            <th scope="col">Status</th>
-                            <th scope="col">Expires</th>
-                            <th scope="col"><span class="visually-hidden">Actions</span></th>
-                        </tr>
-                    </thead>
-                    <tbody>`;
-            for (const inv of items) {
-                const pending = inv.status === 'pending';
-                html += `
-                    <tr>
-                        <td>${escapeHtml(inv.email)}</td>
-                        <td>${escapeHtml(String(inv.role))}</td>
-                        <td>${escapeHtml(String(inv.status))}</td>
-                        <td>${escapeHtml(fmtDate(inv.expires_at))}</td>
-                        <td>${pending ? `<button type="button" class="btn btn-secondary btn-sm" onclick="revokeInvitation('${escapeHtml(String(inv.id))}')">Revoke</button>` : ''}</td>
-                    </tr>`;
-            }
-            html += '</tbody></table>';
-            container.innerHTML = html;
-        }
-
-        async function inviteMember(event) {
-            event.preventDefault();
-            const emailEl = document.getElementById('invite-email');
-            const roleEl = document.getElementById('invite-role');
-            const email = (emailEl.value || '').trim();
-            if (!email) { toast('Please fill in the invitee email.', 'error'); return; }
-            const btn = document.getElementById('invite-submit');
-            btn.disabled = true;
-            try {
-                const result = await api('POST', '/household/invitations', { email, role: roleEl.value });
-                showInviteToken(result);
-                emailEl.value = '';
-                await loadHousehold();
-            } catch (e) {
-                toast(`Invitation failed: ${e.message}`, 'error');
-            } finally {
-                btn.disabled = false;
-            }
-        }
-
-        function showInviteToken(invite) {
-            const modal = document.createElement('div');
-            modal.className = 'modal-overlay';
-            const acceptUrl = `${location.origin}/accept-invite?token=${encodeURIComponent(invite.token)}`;
-            modal.innerHTML = `
-                <div class="modal" style="width:560px;">
-                    <h2 id="invite-token-title">Invitation created</h2>
-                    <div id="invite-token-body">
-                        <p>Send this single-use invitation to <strong>${escapeHtml(invite.email)}</strong> (role: ${escapeHtml(String(invite.role))}). It expires ${escapeHtml(fmtDate(invite.expires_at))} and can only be used once.</p>
-                        <p class="field-hint" style="margin-bottom:4px;">Share this link with the invitee:</p>
-                        <div class="token-box" id="invite-token-value">${escapeHtml(acceptUrl)}</div>
-                        <p class="field-hint">Or share the raw token — it is shown only once. Copy it now and send it out-of-band.</p>
-                        <div class="modal-footer">
-                            <button type="button" class="btn btn-secondary" onclick="closeModal()">Close</button>
-                        </div>
-                    </div>
-                </div>`;
-            document.getElementById('modal-container').appendChild(modal);
-            modal.setAttribute('aria-labelledby', 'invite-token-title');
-            openModal(modal);
-            modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
-        }
-
-        async function revokeInvitation(invitationId) {
-            if (!confirm('Revoke this invitation? The invitee can no longer use it.')) return;
-            try {
-                await api('POST', `/household/invitations/${invitationId}/revoke`);
-                toast('Invitation revoked.', 'success');
-                await loadHousehold();
-            } catch (e) {
-                toast(`Could not revoke the invitation: ${e.message}`, 'error');
-            }
-        }
-
-        async function changeMemberRole(userId, newRole) {
-            try {
-                await api('PATCH', `/household/members/${userId}/role`, { role: newRole });
-                toast(`Role updated to ${newRole}.`, 'success');
-                await loadHousehold();
-            } catch (e) {
-                toast(`Could not change the role: ${e.message}`, 'error');
-            }
-        }
-
-        async function removeMember(userId) {
-            if (!confirm('Remove this member from the household? Their private accounts stay private (or become claimable by an admin).')) return;
-            try {
-                await api('DELETE', `/household/members/${userId}`);
-                toast('Member removed.', 'success');
-                await loadHousehold();
-            } catch (e) {
-                toast(`Could not remove the member: ${e.message}`, 'error');
-            }
-        }
-
-        function renderHouseholdAudit(auditRes) {
-            const container = document.getElementById('household-audit-list');
-            const items = auditRes || [];
-            if (!items.length) {
-                container.innerHTML = '<p style="color:var(--text-muted);font-size:0.9rem;">No household events recorded yet.</p>';
-                return;
-            }
-            let html = `
-                <table class="household-table">
-                    <thead>
-                        <tr>
-                            <th scope="col">When</th>
-                            <th scope="col">Action</th>
-                            <th scope="col">Actor</th>
-                            <th scope="col">Details</th>
-                        </tr>
-                    </thead>
-                    <tbody>`;
-            for (const ev of items) {
-                const detail = ev.detail && Object.keys(ev.detail).length
-                    ? escapeHtml(JSON.stringify(ev.detail))
-                    : '<span class="field-hint">—</span>';
-                html += `
-                    <tr>
-                        <td>${escapeHtml(fmtDate(ev.created_at))}</td>
-                        <td><code>${escapeHtml(String(ev.action))}</code></td>
-                        <td>${escapeHtml(ev.actor_role ? String(ev.actor_role) : '—')}</td>
-                        <td style="font-size:0.75rem;color:var(--text-muted);font-family:monospace;word-break:break-all;">${detail}</td>
-                    </tr>`;
-            }
-            html += '</tbody></table>';
-            container.innerHTML = html;
-        }
-
-        async function openSharePreview(accountId) {
-            const modal = document.createElement('div');
-            modal.className = 'modal-overlay';
-            modal.innerHTML = `
-                <div class="modal" style="width:560px;">
-                    <h2 id="share-preview-title">Sharing preview</h2>
-                    <div id="share-preview-body" aria-live="polite"><div class="alert alert-info"><span class="spinner"></span> Computing the impact…</div></div>
-                </div>`;
-            document.getElementById('modal-container').appendChild(modal);
-            modal.setAttribute('aria-labelledby', 'share-preview-title');
-            openModal(modal);
-            modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
-
-            const body = document.getElementById('share-preview-body');
-            let preview = null;
-            try {
-                preview = await api('GET', `/accounts/${accountId}/share-preview`);
-            } catch (e) {
-                body.innerHTML = `<div class="alert alert-error">Could not load the sharing preview: ${escapeHtml(e.message)}</div>`;
-                return;
-            }
-            const entering = preview.target_visibility === 'household';
-            const verb = entering ? 'appear in the household view' : 'disappear from the household view';
-            const impact = preview.impact || {};
-            const balanceLine = impact.current_balance != null
-                ? `<p class="field-hint" style="margin-top:10px;">Current balance: <strong>${escapeHtml(String(impact.current_balance))} ${escapeHtml(String(impact.currency_code || ''))}</strong></p>`
-                : '';
-            body.innerHTML = `
-                <p style="margin-bottom:6px;">
-                    <strong>${escapeHtml(preview.account_name)}</strong> is currently
-                    <span class="badge ${escapeHtml(String(preview.current_visibility))}">${escapeHtml(String(preview.current_visibility))}</span>.
-                    Changing it to <span class="badge ${escapeHtml(String(preview.target_visibility))}">${escapeHtml(String(preview.target_visibility))}</span> means:
-                </p>
-                <ul class="impact-list">
-                    <li><strong>${impact.transactions ?? 0}</strong> transactions will ${verb}</li>
-                    <li><strong>${impact.holdings ?? 0}</strong> holdings will ${verb}</li>
-                    <li><strong>${impact.balance_snapshots ?? 0}</strong> balance snapshots will ${verb}</li>
-                </ul>
-                ${balanceLine}
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" onclick="closeModal()">Cancel</button>
-                    <button type="button" class="btn btn-primary" onclick="confirmVisibilityChange('${escapeHtml(String(preview.account_id))}', '${escapeHtml(String(preview.target_visibility))}')">Confirm — make ${escapeHtml(String(preview.target_visibility))}</button>
-                </div>`;
-        }
-
-        async function confirmVisibilityChange(accountId, visibility) {
-            const body = document.getElementById('share-preview-body');
-            if (!body) return;
-            body.innerHTML = '<div class="alert alert-info"><span class="spinner"></span> Applying…</div>';
-            try {
-                const result = await api('PATCH', `/accounts/${accountId}/visibility`, { visibility });
-                closeModal();
-                toast(`Account is now ${visibility}.`, 'success');
-                // Unsharing an account that had already been exported never
-                // deletes silently — surface the explicit cleanup flow.
-                if (result && result.visibility === 'private' && result.export_cleanup_required) {
-                    openExportCleanupModal(accountId, result.export_artifacts || {});
-                }
-                await loadHousehold();
-            } catch (e) {
-                body.innerHTML = `<div class="alert alert-error">Could not change visibility: ${escapeHtml(e.message)}</div>`;
-            }
-        }
-
-        function openExportCleanupModal(accountId, artifacts) {
-            const modal = document.createElement('div');
-            modal.className = 'modal-overlay';
-            const csvCount = artifacts.csv_file_count || 0;
-            modal.innerHTML = `
-                <div class="modal" style="width:580px;">
-                    <h2 id="export-cleanup-title">Previously exported data</h2>
-                    <div id="export-cleanup-body">
-                        <p>This account had already been exported to the shared Wealthfolio instance before you made it private. <strong>Nothing has been deleted.</strong> Choose how to handle the exported data:</p>
-                        <ul class="impact-list">
-                            <li>Wealthfolio mapping: ${artifacts.has_mapping ? 'present' : 'none'}</li>
-                            <li>Delivery cursor: ${artifacts.has_delivery_cursor ? 'present' : 'none'}</li>
-                            <li>CSV files: ${csvCount}${artifacts.quarantined_file_count ? ` (${artifacts.quarantined_file_count} already quarantined)` : ''}</li>
-                            ${artifacts.last_exported_at ? `<li>Last exported: ${escapeHtml(String(artifacts.last_exported_at))}</li>` : ''}
-                        </ul>
-                        <div class="form-group" style="margin-top:12px;">
-                            <div class="checkbox-wrap">
-                                <input type="checkbox" id="export-delete-confirm" onchange="document.getElementById('export-delete-btn').disabled = !this.checked;">
-                                <label for="export-delete-confirm" style="margin:0;">I understand this permanently deletes the exported data and cannot be undone</label>
-                            </div>
-                        </div>
-                        <div class="modal-footer">
-                            <button type="button" class="btn btn-secondary" onclick="closeModal()">Not now</button>
-                            <button type="button" class="btn btn-secondary" onclick="quarantineExport('${escapeHtml(String(accountId))}')">Quarantine files</button>
-                            <button type="button" class="btn btn-danger" id="export-delete-btn" disabled onclick="deleteExportData('${escapeHtml(String(accountId))}')">Permanently delete</button>
-                        </div>
-                    </div>
-                </div>`;
-            document.getElementById('modal-container').appendChild(modal);
-            modal.setAttribute('aria-labelledby', 'export-cleanup-title');
-            openModal(modal);
-            modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
-        }
-
-        async function quarantineExport(accountId) {
-            const body = document.getElementById('export-cleanup-body');
-            if (!body) return;
-            body.innerHTML = '<div class="alert alert-info"><span class="spinner"></span> Quarantining…</div>';
-            try {
-                await api('POST', `/accounts/${accountId}/export-quarantine`);
-                closeModal();
-                toast('Exported files quarantined (non-destructive).', 'success');
-                await loadHousehold();
-            } catch (e) {
-                body.innerHTML = `<div class="alert alert-error">${escapeHtml(e.message)}</div>`;
-            }
-        }
-
-        async function deleteExportData(accountId) {
-            const body = document.getElementById('export-cleanup-body');
-            if (!body) return;
-            body.innerHTML = '<div class="alert alert-info"><span class="spinner"></span> Deleting…</div>';
-            try {
-                await api('POST', `/accounts/${accountId}/export-cleanup`, { confirm: true });
-                closeModal();
-                toast('Previously exported data deleted.', 'success');
-                await loadHousehold();
-            } catch (e) {
-                body.innerHTML = `<div class="alert alert-error">${escapeHtml(e.message)}</div>`;
-            }
-        }
-
-        async function claimAccount(accountId) {
-            if (!confirm('Claim this unowned account? You become its owner and can share it with the household or keep it private.')) return;
-            try {
-                await api('POST', `/accounts/${accountId}/claim`);
-                toast('Account claimed.', 'success');
-                await loadHousehold();
-            } catch (e) {
-                toast(`Could not claim the account: ${e.message}`, 'error');
-            }
-        }
 
         // ── Init ─────────────────────────────────────────────────────────
         (async function init() {

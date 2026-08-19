@@ -6,6 +6,7 @@ from datetime import datetime
 from typing import ClassVar
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from finance_sync.db import Base, created_at_ts, pk_uuid
@@ -31,6 +32,14 @@ class ApiKey(Base):
         nullable=True,
         comment="Space-separated permission strings, e.g. "
         "'transactions:read transactions:write'",
+    )
+    account_scope: Mapped[list[str] | None] = mapped_column(
+        JSONB,
+        nullable=True,
+        comment=(
+            "Optional account-id allowlist for a least-privilege consumer; "
+            "NULL means no account restriction"
+        ),
     )
     is_active: Mapped[bool] = mapped_column(
         Boolean, default=True, nullable=False

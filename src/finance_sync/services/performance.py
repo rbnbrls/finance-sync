@@ -151,9 +151,8 @@ class PerformanceService:
 
     When constructed with a ``ReadScope`` (from
     :mod:`finance_sync.services.visibility`), every Holding/Transaction
-    query is restricted to the visible accounts so private accounts of
-    other household members can never influence performance, valuation
-    or cash-flow figures.
+    query is restricted to the principal's visible accounts so figures
+    honor the account scope.
     """
 
     def __init__(

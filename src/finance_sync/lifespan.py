@@ -184,6 +184,96 @@ async def _init_database(container: Container) -> None:
         raise last_exc
 
 
+async def _bootstrap_legacy_export_targets(container: Container) -> None:
+    """Migrate legacy global exporter settings into one stored target.
+
+    This is deliberately a runtime bootstrap rather than an Alembic data
+    migration: environment variables exist only in the deployment, not in the
+    database.  It is idempotent and never creates a second target of a type
+    once the owner has configured one in the destinations wizard.
+    """
+    from sqlalchemy import select
+
+    from finance_sync.models import Tenant
+    from finance_sync.models.export_target import (
+        TARGET_ACTIVE,
+        ExportTarget,
+    )
+    from finance_sync.models.sync_schedule import SCOPE_EXPORT
+    from finance_sync.services.auth import encrypt_credential
+    from finance_sync.services.sync_schedule import SyncScheduleService
+
+    settings = container.settings
+    candidates: list[tuple[str, str, dict[str, object], dict[str, str]]] = []
+    if settings.wealthfolio_server_url and settings.wealthfolio_password:
+        candidates.append(
+            (
+                "wealthfolio",
+                "Migrated Wealthfolio",
+                {"server_url": settings.wealthfolio_server_url},
+                {"password": settings.wealthfolio_password},
+            )
+        )
+    if settings.actual_budget_server_url and settings.actual_budget_password:
+        candidates.append(
+            (
+                "actual-budget",
+                "Migrated Actual Budget",
+                {
+                    "server_url": settings.actual_budget_server_url,
+                    "budget_name": settings.actual_budget_budget_name or "",
+                    "sync_id": settings.actual_budget_sync_id or "",
+                },
+                {
+                    "password": settings.actual_budget_password,
+                    "encryption_password": (
+                        settings.actual_budget_encryption_password or ""
+                    ),
+                },
+            )
+        )
+    if not candidates:
+        return
+
+    async with container.session_factory() as session:
+        tenant = await session.scalar(
+            select(Tenant).where(Tenant.slug == "default")
+        )
+        if tenant is None:
+            return
+        for target_type, label, configuration, secret in candidates:
+            existing = await session.scalar(
+                select(ExportTarget).where(
+                    ExportTarget.tenant_id == tenant.id,
+                    ExportTarget.target_type == target_type,
+                )
+            )
+            if existing is not None:
+                continue
+            encrypted, nonce = encrypt_credential(
+                json.dumps(secret, separators=(",", ":")), settings
+            )
+            target = ExportTarget(
+                tenant_id=tenant.id,
+                target_type=target_type,
+                display_name=label,
+                status=TARGET_ACTIVE,
+                configuration=configuration,
+                encrypted_secret=encrypted,
+                secret_nonce=nonce,
+            )
+            session.add(target)
+            await session.flush()
+            schedule = await SyncScheduleService(session).ensure_for_scope(
+                str(tenant.id),
+                scope=SCOPE_EXPORT,
+                target_id=f"{target_type}:{target.id}",
+            )
+            target.schedule_id = schedule.id
+        await session.commit()
+    logger.info("legacy_export_targets_bootstrapped")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     """FastAPI lifespan context manager.
@@ -215,6 +305,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     # -- Ensure database is migrated and seed default data --------------
     if settings.database_url is not None:
         await _init_database(container)
+        await _bootstrap_legacy_export_targets(container)
 
     async with container.dispose():
         yield  # app runs here

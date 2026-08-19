@@ -71,19 +71,14 @@ EXPECTED_TABLES = {
     "wealthfolio_account_mappings",
     # multi-connection + per-connection audit trail (migration 0017)
     "connection_audit_log",
-    # household sharing: ownership/visibility + invitations + audit (0018)
-    "household_invitations",
-    "household_audit_log",
     # governed consumer access policies (migration 0019)
     "datamarts",
     "datamart_consumers",
     "datamart_grants",
     # tenant-scoped sync schedules (migration 0020)
     "sync_schedules",
-    # market-intelligence source layer (migrations 0021/0022)
-    "market_intelligence_items",
-    "market_intelligence_provider_states",
-    "market_intelligence_review_queue",
+    # persisted destination targets (migration 0021)
+    "export_targets",
 }
 
 

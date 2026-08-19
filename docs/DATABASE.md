@@ -27,6 +27,7 @@ All tables use UUID primary keys, `tenant_id`, `created_at`, and `updated_at` un
 | `performance_snapshot` | Computed portfolio/account/tenant return metrics; unique `(subject_type, subject_id, period, as_of)`. |
 | `sync_run`, `sync_cursor`, `raw_payload` | Sync audit, incremental cursor, encrypted source data; cursors unique by `(tenant_id, connector, resource)` — one row per sync resource (external account id, or `card_transactions` for the cards pipeline). |
 | `sync_schedule` | Tenant-scoped recurrence per executable source (`ingestion` + connection id) or destination (`export` + exporter key); unique `(tenant_id, scope, target_id)`. Carries `enabled`, versioned `schedule` JSONB, IANA `timezone`, UTC `next_run_at` / `last_scheduled_at`, sanitised last-run outcome and audit actor fields — never credentials or provider payloads. See `docs/sync-schedules.md`. |
+| `export_target` | Optional Wealthfolio, Actual Budget or Jupyter consumer. Stores only non-secret configuration, account/dataset scope, status and sanitised health metadata; connection secrets are envelope-encrypted and the canonical datalake never depends on this row. |
 | `outbox_event`, `event_delivery` | Durable event stream and consumer delivery idempotency. Event ID unique; delivery unique `(event_id, consumer_name)`. |
 | `export_target`, `export_delivery` | Exporter configuration and replay-safe downstream delivery; unique `(target_id, source_event_id, payload_version)`. |
 | `audit_log` | Security-sensitive mutation history; append-only. |

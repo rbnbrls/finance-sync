@@ -444,9 +444,8 @@ async def get_reconciliation_run(
 ) -> dict[str, Any]:
     """Get a reconciliation run with its findings.
 
-    Findings referencing accounts outside the principal's household
-    visibility scope are hidden (404-equivalent for private accounts of
-    other members).
+    Findings referencing accounts outside the principal's account
+    scope are hidden.
     """
     container = get_container(request)
     svc = ReconciliationService(
