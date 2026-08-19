@@ -101,6 +101,21 @@ class OpenBBIntelProvider(IntelProvider):
                 ),
             )
 
+    def configure(self, credentials: dict[str, str]) -> None:
+        """Inject decrypted per-tenant OpenBB credentials before a run.
+
+        Accepts ``api_key`` (and optionally ``token``) from the
+        envelope-decrypted credential store.  A key injected here
+        replaces any key from the global settings for this provider
+        instance (per-tenant credentials win).  The client is rebuilt
+        lazily on the next access, so a rotation mid-run is picked up
+        by the next request.
+        """
+        api_key = credentials.get("api_key") or credentials.get("token")
+        if api_key:
+            self._api_key = api_key
+            self._http_client = None  # rebuild with the new key
+
     # ── HTTP client ─────────────────────────────────────────────────
 
     @property

@@ -29,6 +29,7 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 
+from finance_sync.intel.credentials import IntelCredentialStore
 from finance_sync.intel.enums import IntelCapability
 from finance_sync.intel.exceptions import (
     IntelProviderAuthError,
@@ -124,6 +125,21 @@ class IntelScheduler:
                 "status": "unavailable",
                 "reason": "no_capabilities",
             }
+
+        # Inject the tenant's envelope-decrypted provider credentials
+        # before the run.  Adapters that need a key (OpenBB) pick it up
+        # in ``configure()``; the plaintext never leaves the process.
+        try:
+            credentials = await self._load_provider_credentials(
+                tenant_id, provider
+            )
+            provider.configure(credentials)
+        except Exception:
+            logger.warning(
+                "intel_credential_load_failed",
+                provider=provider.provider_key,
+                tenant_id=tenant_id,
+            )
 
         try:
             async with asyncio.timeout(self._run_timeout):
@@ -330,6 +346,24 @@ class IntelScheduler:
         from finance_sync.db.uow import UnitOfWork
 
         return UnitOfWork(self._container.session_factory())
+
+    async def _load_provider_credentials(
+        self,
+        tenant_id: str,
+        provider: IntelProvider,
+    ) -> dict[str, str]:
+        """Load the tenant's envelope-decrypted credentials for *provider*.
+
+        Returns an empty dict when the tenant has none configured (the
+        adapter's ``configure()`` treats that as a no-op).  Plaintext
+        values exist only in the returned dict.
+        """
+        uow = self._make_uow()
+        try:
+            store = IntelCredentialStore(uow, settings=self._container.settings)
+            return await store.get(tenant_id, provider.provider_key)
+        finally:
+            await uow.session.close()
 
 
 def _registry_from_container(container: Container) -> IntelProviderRegistry:

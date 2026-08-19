@@ -196,6 +196,7 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
         "connectors:read",
         "connectors:write",
         "market-intelligence:read",
+        "market-intelligence:write",
     },
     "readonly": {
         "transactions:read",

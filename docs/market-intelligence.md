@@ -161,10 +161,16 @@ ingestion service resolves them through the existing
 | `GET /api/v1/market-intelligence/items/{id}` | Single observation; cross-tenant id → 404 |
 | `GET /api/v1/market-intelligence/providers` | Per-provider run/freshness/availability state (sanitised errors) |
 | `GET /api/v1/market-intelligence/review-queue` | Ambiguous-resolution entries awaiting review |
+| `POST /api/v1/market-intelligence/review-queue/{id}/resolve` | Link an ambiguous observation to a canonical security (tenant-scoped, 404 for foreign ids) |
+| `POST /api/v1/market-intelligence/review-queue/{id}/dismiss` | Dismiss an ambiguous observation (stays unlinked) |
+| `GET /api/v1/market-intelligence/credentials/{provider}` | Whether a provider has credentials configured (key names + sanitised last error, never values) |
+| `PUT /api/v1/market-intelligence/credentials/{provider}` | Store (envelope-encrypt) provider credentials; partial updates merge |
+| `DELETE /api/v1/market-intelligence/credentials/{provider}` | Delete stored credentials |
 
 All endpoints are tenant-scoped via the existing JWT/API-key auth
-(`market-intelligence:read` permission).  They never return provider
-credentials; restricted items never include `body`.
+(`market-intelligence:read` for reads, `market-intelligence:write` for
+writes).  They never return provider credentials; restricted items never
+include `body`.
 
 ### MCP
 
@@ -174,12 +180,17 @@ credentials; restricted items never include `body`.
 ## Credential safety
 
 Provider credentials live only in settings / the envelope-encrypted
-credential store.  Errors persisted to `last_error` are run through
-`redact_text` (which scrubs API keys, tokens, JWTs, long base64/hex
-runs and explicit credential values).  Logs, metrics, API responses and
-Hermes prompts never contain secrets — `provider_metadata` drops
-secret-shaped keys (`api_key`, `token`, `authorization`, …) before
-persistence.
+credential store.  Per-tenant provider secrets for the intel source
+layer are stored via `PUT .../credentials/{provider}`; the payload is
+AES-256-GCM envelope-encrypted (`MASTER_ENCRYPTION_KEY`) before
+persistence, decrypted only at provider run time in the worker, and the
+plaintext never appears in responses, logs or metrics — only the *names*
+of the configured keys are readable.  Errors persisted to `last_error`
+are run through `redact_text` (which scrubs API keys, tokens, JWTs,
+long base64/hex runs and explicit credential values).  Logs, metrics,
+API responses and Hermes prompts never contain secrets —
+`provider_metadata` drops secret-shaped keys (`api_key`, `token`,
+`authorization`, …) before persistence.
 
 ## Security-identity of stored content
 

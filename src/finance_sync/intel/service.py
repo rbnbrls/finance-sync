@@ -36,6 +36,7 @@ from finance_sync.intel.enums import (
     IntelResolutionStatus,
 )
 from finance_sync.intel.exceptions import IntelLicensingError
+from finance_sync.intel.identity import IntelIdentityResolution
 from finance_sync.intel.licensing import (
     enforce_snippet_limit,
     infer_license_class,
@@ -163,7 +164,7 @@ class IntelIngestionService:
         resolver: SecurityResolver,
     ) -> None:
         self._uow = uow
-        self._resolver = resolver
+        self._identity = IntelIdentityResolution(resolver)
 
     # ── Public API ───────────────────────────────────────────────────
 
@@ -215,19 +216,17 @@ class IntelIngestionService:
             candidates = None
 
             if resolve_identities and policy_item.identifiers:
-                resolution = await self._resolve_identifiers(policy_item)
-                if resolution is not None:
-                    (
-                        resolved_security_id,
-                        resolution_status,
-                        review_required,
-                        candidates,
-                    ) = resolution
-                    # Ambiguous matches are NEVER attached to a holding:
-                    # the item stays queryable without a security link
-                    # and lands in the review queue instead.
-                    if review_required:
-                        resolved_security_id = None
+                (
+                    resolved_security_id,
+                    resolution_status,
+                    review_required,
+                    candidates,
+                ) = await self._identity.resolve(policy_item)
+                # Ambiguous matches are NEVER attached to a holding:
+                # the item stays queryable without a security link
+                # and lands in the review queue instead.
+                if review_required:
+                    resolved_security_id = None
 
             row = self._build_row(
                 tenant_id=tenant_id,
@@ -332,75 +331,6 @@ class IntelIngestionService:
             limit=1,
         )
         return by_hash[0] if by_hash else None
-
-    async def _resolve_identifiers(
-        self,
-        item: IntelItem,
-    ) -> tuple[str, IntelResolutionStatus, bool, list[dict[str, Any]]] | None:
-        """Resolve item identifiers through the existing pipeline.
-
-        Returns ``(security_id, resolution_status, review_required,
-        candidates)`` or ``None`` when the item carries no resolvable
-        identifier.  ``candidates`` is the list of matched securities
-        (id + identifier + confidence) used for the review queue.
-        """
-        identifiers = item.identifiers or {}
-        candidates_list: list[tuple[str, str]] = []
-        if identifiers.get("isin"):
-            candidates_list.append(("isin", identifiers["isin"]))
-        if identifiers.get("figi"):
-            candidates_list.append(("figi", identifiers["figi"]))
-        if identifiers.get("ticker"):
-            candidates_list.append(("ticker", identifiers["ticker"]))
-        if not candidates_list:
-            return None
-
-        # Track whether a candidate matched but *ambiguously* (i.e. a
-        # different local security was found under a second identifier).
-        matched: list[tuple[str, str, ResolvedSecurityLike]] = []
-        for id_type, value in candidates_list:
-            if id_type == "isin":
-                result = await self._resolver.resolve_by_isin(value)
-            elif id_type == "figi":
-                result = await self._resolver.resolve_by_figi(value)
-            else:
-                result = await self._resolver.resolve_by_ticker(value)
-            if isinstance(result, ResolvedSecurityLike):
-                matched.append((id_type, value, result))
-
-        if not matched:
-            return None
-
-        candidates = [
-            {
-                "identifier_type": id_type,
-                "identifier": value,
-                "security_id": resolved.security_id,
-                "confidence": resolved.confidence,
-            }
-            for id_type, value, resolved in matched
-        ]
-
-        # Ambiguity: multiple identifiers resolved to *different*
-        # securities → flag for review, never auto-attach.
-        distinct_ids = {resolved.security_id for _, _, resolved in matched}
-        if len(distinct_ids) > 1:
-            return (
-                sorted(distinct_ids)[0],
-                IntelResolutionStatus.AMBIGUOUS,
-                True,
-                candidates,
-            )
-
-        best = matched[0][2]
-        confidence = (best.confidence or "").lower()
-        review = confidence in {"medium", "low", "fuzzy", "inferred"}
-        status = (
-            IntelResolutionStatus.AMBIGUOUS
-            if review
-            else IntelResolutionStatus.RESOLVED
-        )
-        return (best.security_id, status, review, candidates)
 
     def _build_row(
         self,
@@ -507,10 +437,3 @@ def _fact_to_dict(fact: IntelStructuredFact) -> dict[str, Any]:
         "item_source_id": fact.item_source_id,
         "item_url": fact.item_url,
     }
-
-
-# Re-export for the ambiguity check without a circular import at module
-# level (enrichment.models imports enrichment services, not intel).
-from finance_sync.enrichment.models import (  # noqa: E402
-    ResolvedSecurity as ResolvedSecurityLike,
-)
