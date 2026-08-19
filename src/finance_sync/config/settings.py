@@ -717,6 +717,24 @@ class Settings(BaseSettings):
         description="Maximum word length for generated summaries.",
     )
 
+    # ── Hermes relevance explanations ─────────────────────────────────
+    # backlog/plus-relevant-nieuws-en-events.md: Hermes may *explain*
+    # why an item is relevant in a few sentences, grounded only in
+    # deterministic finance-sync facts.  The integration is optional —
+    # the deterministic holding-relevance data stays available without
+    # it.  When enabled but no Hermes client is configured, the feed
+    # serves a deterministic fact-only fallback.
+    hermes_explanation_enabled: bool = Field(
+        default=False,
+        validation_alias="HERMES_EXPLANATION_ENABLED",
+        description=(
+            "Enable Hermes relevance explanations on the holding feed. "
+            "Off by default: the deterministic holding-relevance data is "
+            "always served; this flag only adds the optional "
+            "hermes_explanation field."
+        ),
+    )
+
     # ── Home Assistant integration ────────────────────────────────────
     ha_enabled: bool = Field(
         default=True,

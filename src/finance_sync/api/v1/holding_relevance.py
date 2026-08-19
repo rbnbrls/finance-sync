@@ -46,7 +46,17 @@ def _service(request: Request) -> HoldingRelevanceService:
     from finance_sync.db.uow import UnitOfWork
 
     session = container.session_factory()
-    return HoldingRelevanceService(UnitOfWork(session))
+    # Optional Hermes explanations (feature-flagged; off by default).
+    # The deterministic holding-relevance data is always available.
+    if container.settings.hermes_explanation_enabled:
+        from finance_sync.services.hermes_relevance import (
+            build_hermes_explainer,
+        )
+
+        explainer = build_hermes_explainer(enabled=True)
+    else:
+        explainer = None
+    return HoldingRelevanceService(UnitOfWork(session), explainer=explainer)
 
 
 # ── Feed ───────────────────────────────────────────────────────────────
