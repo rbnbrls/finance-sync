@@ -176,10 +176,24 @@ class IntelIngestionService:
         *,
         resolve_identities: bool = True,
     ) -> dict[str, int]:
-        """Persist *items* for a tenant idempotently.
+        """Persist *items* for a tenant idempotently (upsert).
 
         Returns a summary dict: ``{"ingested": n, "updated": n,
         "duplicates": n, "review_required": n, "errors": n}``.
+
+        Semantics (incremental, idempotent):
+
+        * **New item** (no row for ``(tenant, provider, source_id)`` and
+          no row with the same ``content_hash``) → inserted.
+        * **Same provider + source_id, different content** (the source
+          updated the story) → the existing row is *updated* in place
+          (never duplicated).
+        * **Same content_hash from a different provider/source** (a
+          syndicated duplicate) → counted as ``duplicates``, no write.
+        * **Re-ingest of an identical item** → ``duplicates``, no write.
+
+        A provider outage never deletes or invalidates stored rows —
+        staleness is a separate, explicit step (:meth:`mark_stale`).
         """
         summary: dict[str, int] = {
             "ingested": 0,
@@ -203,10 +217,25 @@ class IntelIngestionService:
                 )
                 continue
 
-            existing = await self._find_existing(
+            # 1) Same (tenant, provider, source_id) → the same source
+            #    re-served this item.  Unchanged content is a duplicate;
+            #    changed content is an in-place update.
+            same_source = await self._find_by_source(
                 tenant_id, provider_key, policy_item
             )
-            if existing is not None:
+            if same_source is not None:
+                if self._is_unchanged(same_source, policy_item):
+                    summary["duplicates"] += 1
+                else:
+                    await self._update_row(same_source, policy_item)
+                    summary["updated"] += 1
+                continue
+
+            # 2) Same content_hash from a different provider/source →
+            #    a syndicated duplicate.  Never mutated, never counted
+            #    as an update: the first provider's provenance wins.
+            by_hash = await self._find_by_hash(tenant_id, policy_item)
+            if by_hash is not None:
                 summary["duplicates"] += 1
                 continue
 
@@ -247,6 +276,63 @@ class IntelIngestionService:
                 )
 
         return summary
+
+    async def mark_stale(
+        self,
+        tenant_id: str,
+        provider_key: str,
+        *,
+        older_than: datetime,
+    ) -> int:
+        """Soft-flag observations that aged past the freshness bound.
+
+        Marks every item of *provider_key* for *tenant_id* whose
+        ``fetched_at`` is older than *older_than* as ``is_stale=True``
+        and sets its ``stale_after`` deadline.  Stale is a **soft**
+        flag: rows are never deleted or invalidated, and an outage
+        alone never marks data stale — only the freshness rule does.
+
+        Returns the number of items newly marked stale.
+        """
+        repo = self._uow.market_intelligence_items
+        model = repo.model_class
+        rows = await repo.list(
+            model.tenant_id == tenant_id,  # type: ignore[attr-defined]
+            model.provider == provider_key,  # type: ignore[attr-defined]
+            model.is_stale.is_(False),  # type: ignore[attr-defined]
+            model.fetched_at < older_than,  # type: ignore[attr-defined]
+        )
+        for row in rows:
+            row.is_stale = True
+            row.stale_after = older_than
+        if rows:
+            await repo.update(rows[0])  # flush pending mutations
+        return len(rows)
+
+    async def clear_stale(
+        self,
+        tenant_id: str,
+        provider_key: str,
+    ) -> int:
+        """Clear the stale flag for items re-fetched by a healthy run.
+
+        After a successful provider refresh, items whose content is
+        current again (fresh ``fetched_at``) have their stale flag
+        removed so a recovery is observable, not sticky.
+        """
+        repo = self._uow.market_intelligence_items
+        model = repo.model_class
+        rows = await repo.list(
+            model.tenant_id == tenant_id,  # type: ignore[attr-defined]
+            model.provider == provider_key,  # type: ignore[attr-defined]
+            model.is_stale.is_(True),  # type: ignore[attr-defined]
+        )
+        for row in rows:
+            row.is_stale = False
+            row.stale_after = None
+        if rows:
+            await repo.update(rows[0])
+        return len(rows)
 
     async def record_provider_run(
         self,
@@ -308,13 +394,66 @@ class IntelIngestionService:
 
     # ── Internal helpers ─────────────────────────────────────────────
 
-    async def _find_existing(
+    @staticmethod
+    def _is_unchanged(
+        existing: MarketIntelligenceItem,
+        item: IntelItem,
+    ) -> bool:
+        """Return True when *existing* already holds *item*'s content.
+
+        Comparison covers the content hash plus the storable content
+        fields, so a re-fetch that returned the same story (same hash,
+        same snippet/body/facts) is a true duplicate while a changed
+        story is an update.
+        """
+        if existing.content_hash != item.content_hash:
+            return False
+        return (
+            existing.headline == item.headline
+            and existing.summary == item.summary
+            and existing.body == item.body
+            and existing.canonical_url == item.canonical_url
+            and (existing.facts or None)
+            == ([_fact_to_dict(f) for f in item.facts] or None)
+        )
+
+    async def _update_row(
+        self,
+        existing: MarketIntelligenceItem,
+        item: IntelItem,
+    ) -> None:
+        """Refresh an existing row in place with *item*'s new content.
+
+        Keeps the row id and the original ``published_at``/``source_id``
+        stable (dedupe identity), refreshes the fetched-at timestamp,
+        the content hash and the storable content fields, and clears a
+        stale flag — the source served the item again, so it is fresh.
+        """
+        existing.content_hash = item.content_hash
+        existing.canonical_url = item.canonical_url
+        existing.headline = item.headline
+        existing.summary = item.summary
+        existing.body = item.body
+        existing.facts = [_fact_to_dict(f) for f in item.facts] or None
+        existing.provider_metadata = item.provider_metadata or None
+        existing.identifiers = item.identifiers or None
+        existing.fetched_at = item.fetched_at
+        existing.valid_from = item.valid_from
+        existing.valid_until = item.valid_until
+        existing.language = item.language
+        existing.license_class = item.license_class.value
+        existing.license_uri = item.license_uri
+        existing.is_stale = False
+        existing.stale_after = None
+        await self._uow.market_intelligence_items.update(existing)
+
+    async def _find_by_source(
         self,
         tenant_id: str,
         provider_key: str,
         item: IntelItem,
     ) -> MarketIntelligenceItem | None:
-        """Return an existing row for *item* (by provider+source_id or hash)."""
+        """Return the row for the same (tenant, provider, source_id)."""
         repo = self._uow.market_intelligence_items
         model = repo.model_class
         by_source = await repo.list(
@@ -323,8 +462,16 @@ class IntelIngestionService:
             model.source_id == item.source_id,  # type: ignore[attr-defined]
             limit=1,
         )
-        if by_source:
-            return by_source[0]
+        return by_source[0] if by_source else None
+
+    async def _find_by_hash(
+        self,
+        tenant_id: str,
+        item: IntelItem,
+    ) -> MarketIntelligenceItem | None:
+        """Return a row with the same content hash (any provider)."""
+        repo = self._uow.market_intelligence_items
+        model = repo.model_class
         by_hash = await repo.list(
             model.tenant_id == tenant_id,  # type: ignore[attr-defined]
             model.content_hash == item.content_hash,  # type: ignore[attr-defined]

@@ -809,6 +809,13 @@ class MarketIntelligenceQueryInput(BaseModel):
             "Only return items flagged for identity review when True."
         ),
     )
+    is_stale: bool | None = Field(
+        default=None,
+        description=(
+            "Only return items soft-flagged stale (aged past the "
+            "provider freshness bound) when True."
+        ),
+    )
     limit: int = Field(
         default=20,
         ge=1,
@@ -832,6 +839,7 @@ async def tool_list_market_intelligence(
     provider: str | None = None,
     kind: str | None = None,
     review_required: bool | None = None,
+    is_stale: bool | None = None,
     limit: int = 20,
 ) -> str:
     """List stored market-intelligence observations for the tenant."""
@@ -849,6 +857,7 @@ async def tool_list_market_intelligence(
             provider=provider,
             kind=kind,
             review_required=review_required,
+            is_stale=is_stale,
             limit=limit,
         )
         return _serialise(result.model_dump())

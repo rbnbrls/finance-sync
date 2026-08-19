@@ -161,6 +161,9 @@ class IntelScheduler:
                         # Partial success: continue with other capabilities.
                         continue
             latency_ms = int((time.monotonic() - started) * 1000)
+            # A successful run refreshes the items — clear any stale
+            # flags so a recovery is observable, not sticky.
+            await self._refresh_stale_flags(tenant_id, provider, mark=False)
             await self._record_run(
                 tenant_id,
                 provider,
@@ -170,6 +173,11 @@ class IntelScheduler:
             return {"status": "ok", "latency_ms": latency_ms}
         except TimeoutError:
             latency_ms = int((time.monotonic() - started) * 1000)
+            # Freshness rule: items older than the provider's max_age
+            # are marked stale (soft flag) — never deleted, never
+            # invalidated.  An outage alone does not mark anything stale;
+            # only the freshness bound does.
+            await self._refresh_stale_flags(tenant_id, provider, mark=True)
             await self._record_run(
                 tenant_id,
                 provider,
@@ -180,6 +188,7 @@ class IntelScheduler:
             return {"status": "unavailable", "reason": "timeout"}
         except Exception as exc:
             latency_ms = int((time.monotonic() - started) * 1000)
+            await self._refresh_stale_flags(tenant_id, provider, mark=True)
             await self._record_run(
                 tenant_id,
                 provider,
@@ -245,6 +254,47 @@ class IntelScheduler:
             await uow.session.close()
 
     # ── Freshness / scheduling ───────────────────────────────────────
+
+    async def _refresh_stale_flags(
+        self,
+        tenant_id: str,
+        provider: IntelProvider,
+        *,
+        mark: bool,
+    ) -> None:
+        """Mark (or clear) stale flags per the provider's freshness rule.
+
+        ``mark=True``  — after a failed run: items whose ``fetched_at``
+        is older than the provider's ``max_age`` are soft-flagged stale
+        (never deleted, never invalidated).
+        ``mark=False`` — after a successful run: the stale flag is
+        cleared so a recovery is observable.
+        """
+        uow = self._make_uow()
+        try:
+            service = IntelIngestionService(
+                uow, self._container.security_resolver
+            )
+            max_age = provider.freshness.max_age
+            if mark:
+                older_than = datetime.now(UTC) - max_age
+                await service.mark_stale(
+                    tenant_id,
+                    provider.provider_key,
+                    older_than=older_than,
+                )
+            else:
+                await service.clear_stale(tenant_id, provider.provider_key)
+            await uow.commit()
+        except Exception as exc:
+            logger.warning(
+                "intel_stale_refresh_failed",
+                provider=provider.provider_key,
+                error=type(exc).__name__,
+            )
+            await uow.rollback()
+        finally:
+            await uow.session.close()
 
     async def _is_due(self, tenant_id: str, provider: IntelProvider) -> bool:
         """Return True when *provider* is due for a refresh for *tenant_id*.

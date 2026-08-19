@@ -64,6 +64,8 @@ class MarketIntelligenceItemDTO(BaseModel):
     resolution_status: str
     security_id: str | None = None
     review_required: bool
+    stale_after: datetime | None = None
+    is_stale: bool = False
 
 
 class ProviderStateDTO(BaseModel):
@@ -118,6 +120,7 @@ class MarketIntelligenceReadService:
         provider: str | None = None,
         kind: str | None = None,
         review_required: bool | None = None,
+        is_stale: bool | None = None,
         limit: int = 50,
         offset: int = 0,
     ) -> MarketIntelligenceListResponse:
@@ -136,6 +139,10 @@ class MarketIntelligenceReadService:
         if review_required is not None:
             conditions.append(
                 MarketIntelligenceItem.review_required.is_(review_required)  # type: ignore[attr-defined]
+            )
+        if is_stale is not None:
+            conditions.append(
+                MarketIntelligenceItem.is_stale.is_(is_stale)  # type: ignore[attr-defined]
             )
 
         count_stmt = (
@@ -253,6 +260,8 @@ def _item_to_dto(row: MarketIntelligenceItem) -> MarketIntelligenceItemDTO:
         resolution_status=row.resolution_status,
         security_id=str(row.security_id) if row.security_id else None,
         review_required=row.review_required,
+        stale_after=row.stale_after,
+        is_stale=row.is_stale,
     )
 
 

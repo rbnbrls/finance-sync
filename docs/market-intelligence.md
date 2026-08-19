@@ -140,10 +140,20 @@ ingestion service resolves them through the existing
   `(tenant_id, content_hash)`.  Re-fetching the same syndicated item is
   a no-op.  Deduplication is **per tenant** — two tenants ingesting the
   same press release each get their own observation record.
-- **Incremental**: only new items are persisted.
+- **Incremental + idempotent**: rerunning the same ingestion twice
+  creates no duplicates.  A re-fetched item whose content is identical
+  is counted as a duplicate (no write); an item whose content *changed*
+  but keeps the same `(provider, source_id)` is **updated in place**
+  (one row, refreshed `fetched_at`, new hash/content) — never a second
+  row.  A syndicated duplicate (same `content_hash`, different
+  provider/source) never mutates the first provider's row: the first
+  provenance wins.
 - **Provider outage**: never deletes or invalidates stored data; the
-  provider-state row records `unavailable` + a sanitised error, and the
-  freshness fields go stale.
+  provider-state row records `unavailable` + a sanitised error, and
+  items older than the provider's freshness `max_age` are **soft-flagged
+  stale** (`is_stale=true`, `stale_after` deadline) — the observation
+  stays queryable and intact.  A later successful run clears the flag.
+  An outage alone never marks data stale; only the freshness rule does.
 - **Partial page failure**: pages are ingested as they arrive, so a 503
   on page 2 keeps page-1 items committed; the run is recorded as
   degraded with the error.
@@ -157,7 +167,7 @@ ingestion service resolves them through the existing
 
 | Endpoint | Description |
 |---|---|
-| `GET /api/v1/market-intelligence/items` | List observations (filters: provider, kind, review_required; pagination) |
+| `GET /api/v1/market-intelligence/items` | List observations (filters: provider, kind, review_required, is_stale; pagination) |
 | `GET /api/v1/market-intelligence/items/{id}` | Single observation; cross-tenant id → 404 |
 | `GET /api/v1/market-intelligence/providers` | Per-provider run/freshness/availability state (sanitised errors) |
 | `GET /api/v1/market-intelligence/review-queue` | Ambiguous-resolution entries awaiting review |
@@ -174,7 +184,8 @@ include `body`.
 
 ### MCP
 
-- `list_market_intelligence` — list stored observations (tenant-scoped).
+- `list_market_intelligence` — list stored observations (tenant-scoped;
+  filters include `is_stale`).
 - `list_intel_provider_states` — per-provider state, sanitised errors.
 
 ## Credential safety
