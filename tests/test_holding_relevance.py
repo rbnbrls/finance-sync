@@ -938,6 +938,7 @@ class TestAcknowledgement:
         """Acking a cluster from another tenant is a safe no-op (False)."""
         tenant_a, cluster_id = await self._seed(session_factory)
         tenant_b = await _new_tenant(session_factory)
+        _ = tenant_a  # seed cluster belongs to tenant_a; ack from tenant_b must no-op
 
         async with session_factory() as session:
             svc = HoldingRelevanceService(UnitOfWork(session))
