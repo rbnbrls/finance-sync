@@ -68,15 +68,6 @@ _PRESS_RSS_URL = "https://www.sec.gov/news/pressreleases.rss"
 #: SEC fair-access: max 10 req/s and a descriptive UA are required.
 _USER_AGENT = "finance-sync/0.1.0 contact@example.com"
 
-#: RSS namespaces used by the SEC feed (dc:creator, etc.).
-_NS = {
-    "dc": "http://purl.org/dc/elements/1.1/",
-    "content": "http://purl.org/rss/1.0/modules/content/",
-}
-
-#: Max RSS items to process in a single fetch.
-_MAX_ITEMS = 100
-
 
 class SecPressReleaseProvider(IntelProvider):
     """Market-intelligence adapter backed by the SEC press-releases RSS feed."""
