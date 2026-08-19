@@ -46,14 +46,20 @@ AB_ACCOUNT_NAME = "E2E Checking"
 class FakeActualBudgetClient:
     """External AB client that dedups by ``imported_id`` (like AB itself).
 
-    Counts how many unique transactions were imported across all runs, so
-    a redelivered batch can never be double-counted.
+    The exporter constructs a fresh client per export run — like a real
+    client opening a new connection to the same AB server — so all server
+    state (accounts, imported-id dedup) is class-level and persists across
+    runs.  Counts how many unique transactions were imported across all
+    runs, so a redelivered batch can never be double-counted.
     """
 
+    created_accounts: dict[str, dict[str, Any]] = {}
+    seen_imported_ids: set[str] = set()
+    imported_count: int = 0
+    fail_imports: bool = False
+
     def __init__(self, config: object) -> None:
-        self.created_accounts: dict[str, dict[str, Any]] = {}
-        self.seen_imported_ids: set[str] = set()
-        self.imported_count = 0
+        self.config = config
 
     async def __aenter__(self) -> FakeActualBudgetClient:
         return self
@@ -62,34 +68,41 @@ class FakeActualBudgetClient:
         return None
 
     async def get_accounts(self) -> list[dict[str, Any]]:
-        return []
+        return list(type(self).created_accounts.values())
 
     async def get_account_by_name(self, name: str) -> dict[str, Any] | None:
-        return self.created_accounts.get(name)
+        return type(self).created_accounts.get(name)
 
     async def get_or_create_account(
         self, name: str, *, off_budget: bool = False
     ) -> dict[str, Any]:
-        existing = self.created_accounts.get(name)
+        accounts = type(self).created_accounts
+        existing = accounts.get(name)
         if existing is not None:
             return existing
         acct = {
-            "id": f"ab-{len(self.created_accounts)}",
+            "id": f"ab-{len(accounts)}",
             "name": name,
             "offbudget": off_budget,
         }
-        self.created_accounts[name] = acct
+        accounts[name] = acct
         return acct
 
     async def import_transactions_batch(
         self, account: str, transactions: list[dict[str, Any]]
     ) -> int:
+        if type(self).fail_imports:
+            _msg = "external AB server unreachable"
+            raise RuntimeError(_msg)
         new_count = 0
         for txn in transactions:
             imported_id = txn.get("imported_id")
-            if imported_id is None or imported_id not in self.seen_imported_ids:
-                self.seen_imported_ids.add(imported_id)
-                self.imported_count += 1
+            if (
+                imported_id is None
+                or imported_id not in type(self).seen_imported_ids
+            ):
+                type(self).seen_imported_ids.add(imported_id)
+                type(self).imported_count += 1
                 new_count += 1
         return new_count
 
@@ -98,9 +111,21 @@ class FakeActualBudgetClient:
 def _stub_ab_client(  # pyright: ignore[reportUnusedFunction]
     monkeypatch: pytest.MonkeyPatch,
 ) -> FakeActualBudgetClient:
+    # Reset the shared server state so each test starts clean.
+    FakeActualBudgetClient.created_accounts = {}
+    FakeActualBudgetClient.seen_imported_ids = set()
+    FakeActualBudgetClient.imported_count = 0
+    FakeActualBudgetClient.fail_imports = False
     stub = FakeActualBudgetClient(object())
+    # The wizard API lazy-imports the client module…
     monkeypatch.setattr(
         "finance_sync.exporter.actual_budget.client.ActualBudgetClient",
+        FakeActualBudgetClient,
+    )
+    # …but the exporter bound the class reference at import time, so it
+    # must be patched on the exporter module itself.
+    monkeypatch.setattr(
+        "finance_sync.exporter.actual_budget.exporter.ActualBudgetClient",
         FakeActualBudgetClient,
     )
     return stub
@@ -122,6 +147,9 @@ async def _seed_account_with_transactions(
             is_active=True,
         )
         session.add(acct)
+        # Flush so ``acct.id`` is materialised (Python-side ``uuid4``
+        # default runs at flush time) before transactions reference it.
+        await session.flush()
         for idx in range(3):
             session.add(
                 Transaction(
@@ -159,7 +187,12 @@ async def _delivery_rows(
             .all()
         )
         return [
-            {"target_id": r.target_id, "account_id": r.account_id} for r in rows
+            {
+                # asyncpg returns UUID objects for pk_uuid columns.
+                "target_id": str(r.target_id),
+                "account_id": str(r.account_id),
+            }
+            for r in rows
         ]
 
 
@@ -173,13 +206,6 @@ async def _run_and_expect_completed(
     )
     assert resp.status_code == 200, resp.text
     assert resp.json()["status"] == "completed"
-
-
-async def _failing_import(
-    account: str, transactions: list[dict[str, Any]]
-) -> int:
-    _msg = "external AB server unreachable"
-    raise RuntimeError(_msg)
 
 
 class TestPerDestinationReplaySafeDelivery:
@@ -266,12 +292,13 @@ class TestPerDestinationReplaySafeDelivery:
         broken_id = draft["id"]
 
         # Break the external client → the first run fails cleanly.
-        _stub_ab_client.import_transactions_batch = _failing_import  # type: ignore[attr-defined]
+        FakeActualBudgetClient.fail_imports = True
         resp = await client.post(
             f"/api/v1/destinations/{broken_id}/run", headers=headers
         )
         assert resp.status_code == 200
         assert resp.json()["status"] == "failed"
+        FakeActualBudgetClient.fail_imports = False
 
         # A healthy sibling destination still runs fine afterwards.
         healthy = await create_destination(
@@ -293,7 +320,8 @@ class TestPerDestinationReplaySafeDelivery:
         assert resp.status_code == 200
         assert resp.json()["status"] == "completed"
 
-        # Each destination has its own delivery row; the broken one is simply
-        # not advanced beyond its failure.
+        # Only the healthy destination advanced its delivery cursor: the
+        # broken run failed before delivering anything, so it has no row —
+        # a retry of the broken destination starts from the same window.
         rows = await _delivery_rows(session_factory, tenant_id)
-        assert {r["target_id"] for r in rows} == {broken_id, healthy["id"]}
+        assert [r["target_id"] for r in rows] == [healthy["id"]]

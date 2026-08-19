@@ -185,9 +185,21 @@ class ActualBudgetExporter:
         txns_exported = 0
         txns_failed = 0
         accts_mapped = 0
-        _since = since or await self._last_export_time()
+        # Effective window: explicit ``since`` wins; otherwise the
+        # per-destination delivery cursor (``_fetch_pending_transactions``)
+        # provides the incremental boundary, so the base window is the
+        # default 90 days rather than the *global* last-export time — a
+        # fresh destination must see the full window even after another
+        # destination already exported the same account.
+        _since = since or _default_since()
 
-        # ── Create ExportRun ──────────────────────────────────────
+        # ── Create ExportRun + run the export in one session ─────
+        # A single session spans ExportRun creation, mapping resolution,
+        # delivery-cursor writes and the completion commit.  This keeps the
+        # whole export atomic on one connection and avoids the deadlock that
+        # occurred when ``_complete_run`` opened a *separate* session whose
+        # uncommitted flush left the ExportRun row locked, blocking the next
+        # test's TRUNCATE CASCADE on the same tables.
         async with self._session_factory() as session:
             run = ExportRun(
                 status="running",
@@ -196,167 +208,167 @@ class ActualBudgetExporter:
             )
             session.add(run)
             await session.flush()
+            await session.commit()
             log = log.bind(export_run_id=str(run.id))
 
-        try:
-            # ── Connect to AB ─────────────────────────────────────
-            client = ActualBudgetClient(self._ab_config)
-            async with client:
-                log.info("ab_connected")
+            try:
+                # ── Connect to AB ─────────────────────────────────
+                client = ActualBudgetClient(self._ab_config)
+                async with client:
+                    log.info("ab_connected")
 
-                # ── Resolve account mappings ──────────────────────
-                fs_accounts = await self._load_accounts(account_ids)
-                log.info("accounts_resolved", count=len(fs_accounts))
+                    # ── Resolve account mappings ──────────────────
+                    fs_accounts = await self._load_accounts(account_ids)
+                    log.info("accounts_resolved", count=len(fs_accounts))
 
-                for fs_acct in fs_accounts:
-                    # Map or create AB account
-                    ab_acct = await self._resolve_ab_account(
-                        session, fs_acct, client
-                    )
-                    if ab_acct is None:
-                        log.warning(
-                            "ab_account_skip",
-                            fs_account_id=fs_acct.id,
-                            fs_account_name=fs_acct.name,
+                    for fs_acct in fs_accounts:
+                        # Map or create AB account
+                        ab_acct = await self._resolve_ab_account(
+                            session, fs_acct, client
                         )
-                        continue
-                    accts_mapped += 1
+                        if ab_acct is None:
+                            log.warning(
+                                "ab_account_skip",
+                                fs_account_id=fs_acct.id,
+                                fs_account_name=fs_acct.name,
+                            )
+                            continue
+                        accts_mapped += 1
 
-                    # Fetch pending transactions
-                    txns = await self._fetch_pending_transactions(
-                        session,
-                        account_id=fs_acct.id,
-                        since=_since,
-                    )
-                    if not txns:
-                        log.debug(
-                            "no_pending_transactions",
+                        # Fetch pending transactions
+                        txns = await self._fetch_pending_transactions(
+                            session,
+                            account_id=fs_acct.id,
+                            since=_since,
+                        )
+                        if not txns:
+                            log.debug(
+                                "no_pending_transactions",
+                                account=fs_acct.name,
+                            )
+                            continue
+
+                        log.info(
+                            "exporting_transactions",
                             account=fs_acct.name,
+                            count=len(txns),
                         )
-                        continue
 
-                    log.info(
-                        "exporting_transactions",
-                        account=fs_acct.name,
-                        count=len(txns),
-                    )
+                        # Map to AB format
+                        mapped = [
+                            map_transaction(
+                                t,
+                                ab_account_name=ab_acct["name"],
+                            )
+                            for t in txns
+                        ]
 
-                    # Map to AB format
-                    mapped = [
-                        map_transaction(
-                            t,
-                            ab_account_name=ab_acct["name"],
+                        if max_transactions:
+                            mapped = mapped[:max_transactions]
+
+                        txns_attempted += len(mapped)
+
+                        # Import into AB using reconcile (dedup-aware)
+                        batch_ok = await client.import_transactions_batch(
+                            account=ab_acct["name"],
+                            transactions=mapped,
                         )
-                        for t in txns
-                    ]
+                        txns_exported += batch_ok
+                        txns_failed += len(mapped) - batch_ok
 
-                    if max_transactions:
-                        mapped = mapped[:max_transactions]
+                        # Mark exported transactions and update delivery cursor
+                        exported_ids = [t.id for t in txns[: len(mapped)]]
+                        await self._mark_exported(session, exported_ids)
+                        await self._update_export_delivery(
+                            session,
+                            account_id=fs_acct.id,
+                            transaction_ids=exported_ids,
+                        )
 
-                    txns_attempted += len(mapped)
-
-                    # Import into AB using reconcile (dedup-aware)
-                    batch_ok = await client.import_transactions_batch(
-                        account=ab_acct["name"],
-                        transactions=mapped,
-                    )
-                    txns_exported += batch_ok
-                    txns_failed += len(mapped) - batch_ok
-
-                    # Mark exported transactions and update delivery cursor
-                    exported_ids = [t.id for t in txns[: len(mapped)]]
-                    await self._mark_exported(session, exported_ids)
-                    await self._update_export_delivery(
+                    # ── Also produce a CSV summary for manual import ──
+                    csv_path = await self._write_csv(
                         session,
-                        account_id=fs_acct.id,
-                        transaction_ids=exported_ids,
+                        account_ids=account_ids or [a.id for a in fs_accounts],
+                        since=_since,
+                        output_dir=output_dir,
                     )
+                    if csv_path:
+                        log.info("csv_exported", path=str(csv_path))
 
-                # ── Also produce a CSV summary for manual import ──
-                csv_path = await self._write_csv(
-                    session,
-                    account_ids=account_ids or [a.id for a in fs_accounts],
-                    since=_since,
-                    output_dir=output_dir,
+                # ── Complete the run ─────────────────────────────
+                end_ts = datetime.now(UTC)
+                run.status = "completed"
+                run.completed_at = end_ts
+                run.transactions_attempted = txns_attempted
+                run.transactions_exported = txns_exported
+                run.transactions_failed = txns_failed
+                await session.commit()
+                log.info(
+                    "export_completed",
+                    txns_attempted=txns_attempted,
+                    txns_exported=txns_exported,
+                    txns_failed=txns_failed,
+                    duration_s=(end_ts - start_ts).total_seconds(),
                 )
-                if csv_path:
-                    log.info("csv_exported", path=str(csv_path))
+                result = ExportResult(
+                    status="completed",
+                    accounts_mapped=accts_mapped,
+                    transactions_attempted=txns_attempted,
+                    transactions_exported=txns_exported,
+                    transactions_failed=txns_failed,
+                    duration_s=(end_ts - start_ts).total_seconds(),
+                    run_id=str(run.id),
+                )
+                self._record_export_metrics(result)
+                return result
 
-            # ── Complete the run ─────────────────────────────────
-            end_ts = datetime.now(UTC)
-            await self._complete_run(
-                run,
-                status="completed",
-                attempted=txns_attempted,
-                exported=txns_exported,
-                failed=txns_failed,
-            )
-            log.info(
-                "export_completed",
-                txns_attempted=txns_attempted,
-                txns_exported=txns_exported,
-                txns_failed=txns_failed,
-                duration_s=(end_ts - start_ts).total_seconds(),
-            )
-            result = ExportResult(
-                status="completed",
-                accounts_mapped=accts_mapped,
-                transactions_attempted=txns_attempted,
-                transactions_exported=txns_exported,
-                transactions_failed=txns_failed,
-                duration_s=(end_ts - start_ts).total_seconds(),
-                run_id=str(run.id),
-            )
-            self._record_export_metrics(result)
-            return result
-
-        except ActualBudgetConnectionError as exc:
-            end_ts = datetime.now(UTC)
-            await self._complete_run(
-                run,
-                status="failed",
-                error_message=str(exc),
-                attempted=txns_attempted,
-                exported=txns_exported,
-                failed=txns_failed,
-            )
-            self._log.error("export_connection_failed", error=str(exc))
-            result = ExportResult(
-                status="failed",
-                accounts_mapped=accts_mapped,
-                transactions_attempted=txns_attempted,
-                transactions_exported=txns_exported,
-                transactions_failed=txns_failed,
-                error_message=str(exc),
-                duration_s=(end_ts - start_ts).total_seconds(),
-                run_id=str(run.id),
-            )
-            self._record_export_metrics(result)
-            return result
-        except Exception:
-            end_ts = datetime.now(UTC)
-            tb = traceback.format_exc()
-            await self._complete_run(
-                run,
-                status="failed",
-                error_message=tb[:2048],
-                attempted=txns_attempted,
-                exported=txns_exported,
-                failed=txns_failed,
-            )
-            self._log.error("export_failed", traceback=tb)
-            result = ExportResult(
-                status="failed",
-                accounts_mapped=accts_mapped,
-                transactions_attempted=txns_attempted,
-                transactions_exported=txns_exported,
-                transactions_failed=txns_failed,
-                error_message=tb[:2048],
-                duration_s=(end_ts - start_ts).total_seconds(),
-                run_id=str(run.id),
-            )
-            self._record_export_metrics(result)
-            return result
+            except ActualBudgetConnectionError as exc:
+                await session.rollback()
+                end_ts = datetime.now(UTC)
+                run.status = "failed"
+                run.completed_at = end_ts
+                run.error_message = str(exc)
+                run.transactions_attempted = txns_attempted
+                run.transactions_exported = txns_exported
+                run.transactions_failed = txns_failed
+                await session.commit()
+                self._log.error("export_connection_failed", error=str(exc))
+                result = ExportResult(
+                    status="failed",
+                    accounts_mapped=accts_mapped,
+                    transactions_attempted=txns_attempted,
+                    transactions_exported=txns_exported,
+                    transactions_failed=txns_failed,
+                    error_message=str(exc),
+                    duration_s=(end_ts - start_ts).total_seconds(),
+                    run_id=str(run.id),
+                )
+                self._record_export_metrics(result)
+                return result
+            except Exception:
+                await session.rollback()
+                end_ts = datetime.now(UTC)
+                tb = traceback.format_exc()
+                run.status = "failed"
+                run.completed_at = end_ts
+                run.error_message = tb[:2048]
+                run.transactions_attempted = txns_attempted
+                run.transactions_exported = txns_exported
+                run.transactions_failed = txns_failed
+                await session.commit()
+                self._log.error("export_failed", traceback=tb)
+                result = ExportResult(
+                    status="failed",
+                    accounts_mapped=accts_mapped,
+                    transactions_attempted=txns_attempted,
+                    transactions_exported=txns_exported,
+                    transactions_failed=txns_failed,
+                    error_message=tb[:2048],
+                    duration_s=(end_ts - start_ts).total_seconds(),
+                    run_id=str(run.id),
+                )
+                self._record_export_metrics(result)
+                return result
 
     # ── Account resolution ──────────────────────────────────────────
 
@@ -447,13 +459,30 @@ class ActualBudgetExporter:
         account_id: str,
         since: datetime,
     ) -> list[Transaction]:
-        """Fetch transactions for *account_id* that haven't been exported."""
+        """Fetch transactions for *account_id* not yet delivered to *this*
+        target.
+
+        Delivery is scoped per destination (``target_id``): the per-destination
+        ``ExportDelivery`` cursor takes precedence over the global
+        ``since`` timestamp, so two destinations exporting the same account
+        each get the full window on their first run (the external consumer
+        dedups by ``imported_id``), and a retry of one destination never
+        re-advances another destination's cursor.
+        """
+        delivery = await self._get_export_delivery(
+            session, account_id=account_id
+        )
+        if delivery is not None and delivery.last_exported_at is not None:
+            cursor_since = delivery.last_exported_at
+        else:
+            cursor_since = since
+
         stmt = (
             select(Transaction)
             .where(
                 Transaction.tenant_id == self._tenant_id,  # type: ignore[attr-defined]
                 Transaction.account_id == account_id,  # type: ignore[attr-defined]
-                Transaction.occurred_at >= since,  # type: ignore[attr-defined]
+                Transaction.occurred_at >= cursor_since,  # type: ignore[attr-defined]
                 Transaction.status.in_(["booked", "pending"]),  # type: ignore[attr-defined]
             )
             .order_by(Transaction.occurred_at)  # type: ignore[attr-defined]
@@ -521,18 +550,24 @@ class ActualBudgetExporter:
 
         now = datetime.now(UTC)
 
+        # ``transactions.id`` is a UUID column; asyncpg returns ``uuid.UUID``
+        # objects on read.  The cursor column is VARCHAR, so stringify before
+        # persisting (otherwise the INSERT/UPDATE raises a DataError and the
+        # whole export run is marked failed).
+        last_tx_id = str(transaction_ids[-1])
+
         if delivery is None:
             delivery = ExportDelivery(
                 tenant_id=self._tenant_id,
                 target_id=self._target_id,
                 account_id=account_id,
-                last_exported_transaction_id=transaction_ids[-1],
+                last_exported_transaction_id=last_tx_id,
                 last_exported_at=now,
                 export_run_id="",
             )
             session.add(delivery)
         else:
-            delivery.last_exported_transaction_id = transaction_ids[-1]
+            delivery.last_exported_transaction_id = last_tx_id
             delivery.last_exported_at = now
 
         await session.flush()

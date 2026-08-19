@@ -111,7 +111,15 @@ class StubActualBudgetClient:
 
 
 class StubActualBudgetExporter:
-    """Stand-in for ActualBudgetExporter — reports a successful run."""
+    """Stand-in for ActualBudgetExporter — reports a successful run.
+
+    ``schedule_runner`` instantiates the real exporter with
+    ``session_factory`` / ``ab_config`` / ``tenant_id`` / ``target_id``
+    kwargs, so the stub must accept (and ignore) them.
+    """
+
+    def __init__(self, **kwargs: object) -> None:
+        self._kwargs = kwargs
 
     async def run_export(self, **kwargs: object) -> Any:
         return type(
@@ -131,6 +139,12 @@ def _stub_external_clients(  # pyright: ignore[reportUnusedFunction]
     )
     monkeypatch.setattr(
         "finance_sync.exporter.actual_budget.client.ActualBudgetClient",
+        StubActualBudgetClient,
+    )
+    # The exporter bound the client reference at import time, so the
+    # module-level name must be patched too for run/export flows.
+    monkeypatch.setattr(
+        "finance_sync.exporter.actual_budget.exporter.ActualBudgetClient",
         StubActualBudgetClient,
     )
     monkeypatch.setattr(
@@ -167,6 +181,9 @@ async def _seed_canonical_accounts(
             )
             rows.append(acct)
             session.add(acct)
+            # Flush so ``acct.id`` is materialised (Python-side ``uuid4``
+            # default runs at flush time) before transactions reference it.
+            await session.flush()
             for txn_idx in range(2):
                 session.add(
                     Transaction(

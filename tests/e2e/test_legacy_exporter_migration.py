@@ -12,6 +12,7 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 
 import pytest
+from pydantic import SecretStr
 from sqlalchemy import func, select
 
 from finance_sync.lifespan import _bootstrap_legacy_export_targets
@@ -36,7 +37,7 @@ seeded_tenant = seeded_destination_tenant
 def _legacy_settings(**overrides: Any) -> SimpleNamespace:
     """Settings that look like a deployment still using the old exporter env
     vars for Wealthfolio (Actual Budget left unset)."""
-    values: dict[str, str] = {
+    values: dict[str, Any] = {
         "wealthfolio_server_url": "http://192.168.1.71:5007",
         "wealthfolio_password": "wf-secret",
         "actual_budget_server_url": "",
@@ -44,6 +45,9 @@ def _legacy_settings(**overrides: Any) -> SimpleNamespace:
         "actual_budget_budget_name": "",
         "actual_budget_sync_id": "",
         "actual_budget_encryption_password": "",
+        # Credential envelope encryption needs the AES-256 master key;
+        # 32 bytes = 64 hex chars (matches ``_load_master_key``).
+        "master_encryption_key": SecretStr("0123456789abcdef" * 4),
     }
     values.update(overrides)
     return SimpleNamespace(**values)
