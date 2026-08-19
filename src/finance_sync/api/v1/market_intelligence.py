@@ -10,6 +10,7 @@ licensing policy allowed.
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from pydantic import BaseModel, Field
 
 from finance_sync.api.deps.auth import AuthContext, require_permission
 from finance_sync.dependencies import get_container
@@ -19,6 +20,7 @@ from finance_sync.services.market_intelligence_read import (
     MarketIntelligenceReadService,
     ProviderStateDTO,
     ReviewQueueDTO,
+    review_to_dto,
 )
 
 router = APIRouter(
@@ -138,3 +140,114 @@ async def list_review_queue(
         )
     finally:
         await service._session.aclose()  # type: ignore[reportPrivateUsage]
+
+
+# ── Review queue: manual resolution ───────────────────────────────────
+
+
+class ReviewResolveRequest(BaseModel):
+    """Body for resolving an ambiguous review-queue entry."""
+
+    security_id: str = Field(
+        description="The canonical Security id to link the observation to"
+    )
+    note: str | None = Field(
+        default=None,
+        description="Optional free-form note from the reviewer",
+    )
+
+
+class ReviewDismissRequest(BaseModel):
+    """Body for dismissing an ambiguous review-queue entry."""
+
+    note: str | None = Field(
+        default=None,
+        description="Optional free-form note from the reviewer",
+    )
+
+
+@router.post("/review-queue/{entry_id}/resolve", response_model=ReviewQueueDTO)
+async def resolve_review_entry(
+    request: Request,
+    entry_id: str,
+    body: ReviewResolveRequest,
+    auth: AuthContext = Depends(
+        require_permission("market-intelligence", "write")
+    ),
+) -> ReviewQueueDTO:
+    """Resolve an ambiguous observation to a canonical security.
+
+    Links the underlying observation to *security_id* and marks the
+    queue entry resolved.  Tenant-scoped: a cross-tenant entry id is a
+    plain 404 (never leaks existence).
+    """
+    from finance_sync.services.market_intelligence_review import (
+        IntelReviewService,
+        ReviewQueueError,
+    )
+
+    container = get_container(request)
+    session = container.session_factory()
+    try:
+        service = IntelReviewService(session)
+        entry = await service.resolve_entry(
+            auth.tenant_id,
+            entry_id,
+            body.security_id,
+            note=body.note,
+            resolver_principal=auth.principal_id,
+        )
+        if entry is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Review entry not found",
+            )
+        await session.commit()
+        return review_to_dto(entry)
+    except ReviewQueueError as exc:
+        await session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(exc),
+        ) from exc
+    finally:
+        await session.aclose()
+
+
+@router.post("/review-queue/{entry_id}/dismiss", response_model=ReviewQueueDTO)
+async def dismiss_review_entry(
+    request: Request,
+    entry_id: str,
+    body: ReviewDismissRequest,
+    auth: AuthContext = Depends(
+        require_permission("market-intelligence", "write")
+    ),
+) -> ReviewQueueDTO:
+    """Dismiss an ambiguous observation (no security is chosen).
+
+    Marks the queue entry dismissed and clears the review flag on the
+    observation; the observation keeps no security link.
+    """
+    from finance_sync.services.market_intelligence_review import (
+        IntelReviewService,
+    )
+
+    container = get_container(request)
+    session = container.session_factory()
+    try:
+        service = IntelReviewService(session)
+        entry = await service.dismiss_entry(
+            auth.tenant_id,
+            entry_id,
+            note=body.note,
+            resolver_principal=auth.principal_id,
+        )
+        if entry is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Review entry not found",
+            )
+        await session.commit()
+        return review_to_dto(entry)
+    finally:
+        await session.aclose()

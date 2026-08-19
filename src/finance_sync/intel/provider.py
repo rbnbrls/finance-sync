@@ -198,6 +198,17 @@ class IntelProvider(ABC):
         """Freshness policy of this provider."""
         return self._freshness
 
+    def configure(self, credentials: dict[str, str]) -> None:
+        """Inject decrypted provider credentials before a run.
+
+        Called by the scheduler with the tenant's envelope-decrypted
+        credentials (never plaintext at rest, never logged).  The
+        default implementation ignores the credentials — adapters that
+        need a key (e.g. OpenBB) override this.  Must be safe to call
+        with an empty dict (no-op) and idempotent.
+        """
+        del credentials  # default: no credentials required
+
     # ── Shared machinery ────────────────────────────────────────────
 
     async def fetch_page(

@@ -23,6 +23,9 @@ from finance_sync.api.v1.enrichment import router as enrichment_router
 from finance_sync.api.v1.feedback import router as feedback_router
 from finance_sync.api.v1.ha_integration import router as ha_integration_router
 from finance_sync.api.v1.holdings import router as holdings_router
+from finance_sync.api.v1.intel_credentials import (
+    router as intel_credentials_router,
+)
 from finance_sync.api.v1.legacy_exporters import (
     router as legacy_exporters_router,
 )
@@ -80,6 +83,7 @@ router.include_router(card_transactions_router)
 router.include_router(transactions_router)
 router.include_router(holdings_router)
 router.include_router(market_intelligence_router)
+router.include_router(intel_credentials_router)
 router.include_router(dividends_router)
 router.include_router(prices_router)
 router.include_router(sync_router)

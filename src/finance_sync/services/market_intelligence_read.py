@@ -225,7 +225,7 @@ class MarketIntelligenceReadService:
         rows = list(
             (await self._session.execute(stmt)).scalars().all()  # type: ignore[assignment]
         )
-        return [_review_to_dto(row) for row in rows]
+        return [review_to_dto(row) for row in rows]
 
 
 def _item_to_dto(row: MarketIntelligenceItem) -> MarketIntelligenceItemDTO:
@@ -276,7 +276,7 @@ def _state_to_dto(row: MarketIntelligenceProviderState) -> ProviderStateDTO:
     )
 
 
-def _review_to_dto(row: MarketIntelligenceReviewQueue) -> ReviewQueueDTO:
+def review_to_dto(row: MarketIntelligenceReviewQueue) -> ReviewQueueDTO:
     """Project a review-queue row to the read DTO."""
     return ReviewQueueDTO(
         id=str(row.id),
