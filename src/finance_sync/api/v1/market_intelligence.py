@@ -14,6 +14,10 @@ from pydantic import BaseModel, Field
 
 from finance_sync.api.deps.auth import AuthContext, require_permission
 from finance_sync.dependencies import get_container
+from finance_sync.services.market_intelligence_catalog import (
+    IntelSourceCatalogResponse,
+    IntelSourceCatalogService,
+)
 from finance_sync.services.market_intelligence_read import (
     IntelRunDTO,
     MarketIntelligenceItemDTO,
@@ -35,6 +39,31 @@ def _read_service(request: Request) -> MarketIntelligenceReadService:
     container = get_container(request)
     session = container.session_factory()
     return MarketIntelligenceReadService(session)
+
+
+# ── Source catalog ────────────────────────────────────────────────────
+
+
+@router.get(
+    "/sources",
+    response_model=IntelSourceCatalogResponse,
+)
+async def list_intel_sources(
+    request: Request,
+    auth: AuthContext = Depends(
+        require_permission("market-intelligence", "read")
+    ),
+) -> IntelSourceCatalogResponse:
+    """Return the source catalog: static metadata of every provider.
+
+    Tenant-scoped (auth-required).  The catalog carries adapter-declared
+    provenance, licence terms, configuration links, rate-limit and
+    freshness policies and declared capabilities — never provider
+    credentials, never raw API responses, never full article text.
+    """
+    container = get_container(request)
+    service = IntelSourceCatalogService(container.intel_registry)
+    return await service.catalog()
 
 
 # ── Items ─────────────────────────────────────────────────────────────

@@ -28,8 +28,8 @@ class TestMCPResourcesCompleteness:
         self._uri_map = {str(t.uri_template): t for t in self._templates}
 
     def test_resource_count(self) -> None:
-        """There are exactly 4 resources defined."""
-        assert len(self._uri_map) == 4
+        """There are exactly 5 resources defined."""
+        assert len(self._uri_map) == 5
 
     # ── Existing resources (regression) ────────────────────────────
 
@@ -58,6 +58,12 @@ class TestMCPResourcesCompleteness:
         assert t is not None
         assert t.name == "net_worth"
 
+    def test_resource_intel_sources(self) -> None:
+        """finance://intel-sources is registered (source catalog)."""
+        t = self._uri_map.get("finance://intel-sources")
+        assert t is not None
+        assert t.name == "intel_sources"
+
 
 # ═════════════════════════════════════════════════════════════════════════
 # Tool registration tests
@@ -77,8 +83,9 @@ class TestMCPToolsCompleteness:
 
     def test_tool_count(self) -> None:
         """All tools are defined (core + market-intel read surfaces)."""
-        assert len(self._tool_map) == 12
+        assert len(self._tool_map) == 13
         assert "list_intel_runs" in self._tool_map
+        assert "list_intel_sources" in self._tool_map
         assert "list_intel_provider_states" in self._tool_map
         assert "list_market_intelligence" in self._tool_map
 
