@@ -49,3 +49,24 @@ async def gui_register(request: Request) -> HTMLResponse:
         request=request,
         name="register.html",
     )
+
+
+@router.get(
+    "/holdings-relevance",
+    response_class=HTMLResponse,
+    include_in_schema=False,
+)
+async def gui_holding_relevance(request: Request) -> HTMLResponse:
+    """Serve the holding-relevance companion view.
+
+    A documented Wealthfolio add-on/companion page that renders the
+    holding feed + event calendar **purely from the finance-sync API**
+    (never from the Wealthfolio SQLite database).  It can be opened
+    standalone (login redirects to /login?next=...) or embedded as an
+    iframe in the Wealthfolio UI.  See
+    ``docs/wealthfolio-holding-relevance-view.md``.
+    """
+    return templates.TemplateResponse(
+        request=request,
+        name="holding_relevance.html",
+    )

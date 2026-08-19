@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="nl" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Holdingnieuws &amp; events — finance-sync companion view</title>
+    <style>
+        /* ── Compact companion theme (shares the dashboard palette) ── */
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        :root {
+            --bg: #0f1117;
+            --surface: #1a1d28;
+            --surface-2: #242736;
+            --border: #2e3245;
+            --text: #e1e4ef;
+            --text-muted: #8b8fa3;
+            --accent: #6c63ff;
+            --green: #34d399;
+            --red: #f87171;
+            --yellow: #fbbf24;
+            --radius: 10px;
+            --font: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        }
+        html { font-size: 15px; }
+        body {
+            font-family: var(--font);
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            padding: 24px;
+        }
+        a { color: var(--accent); text-decoration: none; }
+        a:hover { color: #7b73ff; }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-bottom: 18px;
+        }
+        .header h1 { font-size: 1.25rem; font-weight: 700; }
+        .header .sub { color: var(--text-muted); font-size: 0.8rem; }
+        .card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 20px;
+            margin-bottom: 18px;
+        }
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 14px;
+        }
+        .card-header h2 { font-size: 1.0rem; font-weight: 600; }
+        .badge {
+            font-size: 0.7rem;
+            padding: 2px 10px;
+            border-radius: 20px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            display: inline-block;
+        }
+        .badge.connected { background: rgba(52, 211, 153, 0.15); color: var(--green); }
+        .badge.disconnected { background: rgba(248, 113, 113, 0.15); color: var(--red); }
+        .badge.pending { background: rgba(251, 191, 36, 0.15); color: var(--yellow); }
+        .feed-item {
+            background: var(--surface-2);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 14px 16px;
+            margin-bottom: 12px;
+        }
+        .feed-item .meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            align-items: center;
+            margin-bottom: 6px;
+        }
+        .feed-item .meta .when { font-size: 0.75rem; color: var(--text-muted); }
+        .feed-item .headline { font-weight: 600; font-size: 0.95rem; line-height: 1.4; }
+        .feed-item .sec { font-size: 0.8rem; color: var(--text-muted); margin-top: 4px; }
+        .feed-item .sources { font-size: 0.75rem; color: var(--text-muted); margin-top: 8px; }
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 14px;
+            border-radius: 6px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            font-family: var(--font);
+            cursor: pointer;
+            transition: all 0.15s;
+            border: 1px solid var(--border);
+            background: transparent;
+            color: var(--text);
+        }
+        .btn-primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+        .btn-primary:hover { background: #7b73ff; }
+        .btn:hover { background: var(--surface-2); }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .filters { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 14px; align-items: center; }
+        .filters select, .filters input {
+            background: var(--bg);
+            color: var(--text);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 6px 10px;
+            font-size: 0.85rem;
+            font-family: var(--font);
+        }
+        table { width: 100%; border-collapse: collapse; }
+        th {
+            text-align: left;
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            color: var(--text-muted);
+            padding: 8px 10px;
+            border-bottom: 1px solid var(--border);
+        }
+        td { padding: 8px 10px; border-bottom: 1px solid var(--border); font-size: 0.85rem; vertical-align: middle; }
+        tr:last-child td { border-bottom: none; }
+        .empty { color: var(--text-muted); font-size: 0.9rem; padding: 12px 4px; }
+        .spinner {
+            display: inline-block;
+            width: 14px; height: 14px;
+            border: 2px solid var(--text-muted);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin 0.6s linear infinite;
+            vertical-align: middle;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .alert-error {
+            background: rgba(248, 113, 113, 0.1);
+            color: var(--red);
+            border: 1px solid rgba(248, 113, 113, 0.2);
+            border-radius: 6px;
+            padding: 10px 14px;
+            font-size: 0.85rem;
+            margin-bottom: 12px;
+        }
+        @media (max-width: 600px) {
+            body { padding: 14px; }
+            .filters { flex-direction: column; align-items: stretch; }
+            .filters select, .filters input { width: 100%; }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div>
+            <h1>Holdingnieuws &amp; events</h1>
+            <div class="sub">finance-sync companion view — geen directe toegang tot de Wealthfolio-database; alle data komt uit de finance-sync API.</div>
+        </div>
+        <div id="auth-note" style="font-size:0.75rem;color:var(--text-muted);"></div>
+    </div>
+
+    <div id="feed-card" class="card">
+        <div class="card-header">
+            <h2>Holdingfeed</h2>
+        </div>
+        <div class="filters" role="search" aria-label="Holdingfeed filteren">
+            <select id="filter-security" aria-label="Filter op security">
+                <option value="">Alle securities</option>
+            </select>
+            <select id="filter-account" aria-label="Filter op rekening">
+                <option value="">Alle rekeningen</option>
+            </select>
+            <select id="filter-type" aria-label="Filter op type">
+                <option value="">Alle typen</option>
+                <option value="earnings">Winstcijfers</option>
+                <option value="dividend">Dividend</option>
+                <option value="agm">AVG</option>
+                <option value="split">Splitsing</option>
+                <option value="merger">Fusie</option>
+                <option value="acquisition">Overname</option>
+                <option value="filing">Filing</option>
+                <option value="news">Nieuws</option>
+                <option value="interest">Rente</option>
+                <option value="currency">Valuta</option>
+            </select>
+            <select id="filter-ack" aria-label="Filter op status">
+                <option value="">Alle statussen</option>
+                <option value="unread">Ongelezen</option>
+                <option value="acked">Gelezen</option>
+            </select>
+            <input type="date" id="filter-from" aria-label="Vanaf datum">
+            <input type="date" id="filter-to" aria-label="Tot datum">
+            <button class="btn" id="filter-reset">Filters wissen</button>
+        </div>
+        <div id="feed-list" aria-live="polite" aria-busy="true"><span class="spinner"></span> Feed laden…</div>
+    </div>
+
+    <div id="calendar-card" class="card">
+        <div class="card-header"><h2>Eventkalender</h2></div>
+        <div style="overflow-x:auto;">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Datum</th>
+                        <th>Type</th>
+                        <th>Security</th>
+                        <th>Verhaal</th>
+                    </tr>
+                </thead>
+                <tbody id="calendar-list"><tr><td colspan="4" class="empty">Kalender laden…</td></tr></tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        // ── Companion view (t_76f1de63) ────────────────────────────────
+        // Renders the same feed + calendar as the control panel, purely
+        // from the finance-sync REST API — no direct database access at
+        // all.  Works standalone (login redirect) or embedded as an
+        // iframe in the Wealthfolio UI.  All API values are escaped
+        // before interpolation.
+        const API_BASE = '/api/v1';
+        // Optional embed support: when the page is loaded with a
+        // #token=<JWT> fragment (e.g. iframed from another origin), the
+        // fragment token is used instead of localStorage.  The token is
+        // never placed in a query string, so it cannot leak into
+        // server logs or referrers.
+        let token = null;
+        try {
+            const frag = new URLSearchParams(window.location.hash.slice(1));
+            token = frag.get('token') || localStorage.getItem('fs_token');
+        } catch { token = localStorage.getItem('fs_token'); }
+        let state = { security_id: '', account_id: '', item_type: '', ackFilter: '', date_from: '', date_to: '' };
+        let securities = [];
+        let accounts = [];
+        let feedItems = [];
+        let calendarEvents = [];
+
+        function authHeaders() {
+            const h = { 'Content-Type': 'application/json' };
+            if (token) h['Authorization'] = `Bearer ${token}`;
+            return h;
+        }
+
+        function escapeHtml(value) {
+            return String(value ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        function isAuthenticated() {
+            if (!token) return false;
+            try {
+                const payload = JSON.parse(atob(token.split('.')[1]));
+                return payload.exp * 1000 > Date.now();
+            } catch { return false; }
+        }
+
+        async function api(method, path, body = null) {
+            const opts = { method, headers: authHeaders() };
+            if (body !== null) opts.body = JSON.stringify(body);
+            const response = await fetch(`${API_BASE}${path}`, opts);
+            if (response.status === 401) { redirectToLogin(); return null; }
+            const data = await response.json();
+            if (!response.ok) { throw new Error(data.detail || `Request failed (${response.status})`); }
+            return data;
+        }
+
+        function redirectToLogin() {
+            localStorage.removeItem('fs_token');
+            window.location.href = '/login?next=/holdings-relevance';
+        }
+
+        const EVENT_LABELS = {
+            earnings: 'Winstcijfers', dividend: 'Dividend', agm: 'AVG',
+            split: 'Splitsing', merger: 'Fusie', acquisition: 'Overname',
+            filing: 'Filing', news: 'Nieuws', interest: 'Rente', currency: 'Valuta',
+        };
+        const MATCH_LABELS = {
+            canonical_security: 'Huidige holding',
+            recently_sold: 'Recent verkocht',
+            currency_interest: 'Rente/valuta',
+            hermes_suggested: 'Voorgesteld',
+        };
+        const label = (map, k) => map[k] || k || '';
+
+        function feedQuery() {
+            const p = new URLSearchParams();
+            p.set('limit', '50');
+            if (state.security_id) p.set('security_id', state.security_id);
+            if (state.account_id) p.set('account_id', state.account_id);
+            if (state.item_type) p.set('item_type', state.item_type);
+            if (state.date_from) p.set('date_from', state.date_from);
+            if (state.date_to) p.set('date_to', state.date_to);
+            if (state.ackFilter === 'unread') p.set('unread_only', 'true');
+            if (state.ackFilter === 'acked') p.set('acknowledged', 'true');
+            return `/holding-relevance/feed?${p.toString()}`;
+        }
+
+        async function load() {
+            const list = document.getElementById('feed-list');
+            list.setAttribute('aria-busy', 'true');
+            list.innerHTML = '<span class="spinner"></span> Feed laden…';
+            try {
+                const [feed, calendar, holdings, accountsRes] = await Promise.allSettled([
+                    api('GET', feedQuery()),
+                    api('GET', '/holding-relevance/calendar?limit=100'),
+                    api('GET', '/holdings?limit=500'),
+                    api('GET', '/accounts?limit=200'),
+                ]);
+                feedItems = (feed.status === 'fulfilled' && feed.value && feed.value.items) || [];
+                calendarEvents = (calendar.status === 'fulfilled' && calendar.value && calendar.value.events) || [];
+                if (holdings.status === 'fulfilled' && holdings.value && holdings.value.items) {
+                    const seen = {};
+                    securities = (holdings.value.items || [])
+                        .filter(h => h.security_id && !seen[h.security_id] && (seen[h.security_id] = 1))
+                        .map(h => ({ id: h.security_id, ticker: h.ticker, name: h.security_name }));
+                }
+                if (accountsRes.status === 'fulfilled' && accountsRes.value && accountsRes.value.items) {
+                    accounts = (accountsRes.value.items || []).map(a => ({ id: a.id, name: a.name }));
+                }
+                renderFilters();
+                renderFeed();
+                renderCalendar();
+                if (feed.status === 'rejected') {
+                    list.innerHTML = `<div class="alert-error">Feed kon niet worden geladen: ${escapeHtml(feed.reason && feed.reason.message ? feed.reason.message : 'onbekende fout')}</div>`;
+                }
+                list.setAttribute('aria-busy', 'false');
+            } catch (e) {
+                list.innerHTML = `<div class="alert-error">Feed kon niet worden geladen: ${escapeHtml(e.message || 'onbekende fout')}</div>`;
+                list.setAttribute('aria-busy', 'false');
+            }
+        }
+
+        function renderFilters() {
+            const sec = document.getElementById('filter-security');
+            sec.innerHTML = '<option value="">Alle securities</option>' + securities.map(s =>
+                `<option value="${escapeHtml(s.id)}" ${state.security_id === s.id ? 'selected' : ''}>${escapeHtml(s.ticker || s.name || s.id.slice(0, 8))}</option>`
+            ).join('');
+            const acc = document.getElementById('filter-account');
+            acc.innerHTML = '<option value="">Alle rekeningen</option>' + accounts.map(a =>
+                `<option value="${escapeHtml(a.id)}" ${state.account_id === a.id ? 'selected' : ''}>${escapeHtml(a.name || a.id.slice(0, 8))}</option>`
+            ).join('');
+            document.getElementById('filter-type').value = state.item_type;
+            document.getElementById('filter-ack').value = state.ackFilter;
+            document.getElementById('filter-from').value = state.date_from;
+            document.getElementById('filter-to').value = state.date_to;
+        }
+
+        function renderFeed() {
+            const list = document.getElementById('feed-list');
+            if (!feedItems.length) {
+                list.innerHTML = '<div class="empty">Nog geen holding-relevant nieuws gevonden voor de gekozen filters.</div>';
+                return;
+            }
+            list.innerHTML = feedItems.map(item => {
+                const acked = !!item.acknowledged;
+                const statusBadge = acked
+                    ? '<span class="badge connected">Gelezen</span>'
+                    : '<span class="badge pending">Ongelezen</span>';
+                const stale = item.is_stale ? '<span class="badge disconnected">Stale</span>' : '';
+                const when = item.event_date
+                    ? new Date(item.event_date).toLocaleDateString()
+                    : (item.earliest_published_at ? new Date(item.earliest_published_at).toLocaleDateString() : '—');
+                const secLabel = item.security_ticker
+                    ? `${escapeHtml(item.security_ticker)}${item.security_name ? ' · ' + escapeHtml(item.security_name) : ''}`
+                    : escapeHtml(item.security_name || 'Rente/valuta');
+                const sources = (item.sources || []).map(s =>
+                    s.url
+                        ? `<a href="${escapeHtml(s.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(s.provider || 'bron')}</a>`
+                        : `<span>${escapeHtml(s.provider || 'bron')}</span>`
+                ).join(', ');
+                const ackBtn = acked
+                    ? `<button class="btn" data-ack="${escapeHtml(item.cluster_id || item.id)}" data-ack-value="false">Markeer ongelezen</button>`
+                    : `<button class="btn btn-primary" data-ack="${escapeHtml(item.cluster_id || item.id)}" data-ack-value="true">Markeer gelezen</button>`;
+                return `
+                    <div class="feed-item" data-cluster-id="${escapeHtml(item.cluster_id || item.id)}">
+                        <div class="meta">
+                            <span class="badge pending">${escapeHtml(label(EVENT_LABELS, item.event_type))}</span>
+                            ${statusBadge}
+                            ${stale}
+                            <span class="when">${escapeHtml(when)}</span>
+                        </div>
+                        <div class="headline">${escapeHtml(item.headline || 'Untitled')}</div>
+                        <div class="sec">${secLabel}${item.match_reason ? ' — ' + escapeHtml(label(MATCH_LABELS, item.match_reason)) : ''}</div>
+                        ${sources ? `<div class="sources">Bronnen: ${sources}</div>` : ''}
+                        <div style="margin-top:10px;">${ackBtn}</div>
+                    </div>
+                `;
+            }).join('');
+            // Wire ack buttons (event delegation is simpler than per-item).
+            document.querySelectorAll('[data-ack]').forEach(btn => {
+                btn.addEventListener('click', () => ackCluster(btn.getAttribute('data-ack'), btn.getAttribute('data-ack-value') === 'true'));
+            });
+        }
+
+        function renderCalendar() {
+            const tbody = document.getElementById('calendar-list');
+            if (!calendarEvents.length) {
+                tbody.innerHTML = '<tr><td colspan="4" class="empty">Nog geen geplande corporate events gevonden.</td></tr>';
+                return;
+            }
+            tbody.innerHTML = calendarEvents.map(ev => {
+                const d = ev.event_date ? new Date(ev.event_date) : null;
+                const dateLabel = d && !isNaN(d.getTime()) ? d.toLocaleDateString() : '—';
+                const secLabel = ev.security_ticker
+                    ? `${escapeHtml(ev.security_ticker)}${ev.security_name ? ' · ' + escapeHtml(ev.security_name) : ''}`
+                    : escapeHtml(ev.security_name || 'Rente/valuta');
+                return `
+                    <tr>
+                        <td style="white-space:nowrap;">${escapeHtml(dateLabel)}</td>
+                        <td><span class="badge pending">${escapeHtml(label(EVENT_LABELS, ev.event_type))}</span></td>
+                        <td>${secLabel}</td>
+                        <td>${escapeHtml(ev.headline || 'Untitled')}</td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        function setFilter(field, value) {
+            state[field] = value || '';
+            load();
+        }
+
+        function resetFilters() {
+            state = { security_id: '', account_id: '', item_type: '', ackFilter: '', date_from: '', date_to: '' };
+            load();
+        }
+
+        async function ackCluster(clusterId, acknowledged) {
+            try {
+                await api('POST', `/holding-relevance/clusters/${encodeURIComponent(clusterId)}/ack`, { acknowledged });
+                await load();
+            } catch (e) {
+                alert('Ack mislukt: ' + (e.message || 'onbekende fout'));
+            }
+        }
+
+        // ── Wire + boot ────────────────────────────────────────────────
+        document.getElementById('filter-security').addEventListener('change', e => setFilter('security_id', e.target.value));
+        document.getElementById('filter-account').addEventListener('change', e => setFilter('account_id', e.target.value));
+        document.getElementById('filter-type').addEventListener('change', e => setFilter('item_type', e.target.value));
+        document.getElementById('filter-ack').addEventListener('change', e => setFilter('ackFilter', e.target.value));
+        document.getElementById('filter-from').addEventListener('change', e => setFilter('date_from', e.target.value));
+        document.getElementById('filter-to').addEventListener('change', e => setFilter('date_to', e.target.value));
+        document.getElementById('filter-reset').addEventListener('click', resetFilters);
+
+        (async function init() {
+            if (!isAuthenticated()) { redirectToLogin(); return; }
+            const note = document.getElementById('auth-note');
+            try {
+                const me = await api('GET', '/auth/me');
+                if (me) note.textContent = `Aangemeld als ${me.email}`;
+            } catch { /* non-fatal */ }
+            await load();
+        })();
+    </script>
+</body>
+</html>

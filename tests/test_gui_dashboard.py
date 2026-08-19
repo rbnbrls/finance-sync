@@ -624,3 +624,173 @@ def test_dashboard_destination_cards_expose_status_and_actions(
     )  # pause etc. via POST /destinations/{id}/{action}
     assert "Notebook downloaden" in html  # Jupyter download action
     assert "Sleutel roteren" in html
+
+
+# ══════════════════════════════════════════════════════════════════
+# Holding feed & calendar UI (t_76f1de63)
+# ══════════════════════════════════════════════════════════════════
+
+
+def test_dashboard_ships_holding_news_section(client: TestClient) -> None:
+    """AC: the control panel ships a Holdingnieuws section with a feed
+    container and a calendar container."""
+    html = _dashboard_html(client)
+    assert 'data-section="holding-news"' in html
+    assert "Holdingnieuws" in html
+    assert 'id="section-holding-news"' in html
+    assert 'id="holding-feed"' in html
+    assert 'id="holding-calendar"' in html
+
+
+def test_dashboard_holding_news_section_is_permission_gated(
+    client: TestClient,
+) -> None:
+    """AC: the nav entry is gated behind market-intelligence:read — the
+    same permission the holding-relevance API endpoints require."""
+    html = _dashboard_html(client)
+    assert 'data-perm="market-intelligence:read"' in html
+    assert "applySectionPermissions" in html
+
+
+def test_dashboard_holding_news_consumes_feed_api(client: TestClient) -> None:
+    """AC: the feed renders from the /holding-relevance API with the
+    ranked/clustered contract (items + total)."""
+    html = _dashboard_html(client)
+    assert "loadHoldingNews()" in html
+    assert "holding-relevance/feed" in html
+    assert "holding-relevance/calendar" in html
+    assert "holdingFeedItems" in html
+    assert "holdingState.total" in html
+
+
+def test_dashboard_holding_news_ships_filters(client: TestClient) -> None:
+    """AC: filters for security, account, item type, date and
+    unread/acknowledged state are wired to the API query string."""
+    html = _dashboard_html(client)
+    assert "holding-filter-security" in html
+    assert "holding-filter-account" in html
+    assert "holding-filter-type" in html
+    assert "holding-filter-ack" in html
+    assert "holding-filter-from" in html
+    assert "holding-filter-to" in html
+    assert "setHoldingFilter(" in html
+    assert "resetHoldingFilters()" in html
+    assert "holdingFeedQueryString()" in html
+    # The ack state maps to the API's unread_only/acknowledged params.
+    assert "unread_only" in html
+    assert "acknowledged" in html
+    assert "Ongelezen" in html
+    assert "Gelezen" in html
+
+
+def test_dashboard_holding_news_ships_ack_flow(client: TestClient) -> None:
+    """AC: acknowledged/unread state changes are reflected in the UI —
+    per-cluster ack buttons POST to the ack endpoint and re-render."""
+    html = _dashboard_html(client)
+    assert "ackCluster(" in html
+    assert "holding-relevance/clusters/" in html
+    assert "/ack" in html
+    assert "Markeer gelezen" in html
+    assert "Markeer ongelezen" in html
+    assert "item.acknowledged" in html
+
+
+def test_dashboard_holding_news_ships_calendar(client: TestClient) -> None:
+    """AC: the calendar renders upcoming event clusters by date."""
+    html = _dashboard_html(client)
+    assert "renderHoldingCalendar()" in html
+    assert "Eventkalender" in html
+    assert "holdingCalendarEvents" in html
+    assert "event_date" in html
+
+
+def test_dashboard_holding_news_escapes_api_values(client: TestClient) -> None:
+    """AC: headlines, security names and source URLs from the API are
+    escaped before interpolation (no XSS via syndicated titles)."""
+    html = _dashboard_html(client)
+    assert "escapeHtml(item.headline" in html
+    assert "escapeHtml(item.security_ticker" in html
+    assert "escapeHtml(item.cluster_id" in html
+    assert "escapeHtml(s.url)" in html
+    assert 'rel="noopener noreferrer"' in html
+
+
+def test_dashboard_holding_news_fallback_options_from_tenant_endpoints(
+    client: TestClient,
+) -> None:
+    """AC: filter options are derived from tenant-scoped holdings and
+    accounts endpoints so a user only ever sees their own data."""
+    html = _dashboard_html(client)
+    assert "api('GET', '/holdings?limit=500')" in html
+    assert "api('GET', '/accounts?limit=200')" in html
+    assert "holdingSecurities" in html
+    assert "holdingAccounts" in html
+
+
+def test_dashboard_holding_news_graceful_error(client: TestClient) -> None:
+    """AC: a failing feed call renders a friendly inline error with a
+    Retry action, never a blank body."""
+    html = _dashboard_html(client)
+    assert "Could not load holding feed" in html
+    assert "renderInlineError('holding-feed'" in html
+    assert (
+        "renderInlineError('holding-calendar'" in html
+        or "loadHoldingNews()" in html
+    )
+
+
+# ══════════════════════════════════════════════════════════════════
+# Holding-relevance companion view (t_76f1de63)
+# ══════════════════════════════════════════════════════════════════
+
+
+def test_companion_view_is_served(client: TestClient) -> None:
+    """AC: the documented Wealthfolio companion page is server-rendered
+    at /holdings-relevance."""
+    resp = client.get("/holdings-relevance")
+    assert resp.status_code == 200
+    html = resp.text
+    assert "Holdingnieuws" in html
+    assert "companion view" in html
+    assert "holding-relevance/feed" in html
+
+
+def test_companion_view_never_touches_wealthfolio_db(
+    client: TestClient,
+) -> None:
+    """AC: the companion page consumes only the finance-sync API — there
+    is no SQLite / Wealthfolio database access anywhere in the page."""
+    html = client.get("/holdings-relevance").text
+    assert "holding-relevance/feed" in html
+    assert "holding-relevance/calendar" in html
+    # No direct DB file access, no sqlite identifiers in the page.
+    assert "sqlite" not in html.lower()
+    assert "wealthfolio.db" not in html.lower()
+    assert "INSERT INTO" not in html
+
+
+def test_companion_view_escapes_and_is_lockscreen_safe(
+    client: TestClient,
+) -> None:
+    """AC: the companion page escapes API values and never renders
+    position sizes or financial values."""
+    html = client.get("/holdings-relevance").text
+    assert "escapeHtml(item.headline" in html
+    assert "escapeHtml(item.security_ticker" in html
+    assert 'rel="noopener noreferrer"' in html
+    # Lockscreen-safe: no financial value / position-size rendering.
+    assert "market_value" not in html
+    assert "position_size" not in html.lower()
+
+
+def test_companion_view_supports_embedded_token_fragment(
+    client: TestClient,
+) -> None:
+    """AC: the embed path reads an optional #token= fragment instead of
+    leaking the JWT into a query string."""
+    html = client.get("/holdings-relevance").text
+    assert "window.location.hash" in html
+    assert "frag.get('token')" in html
+    assert "localStorage.getItem('fs_token')" in html
+    # The token is read from the fragment, never written to the query.
+    assert "location.search" not in html

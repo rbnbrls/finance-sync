@@ -876,6 +876,9 @@
             <a href="#" data-section="sync" data-perm="sync:read" onclick="switchSection('sync')">
                 <span class="icon" aria-hidden="true">&#8635;</span> Sync Runs
             </a>
+            <a href="#" data-section="holding-news" data-perm="market-intelligence:read" onclick="switchSection('holding-news')">
+                <span class="icon" aria-hidden="true">&#128200;</span> Holdingnieuws
+            </a>
             <a href="#" data-section="settings" onclick="switchSection('settings')">
                 <span class="icon" aria-hidden="true">&#9879;</span> Settings
             </a>
@@ -907,6 +910,12 @@
             <p class="page-subtitle">Plan per connector en exporttarget wanneer data wordt opgehaald of afgeleverd, en bekijk de runhistorie.</p>
             <div id="sync-schedules" aria-live="polite" aria-busy="true"></div>
             <div id="sync-run-history" style="margin-top: 24px;"></div>
+        </div>
+        <div id="section-holding-news" class="hidden" role="region" aria-labelledby="holding-news-title">
+            <h1 class="page-title" id="holding-news-title">Holdingnieuws &amp; events</h1>
+            <p class="page-subtitle">Nieuws en corporate events die relevant zijn voor jouw actuele holdings, gerangschikt op relevantie. Elke cluster bundelt gesyndiceerde berichten tot één verhaal en toont alle bronlinks.</p>
+            <div id="holding-feed" aria-live="polite" aria-busy="true"></div>
+            <div id="holding-calendar" style="margin-top: 24px;"></div>
         </div>
         <div id="section-settings" class="hidden" role="region" aria-labelledby="settings-title">
             <h1 class="page-title" id="settings-title">Settings</h1>
@@ -1143,6 +1152,7 @@
             if (name === 'connectors') loadConnectors();
             if (name === 'exporters') loadExporters();
             if (name === 'sync') loadSyncRuns();
+            if (name === 'holding-news') loadHoldingNews();
         }
 
         // ── API calls ────────────────────────────────────────────────────
@@ -2822,6 +2832,320 @@
             loadSyncRuns();
         }
 
+
+        // ── Holding nieuws & events (t_76f1de63) ────────────────────
+        // Feed + calendar for holding-relevant news, consumed from the
+        // /holding-relevance API. Every value from the API is escaped
+        // before interpolation; filters are passed as query params (the
+        // backend treats them as data, so injection payloads match
+        // nothing).  Acks round-trip per user and re-render the feed.
+        let holdingState = {
+            security_id: '', account_id: '', item_type: '',
+            date_from: '', date_to: '', ackFilter: '', // '' | 'unread' | 'acked' | 'all'
+            offset: 0, limit: 20, total: 0,
+        };
+        const EVENT_TYPE_LABELS = {
+            earnings: 'Winstcijfers', dividend: 'Dividend', agm: 'AVG',
+            split: 'Splitsing', merger: 'Fusie', acquisition: 'Overname',
+            filing: 'Filing', news: 'Nieuws', interest: 'Rente',
+            currency: 'Valuta',
+        };
+        const MATCH_REASON_LABELS = {
+            canonical_security: 'Huidige holding',
+            recently_sold: 'Recent verkocht',
+            currency_interest: 'Rente/valuta',
+            hermes_suggested: 'Voorgesteld',
+        };
+        let holdingSecurities = [];   // filter options: {id, ticker, name}
+        let holdingAccounts = [];     // filter options: {id, name}
+        let holdingFeedItems = [];
+        let holdingCalendarEvents = [];
+
+        function holdingEventTypeLabel(t) {
+            return EVENT_TYPE_LABELS[t] || t || 'Nieuws';
+        }
+
+        function holdingAckFilterLabel(v) {
+            return v === 'unread' ? 'Ongelezen' : (v === 'acked' ? 'Gelezen' : 'Alle');
+        }
+
+        function holdingFeedQueryString() {
+            const p = new URLSearchParams();
+            p.set('limit', String(holdingState.limit));
+            if (holdingState.offset > 0) p.set('offset', String(holdingState.offset));
+            if (holdingState.security_id) p.set('security_id', holdingState.security_id);
+            if (holdingState.account_id) p.set('account_id', holdingState.account_id);
+            if (holdingState.item_type) p.set('item_type', holdingState.item_type);
+            if (holdingState.date_from) p.set('date_from', holdingState.date_from);
+            if (holdingState.date_to) p.set('date_to', holdingState.date_to);
+            if (holdingState.ackFilter === 'unread') p.set('unread_only', 'true');
+            if (holdingState.ackFilter === 'acked') p.set('acknowledged', 'true');
+            return `/holding-relevance/feed?${p.toString()}`;
+        }
+
+        async function loadHoldingNews() {
+            const feedContainer = document.getElementById('holding-feed');
+            const calContainer = document.getElementById('holding-calendar');
+            if (feedContainer) feedContainer.setAttribute('aria-busy', 'true');
+            try {
+                const [feed, calendar, holdings, accounts] = await Promise.allSettled([
+                    api('GET', holdingFeedQueryString()),
+                    api('GET', '/holding-relevance/calendar?limit=100'),
+                    api('GET', '/holdings?limit=500'),
+                    api('GET', '/accounts?limit=200'),
+                ]);
+                holdingFeedItems = (feed.status === 'fulfilled' && feed.value && feed.value.items) || [];
+                if (feed.status === 'fulfilled' && feed.value) {
+                    holdingState.total = feed.value.total ?? holdingState.total;
+                }
+                holdingCalendarEvents = (calendar.status === 'fulfilled' && calendar.value && calendar.value.events) || [];
+                // Filter options come from tenant-scoped endpoints.
+                if (holdings.status === 'fulfilled' && holdings.value && holdings.value.items) {
+                    const seen = {};
+                    holdingSecurities = (holdings.value.items || [])
+                        .filter(h => h.security_id && !seen[h.security_id] && (seen[h.security_id] = 1))
+                        .map(h => ({ id: h.security_id, ticker: h.ticker, name: h.security_name }));
+                }
+                if (accounts.status === 'fulfilled' && accounts.value && accounts.value.items) {
+                    holdingAccounts = (accounts.value.items || []).map(a => ({ id: a.id, name: a.name }));
+                }
+                renderHoldingFeed();
+                renderHoldingCalendar();
+                if (feed.status === 'rejected') {
+                    renderInlineError('holding-feed', 'Could not load holding feed', feed.reason && feed.reason.message ? feed.reason.message : 'The holding feed service did not respond.', loadHoldingNews);
+                }
+                if (calendar.status === 'rejected' && calContainer) {
+                    const notice = document.createElement('div');
+                    notice.innerHTML = `<div class="alert alert-error inline-error" role="alert"><div class="inline-error-msg"><strong>Kalender</strong> kon niet worden geladen. <button class="btn btn-sm" onclick="loadHoldingNews()">Opnieuw</button></div></div>`;
+                    calContainer.appendChild(notice);
+                }
+                if (feedContainer) feedContainer.setAttribute('aria-busy', 'false');
+            } catch (e) {
+                renderInlineError('holding-feed', 'Could not load holding feed', e.message || 'The holding feed service did not respond.', loadHoldingNews);
+                if (feedContainer) feedContainer.setAttribute('aria-busy', 'false');
+            }
+        }
+
+        function renderHoldingFeed() {
+            const container = document.getElementById('holding-feed');
+            if (!container) return;
+
+            const secOptions = holdingSecurities.map(s =>
+                `<option value="${escapeHtml(s.id)}" ${holdingState.security_id === s.id ? 'selected' : ''}>${escapeHtml(s.ticker || s.name || s.id.slice(0, 8))}</option>`
+            ).join('');
+            const accOptions = holdingAccounts.map(a =>
+                `<option value="${escapeHtml(a.id)}" ${holdingState.account_id === a.id ? 'selected' : ''}>${escapeHtml(a.name || a.id.slice(0, 8))}</option>`
+            ).join('');
+            const typeOptions = Object.entries(EVENT_TYPE_LABELS).map(([k, v]) =>
+                `<option value="${k}" ${holdingState.item_type === k ? 'selected' : ''}>${escapeHtml(v)}</option>`
+            ).join('');
+
+            const filterBar = `
+                <div class="run-history-filters" role="search" aria-label="Holdingfeed filteren">
+                    <label class="run-filter-field">
+                        <span class="visually-hidden">Filter op security</span>
+                        <select id="holding-filter-security" onchange="setHoldingFilter('security_id', this.value)">
+                            <option value="">Alle securities</option>
+                            ${secOptions}
+                        </select>
+                    </label>
+                    <label class="run-filter-field">
+                        <span class="visually-hidden">Filter op rekening</span>
+                        <select id="holding-filter-account" onchange="setHoldingFilter('account_id', this.value)">
+                            <option value="">Alle rekeningen</option>
+                            ${accOptions}
+                        </select>
+                    </label>
+                    <label class="run-filter-field">
+                        <span class="visually-hidden">Filter op type</span>
+                        <select id="holding-filter-type" onchange="setHoldingFilter('item_type', this.value)">
+                            <option value="">Alle typen</option>
+                            ${typeOptions}
+                        </select>
+                    </label>
+                    <label class="run-filter-field">
+                        <span class="visually-hidden">Filter op status</span>
+                        <select id="holding-filter-ack" onchange="setHoldingFilter('ackFilter', this.value)">
+                            <option value="">Alle statussen</option>
+                            <option value="unread" ${holdingState.ackFilter === 'unread' ? 'selected' : ''}>Ongelezen</option>
+                            <option value="acked" ${holdingState.ackFilter === 'acked' ? 'selected' : ''}>Gelezen</option>
+                        </select>
+                    </label>
+                    <label class="run-filter-field">
+                        <span class="visually-hidden">Vanaf datum</span>
+                        <input type="date" id="holding-filter-from" value="${escapeHtml(holdingState.date_from)}" onchange="setHoldingFilter('date_from', this.value)" aria-label="Vanaf datum">
+                    </label>
+                    <label class="run-filter-field">
+                        <span class="visually-hidden">Tot datum</span>
+                        <input type="date" id="holding-filter-to" value="${escapeHtml(holdingState.date_to)}" onchange="setHoldingFilter('date_to', this.value)" aria-label="Tot datum">
+                    </label>
+                    ${(holdingState.security_id || holdingState.account_id || holdingState.item_type || holdingState.ackFilter || holdingState.date_from || holdingState.date_to) ? `<button type="button" class="btn btn-sm" onclick="resetHoldingFilters()">Filters wissen</button>` : ''}
+                </div>
+            `;
+
+            if (!holdingFeedItems.length) {
+                container.innerHTML = `
+                    <div class="card">
+                        <div class="card-header"><h2>Holdingfeed</h2></div>
+                        ${filterBar}
+                        <p style="color: var(--text-muted); font-size:0.9rem;" role="status">${(holdingState.security_id || holdingState.account_id || holdingState.item_type || holdingState.ackFilter || holdingState.date_from || holdingState.date_to) ? 'Geen items gevonden voor de gekozen filters.' : 'Nog geen holding-relevant nieuws gevonden. De feed vult zich zodra de bronlaag items ophaalt voor jouw holdings.'}</p>
+                    </div>
+                `;
+                return;
+            }
+
+            let rows = '';
+            for (const item of holdingFeedItems) {
+                const typeLabel = holdingEventTypeLabel(item.event_type);
+                const matchLabel = MATCH_REASON_LABELS[item.match_reason] || item.match_reason || '';
+                const secLabel = item.security_ticker ? `${escapeHtml(item.security_ticker)}${item.security_name ? ' · ' + escapeHtml(item.security_name) : ''}` : (escapeHtml(item.security_name || 'Rente/valuta'));
+                const acked = !!item.acknowledged;
+                const statusBadge = acked
+                    ? '<span class="badge connected">Gelezen</span>'
+                    : '<span class="badge pending">Ongelezen</span>';
+                const staleBadge = item.is_stale
+                    ? '<span class="badge disconnected" title="Bron ouder dan de versheidsdrempel">Stale</span>'
+                    : '';
+                const dateLabel = item.event_date ? new Date(item.event_date).toLocaleDateString() : (item.earliest_published_at ? new Date(item.earliest_published_at).toLocaleDateString() : '—');
+                const sourceLinks = (item.sources || []).map(s =>
+                    s.url
+                        ? `<a href="${escapeHtml(s.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(s.provider || 'bron')}</a>`
+                        : `<span>${escapeHtml(s.provider || 'bron')}</span>`
+                ).join(', ');
+                const ackBtn = acked
+                    ? `<button class="btn btn-sm" onclick="ackCluster('${escapeHtml(item.cluster_id || item.id)}', false)">Markeer ongelezen</button>`
+                    : `<button class="btn btn-sm btn-primary" onclick="ackCluster('${escapeHtml(item.cluster_id || item.id)}', true)">Markeer gelezen</button>`;
+                rows += `
+                    <div class="connector-card" data-cluster-id="${escapeHtml(item.cluster_id || item.id)}" style="margin-bottom:14px;">
+                        <div class="top">
+                            <div style="flex:1;min-width:0;">
+                                <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:6px;">
+                                    <span class="badge pending">${escapeHtml(typeLabel)}</span>
+                                    ${statusBadge}
+                                    ${staleBadge}
+                                    <span style="font-size:0.75rem;color:var(--text-muted);">${escapeHtml(dateLabel)}</span>
+                                </div>
+                                <div style="font-weight:600;font-size:0.95rem;line-height:1.4;">${escapeHtml(item.headline || 'Untitled')}</div>
+                                <div style="font-size:0.8rem;color:var(--text-muted);margin-top:4px;">${secLabel}${matchLabel ? ' — ' + escapeHtml(matchLabel) : ''}</div>
+                            </div>
+                            <div style="flex-shrink:0;margin-left:12px;">${ackBtn}</div>
+                        </div>
+                        <div class="capabilities" style="margin-top:10px;margin-bottom:0;">
+                            <span class="cap">${item.source_count || 0} bron${(item.source_count || 0) === 1 ? '' : 'nen'}</span>
+                            <span class="cap">score ${typeof item.score === 'number' ? item.score.toFixed(2) : '—'}</span>
+                            ${item.confidence != null ? `<span class="cap">confidence ${item.confidence.toFixed(2)}</span>` : ''}
+                        </div>
+                        ${sourceLinks ? `<div style="font-size:0.75rem;color:var(--text-muted);margin-top:8px;">Bronnen: ${sourceLinks}</div>` : ''}
+                    </div>
+                `;
+            }
+
+            const total = holdingState.total;
+            const page = Math.floor(holdingState.offset / holdingState.limit) + 1;
+            const pages = Math.max(1, Math.ceil(total / holdingState.limit));
+            const from = total ? holdingState.offset + 1 : 0;
+            const to = Math.min(total, holdingState.offset + holdingFeedItems.length);
+            const pagination = `
+                <div class="run-pagination" role="navigation" aria-label="Pagina's van de holdingfeed">
+                    <span class="run-pagination-info" role="status">Items ${from}–${to} van ${total}</span>
+                    <div class="run-pagination-controls">
+                        <button type="button" class="btn btn-sm" onclick="setHoldingPage(${holdingState.offset - holdingState.limit})" ${holdingState.offset === 0 ? 'disabled' : ''}>&#8592; Vorige</button>
+                        <span class="run-pagination-page" aria-current="page">Pagina ${page} van ${pages}</span>
+                        <button type="button" class="btn btn-sm" onclick="setHoldingPage(${holdingState.offset + holdingState.limit})" ${holdingState.offset + holdingFeedItems.length >= total ? 'disabled' : ''}>Volgende &#8594;</button>
+                    </div>
+                </div>
+            `;
+
+            container.innerHTML = `
+                <div class="card">
+                    <div class="card-header"><h2>Holdingfeed</h2></div>
+                    ${filterBar}
+                    ${rows}
+                    ${pagination}
+                </div>
+            `;
+        }
+
+        function renderHoldingCalendar() {
+            const container = document.getElementById('holding-calendar');
+            if (!container) return;
+            if (!holdingCalendarEvents.length) {
+                container.innerHTML = `
+                    <div class="card">
+                        <div class="card-header"><h2>Eventkalender</h2></div>
+                        <p style="color: var(--text-muted); font-size:0.9rem;" role="status">Nog geen geplande corporate events gevonden.</p>
+                    </div>
+                `;
+                return;
+            }
+            const rows = holdingCalendarEvents.map(ev => {
+                const date = ev.event_date ? new Date(ev.event_date) : null;
+                const dateLabel = date && !isNaN(date.getTime()) ? date.toLocaleDateString() : '—';
+                const secLabel = ev.security_ticker ? `${escapeHtml(ev.security_ticker)}${ev.security_name ? ' · ' + escapeHtml(ev.security_name) : ''}` : escapeHtml(ev.security_name || 'Rente/valuta');
+                return `
+                    <tr data-event-id="${escapeHtml(ev.id)}">
+                        <td style="padding:8px 12px;border-bottom:1px solid var(--border);font-size:0.85rem;white-space:nowrap;">${escapeHtml(dateLabel)}</td>
+                        <td style="padding:8px 12px;border-bottom:1px solid var(--border);font-size:0.85rem;"><span class="badge pending">${escapeHtml(holdingEventTypeLabel(ev.event_type))}</span></td>
+                        <td style="padding:8px 12px;border-bottom:1px solid var(--border);font-size:0.85rem;">${secLabel}</td>
+                        <td style="padding:8px 12px;border-bottom:1px solid var(--border);font-size:0.85rem;">${escapeHtml(ev.headline || 'Untitled')}</td>
+                    </tr>
+                `;
+            }).join('');
+            container.innerHTML = `
+                <div class="card">
+                    <div class="card-header"><h2>Eventkalender</h2></div>
+                    <div style="overflow-x:auto;">
+                        <table class="household-table" style="width:100%;border-collapse:collapse;">
+                            <thead>
+                                <tr>
+                                    <th style="padding:8px 12px;text-align:left;font-size:0.8rem;color:var(--text-muted);font-weight:600;border-bottom:2px solid var(--border);">Datum</th>
+                                    <th style="padding:8px 12px;text-align:left;font-size:0.8rem;color:var(--text-muted);font-weight:600;border-bottom:2px solid var(--border);">Type</th>
+                                    <th style="padding:8px 12px;text-align:left;font-size:0.8rem;color:var(--text-muted);font-weight:600;border-bottom:2px solid var(--border);">Security</th>
+                                    <th style="padding:8px 12px;text-align:left;font-size:0.8rem;color:var(--text-muted);font-weight:600;border-bottom:2px solid var(--border);">Verhaal</th>
+                                </tr>
+                            </thead>
+                            <tbody>${rows}</tbody>
+                        </table>
+                    </div>
+                </div>
+            `;
+        }
+
+        function setHoldingFilter(field, value) {
+            holdingState[field] = value || '';
+            holdingState.offset = 0;
+            loadHoldingNews();
+        }
+
+        function resetHoldingFilters() {
+            holdingState.security_id = '';
+            holdingState.account_id = '';
+            holdingState.item_type = '';
+            holdingState.date_from = '';
+            holdingState.date_to = '';
+            holdingState.ackFilter = '';
+            holdingState.offset = 0;
+            loadHoldingNews();
+        }
+
+        function setHoldingPage(offset) {
+            if (offset < 0) return;
+            holdingState.offset = offset;
+            loadHoldingNews();
+        }
+
+        async function ackCluster(clusterId, acknowledged) {
+            const btn = document.querySelector(`[data-cluster-id="${CSS.escape(clusterId)}"] .btn`);
+            if (btn) { btn.disabled = true; btn.textContent = acknowledged ? 'Bezig…' : 'Bezig…'; }
+            try {
+                await api('POST', `/holding-relevance/clusters/${encodeURIComponent(clusterId)}/ack`, { acknowledged });
+                toast(acknowledged ? 'Cluster gemarkeerd als gelezen.' : 'Cluster gemarkeerd als ongelezen.', 'success');
+                await loadHoldingNews();
+            } catch (e) {
+                if (btn) { btn.disabled = false; btn.textContent = acknowledged ? 'Markeer gelezen' : 'Markeer ongelezen'; }
+                toast('Ack mislukt: ' + (e.message || 'onbekende fout'), 'error');
+            }
+        }
 
         // ── Init ─────────────────────────────────────────────────────────
         (async function init() {
