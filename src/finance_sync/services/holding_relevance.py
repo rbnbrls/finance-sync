@@ -51,6 +51,9 @@ if not hasattr(SQLiteTypeCompiler, "visit_JSONB"):
 from finance_sync.models.account import Account
 from finance_sync.models.holding import Holding
 from finance_sync.models.holding_relevance import (
+    CLUSTER_REASON_EXACT_EVENT,
+    CLUSTER_REASON_NO_DATE,
+    CLUSTER_REASON_TITLE_DUPLICATE,
     CORRECTION_DISMISS,
     EVENT_TYPE_CURRENCY,
     EVENT_TYPE_INTEREST,
@@ -257,6 +260,88 @@ def _story_key(
     return f"{security_id or 'none'}:{event_type}:{date_part}"
 
 
+#: Max absolute event-date gap (days) for two items to be considered the
+#: same story via title fingerprint.  Syndicated coverage of one event
+#: rarely disagrees by more than this; distinct events (different
+#: quarter, ex-date vs payment date) always exceed it.
+_TITLE_DUP_DATE_TOLERANCE_DAYS = 3
+
+
+def _title_fingerprint(headline: str | None) -> str:
+    """Deterministic, order-insensitive title fingerprint.
+
+    Lowercases, strips HTML/entities and punctuation, drops common
+    stopwords, then sorts the remaining tokens so ``"Apple Q4 earnings
+    beat"`` and ``"Apple earnings beat Q4 (source 2)"`` collide.  Same
+    input → same fingerprint; never uses wall-clock state.
+    """
+    import html
+    import re
+
+    if not headline:
+        return ""
+    text = html.unescape(headline).lower()
+    text = re.sub(r"<[^>]+>", " ", text)
+    text = re.sub(r"[^a-z0-9\s]", " ", text)
+    tokens = text.split()
+    # Remove stopwords so syndicated phrasing variations collapse.
+    stopwords = {
+        "a",
+        "an",
+        "the",
+        "of",
+        "and",
+        "or",
+        "to",
+        "for",
+        "on",
+        "in",
+        "at",
+        "by",
+        "with",
+        "from",
+        "as",
+        "is",
+        "are",
+        "was",
+        "were",
+        "be",
+        "been",
+        "has",
+        "have",
+        "had",
+        "s",
+        "t",
+        "q",
+        "vs",
+        "v",
+    }
+    tokens = [t for t in tokens if t not in stopwords]
+    return " ".join(sorted(tokens))
+
+
+def _cluster_key(
+    security_id: str | None,
+    event_type: str,
+    event_date: datetime | None,
+    fingerprint: str,
+) -> str:
+    """Deterministic cluster identity including the merge reason.
+
+    * dated item → ``{sec}:{type}:{full-iso}`` (full timestamp, so
+      distinct stories on the same calendar day never collide);
+    * fingerprint merge (title_duplicate / no_date) → a fingerprint-keyed
+      key so distinct date-less stories never collide.
+    """
+    if event_date is not None:
+        return (
+            _story_key(security_id, event_type, event_date)
+            + ":"
+            + event_date.time().isoformat(timespec="seconds")
+        )
+    return f"{security_id or 'none'}:{event_type}:fp:{fingerprint or 'empty'}"
+
+
 def _reliability(provider: str) -> float:
     return _PROVIDER_RELIABILITY.get(provider, 0.5)
 
@@ -361,12 +446,14 @@ class HoldingRelevanceService:
             )
 
         clustered = await self._recluster(tenant_id)
+        corrections = await self._correction_count(tenant_id)
 
         summary = {
             "matched": matched,
             "clustered": clustered,
             "current_holdings": len(security_ids),
             "recently_sold": len(recently_sold),
+            "corrections": corrections,
             "window_days": int(window.total_seconds() // 86400),
         }
         logger.info(
@@ -960,6 +1047,16 @@ class HoldingRelevanceService:
 
         Deterministic: same relevance rows → same clusters (unique on
         story_key makes this idempotent).
+
+        Merge rules per (security, event_type) group:
+
+        * exact event date → one ``exact_event`` cluster;
+        * event dates within the title-duplicate tolerance AND matching
+          title fingerprints → one ``title_duplicate`` cluster;
+        * date-less items with matching title fingerprints → one
+          ``title_duplicate`` cluster;
+        * everything else → one ``no_date`` cluster per fingerprint
+          (distinct date-less stories never collide).
         """
         stmt = (
             select(HoldingRelevanceItem)
@@ -973,99 +1070,361 @@ class HoldingRelevanceService:
             (await self._uow.session.execute(stmt)).scalars().all()  # type: ignore[assignment]
         )
 
-        # Group by story key, keeping the best item per cluster.
-        grouped: dict[str, list[HoldingRelevanceItem]] = {}
+        # Resolve each row to (item, event_type, event_date, fingerprint).
+        resolved: list[
+            tuple[
+                HoldingRelevanceItem,
+                MarketIntelligenceItem,
+                str,
+                datetime | None,
+                str,
+            ]
+        ] = []
         for row in rows:
             item = await self._uow.market_intelligence_items.get(row.item_id)
             if item is None:
                 continue
             event_type = _event_type_for(item)
-            event_date = row.event_date
-            key = _story_key(row.security_id, event_type, event_date)
-            grouped.setdefault(key, []).append(row)
+            fingerprint = _title_fingerprint(item.headline)
+            resolved.append(
+                (row, item, event_type, row.event_date, fingerprint)
+            )
+
+        # Partition by (security_id, event_type).
+        by_sec_type: dict[tuple[str | None, str], list[Any]] = {}
+        for entry in resolved:
+            by_sec_type.setdefault((entry[0].security_id, entry[2]), []).append(
+                entry
+            )
+
         created = 0
-        for key, group in grouped.items():
-            # Best headline: the item with the highest reliability.
-            best_item: MarketIntelligenceItem | None = None
-            best_rel = -1.0
-            for row in group:
-                item = await self._uow.market_intelligence_items.get(
-                    row.item_id
-                )
-                if item is None:
+        seen_keys: set[str] = set()
+        for (security_id, event_type), group in by_sec_type.items():
+            buckets: list[tuple[list[Any], str]] = self._cluster_buckets(
+                group, event_type
+            )
+            for bucket, reason in buckets:
+                if not bucket:
                     continue
-                rel = _reliability(item.provider)
-                if rel > best_rel:
-                    best_rel = rel
-                    best_item = item
-
-            stmt = select(RelevanceCluster).where(
-                RelevanceCluster.tenant_id == tenant_id,  # type: ignore[attr-defined]
-                RelevanceCluster.story_key == key,  # type: ignore[attr-defined]
-            )
-            cluster = (
-                await self._uow.session.execute(stmt)
-            ).scalar_one_or_none()  # type: ignore[assignment]
-
-            security_id = group[0].security_id
-            event_type = (
-                _event_type_for(best_item) if best_item is not None else "news"
-            )
-            event_date = group[0].event_date
-            score = self._cluster_score(group, best_item)
-
-            source_count = 0
-            best_url: str | None = None
-            best_url_rel = -1.0
-            source_urls: list[str] = []
-            for row in group:
-                item = await self._uow.market_intelligence_items.get(
-                    row.item_id
+                key = self._bucket_story_key(
+                    security_id, event_type, bucket, reason
                 )
-                if item is None:
-                    continue
-                if item.canonical_url:
-                    source_count += 1
-                    if item.canonical_url not in source_urls:
-                        source_urls.append(item.canonical_url)
-                    rel = _reliability(item.provider)
-                    if rel > best_url_rel:
-                        best_url_rel = rel
-                        best_url = item.canonical_url
+                seen_keys.add(key)
+                if await self._upsert_cluster(
+                    tenant_id, security_id, event_type, bucket, reason, key
+                ):
+                    created += 1
 
-            headline = (
-                (best_item.headline or "Untitled") if best_item else "Untitled"
-            )
-
-            if cluster is None:
-                cluster = RelevanceCluster(
-                    tenant_id=tenant_id,
-                    story_key=key,
-                    security_id=security_id,
-                    headline=headline,
-                    event_type=event_type,
-                    event_date=event_date,
-                    source_count=source_count,
-                    best_source_url=best_url,
-                    score=score,
-                )
-                await self._uow.relevance_clusters.add(cluster)
-                created += 1
-            else:
-                cluster.headline = (
-                    headline if best_item is not None else cluster.headline
-                )
-                cluster.event_type = event_type
-                cluster.event_date = event_date
-                cluster.source_count = source_count
-                cluster.best_source_url = best_url
-                cluster.score = score
-                await self._uow.relevance_clusters.update(cluster)
-
-            # Membership edges (position = deterministic ordering).
-            await self._sync_cluster_items(tenant_id, cluster.id, group)
-
+        # Prune clusters whose story no longer exists (e.g. an exact-date
+        # cluster absorbed into a fingerprint merge).  Never touches other
+        # tenants; acks/corrections cascade with the cluster row.
+        await self._prune_stale_clusters(tenant_id, seen_keys)
         return created
+
+    async def _prune_stale_clusters(
+        self, tenant_id: str, seen_keys: set[str]
+    ) -> None:
+        """Delete clusters whose story_key is no longer produced.
+
+        When a stale cluster is absorbed into a surviving story (e.g. an
+        exact-date cluster merged into a fingerprint cluster), any
+        per-user acks are migrated to the survivor so an ack is never
+        silently reset (holdout: a new source link never resets ack).
+        """
+        stmt = select(RelevanceCluster).where(
+            RelevanceCluster.tenant_id == tenant_id,  # type: ignore[attr-defined]
+        )
+        existing = list(
+            (await self._uow.session.execute(stmt)).scalars().all()  # type: ignore[assignment]
+        )
+        stale = [c for c in existing if c.story_key not in seen_keys]
+        if not stale:
+            return
+        survivors = [c for c in existing if c.story_key in seen_keys]
+        for cluster in stale:
+            # Find a survivor that plausibly absorbed this story: same
+            # security + event type, and the stale cluster's event date
+            # within the survivor's date window (or both undated).
+            target: RelevanceCluster | None = None
+            for s in survivors:
+                if s.security_id != cluster.security_id:
+                    continue
+                if s.event_type != cluster.event_type:
+                    continue
+                if cluster.event_date is None and s.event_date is None:
+                    target = s
+                    break
+                if (
+                    cluster.event_date is not None
+                    and s.event_date is not None
+                    and abs(
+                        (
+                            _as_utc(cluster.event_date) - _as_utc(s.event_date)
+                        ).total_seconds()  # type: ignore[operator]
+                    )
+                    <= _TITLE_DUP_DATE_TOLERANCE_DAYS * 86400
+                ):
+                    target = s
+                    break
+            if target is not None:
+                await self._migrate_acks(tenant_id, cluster.id, target.id)
+            await self._uow.session.delete(cluster)
+
+    async def _migrate_acks(
+        self, tenant_id: str, from_cluster_id: str, to_cluster_id: str
+    ) -> None:
+        """Re-point acks from a pruned cluster to its survivor."""
+        stmt = select(RelevanceAck).where(
+            RelevanceAck.tenant_id == tenant_id,  # type: ignore[attr-defined]
+            RelevanceAck.cluster_id == from_cluster_id,  # type: ignore[attr-defined]
+        )
+        acks = list(
+            (await self._uow.session.execute(stmt)).scalars().all()  # type: ignore[assignment]
+        )
+        for ack in acks:
+            # Idempotent: skip if the survivor already has an ack row for
+            # this user.
+            dup = select(RelevanceAck).where(
+                RelevanceAck.tenant_id == tenant_id,  # type: ignore[attr-defined]
+                RelevanceAck.user_id == ack.user_id,  # type: ignore[attr-defined]
+                RelevanceAck.cluster_id == to_cluster_id,  # type: ignore[attr-defined]
+            )
+            if (
+                await self._uow.session.execute(dup)
+            ).scalar_one_or_none() is None:  # type: ignore[union-attr]
+                ack.cluster_id = to_cluster_id
+                await self._uow.relevance_acks.update(ack)
+
+    def _cluster_buckets(
+        self,
+        group: Sequence[
+            tuple[
+                HoldingRelevanceItem,
+                MarketIntelligenceItem,
+                str,
+                datetime | None,
+                str,
+            ]
+        ],
+        event_type: str,
+    ) -> list[tuple[list[Any], str]]:
+        """Partition a (security, event_type) group into merge buckets.
+
+        Returns ``(bucket, reason)`` pairs.  Deterministic: the input
+        order (event_date asc, created_at asc) fully determines output.
+        """
+        del event_type
+        # 1. Exact-date buckets: items sharing one exact event date.
+        exact: dict[str, list[Any]] = {}
+        for entry in group:
+            if entry[3] is not None:
+                exact.setdefault(entry[3].isoformat(), []).append(entry)
+        buckets: list[tuple[list[Any], str]] = []
+        # Dates with ≥2 items are already merged stories (exact event).
+        # Single-item dates may still fingerprint-merge with other dates.
+        single_dated: list[Any] = []
+        for items in exact.values():
+            if len(items) > 1:
+                buckets.append((items, CLUSTER_REASON_EXACT_EVENT))
+            else:
+                single_dated.extend(items)
+
+        # 2. Date-less items: fingerprint groups.
+        dateless = [e for e in group if e[3] is None]
+        fp_groups: dict[str, list[Any]] = {}
+        for entry in dateless:
+            fp_groups.setdefault(entry[4], []).append(entry)
+        for fp, items in fp_groups.items():
+            if not fp:
+                # No fingerprint at all → each item is its own story.
+                buckets.extend(
+                    ([entry], CLUSTER_REASON_NO_DATE) for entry in items
+                )
+            elif len(items) > 1:
+                buckets.append((items, CLUSTER_REASON_TITLE_DUPLICATE))
+            else:
+                buckets.append((items, CLUSTER_REASON_NO_DATE))
+
+        # 3. Dated items on distinct dates: merge when the date gap is
+        #    within tolerance AND fingerprints match.  Only single-item
+        #    dates participate (multi-item dates are already exact merges).
+        dated: list[
+            tuple[
+                HoldingRelevanceItem,
+                MarketIntelligenceItem,
+                str,
+                datetime,
+                str,
+            ]
+        ] = [e for e in single_dated if e[3] is not None]  # type: ignore[misc]
+        dated_sorted = sorted(dated, key=lambda e: e[3])
+        merged: list[list[Any]] = []
+        for entry in dated_sorted:
+            placed = False
+            for bucket in merged:
+                first = bucket[0]
+                fp_a = first[4]
+                fp_b = entry[4]
+                if not fp_a or not fp_b or fp_a != fp_b:
+                    continue
+                # All bucket entries share the same fingerprint (invariant).
+                # Merge when dates are within tolerance of each other.
+                dates = [e[3] for e in bucket]
+                in_tol = all(
+                    abs((d - entry[3]).total_seconds())
+                    <= _TITLE_DUP_DATE_TOLERANCE_DAYS * 86400
+                    for d in dates
+                )
+                if in_tol:
+                    bucket.append(entry)
+                    placed = True
+                    break
+            if not placed:
+                merged.append([entry])
+        for bucket in merged:
+            if len(bucket) > 1:
+                buckets.append((bucket, CLUSTER_REASON_TITLE_DUPLICATE))
+            else:
+                buckets.append((bucket, CLUSTER_REASON_EXACT_EVENT))
+
+        # Buckets are disjoint: exact-date keys never appear in the dated
+        # merge list (different dates), and date-less buckets are separate.
+        return buckets
+
+    def _bucket_story_key(
+        self,
+        security_id: str | None,
+        event_type: str,
+        bucket: Sequence[Any],
+        reason: str | None = None,
+    ) -> str:
+        """Deterministic story key for a bucket.
+
+        Fingerprint-merged buckets (title_duplicate) key on the
+        fingerprint so they can never collide with an exact-event cluster
+        that happens to share the first item's date.  Exact / no-date
+        singletons key on their own date (full timestamp) or fingerprint.
+        """
+        first = bucket[0]
+        event_date = first[3]
+        fingerprint = first[4]
+        if reason == CLUSTER_REASON_TITLE_DUPLICATE:
+            # Merged story: key on the fingerprint.
+            fp = fingerprint or "empty"
+            return f"{security_id or 'none'}:{event_type}:fp:{fp}"
+        return _cluster_key(security_id, event_type, event_date, fingerprint)
+
+    async def _upsert_cluster(
+        self,
+        tenant_id: str,
+        security_id: str | None,
+        event_type: str,
+        bucket: Sequence[Any],
+        reason: str,
+        key: str,
+    ) -> bool:
+        """Create/update one cluster for a bucket and attach its items.
+
+        Returns True when the cluster row was newly created.
+        """
+        # Best item: highest reliability.
+        best_item: MarketIntelligenceItem | None = None
+        best_rel = -1.0
+        for entry in bucket:
+            item = entry[1]
+            rel = _reliability(item.provider)
+            if rel > best_rel:
+                best_rel = rel
+                best_item = item
+
+        # The cluster's event date: exact date when all entries agree or
+        # the earliest dated entry; None when all are date-less.
+        dated = [e[3] for e in bucket if e[3] is not None]
+        event_date = min(dated) if dated else None  # type: ignore[arg-type]
+        if reason == CLUSTER_REASON_EXACT_EVENT and dated:
+            event_date = dated[0]
+
+        stmt = select(RelevanceCluster).where(
+            RelevanceCluster.tenant_id == tenant_id,  # type: ignore[attr-defined]
+            RelevanceCluster.story_key == key,  # type: ignore[attr-defined]
+        )
+        cluster = (await self._uow.session.execute(stmt)).scalar_one_or_none()  # type: ignore[assignment]
+
+        source_count = 0
+        best_url: str | None = None
+        best_url_rel = -1.0
+        source_urls: list[str] = []
+        earliest_published: datetime | None = None
+        for entry in bucket:
+            item = entry[1]
+            if item.canonical_url:
+                source_count += 1
+                if item.canonical_url not in source_urls:
+                    source_urls.append(item.canonical_url)
+                rel = _reliability(item.provider)
+                if rel > best_url_rel:
+                    best_url_rel = rel
+                    best_url = item.canonical_url
+            pub = _as_utc(item.published_at)
+            if pub is not None and (
+                earliest_published is None or pub < earliest_published
+            ):
+                earliest_published = pub
+
+        headline = (
+            (best_item.headline or "Untitled") if best_item else "Untitled"
+        )
+        score = self._cluster_score([e[0] for e in bucket], best_item)
+
+        if cluster is None:
+            cluster = RelevanceCluster(
+                tenant_id=tenant_id,
+                story_key=key,
+                security_id=security_id,
+                headline=headline,
+                event_type=event_type,
+                event_date=event_date,
+                source_count=source_count,
+                cluster_reason=reason,
+                earliest_published_at=earliest_published,
+                best_source_url=best_url,
+                score=score,
+            )
+            await self._uow.relevance_clusters.add(cluster)
+            created_new = True
+        else:
+            cluster.headline = (
+                headline if best_item is not None else cluster.headline
+            )
+            cluster.event_type = event_type
+            cluster.event_date = event_date
+            cluster.source_count = source_count
+            cluster.cluster_reason = reason
+            cluster.earliest_published_at = earliest_published
+            cluster.best_source_url = best_url
+            cluster.score = score
+            await self._uow.relevance_clusters.update(cluster)
+            created_new = False
+
+        # Membership edges (position = deterministic ordering).
+        await self._sync_cluster_items(
+            tenant_id, cluster.id, [e[0] for e in bucket]
+        )
+        self._log_cluster_signal(tenant_id, key, reason, len(bucket))
+        return created_new
+
+    @staticmethod
+    def _log_cluster_signal(
+        tenant_id: str, key: str, reason: str, size: int
+    ) -> None:
+        """Structured threshold-tuning signal for merge decisions."""
+        logger.info(
+            "holding_relevance_cluster",
+            tenant_id=tenant_id,
+            story_key=key,
+            cluster_reason=reason,
+            member_count=size,
+        )
 
     async def _sync_cluster_items(
         self,
@@ -1256,7 +1615,7 @@ class HoldingRelevanceService:
         # Per-user corrections suppress matched items.
         if user_id:
             items = await self._apply_corrections(
-                tenant_id, user_id, cluster.id, items
+                tenant_id, user_id, cluster.id, items, cluster.security_id
             )
             if not items:
                 return None
@@ -1336,6 +1695,9 @@ class HoldingRelevanceService:
             "confidence": confidence,
             "is_stale": is_stale,
             "source_count": cluster.source_count,
+            "cluster_reason": cluster.cluster_reason,
+            "earliest_published_at": cluster.earliest_published_at,
+            "item_ids": [str(i.id) for i in items],
             "best_source_url": cluster.best_source_url,
             "acknowledged": acknowledged,
             "sources": sources,
@@ -1347,25 +1709,68 @@ class HoldingRelevanceService:
         user_id: str,
         cluster_id: str,
         items: Sequence[MarketIntelligenceItem],
+        cluster_security_id: str | None,
     ) -> list[MarketIntelligenceItem]:
-        """Remove items the user corrected (suppression, never delete)."""
-        # corrections are item-scoped; the cluster id is not needed
-        del cluster_id
+        """Remove items the user corrected (suppression, never delete).
+
+        Suppression is **pair-scoped** on the cluster's security: a
+        correction on (item, security) hides that item from the
+        correcting user's feed only for clusters of that security, and
+        any *similar future item* for the same security claim (matching
+        title fingerprint) is also kept out — re-match prevention.  It
+        never deletes the underlying observation and never affects other
+        users or tenants.
+        """
+        del cluster_id  # corrections are pair-scoped, not cluster-scoped
         if not items:
             return []
+        if cluster_security_id is None:
+            # Cash/currency clusters have no security — nothing to scope.
+            return list(items)
         stmt = select(RelevanceCorrection).where(
             RelevanceCorrection.tenant_id == tenant_id,  # type: ignore[attr-defined]
             RelevanceCorrection.user_id == user_id,  # type: ignore[attr-defined]
-            RelevanceCorrection.item_id.in_(
-                [  # type: ignore[attr-defined]
-                    str(i.id) for i in items
-                ]
-            ),
+            RelevanceCorrection.security_id == cluster_security_id,  # type: ignore[attr-defined]
         )
-        corrected = {
-            str(c.item_id)
-            for c in (await self._uow.session.execute(stmt)).scalars().all()  # type: ignore[assignment]
-        }
-        if not corrected:
+        corrections = list(
+            (await self._uow.session.execute(stmt)).scalars().all()  # type: ignore[assignment]
+        )
+        if not corrections:
             return list(items)
-        return [i for i in items if str(i.id) not in corrected]
+
+        corrected_item_ids = {str(c.item_id) for c in corrections}
+        # Title fingerprints the user dismissed for this security claim.
+        corrected_fps: set[str] = set()
+        for c in corrections:
+            item = await self._uow.market_intelligence_items.get(c.item_id)
+            if item is None:
+                continue
+            fp = _title_fingerprint(item.headline)
+            if fp:
+                corrected_fps.add(fp)
+
+        visible: list[MarketIntelligenceItem] = []
+        for item in items:
+            if str(item.id) in corrected_item_ids:
+                continue
+            if corrected_fps and _title_fingerprint(item.headline) in (
+                corrected_fps
+            ):
+                continue
+            visible.append(item)
+        return visible
+
+    async def _correction_count(self, tenant_id: str) -> int:
+        """Return the number of corrections filed for *tenant_id*.
+
+        Used as a threshold-tuning signal in the build summary: a rising
+        correction count hints the matcher is over-eager.
+        """
+        stmt = (
+            select(func.count())
+            .select_from(RelevanceCorrection)
+            .where(
+                RelevanceCorrection.tenant_id == tenant_id,  # type: ignore[attr-defined]
+            )
+        )
+        return int((await self._uow.session.execute(stmt)).scalar_one())  # type: ignore[arg-type]

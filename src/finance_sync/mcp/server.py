@@ -1263,6 +1263,68 @@ async def tool_acknowledge_holding_cluster(
         await svc._uow.session.aclose()  # type: ignore[reportPrivateUsage]
 
 
+class HoldingCorrectionInput(BaseModel):
+    """Input for ``correct_holding_item`` tool."""
+
+    item_id: str = Field(
+        description="The observation that was a false positive."
+    )
+    security_id: str | None = Field(
+        default=None,
+        description=(
+            "Security the user corrected; omit when dismissing generically."
+        ),
+    )
+    action: str = Field(
+        default="dismiss",
+        description="dismiss or reassign",
+    )
+    reason: str | None = Field(
+        default=None,
+        max_length=2000,
+        description="Free-form user note (sanitised before persistence).",
+    )
+
+
+@mcp.tool(
+    name="correct_holding_item",
+    title="Correct Holding News False Positive",
+    description=(
+        "File a per-principal false-positive correction for one observation "
+        "against a security.  Hides the (item, security) pair from the "
+        "principal's holding feed immediately and keeps similar future "
+        "items for the same security claim out (re-match prevention).  "
+        "Never deletes the underlying observation and never affects other "
+        "users or tenants.  Cross-tenant item ids return not_found."
+    ),
+)
+async def tool_correct_holding_item(
+    ctx: ServerContext,
+    item_id: str,
+    security_id: str | None = None,
+    action: str = "dismiss",
+    reason: str | None = None,
+) -> str:
+    """File a false-positive correction for one (item, security) pair."""
+    svc = _get_holding_relevance_service(ctx)
+    tenant_id, principal_id = _auth_principal(ctx)
+    try:
+        ok = await svc.correct(
+            tenant_id,
+            principal_id,
+            item_id,
+            security_id=security_id,
+            action=action,
+            reason=reason,
+        )
+        if not ok:
+            return _serialise({"item_id": item_id, "status": "not_found"})
+        await svc._uow.commit()  # type: ignore[reportPrivateUsage]
+        return _serialise({"item_id": item_id, "status": "corrected"})
+    finally:
+        await svc._uow.session.aclose()  # type: ignore[reportPrivateUsage]
+
+
 # ═════════════════════════════════════════════════════════════════════════
 # ASGI app factory
 # ═════════════════════════════════════════════════════════════════════════

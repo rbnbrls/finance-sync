@@ -126,7 +126,8 @@ class TestMCPTools:
         assert "get_holding_feed" in tool_names
         assert "get_holding_calendar" in tool_names
         assert "acknowledge_holding_cluster" in tool_names
-        assert len(tool_names) == 16
+        assert "correct_holding_item" in tool_names
+        assert len(tool_names) == 17
 
     def test_tool_input_schemas(self) -> None:
         """Tools have the expected input parameters."""
@@ -212,6 +213,13 @@ class TestMCPTools:
         props = ack.parameters.get("properties", {})
         assert "cluster_id" in props
         assert "acknowledged" in props
+
+        corr = tool_map["correct_holding_item"]
+        assert corr.parameters is not None
+        props = corr.parameters.get("properties", {})
+        assert "item_id" in props
+        assert "security_id" in props
+        assert "reason" in props
 
 
 # ═════════════════════════════════════════════════════════════════════════

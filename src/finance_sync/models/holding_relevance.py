@@ -70,6 +70,11 @@ FRESHNESS_STALE = "stale"
 CORRECTION_DISMISS = "dismiss"
 CORRECTION_REASSIGN = "reassign"
 
+#: Cluster reasons (deterministic, explainable provenance of a merge).
+CLUSTER_REASON_EXACT_EVENT = "exact_event"
+CLUSTER_REASON_TITLE_DUPLICATE = "title_duplicate"
+CLUSTER_REASON_NO_DATE = "no_date"
+
 
 class HoldingRelevanceItem(TimestampMixin, Base):
     """One intel observation matched to one security held by a tenant.
@@ -235,6 +240,19 @@ class RelevanceCluster(TimestampMixin, Base):
         nullable=False,
         default=0,
         comment="Number of distinct source links in the cluster",
+    )
+    cluster_reason: Mapped[str | None] = mapped_column(
+        String(32),
+        nullable=True,
+        comment=(
+            "Why items merged: exact_event (same security+type+event date), "
+            "title_duplicate (title fingerprint match), no_date (fallback)"
+        ),
+    )
+    earliest_published_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        comment="Earliest published_at across the cluster's source items",
     )
     best_source_url: Mapped[str | None] = mapped_column(
         Text,
