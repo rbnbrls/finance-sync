@@ -162,6 +162,7 @@ async def acknowledge_cluster(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Cluster not found",
             )
+        await svc._uow.commit()  # type: ignore[reportPrivateUsage]
         return {"cluster_id": cluster_id, "acknowledged": body.acknowledged}
     finally:
         await svc._uow.session.aclose()  # type: ignore[reportPrivateUsage]
@@ -223,6 +224,7 @@ async def create_correction(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Observation not found",
             )
+        await svc._uow.commit()  # type: ignore[reportPrivateUsage]
         return {"item_id": body.item_id, "status": "corrected"}
     finally:
         await svc._uow.session.aclose()  # type: ignore[reportPrivateUsage]
@@ -279,13 +281,15 @@ async def update_notification_preferences(
     """Create/update the user's opt-in notification settings."""
     svc = _service(request)
     try:
-        return await svc.set_notification_preference(
+        result = await svc.set_notification_preference(
             auth.tenant_id,
             auth.principal_id,
             enabled=body.enabled,
             lockscreen_safe=body.lockscreen_safe,
             event_types=body.event_types,
         )
+        await svc._uow.commit()  # type: ignore[reportPrivateUsage]
+        return result
     finally:
         await svc._uow.session.aclose()  # type: ignore[reportPrivateUsage]
 
@@ -307,8 +311,11 @@ async def send_cluster_notification(
     """
     svc = _service(request)
     try:
-        return await svc.notify_eligible(
+        result = await svc.notify_eligible(
             auth.tenant_id, auth.principal_id, cluster_id
         )
+        if result.get("sent"):
+            await svc._uow.commit()  # type: ignore[reportPrivateUsage]
+        return result
     finally:
         await svc._uow.session.aclose()  # type: ignore[reportPrivateUsage]

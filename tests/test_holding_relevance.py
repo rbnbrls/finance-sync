@@ -1259,3 +1259,168 @@ class TestNotifications:
             result = await svc.notify_eligible(tenant, "user-A", cluster_id)
             assert result["sent"] == 0
             assert result["skipped"] == "event_type_not_allowed"
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# A9 — Feed DTO schema completeness (API/MCP contract)
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class TestFeedDTOSchema:
+    """Every cluster DTO carries the full API/MCP contract fields."""
+
+    async def test_feed_dto_contract_fields_present(
+        self, session_factory: async_sessionmaker
+    ) -> None:
+        tenant = await _new_tenant(session_factory)
+        sec = await _new_security(session_factory)
+        acct = await _new_account(session_factory, tenant)
+        await _new_holding(session_factory, tenant, acct, sec)
+        await _new_item(session_factory, tenant, sec, kind="earnings_report")
+
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            await _build(svc, tenant)
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            feed = await svc.feed(tenant, user_id="user-1")
+
+        assert feed["total"] == 1
+        item = feed["items"][0]
+        # Cluster identity + per-cluster fields.
+        assert item["id"] == item["cluster_id"]
+        assert str(item["security_id"]) == sec
+        assert item["security_ticker"] == "AAPL"
+        assert item["event_type"] == "earnings"
+        assert item["event_date"] is not None
+        assert item["headline"]
+        assert item["score"] >= 0.0
+        assert item["acknowledged"] is False  # unread for a fresh user
+        # Match provenance.
+        assert item["match_reason"] == MATCH_REASON_EXACT_SECURITY
+        assert item["confidence"] == 1.0
+        # Freshness / staleness.
+        assert item["is_stale"] is False
+        assert item["source_count"] == 1
+        assert item["best_source_url"] is not None
+        # Source items carry url/published/fetched/freshness.
+        assert len(item["sources"]) == 1
+        source = item["sources"][0]
+        assert source["url"]
+        assert source["published_at"] is not None
+        assert source["fetched_at"] is not None
+        assert source["freshness"] == FRESHNESS_FRESH
+
+    async def test_feed_dto_stale_cluster_flag(
+        self, session_factory: async_sessionmaker
+    ) -> None:
+        """A cluster whose sources are all stale is flagged is_stale."""
+        tenant = await _new_tenant(session_factory)
+        sec = await _new_security(session_factory)
+        acct = await _new_account(session_factory, tenant)
+        await _new_holding(session_factory, tenant, acct, sec)
+        now = datetime.now(UTC)
+        await _new_item(
+            session_factory,
+            tenant,
+            sec,
+            source_id="stale-1",
+            kind="dividend",
+            published_at=now - timedelta(days=3),
+            fetched_at=now - timedelta(days=3),
+        )
+
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            await _build(svc, tenant)
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            feed = await svc.feed(tenant, user_id="user-1")
+
+        assert feed["total"] == 1
+        item = feed["items"][0]
+        assert item["is_stale"] is True
+        assert item["sources"][0]["freshness"] == FRESHNESS_STALE
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# A10 — Account filter + injection safety (API exposure hardening)
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class TestAccountFilterAndInjection:
+    async def test_account_filter_includes_canonical_matches(
+        self, session_factory: async_sessionmaker
+    ) -> None:
+        """A canonical security match belongs to the holding account."""
+        tenant = await _new_tenant(session_factory)
+        sec = await _new_security(session_factory)
+        acct = await _new_account(session_factory, tenant)
+        await _new_holding(session_factory, tenant, acct, sec)
+        await _new_item(session_factory, tenant, sec, kind="earnings_report")
+
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            await _build(svc, tenant)
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            feed = await svc.feed(tenant, account_id=acct)
+
+        assert feed["total"] == 1
+
+    async def test_account_filter_cross_tenant_empty(
+        self, session_factory: async_sessionmaker
+    ) -> None:
+        """A cross-tenant account id yields an empty feed, never a leak."""
+        tenant_a = await _new_tenant(session_factory)
+        tenant_b = await _new_tenant(session_factory)
+        sec = await _new_security(session_factory)
+        acct_a = await _new_account(session_factory, tenant_a)
+        acct_b = await _new_account(session_factory, tenant_b)
+        await _new_holding(session_factory, tenant_a, acct_a, sec)
+        sec_b = await _new_security(session_factory, ticker="MSFT")
+        await _new_holding(session_factory, tenant_b, acct_b, sec_b)
+        await _new_item(session_factory, tenant_a, sec, kind="earnings_report")
+
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            await _build(svc, tenant_a)
+
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            # B filters by A's account → empty, not A's rows.
+            feed = await svc.feed(tenant_b, account_id=acct_a)
+        assert feed["total"] == 0
+        assert feed["items"] == []
+
+    async def test_malformed_security_id_matches_nothing(
+        self, session_factory: async_sessionmaker
+    ) -> None:
+        """A malformed security id never widens the filter to all rows."""
+        tenant = await _new_tenant(session_factory)
+        sec = await _new_security(session_factory)
+        acct = await _new_account(session_factory, tenant)
+        await _new_holding(session_factory, tenant, acct, sec)
+        await _new_item(session_factory, tenant, sec, kind="earnings_report")
+
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            await _build(svc, tenant)
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            # Even a well-formed-but-nonexistent UUID must match nothing.
+            feed = await svc.feed(
+                tenant, security_id="00000000-0000-0000-0000-000000000000"
+            )
+            assert feed["total"] == 0
+            # Malformed payloads too.
+            for payload in ("AAPL' OR '1'='1", "%", "_", "not-a-uuid"):
+                feed = await svc.feed(tenant, security_id=payload)
+                assert feed["total"] == 0, payload
+            # Malformed account payloads too.
+            for payload in ("AAPL' OR '1'='1", "not-a-uuid"):
+                feed = await svc.feed(tenant, account_id=payload)
+                assert feed["total"] == 0, payload
+            # The real security still resolves.
+            feed = await svc.feed(tenant, security_id=sec)
+            assert feed["total"] == 1

@@ -406,14 +406,27 @@ class HoldingRelevanceService:
             RelevanceCluster.tenant_id == tenant_id,  # type: ignore[attr-defined]
         ]
         # Filter values are data, never SQL fragments.  A malformed /
-        # non-UUID security/account id (e.g. injection payloads) matches
-        # no rows instead of crashing the UUID bind processor.
+        # non-UUID security/account id (e.g. injection payloads) must
+        # match **no rows**, never silently widen the filter — so a
+        # sentinel false condition is added instead of dropping the
+        # filter (which would leak the whole feed).
+        raw_security = security_id
+        raw_account = account_id
         security_id = _valid_uuid_or_none(security_id)
         account_id = _valid_uuid_or_none(account_id)
         if security_id:
             conditions.append(
                 RelevanceCluster.security_id == security_id  # type: ignore[attr-defined]
             )
+        elif raw_security is not None:
+            # Malformed / non-UUID value → sentinel that matches nothing.
+            conditions.append(False)
+        if raw_account is not None and not account_id:
+            # A *valid* account id is filtered later, after the cluster
+            # query, via _filter_by_account.  A malformed value (None
+            # after validation) must match nothing — never widen the
+            # filter to the whole feed.
+            conditions.append(False)
         if item_type:
             conditions.append(
                 RelevanceCluster.event_type == item_type  # type: ignore[attr-defined]
@@ -1145,7 +1158,14 @@ class HoldingRelevanceService:
         account_id: str,
         clusters: Sequence[RelevanceCluster],
     ) -> list[RelevanceCluster]:
-        """Keep only clusters whose items touch *account_id*."""
+        """Keep only clusters whose items touch *account_id*.
+
+        A cluster is relevant to *account_id* when any of its source
+        items was matched for that account (cash/currency events), or
+        when the cluster's primary security is held in that account
+        (canonical security matches are account-agnostic but belong to
+        every account holding the security).
+        """
         if not clusters:
             return []
         cluster_ids = [str(c.id) for c in clusters]
@@ -1159,6 +1179,8 @@ class HoldingRelevanceService:
         item_ids = {str(e.item_id) for e in edges}
         if not item_ids:
             return []
+
+        # 1. Account-scoped relevance rows (cash/currency events).
         rel_stmt = select(HoldingRelevanceItem).where(
             HoldingRelevanceItem.tenant_id == tenant_id,  # type: ignore[attr-defined]
             HoldingRelevanceItem.item_id.in_(item_ids),  # type: ignore[attr-defined]
@@ -1171,7 +1193,28 @@ class HoldingRelevanceService:
         keep_ids = {
             str(e.cluster_id) for e in edges if str(e.item_id) in matched_items
         }
+
+        # 2. Canonical matches: clusters whose primary security is held
+        #    in *account_id* belong to that account's feed too.
+        held = await self._securities_held_in(tenant_id, account_id)
+        if held:
+            for c in clusters:
+                if c.security_id is not None and str(c.security_id) in held:
+                    keep_ids.add(str(c.id))
+
         return [c for c in clusters if str(c.id) in keep_ids]
+
+    async def _securities_held_in(
+        self, tenant_id: str, account_id: str
+    ) -> set[str]:
+        """Return security ids currently held in *account_id*."""
+        stmt = select(Holding.security_id).where(
+            Holding.tenant_id == tenant_id,  # type: ignore[attr-defined]
+            Holding.account_id == account_id,  # type: ignore[attr-defined]
+            Holding.quantity > 0,  # type: ignore[attr-defined]
+        )
+        rows = (await self._uow.session.execute(stmt)).scalars().all()  # type: ignore[assignment]
+        return {str(r) for r in rows}
 
     async def _cluster_to_dto(
         self,
@@ -1226,8 +1269,33 @@ class HoldingRelevanceService:
                 security_ticker = sec.ticker
                 security_name = sec.name
 
-        sources: list[dict[str, Any]] = []
+        # Match provenance: the strongest (highest-confidence) relevance
+        # row behind this cluster's items, so clients can explain *why*
+        # the story surfaced.  Deterministic facts only.
+        match_reason: str | None = None
+        confidence: float | None = None
+        item_ids = [str(i.id) for i in items]
+        if item_ids:
+            prov_stmt = select(HoldingRelevanceItem).where(
+                HoldingRelevanceItem.tenant_id == tenant_id,  # type: ignore[attr-defined]
+                HoldingRelevanceItem.item_id.in_(item_ids),  # type: ignore[attr-defined]
+            )
+            prov_rows = list(
+                (await self._uow.session.execute(prov_stmt)).scalars().all()  # type: ignore[assignment]
+            )
+            if prov_rows:
+                best = max(prov_rows, key=lambda r: r.confidence)
+                match_reason = best.match_reason  # type: ignore[assignment]
+                confidence = best.confidence  # type: ignore[assignment]
+
+        # Freshness: the cluster is stale when *every* source item is
+        # stale; a mix is served as fresh with per-source staleness flags.
         now = datetime.now(UTC)
+        is_stale = bool(items) and all(not _is_fresh(i, now) for i in items)
+        if not items:
+            is_stale = False
+
+        sources: list[dict[str, Any]] = []
         for item in items:
             sources.append(  # noqa: PERF401 — dict literal readability
                 {
@@ -1256,6 +1324,7 @@ class HoldingRelevanceService:
 
         return {
             "id": str(cluster.id),
+            "cluster_id": str(cluster.id),
             "security_id": cluster.security_id,
             "security_ticker": security_ticker,
             "security_name": security_name,
@@ -1263,6 +1332,9 @@ class HoldingRelevanceService:
             "event_date": cluster.event_date,
             "headline": cluster.headline,
             "score": cluster.score,
+            "match_reason": match_reason,
+            "confidence": confidence,
+            "is_stale": is_stale,
             "source_count": cluster.source_count,
             "best_source_url": cluster.best_source_url,
             "acknowledged": acknowledged,

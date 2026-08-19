@@ -123,7 +123,10 @@ class TestMCPTools:
         assert "list_intel_provider_states" in tool_names
         assert "list_intel_runs" in tool_names
         assert "list_intel_sources" in tool_names
-        assert len(tool_names) == 13
+        assert "get_holding_feed" in tool_names
+        assert "get_holding_calendar" in tool_names
+        assert "acknowledge_holding_cluster" in tool_names
+        assert len(tool_names) == 16
 
     def test_tool_input_schemas(self) -> None:
         """Tools have the expected input parameters."""
@@ -178,6 +181,37 @@ class TestMCPTools:
         props = runs.parameters.get("properties", {})
         assert "limit" in props
         assert "connector" in props
+
+        # Holding relevance tools
+        feed = tool_map["get_holding_feed"]
+        assert feed.parameters is not None
+        props = feed.parameters.get("properties", {})
+        for key in (
+            "security_id",
+            "account_id",
+            "item_type",
+            "date_from",
+            "date_to",
+            "unread_only",
+            "acknowledged",
+            "include_stale",
+            "limit",
+            "offset",
+        ):
+            assert key in props, f"get_holding_feed missing param {key}"
+
+        cal = tool_map["get_holding_calendar"]
+        assert cal.parameters is not None
+        props = cal.parameters.get("properties", {})
+        assert "date_from" in props
+        assert "date_to" in props
+        assert "limit" in props
+
+        ack = tool_map["acknowledge_holding_cluster"]
+        assert ack.parameters is not None
+        props = ack.parameters.get("properties", {})
+        assert "cluster_id" in props
+        assert "acknowledged" in props
 
 
 # ═════════════════════════════════════════════════════════════════════════
