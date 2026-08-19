@@ -62,6 +62,10 @@ from finance_sync.intel.adapters.openbb import (
     OpenBBIntelProvider,
 )
 from finance_sync.intel.adapters.sec import SecEdgarProvider
+from finance_sync.intel.adapters.sec_press import (
+    SecPressReleaseProvider,
+    _parse_feed,
+)
 from finance_sync.intel.enums import (
     IntelAvailability,
     IntelCapability,
@@ -103,6 +107,7 @@ from finance_sync.models.market_intelligence_provider_state import (
 from finance_sync.models.market_intelligence_review_queue import (
     MarketIntelligenceReviewQueue,
 )
+from tests.fixtures.intel_payloads import SEC_PRESS_RSS_XML
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
@@ -1084,9 +1089,83 @@ class TestCapabilityDiscovery:
         registry = IntelProviderRegistry()
         registry.register(SecEdgarProvider())
         registry.register(OpenBBIntelProvider(api_key=None))
+        registry.register(SecPressReleaseProvider())
         assert "sec" in registry
         assert "openbb" in registry
-        assert len(registry.enabled()) == 2
+        assert "sec_press" in registry
+        assert len(registry.enabled()) == 3
+
+    async def test_sec_press_capabilities_and_availability(self) -> None:
+        """sec_press advertises NEWS and reports an explicit availability."""
+        provider = SecPressReleaseProvider()
+        caps = await provider.capabilities()
+        assert list(caps) == [IntelCapability.NEWS]
+        availability = await provider.available(IntelCapability.NEWS)
+        assert availability in (
+            IntelAvailability.AVAILABLE,
+            IntelAvailability.DEGRADED,
+            IntelAvailability.UNAVAILABLE,
+        )
+
+    async def test_registry_build_from_settings_includes_sec_press(
+        self,
+    ) -> None:
+        """The settings-driven registry registers the public news source."""
+        from finance_sync.config.settings import Settings
+        from finance_sync.intel.registry import build_intel_registry
+
+        settings = Settings(_env_file=None)
+        registry = build_intel_registry(settings)
+        assert "sec_press" in registry
+        assert registry.get("sec_press") is not None
+
+
+class TestSecPressIngestion:
+    async def test_sec_press_items_ingest_and_dedupe(
+        self, session_factory: async_sessionmaker, fake_resolver: Any
+    ) -> None:
+        """RSS items ingest idempotently with a public-domain licence."""
+        # Parse the fixture directly (no network).
+        items = _parse_feed(SEC_PRESS_RSS_XML, limit=10)
+        assert len(items) == 3
+
+        tenant_id = str(uuid4())
+        result = await _ingest(
+            session_factory, fake_resolver, tenant_id, "sec_press", items
+        )
+        assert result["ingested"] == 3
+
+        async with session_factory() as session:
+            rows = (
+                (
+                    await session.execute(
+                        select(MarketIntelligenceItem).where(
+                            MarketIntelligenceItem.tenant_id == tenant_id
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            assert len(list(rows)) == 3
+            row = next(iter(rows))
+            assert row.license_class == IntelLicenseClass.PUBLIC_DOMAIN.value
+            assert row.body is None
+            assert row.canonical_url is not None
+
+        # Re-ingest is a no-op (dedupe by provider+source_id / hash).
+        result2 = await _ingest(
+            session_factory, fake_resolver, tenant_id, "sec_press", items
+        )
+        assert result2["duplicates"] == 3
+        assert (
+            await _count(
+                session_factory,
+                MarketIntelligenceItem,
+                tenant_id=tenant_id,
+            )
+            == 3
+        )
 
 
 class TestContentHash:

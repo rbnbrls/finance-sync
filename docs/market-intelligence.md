@@ -61,6 +61,21 @@ Trading212 or Wealthfolio syncs — those run on their own scheduler jobs.
 | Coverage | US-listed companies with EDGAR CIK; events limited to the 8-K item list in `adapters/sec.py` |
 | Disable / delete | Set `INTEL_SEC_ENABLED=false` and restart the worker; delete stored rows with `DELETE FROM market_intelligence_items WHERE provider='sec'` (per tenant) |
 
+### SEC Press Releases (`sec_press`)
+
+| Field | Value |
+|---|---|
+| Source | US Securities and Exchange Commission, press-releases RSS feed (`https://www.sec.gov/news/pressreleases.rss`) |
+| Data | `news` — official SEC announcements (enforcement actions, new rules, speeches, investor alerts) |
+| Licence | Public domain — official SEC publications (17 CFR 200.735-3 and SEC policy); `license_class=public_domain`, `license_uri` points at SEC's copyright policy |
+| API key | None — requires only a descriptive User-Agent |
+| Rate limit | 10 req/s (SEC fair access), honours `Retry-After` on 403/429 |
+| Freshness | max-age 6 h, min interval 15 min |
+| Config | `INTEL_SEC_PRESS_ENABLED=false` disables the source entirely |
+| Storage | Metadata, headline, snippet ≤ 500 chars, canonical SEC URL; full press-release text is never persisted |
+| Coverage | US SEC announcements only; not company-specific news (no ticker/security scoping) |
+| Disable / delete | Set `INTEL_SEC_PRESS_ENABLED=false` and restart the worker; delete stored rows with `DELETE FROM market_intelligence_items WHERE provider='sec_press'` (per tenant) |
+
 ### OpenBB Platform (`openbb`)
 
 | Field | Value |
@@ -176,8 +191,9 @@ data — it never includes credential values from the envelope.
 ## Operations
 
 - **Disable a source**: set its env flag (`INTEL_SEC_ENABLED=false`,
-  remove `OPENBB_API_KEY`) and restart the worker.  The provider then
-  reports `unavailable`; no new rows are written.
+  `INTEL_SEC_PRESS_ENABLED=false`, remove `OPENBB_API_KEY`) and restart
+  the worker.  The provider then reports `unavailable`; no new rows are
+  written.
 - **Delete a source's data**: `DELETE FROM market_intelligence_items
   WHERE provider='...'` (per tenant, e.g. `AND tenant_id=...`), plus
   `market_intelligence_provider_states` and
