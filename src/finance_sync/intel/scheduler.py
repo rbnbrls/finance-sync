@@ -400,9 +400,7 @@ class IntelScheduler:
                     or provider.freshness.max_age.total_seconds()
                 )
             )
-            return now - last_run >= min_interval or (
-                now - last_run >= max_age
-            )
+            return now - last_run >= min_interval or (now - last_run >= max_age)
         finally:
             await uow.session.close()
 

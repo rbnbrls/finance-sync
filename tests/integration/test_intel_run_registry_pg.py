@@ -281,8 +281,12 @@ class TestRunRegistryPG:
         self, session_factory: async_sessionmaker[AsyncSession]
     ) -> None:
         """Runs of tenant A are invisible to tenant B."""
-        tenant_a = await _create_tenant(session_factory, slug=f"a-{uuid4().hex[:8]}")
-        tenant_b = await _create_tenant(session_factory, slug=f"b-{uuid4().hex[:8]}")
+        tenant_a = await _create_tenant(
+            session_factory, slug=f"a-{uuid4().hex[:8]}"
+        )
+        tenant_b = await _create_tenant(
+            session_factory, slug=f"b-{uuid4().hex[:8]}"
+        )
         resolver = _FakeResolver({})
 
         scheduler = IntelScheduler(

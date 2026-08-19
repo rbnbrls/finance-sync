@@ -295,12 +295,17 @@ class TestSchedulingCadence:
         async with session_factory() as session:
             uow = UnitOfWork(session)
             state = (
-                await session.execute(
-                    select(MarketIntelligenceProviderState).where(
-                        MarketIntelligenceProviderState.tenant_id == tenant_id
+                (
+                    await session.execute(
+                        select(MarketIntelligenceProviderState).where(
+                            MarketIntelligenceProviderState.tenant_id
+                            == tenant_id
+                        )
                     )
                 )
-            ).scalars().first()
+                .scalars()
+                .first()
+            )
             state.last_run_at = datetime.now(UTC) - timedelta(hours=7)
             await uow.commit()
         assert await scheduler._is_due(tenant_id, provider) is True
@@ -372,13 +377,18 @@ class TestRunRegistration:
         # Latest-run state is consistent.
         async with session_factory() as session:
             state = (
-                await session.execute(
-                    select(MarketIntelligenceProviderState).where(
-                        MarketIntelligenceProviderState.tenant_id == tenant_id,
-                        MarketIntelligenceProviderState.provider == "run-1",
+                (
+                    await session.execute(
+                        select(MarketIntelligenceProviderState).where(
+                            MarketIntelligenceProviderState.tenant_id
+                            == tenant_id,
+                            MarketIntelligenceProviderState.provider == "run-1",
+                        )
                     )
                 )
-            ).scalars().first()
+                .scalars()
+                .first()
+            )
             assert state.status == "ok"
             assert state.last_success_at is not None
             assert state.last_error is None
@@ -465,12 +475,17 @@ class TestRunRegistration:
 
         async with session_factory() as session:
             state = (
-                await session.execute(
-                    select(MarketIntelligenceProviderState).where(
-                        MarketIntelligenceProviderState.tenant_id == tenant_id
+                (
+                    await session.execute(
+                        select(MarketIntelligenceProviderState).where(
+                            MarketIntelligenceProviderState.tenant_id
+                            == tenant_id
+                        )
                     )
                 )
-            ).scalars().first()
+                .scalars()
+                .first()
+            )
             assert state.quota_used == 42
             assert state.quota_limit == 1000
 
@@ -540,12 +555,16 @@ class TestRunRegistration:
 
         async with session_factory() as session:
             items = (
-                await session.execute(
-                    select(MarketIntelligenceItem).where(
-                        MarketIntelligenceItem.tenant_id == tenant_id
+                (
+                    await session.execute(
+                        select(MarketIntelligenceItem).where(
+                            MarketIntelligenceItem.tenant_id == tenant_id
+                        )
                     )
                 )
-            ).scalars().all()
+                .scalars()
+                .all()
+            )
             assert len(list(items)) == 1
 
 
@@ -602,12 +621,16 @@ class TestStaleDetection:
 
         async with session_factory() as session:
             rows = (
-                await session.execute(
-                    select(MarketIntelligenceItem).where(
-                        MarketIntelligenceItem.tenant_id == tenant_id
+                (
+                    await session.execute(
+                        select(MarketIntelligenceItem).where(
+                            MarketIntelligenceItem.tenant_id == tenant_id
+                        )
                     )
                 )
-            ).scalars().all()
+                .scalars()
+                .all()
+            )
             assert len(list(rows)) == 1
             row = next(iter(rows))
             assert row.is_stale is True  # soft flag, still present
@@ -647,12 +670,16 @@ class TestStaleDetection:
 
         async with session_factory() as session:
             row = (
-                await session.execute(
-                    select(MarketIntelligenceItem).where(
-                        MarketIntelligenceItem.tenant_id == tenant_id
+                (
+                    await session.execute(
+                        select(MarketIntelligenceItem).where(
+                            MarketIntelligenceItem.tenant_id == tenant_id
+                        )
                     )
                 )
-            ).scalars().first()
+                .scalars()
+                .first()
+            )
             assert row.is_stale is False
             assert row.stale_after is None
 
