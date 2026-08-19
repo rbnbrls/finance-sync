@@ -1178,9 +1178,20 @@ async def holding_relevance_build_job(container: Container) -> dict[str, Any]:
     async with container.session_factory() as session:
         uow = UnitOfWork(session)
         tenants = await uow.tenants.list(limit=1000)
+        # Optional Hermes explanations (feature-flagged; off by default).
+        # The build is deterministic either way — the explainer only
+        # annotates the read DTOs, never the stored rows.
+        if container.settings.hermes_explanation_enabled:
+            from finance_sync.services.hermes_relevance import (
+                build_hermes_explainer,
+            )
+
+            explainer = build_hermes_explainer(enabled=True)
+        else:
+            explainer = None
         for tenant in tenants:
             try:
-                svc = HoldingRelevanceService(uow)
+                svc = HoldingRelevanceService(uow, explainer=explainer)
                 summary = await svc.build_feed(str(tenant.id))
                 await uow.commit()
                 results.append(

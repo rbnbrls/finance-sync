@@ -185,6 +185,19 @@ class TestHASettings:
         assert s.ha_enabled is False
 
 
+class TestHermesExplanationSettings:
+    """Hermes relevance-explanation settings parse correctly."""
+
+    def test_hermes_explanation_defaults_off(self) -> None:
+        """The feature is off by default (deterministic data always on)."""
+        s = Settings(secret_key=_TEST_SECRET)
+        assert s.hermes_explanation_enabled is False
+
+    def test_hermes_explanation_enabled(self) -> None:
+        s = Settings(secret_key=_TEST_SECRET, hermes_explanation_enabled=True)
+        assert s.hermes_explanation_enabled is True
+
+
 # ═══════════════════════════════════════════════════════════════════════
 # AI Summary Service
 # ═══════════════════════════════════════════════════════════════════════

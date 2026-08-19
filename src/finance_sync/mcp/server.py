@@ -1028,7 +1028,19 @@ def _get_holding_relevance_service(ctx: ServerContext) -> Any:
 
     container = _get_container(ctx)
     session = container.session_factory()  # type: ignore[reportUnknownMemberType]
-    return _Svc(UnitOfWork(session))  # type: ignore[reportUnknownArgumentType]
+    # Optional Hermes explanations (feature-flagged; off by default).
+    if container.settings.hermes_explanation_enabled:
+        from finance_sync.services.hermes_relevance import (
+            build_hermes_explainer,
+        )
+
+        explainer = build_hermes_explainer(enabled=True)  # type: ignore[reportUnknownMemberType]
+    else:
+        explainer = None
+    return _Svc(  # type: ignore[reportUnknownArgumentType]
+        UnitOfWork(session),  # type: ignore[reportUnknownArgumentType]
+        explainer=explainer,
+    )
 
 
 def _auth_principal(ctx: ServerContext) -> tuple[str, str | None]:

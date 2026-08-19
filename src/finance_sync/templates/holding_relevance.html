@@ -389,6 +389,7 @@
                         </div>
                         <div class="headline">${escapeHtml(item.headline || 'Untitled')}</div>
                         <div class="sec">${secLabel}${item.match_reason ? ' — ' + escapeHtml(label(MATCH_LABELS, item.match_reason)) : ''}</div>
+                        ${item.hermes_explanation ? `<div class="explanation" style="font-size:0.85rem;color:var(--text-muted);margin-top:6px;font-style:italic;">${escapeHtml(item.hermes_explanation)}</div>` : ''}
                         ${sources ? `<div class="sources">Bronnen: ${sources}</div>` : ''}
                         <div style="margin-top:10px;">${ackBtn}</div>
                     </div>

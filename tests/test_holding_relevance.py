@@ -1836,3 +1836,114 @@ class TestAccountFilterAndInjection:
             # The real security still resolves.
             feed = await svc.feed(tenant, security_id=sec)
             assert feed["total"] == 1
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# A11 — Hermes explanation (optional, feature-flagged, fact-only)
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class TestHermesExplanationDTO:
+    """The feed DTO carries hermes_explanation when an explainer is set.
+
+    Acceptance (t_c6959faa): a known earnings-date match produces an
+    explanation grounded only in deterministic facts that references the
+    item IDs; with Hermes unavailable the field is simply omitted (or a
+    deterministic fallback) and the service never crashes.
+    """
+
+    async def test_dto_includes_explanation_with_explainer(
+        self, session_factory: async_sessionmaker
+    ) -> None:
+        """With an explainer wired, the DTO gains hermes_explanation."""
+        from finance_sync.services.hermes_relevance import (
+            HermesRelevanceExplainer,
+        )
+
+        tenant = await _new_tenant(session_factory)
+        sec = await _new_security(session_factory)
+        acct = await _new_account(session_factory, tenant)
+        await _new_holding(session_factory, tenant, acct, sec)
+        item_id = await _new_item(
+            session_factory,
+            tenant,
+            sec,
+            kind="earnings_report",
+            facts=[
+                {"key": "event_type", "value": "earnings"},
+                {"key": "earnings_date", "value": "2026-09-03"},
+            ],
+        )
+
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(
+                UnitOfWork(session),
+                explainer=HermesRelevanceExplainer(),
+            )
+            await _build(svc, tenant)
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(
+                UnitOfWork(session),
+                explainer=HermesRelevanceExplainer(),
+            )
+            feed = await svc.feed(tenant, user_id="user-1")
+
+        assert feed["total"] == 1
+        item = feed["items"][0]
+        explanation = item.get("hermes_explanation")
+        assert explanation is not None
+        assert isinstance(explanation, str)
+        # Fact-only: security name, event type, date, and the item ID.
+        assert "Apple" in explanation
+        assert item_id in explanation
+        # No financial values / position sizes.
+        for token in ("€", "$", "position", "market value", "0.99"):
+            assert token not in explanation
+
+    async def test_dto_omits_explanation_without_explainer(
+        self, session_factory: async_sessionmaker
+    ) -> None:
+        """Without an explainer the DTO simply omits the field."""
+        tenant = await _new_tenant(session_factory)
+        sec = await _new_security(session_factory)
+        acct = await _new_account(session_factory, tenant)
+        await _new_holding(session_factory, tenant, acct, sec)
+        await _new_item(session_factory, tenant, sec, kind="earnings_report")
+
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            await _build(svc, tenant)
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            feed = await svc.feed(tenant, user_id="user-1")
+
+        assert feed["total"] == 1
+        assert "hermes_explanation" not in feed["items"][0]
+
+    async def test_explainer_failure_never_breaks_feed(
+        self, session_factory: async_sessionmaker
+    ) -> None:
+        """A crashing explainer degrades to no explanation, not a 500."""
+        tenant = await _new_tenant(session_factory)
+        sec = await _new_security(session_factory)
+        acct = await _new_account(session_factory, tenant)
+        await _new_holding(session_factory, tenant, acct, sec)
+        await _new_item(session_factory, tenant, sec, kind="earnings_report")
+
+        class _Boom:
+            async def explain(self, *_args: Any, **_kwargs: Any) -> str:
+                error = "boom"
+                raise RuntimeError(error)
+
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            await _build(svc, tenant)
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(
+                UnitOfWork(session),
+                explainer=_Boom(),  # type: ignore[arg-type]
+            )
+            feed = await svc.feed(tenant, user_id="user-1")
+
+        assert feed["total"] == 1
+        assert "hermes_explanation" not in feed["items"][0]

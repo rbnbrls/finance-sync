@@ -3027,6 +3027,7 @@
                                 </div>
                                 <div style="font-weight:600;font-size:0.95rem;line-height:1.4;">${escapeHtml(item.headline || 'Untitled')}</div>
                                 <div style="font-size:0.8rem;color:var(--text-muted);margin-top:4px;">${secLabel}${matchLabel ? ' — ' + escapeHtml(matchLabel) : ''}</div>
+                                ${item.hermes_explanation ? `<div style="font-size:0.8rem;color:var(--text-muted);margin-top:6px;font-style:italic;">${escapeHtml(item.hermes_explanation)}</div>` : ''}
                             </div>
                             <div style="flex-shrink:0;margin-left:12px;">${ackBtn}</div>
                         </div>

@@ -355,8 +355,18 @@ def _is_fresh(item: MarketIntelligenceItem, now: datetime) -> bool:
 class HoldingRelevanceService:
     """Match, cluster, rank and serve holding-relevant news/events."""
 
-    def __init__(self, uow: UnitOfWork) -> None:
+    def __init__(
+        self,
+        uow: UnitOfWork,
+        *,
+        explainer: Any | None = None,
+    ) -> None:
         self._uow = uow
+        # Optional Hermes relevance explainer (duck-typed: anything with
+        # ``async explain(cluster_dto, *, facts=None) -> str | None``).
+        # When None the DTO simply omits ``hermes_explanation`` — the
+        # deterministic holding-relevance data stays fully available.
+        self._explainer = explainer
 
     # ── Public: build feed (match + cluster + rank) ─────────────────
 
@@ -1681,7 +1691,7 @@ class HoldingRelevanceService:
             # No ack row yet → unread for this user.
             acknowledged = False
 
-        return {
+        dto: dict[str, Any] = {
             "id": str(cluster.id),
             "cluster_id": str(cluster.id),
             "security_id": cluster.security_id,
@@ -1702,6 +1712,30 @@ class HoldingRelevanceService:
             "acknowledged": acknowledged,
             "sources": sources,
         }
+
+        # Optional Hermes explanation: grounded only in deterministic
+        # facts.  When the explainer is unavailable/disabled it returns
+        # None and the key is simply omitted — the deterministic feed
+        # data above remains fully available.
+        if self._explainer is not None:
+            try:
+                facts = None
+                for item in items:
+                    if item.facts:  # type: ignore[attr-defined]
+                        facts = list(item.facts)  # type: ignore[attr-defined]
+                        break
+                explanation = await self._explainer.explain(dto, facts=facts)
+            except Exception:
+                # Hermes is optional — never break the feed on errors.
+                logger.warning(
+                    "hermes_explanation_failed",
+                    tenant_id=tenant_id,
+                    cluster_id=str(cluster.id),
+                )
+                explanation = None
+            if explanation:
+                dto["hermes_explanation"] = explanation
+        return dto
 
     async def _apply_corrections(
         self,
