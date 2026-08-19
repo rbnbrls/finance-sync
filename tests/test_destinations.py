@@ -134,7 +134,6 @@ def test_consumer_key_scope_limits_visible_accounts() -> None:
         {
             "id": "allowed",
             "tenant_id": "tenant-1",
-            "visibility": "household",
             "owner_user_id": "owner",
         },
     )()
@@ -144,7 +143,6 @@ def test_consumer_key_scope_limits_visible_accounts() -> None:
         {
             "id": "excluded",
             "tenant_id": "tenant-1",
-            "visibility": "household",
             "owner_user_id": "owner",
         },
     )()
@@ -156,7 +154,6 @@ def test_consumer_key_scope_limits_visible_accounts() -> None:
         {
             "id": "allowed",
             "tenant_id": "tenant-1",
-            "visibility": "private",
             "owner_user_id": "owner",
         },
     )()

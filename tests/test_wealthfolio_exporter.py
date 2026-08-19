@@ -65,7 +65,7 @@ def _make_mock_account(**kwargs):
         "account_type": "brokerage",
         "currency_code": "EUR",
         "is_active": True,
-        "visibility": "household",
+        "owner_user_id": "owner",
     }
     for k, v in {**defaults, **kwargs}.items():
         setattr(acct, k, v)
@@ -1122,16 +1122,16 @@ class TestWealthfolioPushCursor:
         self, exporter: WealthfolioExporter
     ) -> None:
         """An explicit destination scope can contain every owner account."""
-        shared = _make_mock_account(name="Shared", visibility="household")
-        private = _make_mock_account(name="Private", visibility="private")
+        acct_a = _make_mock_account(name="Account A", owner_user_id="owner")
+        acct_b = _make_mock_account(name="Account B", owner_user_id="owner")
 
         with patch.object(
             exporter, "_get_wealthfolio_delivery", return_value=None
         ):
             wf_client, fetch_mock, _complete_mock = self._patch_push_deps(
                 exporter,
-                accounts=[shared, private],
-                txns_by_account={shared.id: [_make_mock_transaction()]},
+                accounts=[acct_a, acct_b],
+                txns_by_account={acct_a.id: [_make_mock_transaction()]},
             )
             wf_client.push_activities.return_value = {
                 "imported": 1,
@@ -1141,11 +1141,11 @@ class TestWealthfolioPushCursor:
             await exporter.push_to_wealthfolio(wf_client)
 
         # Single-owner destinations consider every selected owner account;
-        # there is no sharing-visibility permission boundary.
+        # there is no visibility permission boundary.
         fetched_ids = {
             call.kwargs["account_id"] for call in fetch_mock.await_args_list
         }
-        assert fetched_ids == {shared.id, private.id}
+        assert fetched_ids == {acct_a.id, acct_b.id}
         assert exporter._ensure_wf_account.await_count == 2
 
     @pytest.mark.asyncio
