@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss xmlns:dc="http://purl.org/dc/elements/1.1/" version="2.0" xml:base="https://www.sec.gov/">
+  <channel>
+    <title>Press Releases</title>
+    <link>https://www.sec.gov/</link>
+    <description>Official announcements highlighting recent actions taken by the SEC and other newsworthy information.</description>
+    <language>en</language>
+    <item>
+      <title>    SEC Charges Former Executives With Fraud in Connection With $1.9 Billion Collapse of Subprime Auto Lender Tricolor
+</title>
+      <link>https://www.sec.gov/newsroom/press-releases/2026-77-sec-charges-former-executives-fraud-connection-19-billion-collapse-subprime-auto-lender-tricolor</link>
+      <description>The Securities and Exchange Commission today charged Daniel Chu, Jerome Kollar, and Ameryn Seibold, the former CEO, CFO, and Senior Director of Finance, respectively, at Texas-based Tricolor Holdings, LLC, for their roles in an alleged multi-year scheme.</description>
+      <pubDate>Tue, 18 Aug 2026 15:55:10 -0400</pubDate>
+      <dc:creator> </dc:creator>
+      <guid isPermaLink="false">5ee7718e-9046-432f-ad1f-48d1dd52366f</guid>
+    </item>
+    <item>
+      <title>SEC Proposes New Regulation Crypto Assets</title>
+      <link>https://www.sec.gov/newsroom/press-releases/2026-76-sec-proposes-new-regulation-crypto-assets</link>
+      <description>The Securities and Exchange Commission proposed a new regulation governing crypto assets, including registration, disclosure and custody requirements for digital-asset intermediaries.</description>
+      <pubDate>Fri, 14 Aug 2026 16:16:34 -0400</pubDate>
+      <dc:creator> </dc:creator>
+      <guid isPermaLink="false">e1c1d2d7-1743-4e9a-8857-9a03028b7fb0</guid>
+    </item>
+    <item>
+      <title>SEC Establishes Financial Reporting and Accounting Unit in Enforcement Division</title>
+      <link>https://www.sec.gov/newsroom/press-releases/2026-72-sec-establishes-financial-reporting-and-accounting-unit-enforcement-division</link>
+      <description>The SEC today established a new Financial Reporting and Accounting Unit in its Enforcement Division to focus on accounting and financial reporting issues.</description>
+      <pubDate>Wed, 12 Aug 2026 10:02:45 -0400</pubDate>
+      <dc:creator> </dc:creator>
+      <guid isPermaLink="false">3b108935-d9dd-43a0-98ec-f05df42fc4ea</guid>
+    </item>
+  </channel>
+</rss>

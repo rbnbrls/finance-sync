@@ -384,6 +384,15 @@ class Settings(BaseSettings):
             "key).  Set false to disable the source entirely."
         ),
     )
+    intel_sec_press_enabled: bool = Field(
+        default=True,
+        validation_alias="INTEL_SEC_PRESS_ENABLED",
+        description=(
+            "Register the SEC press-releases provider (public-domain "
+            "news RSS, no API key).  Set false to disable the source "
+            "entirely."
+        ),
+    )
 
     # ── Worker / APScheduler ───────────────────────────────────────
     worker_enabled: bool = Field(

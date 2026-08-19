@@ -91,6 +91,9 @@ def build_intel_registry(settings: Settings) -> IntelProviderRegistry:
     * **SEC EDGAR** — a public, legally reusable source (US regulatory
       filings are public domain).  Registered by default; can be
       disabled with ``INTEL_SEC_ENABLED=false``.
+    * **SEC Press Releases** — the public-domain SEC news RSS feed
+      (no API key).  Registered by default; can be disabled with
+      ``INTEL_SEC_PRESS_ENABLED=false``.
 
     Adapters requiring a user-owned subscription or API key are only
     registered after explicit configuration (future work; none are
@@ -98,6 +101,9 @@ def build_intel_registry(settings: Settings) -> IntelProviderRegistry:
     """
     from finance_sync.intel.adapters.openbb import OpenBBIntelProvider
     from finance_sync.intel.adapters.sec import SecEdgarProvider
+    from finance_sync.intel.adapters.sec_press import (
+        SecPressReleaseProvider,
+    )
 
     registry = IntelProviderRegistry()
     registry.register(
@@ -113,4 +119,6 @@ def build_intel_registry(settings: Settings) -> IntelProviderRegistry:
     )
     if getattr(settings, "intel_sec_enabled", True):
         registry.register(SecEdgarProvider())
+    if getattr(settings, "intel_sec_press_enabled", True):
+        registry.register(SecPressReleaseProvider())
     return registry
