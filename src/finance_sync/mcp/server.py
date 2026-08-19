@@ -905,6 +905,62 @@ async def tool_list_intel_provider_states(
         await session.aclose()
 
 
+class IntelRunsInput(BaseModel):
+    """Input for ``list_intel_runs`` tool."""
+
+    provider: str | None = Field(
+        default=None,
+        description="Optional provider key filter.",
+    )
+    status: str | None = Field(
+        default=None,
+        description="Optional status filter (ok/degraded/unavailable).",
+    )
+    limit: int = Field(
+        default=50,
+        ge=1,
+        le=200,
+        description="Maximum number of runs to return.",
+    )
+
+
+@mcp.tool(
+    name="list_intel_runs",
+    title="List Intel Runs",
+    description=(
+        "Return the recorded scheduler runs of the market-intelligence "
+        "providers for the tenant (run registry): started/completed "
+        "timestamps, duration, quota usage, freshness snapshot and "
+        "sanitised errors — never credentials.  Newest first."
+    ),
+)
+async def tool_list_intel_runs(
+    ctx: ServerContext,
+    provider: str | None = None,
+    status: str | None = None,
+    limit: int = 50,
+) -> str:
+    """Return the recorded scheduler runs for the tenant."""
+    from finance_sync.services.market_intelligence_read import (
+        MarketIntelligenceReadService as _ReadSvc,
+    )
+
+    tenant_id = _get_tenant_id(ctx)
+    container = _get_container(ctx)
+    session = container.session_factory()
+    service = _ReadSvc(session)
+    try:
+        runs = await service.list_runs(
+            tenant_id,
+            provider=provider,
+            status=status,
+            limit=limit,
+        )
+        return _serialise([r.model_dump() for r in runs])
+    finally:
+        await session.aclose()
+
+
 # ═════════════════════════════════════════════════════════════════════════
 # ASGI app factory
 # ═════════════════════════════════════════════════════════════════════════

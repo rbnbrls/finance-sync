@@ -76,8 +76,11 @@ class TestMCPToolsCompleteness:
         self._tool_map = {t.name: t for t in self._tools}
 
     def test_tool_count(self) -> None:
-        """There are exactly 11 tools defined (9 core + 2 market-intel)."""
-        assert len(self._tool_map) == 11
+        """All tools are defined (core + market-intel read surfaces)."""
+        assert len(self._tool_map) == 12
+        assert "list_intel_runs" in self._tool_map
+        assert "list_intel_provider_states" in self._tool_map
+        assert "list_market_intelligence" in self._tool_map
 
     # ── Existing tools (regression) ────────────────────────────────
 

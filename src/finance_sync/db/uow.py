@@ -20,6 +20,7 @@ from finance_sync.db.repositories import (
     MarketIntelligenceItemRepository,
     MarketIntelligenceProviderStateRepository,
     MarketIntelligenceReviewQueueRepository,
+    MarketIntelligenceRunRepository,
     OutboxMessageRepository,
     ReconciliationResultRepository,
     ReconciliationRunRepository,
@@ -180,6 +181,13 @@ class UnitOfWork:
         return self._repo(
             "market_intelligence_provider_states",
             MarketIntelligenceProviderStateRepository,
+        )  # type: ignore[return-value]
+
+    @property
+    def market_intelligence_runs(self) -> MarketIntelligenceRunRepository:
+        return self._repo(
+            "market_intelligence_runs",
+            MarketIntelligenceRunRepository,
         )  # type: ignore[return-value]
 
     @property

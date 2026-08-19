@@ -51,6 +51,10 @@ from finance_sync.models.market_intelligence_provider_state import (
 from finance_sync.models.market_intelligence_review_queue import (
     MarketIntelligenceReviewQueue,
 )
+from finance_sync.models.market_intelligence_run import (
+    INTEL_RUN_STATUSES,
+    MarketIntelligenceRun,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -344,8 +348,17 @@ class IntelIngestionService:
         error: str | None = None,
         latency_ms: int | None = None,
         items_ingested: int | None = None,
+        started_at: datetime | None = None,
+        quota_used: int | None = None,
+        quota_limit: int | None = None,
     ) -> None:
-        """Persist the outcome of one provider run (idempotent)."""
+        """Persist the outcome of one provider run (idempotent).
+
+        Updates the latest-run state row (used by the scheduler for
+        cadence decisions) *and* appends an immutable row to the run
+        registry (:class:`MarketIntelligenceRun`) so every run stays
+        observable.
+        """
         if status not in INTEL_PROVIDER_STATUSES:
             status = "unavailable"
         now = datetime.now(UTC)
@@ -361,7 +374,7 @@ class IntelIngestionService:
         state = await self._get_or_create_state(
             tenant_id, provider.provider_key
         )
-        state.last_run_at = now
+        state.last_run_at = started_at or now
         state.status = status
         state.latency_ms = latency_ms
         state.items_ingested = items_ingested
@@ -381,6 +394,8 @@ class IntelIngestionService:
         state.freshness_min_interval_seconds = int(
             provider.freshness.min_interval.total_seconds()
         )
+        state.quota_used = quota_used
+        state.quota_limit = quota_limit
         try:
             status_snapshot = await provider.status()
             state.capabilities = [c.value for c in status_snapshot.capabilities]
@@ -391,6 +406,68 @@ class IntelIngestionService:
         except Exception:
             pass
         await self._uow.market_intelligence_provider_states.update(state)
+
+        await self._append_run_history(
+            tenant_id,
+            provider,
+            capability=capability,
+            status=status,
+            error=error,
+            latency_ms=latency_ms,
+            items_ingested=items_ingested,
+            started_at=started_at or now,
+            quota_used=quota_used,
+            quota_limit=quota_limit,
+        )
+
+    async def _append_run_history(
+        self,
+        tenant_id: str,
+        provider: IntelProvider,
+        *,
+        capability: IntelCapability,
+        status: str,
+        error: str | None = None,
+        latency_ms: int | None = None,
+        items_ingested: int | None = None,
+        started_at: datetime | None = None,
+        quota_used: int | None = None,
+        quota_limit: int | None = None,
+    ) -> None:
+        """Append one immutable row to the run registry."""
+        del capability  # recorded via the provider-state row
+        if status not in INTEL_RUN_STATUSES:
+            status = "unavailable"
+        now = datetime.now(UTC)
+        run = MarketIntelligenceRun(
+            tenant_id=tenant_id,
+            provider=provider.provider_key,
+            started_at=started_at or now,
+            completed_at=now,
+            status=status,
+            latency_ms=latency_ms,
+            items_ingested=items_ingested,
+            quota_used=quota_used,
+            quota_limit=quota_limit,
+            error=sanitise_provider_error(error) if error else None,
+            error_class=type(error).__name__ if error is not None else None,
+            freshness_max_age_seconds=int(
+                provider.freshness.max_age.total_seconds()
+            ),
+            freshness_min_interval_seconds=int(
+                provider.freshness.min_interval.total_seconds()
+            ),
+        )
+        try:
+            status_snapshot = await provider.status()
+            run.capabilities = [c.value for c in status_snapshot.capabilities]
+            run.availability = {
+                c.value: a.value
+                for c, a in status_snapshot.availability.items()
+            }
+        except Exception:
+            pass
+        await self._uow.market_intelligence_runs.add(run)
 
     # ── Internal helpers ─────────────────────────────────────────────
 

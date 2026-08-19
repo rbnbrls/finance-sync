@@ -83,17 +83,41 @@ class IntelScheduler:
 
             {"providers": {"sec": {"status": "ok", "items_ingested": 3,
                                    "latency_ms": 120, "error": None}, ...}}
+
+        **Failure isolation** — every provider runs inside its own
+        try/except.  A provider that crashes (even in capability
+        discovery or credential loading) is recorded as ``unavailable``
+        and the loop continues with the remaining providers.  A
+        scheduler failure can therefore never block bunq / Trading212 /
+        Wealthfolio syncs (those run on their own APScheduler jobs) and
+        never blocks sibling providers in the same tick.
         """
         registry = self._registry or _registry_from_container(self._container)
         summary: dict[str, Any] = {"providers": {}}
 
         for provider in registry.enabled():
-            result = await self._refresh_provider(
-                tenant_id,
-                provider,
-                capability=capability,
-                force=force,
-            )
+            try:
+                result = await self._refresh_provider(
+                    tenant_id,
+                    provider,
+                    capability=capability,
+                    force=force,
+                )
+            except Exception as exc:
+                # A provider that raises outside the bounded run (e.g.
+                # in capabilities() or credential loading) must not
+                # take down the tick.  Record it and move on.
+                result = {
+                    "status": "unavailable",
+                    "reason": type(exc).__name__,
+                    "error": str(exc)[:500],
+                }
+                logger.warning(
+                    "intel_provider_crashed",
+                    provider=provider.provider_key,
+                    tenant_id=tenant_id,
+                    error=type(exc).__name__,
+                )
             summary["providers"][provider.provider_key] = result
 
         return summary
@@ -107,11 +131,25 @@ class IntelScheduler:
         force: bool,
     ) -> dict[str, Any]:
         """Run one provider refresh with a bounded timeout and record state."""
+        started_wall = datetime.now(UTC)
         if not force and not await self._is_due(tenant_id, provider):
             return {"status": "skipped", "reason": "not_due"}
 
         started = time.monotonic()
-        capabilities = await provider.capabilities()
+        try:
+            capabilities = await provider.capabilities()
+        except Exception as exc:
+            await self._record_run(
+                tenant_id,
+                provider,
+                status="unavailable",
+                error=exc,
+                started_at=started_wall,
+            )
+            return {
+                "status": "unavailable",
+                "reason": "capability_discovery_failed",
+            }
         if capability is not None:
             capabilities = [c for c in capabilities if c == capability]
         if not capabilities:
@@ -120,6 +158,7 @@ class IntelScheduler:
                 provider,
                 status="unavailable",
                 error="provider advertises no capabilities",
+                started_at=started_wall,
             )
             return {
                 "status": "unavailable",
@@ -143,6 +182,7 @@ class IntelScheduler:
 
         try:
             async with asyncio.timeout(self._run_timeout):
+                capability_failures: list[tuple[str, BaseException]] = []
                 for cap in capabilities:
                     try:
                         await self._refresh_capability(tenant_id, provider, cap)
@@ -151,16 +191,39 @@ class IntelScheduler:
                         IntelProviderRateLimitError,
                         IntelProviderUnavailableError,
                     ) as exc:
-                        await self._record_run(
-                            tenant_id,
-                            provider,
-                            capability=cap,
-                            status="unavailable",
-                            error=exc,
-                        )
-                        # Partial success: continue with other capabilities.
+                        # Partial success: continue with other capabilities
+                        # but remember the failure so the run is recorded
+                        # as degraded — an outage must never look "ok".
+                        capability_failures.append((cap.value, exc))
                         continue
             latency_ms = int((time.monotonic() - started) * 1000)
+            quota_used, quota_limit = await self._probe_quota(provider)
+            if capability_failures:
+                # Some capabilities failed.  Record the run as degraded
+                # (all failed) or degraded (some failed) with the first
+                # failure's sanitised error.  A later successful full
+                # run clears the stale flags.
+                all_failed = len(capability_failures) == len(capabilities)
+                status = "unavailable" if all_failed else "degraded"
+                first_failure = capability_failures[0][1]
+                await self._refresh_stale_flags(
+                    tenant_id, provider, mark=all_failed
+                )
+                await self._record_run(
+                    tenant_id,
+                    provider,
+                    status=status,
+                    error=str(first_failure),
+                    latency_ms=latency_ms,
+                    quota_used=quota_used,
+                    quota_limit=quota_limit,
+                    started_at=started_wall,
+                )
+                return {
+                    "status": status,
+                    "latency_ms": latency_ms,
+                    "failed_capabilities": [c for c, _ in capability_failures],
+                }
             # A successful run refreshes the items — clear any stale
             # flags so a recovery is observable, not sticky.
             await self._refresh_stale_flags(tenant_id, provider, mark=False)
@@ -169,6 +232,9 @@ class IntelScheduler:
                 provider,
                 status="ok",
                 latency_ms=latency_ms,
+                quota_used=quota_used,
+                quota_limit=quota_limit,
+                started_at=started_wall,
             )
             return {"status": "ok", "latency_ms": latency_ms}
         except TimeoutError:
@@ -184,6 +250,7 @@ class IntelScheduler:
                 status="unavailable",
                 error="provider run timed out",
                 latency_ms=latency_ms,
+                started_at=started_wall,
             )
             return {"status": "unavailable", "reason": "timeout"}
         except Exception as exc:
@@ -195,6 +262,7 @@ class IntelScheduler:
                 status="unavailable",
                 error=exc,
                 latency_ms=latency_ms,
+                started_at=started_wall,
             )
             return {"status": "unavailable", "reason": type(exc).__name__}
 
@@ -311,9 +379,10 @@ class IntelScheduler:
                 return True
             if state.last_run_at is None:
                 return True
+            last_run = _as_utc(state.last_run_at)
             if state.status == "unavailable":
                 # Back off a failing provider: retry after its max_age.
-                return now - state.last_run_at >= timedelta(
+                return now - last_run >= timedelta(
                     seconds=(
                         state.freshness_max_age_seconds
                         or provider.freshness.max_age.total_seconds()
@@ -331,9 +400,7 @@ class IntelScheduler:
                     or provider.freshness.max_age.total_seconds()
                 )
             )
-            return now - state.last_run_at >= min_interval or (
-                now - state.last_run_at >= max_age
-            )
+            return now - last_run >= min_interval or (now - last_run >= max_age)
         finally:
             await uow.session.close()
 
@@ -365,6 +432,9 @@ class IntelScheduler:
         status: str,
         error: BaseException | str | None = None,
         latency_ms: int | None = None,
+        started_at: datetime | None = None,
+        quota_used: int | None = None,
+        quota_limit: int | None = None,
     ) -> None:
         """Persist a run outcome (idempotent, secrets sanitised)."""
         uow = self._make_uow()
@@ -379,6 +449,9 @@ class IntelScheduler:
                 status=status,
                 error=str(error) if error else None,
                 latency_ms=latency_ms,
+                started_at=started_at,
+                quota_used=quota_used,
+                quota_limit=quota_limit,
             )
             await uow.commit()
         except Exception as exc:
@@ -390,6 +463,20 @@ class IntelScheduler:
             await uow.rollback()
         finally:
             await uow.session.close()
+
+    async def _probe_quota(
+        self,
+        provider: IntelProvider,
+    ) -> tuple[int | None, int | None]:
+        """Return ``(quota_used, quota_limit)`` from the provider.
+
+        Never raises — a quota probe failure is recorded as
+        ``(None, None)`` and does not fail the run.
+        """
+        try:
+            return await provider.quota_usage()
+        except Exception:
+            return None, None
 
     def _make_uow(self) -> UnitOfWork:
         """Create a fresh UnitOfWork for a scheduler operation."""
@@ -419,6 +506,18 @@ class IntelScheduler:
 def _registry_from_container(container: Container) -> IntelProviderRegistry:
     """Build the provider registry from the container settings."""
     return build_intel_registry(container.settings)
+
+
+def _as_utc(value: datetime) -> datetime:
+    """Return *value* as a UTC-aware datetime (defensive coercion).
+
+    SQLite round-trips ``DateTime(timezone=True)`` as naive; PostgreSQL
+    returns aware values.  The scheduler compares against
+    ``datetime.now(UTC)`` so naive values are tagged UTC first.
+    """
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
 
 
 def build_intel_registry(settings: Settings) -> IntelProviderRegistry:

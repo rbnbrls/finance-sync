@@ -26,6 +26,7 @@ from finance_sync.models import (
     MarketIntelligenceItem,
     MarketIntelligenceProviderState,
     MarketIntelligenceReviewQueue,
+    MarketIntelligenceRun,
     OutboxMessage,
     ReconciliationResult,
     ReconciliationRun,
@@ -445,6 +446,12 @@ class MarketIntelligenceProviderStateRepository(
     """Repository for market-intelligence provider run state."""
 
     model_class = MarketIntelligenceProviderState
+
+
+class MarketIntelligenceRunRepository(Repository[MarketIntelligenceRun]):
+    """Repository for the append-only market-intelligence run registry."""
+
+    model_class = MarketIntelligenceRun
 
 
 class MarketIntelligenceReviewQueueRepository(

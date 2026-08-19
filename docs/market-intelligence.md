@@ -41,8 +41,47 @@ REST (api/v1/market_intelligence.py)  +  MCP tools (mcp/server.py)
 The scheduler (`intel/scheduler.py`) refreshes each provider on its own
 freshness cadence via the worker job `intel_refresh`
 (`WORKER_JOB_INTEL_INTERVAL_MINUTES`, default 60).  A provider outage is
-isolated per provider (bounded timeout) and can never block bunq,
-Trading212 or Wealthfolio syncs — those run on their own scheduler jobs.
+isolated per provider (bounded timeout, per-provider try/except) and can
+never block bunq, Trading212 or Wealthfolio syncs — those run on their
+own scheduler jobs, and a crashing provider never blocks its sibling
+providers in the same tick either.
+
+### Per-provider configurable cadence
+
+Each provider declares its own freshness policy (`max_age` = age beyond
+which stored data is considered stale, `min_interval` = earliest allowed
+re-fetch spacing).  Operators can override both bounds per provider
+without touching code:
+
+| Setting | Applies to | Default |
+|---|---|---|
+| `INTEL_SEC_FRESHNESS_MAX_AGE_SECONDS` | SEC EDGAR max-age | 86400 (24 h) |
+| `INTEL_SEC_FRESHNESS_MIN_INTERVAL_SECONDS` | SEC EDGAR min interval | 3600 (1 h) |
+| `INTEL_SEC_PRESS_FRESHNESS_MAX_AGE_SECONDS` | SEC press max-age | 21600 (6 h) |
+| `INTEL_SEC_PRESS_FRESHNESS_MIN_INTERVAL_SECONDS` | SEC press min interval | 900 (15 min) |
+| `INTEL_OPENBB_FRESHNESS_MAX_AGE_SECONDS` | OpenBB max-age | 21600 (6 h) |
+| `INTEL_OPENBB_FRESHNESS_MIN_INTERVAL_SECONDS` | OpenBB min interval | 900 (15 min) |
+
+Unset values fall back to the adapter's declared default.  The effective
+values are recorded on every run (state + run registry).
+
+### Run registry
+
+Every scheduler run is recorded twice:
+
+* `market_intelligence_provider_states` — the **latest** run per
+  (tenant, provider): timestamps, latency, quota, freshness and a
+  sanitised error.  The scheduler uses this for cadence decisions.
+* `market_intelligence_runs` (migration `0032`) — the **append-only
+  history** of every run: started/completed timestamps, duration,
+  quota usage, freshness snapshot, capability availability and a
+  sanitised error message (secrets redacted before persistence).
+  Runs are observable through `GET /api/v1/market-intelligence/runs`
+  and the MCP tool `list_intel_runs`.
+
+A provider outage never deletes previously valid observations: the
+state/run rows record `unavailable` + a sanitised error and items older
+than the provider's freshness `max_age` are soft-flagged stale.
 
 ## Providers
 
@@ -170,6 +209,7 @@ ingestion service resolves them through the existing
 | `GET /api/v1/market-intelligence/items` | List observations (filters: provider, kind, review_required, is_stale; pagination) |
 | `GET /api/v1/market-intelligence/items/{id}` | Single observation; cross-tenant id → 404 |
 | `GET /api/v1/market-intelligence/providers` | Per-provider run/freshness/availability state (sanitised errors) |
+| `GET /api/v1/market-intelligence/runs` | Run registry — every recorded scheduler run (started/completed, duration, quota, freshness, sanitised errors) |
 | `GET /api/v1/market-intelligence/review-queue` | Ambiguous-resolution entries awaiting review |
 | `POST /api/v1/market-intelligence/review-queue/{id}/resolve` | Link an ambiguous observation to a canonical security (tenant-scoped, 404 for foreign ids) |
 | `POST /api/v1/market-intelligence/review-queue/{id}/dismiss` | Dismiss an ambiguous observation (stays unlinked) |
@@ -187,6 +227,8 @@ include `body`.
 - `list_market_intelligence` — list stored observations (tenant-scoped;
   filters include `is_stale`).
 - `list_intel_provider_states` — per-provider state, sanitised errors.
+- `list_intel_runs` — run registry: every recorded scheduler run
+  (started/completed, duration, quota, freshness, sanitised errors).
 
 ## Credential safety
 
@@ -221,4 +263,5 @@ data — it never includes credential values from the envelope.
   `market_intelligence_provider_states` and
   `market_intelligence_review_queue` for that provider.
 - **Migration**: `0021` (items + provider states), `0022` (review
-  queue).  Run `alembic upgrade head`.
+  queue), `0031` (item staleness), `0032` (run registry).  Run
+  `alembic upgrade head`.
