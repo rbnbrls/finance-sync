@@ -20,6 +20,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 from finance_sync.worker.jobs import (
     enrich_prices_job,
     export_wealthfolio_job,
+    holding_relevance_build_job,
     intel_refresh_job,
     nightly_reconciliation_job,
     process_degiro_watchfolders_job,
@@ -277,6 +278,21 @@ class WorkerScheduler:
                 intel_refresh_job,
                 trigger=IntervalTrigger(
                     minutes=settings.worker_job_intel_interval_minutes,
+                ),
+            )
+
+        # ── Holding-relevance feed build job ───────────────────────
+        # Matches stored intel observations to current/recently-sold
+        # holdings and (re)clusters them into ranked stories on its own
+        # cadence.  Idempotent — a missed tick is harmless and a
+        # concurrent run is safe.  Gated by
+        # WORKER_JOB_HOLDING_RELEVANCE_ENABLED.
+        if settings.worker_job_holding_relevance_enabled:
+            self._add_job(
+                "holding_relevance_build",
+                holding_relevance_build_job,
+                trigger=IntervalTrigger(
+                    minutes=settings.worker_job_holding_relevance_interval_minutes,
                 ),
             )
 

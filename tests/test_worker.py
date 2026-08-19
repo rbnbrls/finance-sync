@@ -486,6 +486,7 @@ class TestWorkerScheduler:
             worker_job_degiro_watch_enabled=False,
             worker_job_schedules_enabled=False,
             worker_job_intel_enabled=False,
+            worker_job_holding_relevance_enabled=False,
         )
         container = Container.from_settings(settings)
         monitor = JobMonitor()

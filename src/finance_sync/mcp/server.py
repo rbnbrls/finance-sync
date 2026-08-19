@@ -1015,6 +1015,255 @@ async def tool_list_intel_sources(ctx: ServerContext) -> str:
 
 
 # ═════════════════════════════════════════════════════════════════════════
+# Tools — holding relevance (ranked feed + calendar)
+# ═════════════════════════════════════════════════════════════════════════
+
+
+def _get_holding_relevance_service(ctx: ServerContext) -> Any:
+    """Create a HoldingRelevanceService bound to a fresh session."""
+    from finance_sync.db.uow import UnitOfWork
+    from finance_sync.services.holding_relevance import (
+        HoldingRelevanceService as _Svc,
+    )
+
+    container = _get_container(ctx)
+    session = container.session_factory()  # type: ignore[reportUnknownMemberType]
+    return _Svc(UnitOfWork(session))  # type: ignore[reportUnknownArgumentType]
+
+
+def _auth_principal(ctx: ServerContext) -> tuple[str, str | None]:
+    """Return (tenant_id, principal_id) from the MCP auth context.
+
+    JWT principals carry a real user id; API-key principals carry the
+    key's id, which is stable per key so ack/unread semantics stay
+    consistent per machine principal.
+    """
+    from finance_sync.mcp.auth import get_mcp_auth_context
+
+    auth = get_mcp_auth_context()
+    return auth.tenant_id, auth.principal_id
+
+
+class HoldingFeedInput(BaseModel):
+    """Input for ``get_holding_feed`` tool."""
+
+    security_id: str | None = Field(
+        default=None,
+        description="Filter to one canonical security UUID.",
+    )
+    account_id: str | None = Field(
+        default=None,
+        description="Filter to one account UUID.",
+    )
+    item_type: str | None = Field(
+        default=None,
+        description=(
+            "Filter by event type: earnings, dividend, agm, split, "
+            "merger, acquisition, filing, news, interest, currency."
+        ),
+    )
+    date_from: str | None = Field(
+        default=None,
+        description="ISO-8601 start of the event-date range (inclusive).",
+    )
+    date_to: str | None = Field(
+        default=None,
+        description="ISO-8601 end of the event-date range (inclusive).",
+    )
+    unread_only: bool = Field(
+        default=False,
+        description="Only return clusters the principal has not acknowledged.",
+    )
+    acknowledged: bool | None = Field(
+        default=None,
+        description=(
+            "Filter by acknowledgement state: True=acked, False=unacked, "
+            "None=all."
+        ),
+    )
+    include_stale: bool = Field(
+        default=True,
+        description=(
+            "When False, clusters whose sources are all stale are omitted."
+        ),
+    )
+    limit: int = Field(
+        default=50,
+        ge=1,
+        le=200,
+        description="Maximum number of clusters to return.",
+    )
+    offset: int = Field(
+        default=0,
+        ge=0,
+        description="Offset into the ranked result set.",
+    )
+
+
+@mcp.tool(
+    name="get_holding_feed",
+    title="Get Holding News Feed",
+    description=(
+        "Return the ranked, clustered news/event feed for the tenant's "
+        "current (and recently sold) holdings.  Every cluster carries "
+        "source URLs, published/fetched timestamps, a freshness value, "
+        "match reason, confidence, event dates and its cluster id.  "
+        "Tenant-scoped: cross-tenant security/account ids match nothing."
+    ),
+)
+async def tool_get_holding_feed(
+    ctx: ServerContext,
+    security_id: str | None = None,
+    account_id: str | None = None,
+    item_type: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    unread_only: bool = False,
+    acknowledged: bool | None = None,
+    include_stale: bool = True,
+    limit: int = 50,
+    offset: int = 0,
+) -> str:
+    """Return the ranked holding feed for the authenticated tenant."""
+    from datetime import datetime as _dt
+
+    svc = _get_holding_relevance_service(ctx)
+    tenant_id, principal_id = _auth_principal(ctx)
+    try:
+
+        def _parse(iso: str | None) -> Any | None:
+            if not iso:
+                return None
+            try:
+                return _dt.fromisoformat(iso)
+            except ValueError:
+                return None
+
+        result = await svc.feed(
+            tenant_id,
+            user_id=principal_id,
+            security_id=security_id,
+            account_id=account_id,
+            item_type=item_type,
+            date_from=_parse(date_from),
+            date_to=_parse(date_to),
+            unread_only=unread_only,
+            acknowledged=acknowledged,
+            include_stale=include_stale,
+            limit=limit,
+            offset=offset,
+        )
+        return _serialise(result)
+    finally:
+        await svc._uow.session.aclose()  # type: ignore[reportPrivateUsage]
+
+
+class HoldingCalendarInput(BaseModel):
+    """Input for ``get_holding_calendar`` tool."""
+
+    date_from: str | None = Field(
+        default=None,
+        description="ISO-8601 start of the event-date range (inclusive).",
+    )
+    date_to: str | None = Field(
+        default=None,
+        description="ISO-8601 end of the event-date range (inclusive).",
+    )
+    limit: int = Field(
+        default=100,
+        ge=1,
+        le=500,
+        description="Maximum number of events to return.",
+    )
+
+
+@mcp.tool(
+    name="get_holding_calendar",
+    title="Get Holding Event Calendar",
+    description=(
+        "Return upcoming/past corporate-event clusters (earnings, "
+        "dividends, AGMs, splits, mergers, filings) for the tenant's "
+        "holdings, ordered by event date.  Each event carries the "
+        "security, event type/date, headline and score."
+    ),
+)
+async def tool_get_holding_calendar(
+    ctx: ServerContext,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    limit: int = 100,
+) -> str:
+    """Return the holding event calendar for the authenticated tenant."""
+    from datetime import datetime as _dt
+
+    svc = _get_holding_relevance_service(ctx)
+    tenant_id, _ = _auth_principal(ctx)
+    try:
+
+        def _parse(iso: str | None) -> Any | None:
+            if not iso:
+                return None
+            try:
+                return _dt.fromisoformat(iso)
+            except ValueError:
+                return None
+
+        result = await svc.calendar(
+            tenant_id,
+            date_from=_parse(date_from),
+            date_to=_parse(date_to),
+            limit=limit,
+        )
+        return _serialise(result)
+    finally:
+        await svc._uow.session.aclose()  # type: ignore[reportPrivateUsage]
+
+
+class HoldingAckInput(BaseModel):
+    """Input for ``acknowledge_holding_cluster`` tool."""
+
+    cluster_id: str = Field(description="Cluster UUID to acknowledge.")
+    acknowledged: bool = Field(
+        default=True,
+        description=("True to mark acknowledged, False to mark unread again."),
+    )
+
+
+@mcp.tool(
+    name="acknowledge_holding_cluster",
+    title="Acknowledge Holding News Cluster",
+    description=(
+        "Set (or clear) the per-principal acknowledgement of one holding "
+        "feed cluster.  Idempotent.  Cross-tenant cluster ids return "
+        "not_found; no rows are ever written to Wealthfolio SQLite."
+    ),
+)
+async def tool_acknowledge_holding_cluster(
+    ctx: ServerContext,
+    cluster_id: str,
+    acknowledged: bool = True,
+) -> str:
+    """Ack/un-ack one holding-feed cluster for the principal."""
+    svc = _get_holding_relevance_service(ctx)
+    tenant_id, principal_id = _auth_principal(ctx)
+    try:
+        ok = await svc.set_ack(
+            tenant_id, principal_id, cluster_id, acknowledged
+        )
+        if not ok:
+            return _serialise({"cluster_id": cluster_id, "status": "not_found"})
+        return _serialise(
+            {
+                "cluster_id": cluster_id,
+                "status": "ok",
+                "acknowledged": acknowledged,
+            }
+        )
+    finally:
+        await svc._uow.session.aclose()  # type: ignore[reportPrivateUsage]
+
+
+# ═════════════════════════════════════════════════════════════════════════
 # ASGI app factory
 # ═════════════════════════════════════════════════════════════════════════
 

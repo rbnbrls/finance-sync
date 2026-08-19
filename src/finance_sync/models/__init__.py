@@ -58,6 +58,15 @@ from finance_sync.models.export_target import ExportTarget
 from finance_sync.models.fundamental_observation import FundamentalObservation
 from finance_sync.models.fx_rate import FxRate
 from finance_sync.models.holding import Holding
+from finance_sync.models.holding_relevance import (
+    HoldingRelevanceItem,
+    RelevanceAck,
+    RelevanceCluster,
+    RelevanceClusterItem,
+    RelevanceCorrection,
+    RelevanceNotificationLog,
+    RelevanceNotificationPreference,
+)
 from finance_sync.models.import_run import ImportRun
 from finance_sync.models.market_intelligence_item import (
     MarketIntelligenceItem,
@@ -184,6 +193,7 @@ __all__ = [
     "FundamentalObservation",
     "FxRate",
     "Holding",
+    "HoldingRelevanceItem",
     "HoldingSource",
     "ImportRun",
     "MarketIntelligenceItem",
@@ -197,6 +207,12 @@ __all__ = [
     "ReconciliationRun",
     "ReconciliationRunStatus",
     "ReconciliationSeverity",
+    "RelevanceAck",
+    "RelevanceCluster",
+    "RelevanceClusterItem",
+    "RelevanceCorrection",
+    "RelevanceNotificationLog",
+    "RelevanceNotificationPreference",
     "ResolutionAuditLog",
     "ScheduleFrequency",
     "ScheduleStatus",

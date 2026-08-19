@@ -82,12 +82,15 @@ class TestMCPToolsCompleteness:
         self._tool_map = {t.name: t for t in self._tools}
 
     def test_tool_count(self) -> None:
-        """All tools are defined (core + market-intel read surfaces)."""
-        assert len(self._tool_map) == 13
+        """All tools are defined (core + market-intel + holding relevance)."""
+        assert len(self._tool_map) == 16
         assert "list_intel_runs" in self._tool_map
         assert "list_intel_sources" in self._tool_map
         assert "list_intel_provider_states" in self._tool_map
         assert "list_market_intelligence" in self._tool_map
+        assert "get_holding_feed" in self._tool_map
+        assert "get_holding_calendar" in self._tool_map
+        assert "acknowledge_holding_cluster" in self._tool_map
 
     # ── Existing tools (regression) ────────────────────────────────
 
