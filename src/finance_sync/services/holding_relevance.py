@@ -745,12 +745,18 @@ class HoldingRelevanceService:
             return {
                 "enabled": False,
                 "lockscreen_safe": True,
+                "detailed_preview": False,
                 "event_types": None,
+                "security_id": None,
+                "account_id": None,
             }
         return {
             "enabled": pref.enabled,
             "lockscreen_safe": pref.lockscreen_safe,
+            "detailed_preview": pref.detailed_preview,
             "event_types": pref.event_types,
+            "security_id": pref.security_id,
+            "account_id": pref.account_id,
         }
 
     async def set_notification_preference(
@@ -760,9 +766,18 @@ class HoldingRelevanceService:
         *,
         enabled: bool | None = None,
         lockscreen_safe: bool | None = None,
+        detailed_preview: bool | None = None,
         event_types: list[str] | None = None,
+        security_id: str | None = None,
+        account_id: str | None = None,
     ) -> dict[str, Any]:
-        """Create/update the user's opt-in notification settings."""
+        """Create/update the user's opt-in notification settings.
+
+        ``security_id`` / ``account_id`` scope notifications to one
+        security or account; ``detailed_preview`` is an explicit opt-in
+        that adds the security ticker/name to payloads (still never
+        financial values).
+        """
         stmt = select(RelevanceNotificationPreference).where(
             RelevanceNotificationPreference.tenant_id == tenant_id,  # type: ignore[attr-defined]
             RelevanceNotificationPreference.user_id == user_id,  # type: ignore[attr-defined]
@@ -776,7 +791,10 @@ class HoldingRelevanceService:
                 lockscreen_safe=(
                     True if lockscreen_safe is None else lockscreen_safe
                 ),
+                detailed_preview=bool(detailed_preview),
                 event_types=event_types,
+                security_id=security_id,
+                account_id=account_id,
             )
             await self._uow.relevance_notification_preferences.add(pref)
         else:
@@ -784,16 +802,59 @@ class HoldingRelevanceService:
                 pref.enabled = enabled
             if lockscreen_safe is not None:
                 pref.lockscreen_safe = lockscreen_safe
+            if detailed_preview is not None:
+                pref.detailed_preview = detailed_preview
             if event_types is not None:
                 pref.event_types = event_types
+            if security_id is not None:
+                pref.security_id = security_id
+            if account_id is not None:
+                pref.account_id = account_id
             await self._uow.relevance_notification_preferences.update(pref)
         return {
             "enabled": pref.enabled,
             "lockscreen_safe": pref.lockscreen_safe,
+            "detailed_preview": pref.detailed_preview,
             "event_types": pref.event_types,
+            "security_id": pref.security_id,
+            "account_id": pref.account_id,
         }
 
     # ── Public: notifications (opt-in, dedupe, lockscreen-safe) ─────
+
+    async def _preference_allows_cluster(
+        self,
+        tenant_id: str,
+        pref: RelevanceNotificationPreference,
+        cluster: RelevanceCluster,
+    ) -> bool:
+        """Apply event-type + security + account scoping of *pref*."""
+        event_types = pref.event_types
+        if event_types and cluster.event_type not in event_types:
+            return False
+        if pref.security_id is not None:
+            if cluster.security_id is None:
+                return False
+            if str(cluster.security_id) != str(pref.security_id):
+                return False
+        if pref.account_id is None:
+            return True
+        # A cluster touches the account when its primary security is
+        # held there or an item was matched for it (cash/currency).
+        return await self._cluster_touches_account(
+            tenant_id, str(pref.account_id), cluster
+        )
+
+    async def _cluster_touches_account(
+        self,
+        tenant_id: str,
+        account_id: str,
+        cluster: RelevanceCluster,
+    ) -> bool:
+        """Whether *cluster* is visible in *account_id*'s feed."""
+        return bool(
+            await self._filter_by_account(tenant_id, account_id, [cluster])
+        )
 
     async def notify_eligible(
         self,
@@ -804,19 +865,22 @@ class HoldingRelevanceService:
         """Send (mock) lockscreen-safe notifications for eligible clusters.
 
         Only fires when the user opted in, dedupes per
-        (user, cluster, event_type), and the payload never carries
-        position sizes or financial values.
+        (user, cluster, event_type), applies event-type/security/account
+        scoping, and the payload never carries position sizes or
+        financial values unless the user explicitly opted into detailed
+        previews.
         """
-        pref = await self.get_notification_preference(tenant_id, user_id)
-        if not pref["enabled"]:
+        pref_row = await self._preference_row(tenant_id, user_id)
+        if pref_row is None or not pref_row.enabled:
             return {"sent": 0, "skipped": "disabled"}
 
         cluster = await self._uow.relevance_clusters.get(cluster_id)
         if cluster is None or str(cluster.tenant_id) != str(tenant_id):
             return {"sent": 0, "skipped": "not_found"}
 
-        event_types = pref["event_types"]
-        if event_types and cluster.event_type not in event_types:
+        if not await self._preference_allows_cluster(
+            tenant_id, pref_row, cluster
+        ):
             return {"sent": 0, "skipped": "event_type_not_allowed"}
 
         # Dedupe per (user, cluster, event_type).
@@ -831,21 +895,7 @@ class HoldingRelevanceService:
         ).scalar_one_or_none() is not None:  # type: ignore[union-attr]
             return {"sent": 0, "skipped": "already_notified"}
 
-        # Lockscreen-safe payload: headline + event type + date only.
-        payload: dict[str, Any] = {
-            "type": "holding_relevance",
-            "event_type": cluster.event_type,
-            "headline": cluster.headline[:200],
-            "event_date": (
-                cluster.event_date.isoformat() if cluster.event_date else None
-            ),
-            "source_url": cluster.best_source_url,
-        }
-        if not pref["lockscreen_safe"]:
-            # Explicitly allowed to show position context — still never
-            # raw financial values unless the user asked for them.
-            payload["include_value"] = False
-
+        payload = await self._build_notification_payload(pref_row, cluster)
         await self._uow.relevance_notification_logs.add(
             RelevanceNotificationLog(
                 tenant_id=tenant_id,
@@ -862,9 +912,119 @@ class HoldingRelevanceService:
             user_id=user_id,
             cluster_id=cluster_id,
             event_type=cluster.event_type,
-            lockscreen_safe=pref["lockscreen_safe"],
+            lockscreen_safe=pref_row.lockscreen_safe,
+            detailed_preview=pref_row.detailed_preview,
         )
         return {"sent": 1, "skipped": None, "payload": payload}
+
+    async def _preference_row(
+        self, tenant_id: str, user_id: str
+    ) -> RelevanceNotificationPreference | None:
+        """Return the user's preference row (or None)."""
+        stmt = select(RelevanceNotificationPreference).where(
+            RelevanceNotificationPreference.tenant_id == tenant_id,  # type: ignore[attr-defined]
+            RelevanceNotificationPreference.user_id == user_id,  # type: ignore[attr-defined]
+        )
+        return (await self._uow.session.execute(stmt)).scalar_one_or_none()  # type: ignore[assignment]
+
+    async def _build_notification_payload(
+        self,
+        pref: RelevanceNotificationPreference,
+        cluster: RelevanceCluster,
+    ) -> dict[str, Any]:
+        """Build a lockscreen-safe payload for *cluster*.
+
+        The default payload carries only the event type, headline,
+        event date and source URL — never position sizes or financial
+        values.  ``detailed_preview`` is an explicit opt-in that adds
+        the security ticker/name; raw values remain excluded.
+        """
+        # Lockscreen-safe payload: headline + event type + date only.
+        payload: dict[str, Any] = {
+            "type": "holding_relevance",
+            "event_type": cluster.event_type,
+            "headline": cluster.headline[:200],
+            "event_date": (
+                cluster.event_date.isoformat() if cluster.event_date else None
+            ),
+            "source_url": cluster.best_source_url,
+            "lockscreen_safe": pref.lockscreen_safe,
+        }
+        if pref.detailed_preview and cluster.security_id is not None:
+            sec = await self._uow.securities.get(cluster.security_id)
+            if sec is not None:
+                payload["security_ticker"] = sec.ticker
+                payload["security_name"] = sec.name
+        # Explicitly allowed to show position context — still never raw
+        # financial values unless the user asked for them.
+        if not pref.lockscreen_safe:
+            payload["include_value"] = False
+        return payload
+
+    async def dispatch_new_cluster_notifications(
+        self,
+        tenant_id: str,
+        *,
+        cluster_ids: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Emit opt-in notifications for newly created clusters.
+
+        Called after a feed build.  Only users who opted in are
+        considered; notifications dedupe per (user, cluster, event
+        type), so re-running never double-sends.  ``cluster_ids``
+        restricts the sweep (default: every cluster of the tenant).
+        """
+        if cluster_ids is None:
+            stmt = select(RelevanceCluster).where(
+                RelevanceCluster.tenant_id == tenant_id,  # type: ignore[attr-defined]
+            )
+            clusters = list(
+                (await self._uow.session.execute(stmt)).scalars().all()  # type: ignore[assignment]
+            )
+        else:
+            clusters = []
+            for cid in cluster_ids:
+                c = await self._uow.relevance_clusters.get(cid)
+                if c is not None and str(c.tenant_id) == str(tenant_id):
+                    clusters.append(c)  # type: ignore[arg-type]
+        if not clusters:
+            return {"sent": 0, "skipped": "no_clusters", "users": 0}
+
+        pref_stmt = select(RelevanceNotificationPreference).where(
+            RelevanceNotificationPreference.tenant_id == tenant_id,  # type: ignore[attr-defined]
+            RelevanceNotificationPreference.enabled.is_(True),  # type: ignore[attr-defined]
+        )
+        prefs = list(
+            (await self._uow.session.execute(pref_stmt)).scalars().all()  # type: ignore[assignment]
+        )
+        if not prefs:
+            return {"sent": 0, "skipped": "no_opted_in", "users": 0}
+
+        sent = 0
+        skipped = 0
+        notified_users: set[str] = set()
+        for pref in prefs:
+            for cluster in clusters:
+                if not await self._preference_allows_cluster(
+                    tenant_id, pref, cluster
+                ):
+                    skipped += 1
+                    continue
+                result = await self.notify_eligible(
+                    tenant_id, pref.user_id, str(cluster.id)
+                )
+                if result["sent"]:
+                    sent += 1
+                    notified_users.add(pref.user_id)
+                elif result["skipped"] == "already_notified":
+                    pass  # deduped, not an error
+                else:
+                    skipped += 1
+        return {
+            "sent": sent,
+            "skipped": skipped,
+            "users": len(notified_users),
+        }
 
     # ── Internal: holdings ──────────────────────────────────────────
 

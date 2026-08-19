@@ -841,10 +841,74 @@ class TestCalendar:
 
 class TestMCPExposure:
     async def test_mcp_tools_registered(self) -> None:
-        """The three holding-relevance tools are registered."""
+        """The five holding-relevance tools are registered."""
         from finance_sync.mcp.server import mcp
 
         tool_names = {t.name for t in mcp._tool_manager.list_tools()}
         assert "get_holding_feed" in tool_names
         assert "get_holding_calendar" in tool_names
         assert "acknowledge_holding_cluster" in tool_names
+        assert "correct_holding_item" in tool_names
+        assert "get_holding_notification_preferences" in tool_names
+        assert "set_holding_notification_preferences" in tool_names
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Notification preferences (HTTP)
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class TestNotificationPreferencesAPI:
+    async def test_preferences_default_and_update(
+        self,
+        relevance_client: httpx.AsyncClient,
+        seeded_tenant: dict[str, Any],
+    ) -> None:
+        """GET returns safe defaults; PUT round-trips the new fields."""
+        tenant_a = seeded_tenant["tenant_a"]
+        resp = await relevance_client.get(
+            "/api/v1/holding-relevance/notifications/preferences",
+            headers=tenant_a["headers"],
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["enabled"] is False
+        assert body["lockscreen_safe"] is True
+        assert body["detailed_preview"] is False
+        assert body["event_types"] is None
+        assert body["security_id"] is None
+        assert body["account_id"] is None
+
+        sec_id = seeded_tenant["security_a"]
+        resp = await relevance_client.put(
+            "/api/v1/holding-relevance/notifications/preferences",
+            headers=tenant_a["headers"],
+            json={
+                "enabled": True,
+                "detailed_preview": True,
+                "event_types": ["earnings"],
+                "security_id": sec_id,
+            },
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["enabled"] is True
+        assert body["detailed_preview"] is True
+        assert body["lockscreen_safe"] is True
+        assert body["event_types"] == ["earnings"]
+        assert body["security_id"] == sec_id
+
+    async def test_cross_tenant_preference_never_leaks(
+        self,
+        relevance_client: httpx.AsyncClient,
+        seeded_tenant: dict[str, Any],
+    ) -> None:
+        """Tenant B sees its own (empty) preferences, never A's."""
+        tenant_b = seeded_tenant["tenant_b"]
+        resp = await relevance_client.get(
+            "/api/v1/holding-relevance/notifications/preferences",
+            headers=tenant_b["headers"],
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["enabled"] is False
+        assert resp.json()["security_id"] is None

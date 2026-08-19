@@ -83,7 +83,7 @@ class TestMCPToolsCompleteness:
 
     def test_tool_count(self) -> None:
         """All tools are defined (core + market-intel + holding relevance)."""
-        assert len(self._tool_map) == 17
+        assert len(self._tool_map) == 19
         assert "list_intel_runs" in self._tool_map
         assert "list_intel_sources" in self._tool_map
         assert "list_intel_provider_states" in self._tool_map
@@ -92,6 +92,8 @@ class TestMCPToolsCompleteness:
         assert "get_holding_calendar" in self._tool_map
         assert "acknowledge_holding_cluster" in self._tool_map
         assert "correct_holding_item" in self._tool_map
+        assert "get_holding_notification_preferences" in self._tool_map
+        assert "set_holding_notification_preferences" in self._tool_map
 
     # ── Existing tools (regression) ────────────────────────────────
 
