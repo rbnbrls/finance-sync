@@ -88,6 +88,7 @@ from finance_sync.intel.models import (
     IntelStructuredFact,
 )
 from finance_sync.intel.provider import (
+    IntelFreshnessPolicy,
     IntelProvider,
     IntelRateLimit,
     IntelRateLimiter,
@@ -1173,6 +1174,439 @@ class TestContentHash:
         assert content_hash({"a": 1, "b": 2}) == content_hash({"b": 2, "a": 1})
         assert content_hash("x", [1, 2]) == content_hash("x", [1, 2])
         assert content_hash("x") != content_hash("y")
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Incremental upsert semantics (t_d42a6317)
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class TestIncrementalUpsert:
+    async def test_changed_content_same_source_is_updated(
+        self, session_factory: async_sessionmaker, fake_resolver: Any
+    ) -> None:
+        """Same (provider, source_id) with new content updates in place."""
+        tenant_id = str(uuid4())
+        first = _item(
+            provider="openbb",
+            source_id="upd-1",
+            headline="AAPL beats estimates (v1)",
+        )
+        updated = _item(
+            provider="openbb",
+            source_id="upd-1",
+            headline="AAPL beats estimates (v2 — revised)",
+        )
+
+        r1 = await _ingest(
+            session_factory, fake_resolver, tenant_id, "openbb", [first]
+        )
+        assert r1["ingested"] == 1
+
+        r2 = await _ingest(
+            session_factory, fake_resolver, tenant_id, "openbb", [updated]
+        )
+        assert r2["updated"] == 1
+        assert r2["duplicates"] == 0
+
+        # Exactly one row, with the new content.
+        assert (
+            await _count(
+                session_factory,
+                MarketIntelligenceItem,
+                tenant_id=tenant_id,
+                provider="openbb",
+            )
+            == 1
+        )
+        async with session_factory() as session:
+            rows = (
+                (
+                    await session.execute(
+                        select(MarketIntelligenceItem).where(
+                            MarketIntelligenceItem.tenant_id == tenant_id
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            row = next(iter(rows))
+            assert row.headline == "AAPL beats estimates (v2 — revised)"
+            # The dedupe identity (source_id) stays stable.
+            assert row.source_id == "upd-1"
+
+    async def test_reingest_same_content_is_duplicate(
+        self, session_factory: async_sessionmaker, fake_resolver: Any
+    ) -> None:
+        """Identical re-fetch is a pure duplicate (no update, no row)."""
+        tenant_id = str(uuid4())
+        item = _item(provider="openbb", source_id="dup-1")
+
+        r1 = await _ingest(
+            session_factory, fake_resolver, tenant_id, "openbb", [item]
+        )
+        assert r1["ingested"] == 1
+        r2 = await _ingest(
+            session_factory, fake_resolver, tenant_id, "openbb", [item]
+        )
+        assert r2["duplicates"] == 1
+        assert r2["updated"] == 0
+
+        assert (
+            await _count(
+                session_factory,
+                MarketIntelligenceItem,
+                tenant_id=tenant_id,
+                source_id="dup-1",
+            )
+            == 1
+        )
+
+    async def test_syndicated_duplicate_never_mutates_first_provider(
+        self, session_factory: async_sessionmaker, fake_resolver: Any
+    ) -> None:
+        """Same content_hash from another provider is a dup, not an update."""
+        tenant_id = str(uuid4())
+        now = datetime.now(UTC)
+        shared = {
+            "provider": "openbb",
+            "source_id": "synd-upd",
+            "headline": "S",
+        }
+        item_a = _item(
+            provider="openbb",
+            source_id="synd-upd",
+            headline="S",
+            published=now,
+        )
+        item_b = IntelItem(
+            provider="sec",
+            source_id="synd-upd-sec",
+            canonical_url="https://example.com/synd-upd-sec",
+            kind=IntelItemKind.NEWS_ARTICLE,
+            published_at=now,
+            fetched_at=now,
+            language="en",
+            license_class=IntelLicenseClass.FREE_ACCESS,
+            content_hash=content_hash(shared),
+            headline="S (edited by sec)",
+            store_full_text=False,
+            store_summary=True,
+        )
+
+        await _ingest(
+            session_factory, fake_resolver, tenant_id, "openbb", [item_a]
+        )
+        r2 = await _ingest(
+            session_factory, fake_resolver, tenant_id, "sec", [item_b]
+        )
+        assert r2["duplicates"] == 1
+        assert r2["updated"] == 0
+
+        # The first provider's row is untouched.
+        async with session_factory() as session:
+            rows = (
+                (
+                    await session.execute(
+                        select(MarketIntelligenceItem).where(
+                            MarketIntelligenceItem.tenant_id == tenant_id
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            assert len(list(rows)) == 1
+            row = next(iter(rows))
+            assert row.provider == "openbb"
+            assert row.headline == "S"
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Staleness (t_d42a6317) — soft flag, never deletion
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class TestStaleness:
+    async def test_mark_stale_flags_old_items_only(
+        self, session_factory: async_sessionmaker, fake_resolver: Any
+    ) -> None:
+        """Items older than the freshness bound are soft-flagged stale."""
+        tenant_id = str(uuid4())
+        now = datetime.now(UTC)
+        old = _item(
+            provider="sec",
+            source_id="old-1",
+            published=now - timedelta(days=10),
+        )
+        # Override fetched_at to simulate an old fetch.
+        old.fetched_at = now - timedelta(days=10)
+        fresh = _item(
+            provider="sec",
+            source_id="new-1",
+            published=now,
+        )
+        fresh.fetched_at = now
+        await _ingest(
+            session_factory, fake_resolver, tenant_id, "sec", [old, fresh]
+        )
+
+        async with session_factory() as session:
+            uow = UnitOfWork(session)
+            service = IntelIngestionService(uow, fake_resolver)
+            marked = await service.mark_stale(
+                tenant_id,
+                "sec",
+                older_than=now - timedelta(hours=6),
+            )
+            await uow.commit()
+            assert marked == 1
+
+        async with session_factory() as session:
+            rows = (
+                (
+                    await session.execute(
+                        select(MarketIntelligenceItem).where(
+                            MarketIntelligenceItem.tenant_id == tenant_id
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            by_source = {r.source_id: r for r in rows}
+            assert by_source["old-1"].is_stale is True
+            assert by_source["old-1"].stale_after is not None
+            assert by_source["new-1"].is_stale is False
+
+    async def test_stale_flag_never_deletes(
+        self, session_factory: async_sessionmaker, fake_resolver: Any
+    ) -> None:
+        """Marking stale never removes or invalidates the observation."""
+        tenant_id = str(uuid4())
+        now = datetime.now(UTC)
+        item = _item(provider="sec", source_id="keep-1", published=now)
+        item.fetched_at = now - timedelta(days=30)
+        await _ingest(session_factory, fake_resolver, tenant_id, "sec", [item])
+
+        async with session_factory() as session:
+            uow = UnitOfWork(session)
+            service = IntelIngestionService(uow, fake_resolver)
+            await service.mark_stale(
+                tenant_id, "sec", older_than=now - timedelta(hours=1)
+            )
+            await uow.commit()
+
+        # Row still there, still queryable, just flagged.
+        assert (
+            await _count(
+                session_factory,
+                MarketIntelligenceItem,
+                tenant_id=tenant_id,
+                source_id="keep-1",
+            )
+            == 1
+        )
+        async with session_factory() as session:
+            rows = (
+                (
+                    await session.execute(
+                        select(MarketIntelligenceItem).where(
+                            MarketIntelligenceItem.tenant_id == tenant_id
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            row = next(iter(rows))
+            assert row.is_stale is True
+            assert row.headline is not None  # content intact
+
+    async def test_clear_stale_after_recovery(
+        self, session_factory: async_sessionmaker, fake_resolver: Any
+    ) -> None:
+        """A successful re-fetch clears the stale flag."""
+        tenant_id = str(uuid4())
+        now = datetime.now(UTC)
+        item = _item(provider="sec", source_id="rec-1", published=now)
+        item.fetched_at = now - timedelta(days=10)
+        await _ingest(session_factory, fake_resolver, tenant_id, "sec", [item])
+
+        async with session_factory() as session:
+            uow = UnitOfWork(session)
+            service = IntelIngestionService(uow, fake_resolver)
+            await service.mark_stale(
+                tenant_id, "sec", older_than=now - timedelta(hours=1)
+            )
+            await uow.commit()
+
+        async with session_factory() as session:
+            uow = UnitOfWork(session)
+            service = IntelIngestionService(uow, fake_resolver)
+            cleared = await service.clear_stale(tenant_id, "sec")
+            await uow.commit()
+            assert cleared == 1
+
+        async with session_factory() as session:
+            rows = (
+                (
+                    await session.execute(
+                        select(MarketIntelligenceItem).where(
+                            MarketIntelligenceItem.tenant_id == tenant_id
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            row = next(iter(rows))
+            assert row.is_stale is False
+            assert row.stale_after is None
+
+    async def test_mark_stale_is_idempotent(
+        self, session_factory: async_sessionmaker, fake_resolver: Any
+    ) -> None:
+        """Re-marking the same items returns 0 (already flagged)."""
+        tenant_id = str(uuid4())
+        now = datetime.now(UTC)
+        item = _item(provider="sec", source_id="idem-1", published=now)
+        item.fetched_at = now - timedelta(days=5)
+        await _ingest(session_factory, fake_resolver, tenant_id, "sec", [item])
+
+        async with session_factory() as session:
+            uow = UnitOfWork(session)
+            service = IntelIngestionService(uow, fake_resolver)
+            n1 = await service.mark_stale(
+                tenant_id, "sec", older_than=now - timedelta(hours=1)
+            )
+            await uow.commit()
+            n2 = await service.mark_stale(
+                tenant_id, "sec", older_than=now - timedelta(hours=1)
+            )
+            await uow.commit()
+            assert n1 == 1
+            assert n2 == 0
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Scheduler staleness wiring (t_d42a6317)
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class TestSchedulerStaleness:
+    async def test_failed_run_marks_old_items_stale(
+        self, session_factory: async_sessionmaker, fake_resolver: Any
+    ) -> None:
+        """A failing provider run soft-flags old items, keeps them."""
+        tenant_id = str(uuid4())
+        now = datetime.now(UTC)
+        old = _item(provider="sec", source_id="sched-old", published=now)
+        old.fetched_at = now - timedelta(days=7)
+        await _ingest(session_factory, fake_resolver, tenant_id, "sec", [old])
+
+        class _FailingProvider(IntelProvider):
+            provider_key = "sec"
+
+            async def capabilities(self):
+                return [IntelCapability.NEWS]
+
+            async def available(self, capability):
+                return IntelAvailability.AVAILABLE
+
+            async def fetch(self, capability, *, identifiers=None, limit=20):
+                msg = "upstream 503"
+                raise IntelProviderError(msg)
+
+        class _Container:
+            def __init__(self, sf: async_sessionmaker) -> None:
+                self.session_factory = sf
+                self.security_resolver = fake_resolver
+
+        provider = _FailingProvider(
+            freshness=IntelFreshnessPolicy(max_age=timedelta(hours=6))
+        )
+        scheduler = IntelScheduler(_Container(session_factory), registry=None)
+        result = await scheduler._refresh_provider(
+            tenant_id, provider, capability=None, force=True
+        )
+        assert result["status"] == "unavailable"
+
+        async with session_factory() as session:
+            rows = (
+                (
+                    await session.execute(
+                        select(MarketIntelligenceItem).where(
+                            MarketIntelligenceItem.tenant_id == tenant_id
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            assert len(list(rows)) == 1
+            row = next(iter(rows))
+            assert row.is_stale is True  # soft flag, still present
+            assert row.headline is not None
+
+    async def test_successful_run_clears_stale(
+        self, session_factory: async_sessionmaker, fake_resolver: Any
+    ) -> None:
+        """A successful run clears the stale flag (recovery observable)."""
+        tenant_id = str(uuid4())
+        now = datetime.now(UTC)
+        item = _item(provider="sec", source_id="sched-rec", published=now)
+        item.fetched_at = now - timedelta(days=7)
+        await _ingest(session_factory, fake_resolver, tenant_id, "sec", [item])
+
+        async with session_factory() as session:
+            uow = UnitOfWork(session)
+            service = IntelIngestionService(uow, fake_resolver)
+            await service.mark_stale(
+                tenant_id, "sec", older_than=now - timedelta(hours=1)
+            )
+            await uow.commit()
+
+        class _HealthyProvider(IntelProvider):
+            provider_key = "sec"
+
+            async def capabilities(self):
+                return [IntelCapability.NEWS]
+
+            async def available(self, capability):
+                return IntelAvailability.AVAILABLE
+
+            async def fetch(self, capability, *, identifiers=None, limit=20):
+                return []
+
+        class _Container:
+            def __init__(self, sf: async_sessionmaker) -> None:
+                self.session_factory = sf
+                self.security_resolver = fake_resolver
+
+        provider = _HealthyProvider()
+        scheduler = IntelScheduler(_Container(session_factory), registry=None)
+        result = await scheduler._refresh_provider(
+            tenant_id, provider, capability=None, force=True
+        )
+        assert result["status"] == "ok"
+
+        async with session_factory() as session:
+            rows = (
+                (
+                    await session.execute(
+                        select(MarketIntelligenceItem).where(
+                            MarketIntelligenceItem.tenant_id == tenant_id
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            row = next(iter(rows))
+            assert row.is_stale is False
+            assert row.stale_after is None
 
 
 class TestDedupe:

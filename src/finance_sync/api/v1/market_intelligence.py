@@ -51,6 +51,7 @@ async def list_intel_items(
     provider: str | None = Query(default=None),
     kind: str | None = Query(default=None),
     review_required: bool | None = Query(default=None),
+    is_stale: bool | None = Query(default=None),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
 ) -> MarketIntelligenceListResponse:
@@ -62,6 +63,7 @@ async def list_intel_items(
             provider=provider,
             kind=kind,
             review_required=review_required,
+            is_stale=is_stale,
             limit=limit,
             offset=offset,
         )

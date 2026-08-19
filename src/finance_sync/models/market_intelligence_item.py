@@ -17,7 +17,14 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, ClassVar
 
-from sqlalchemy import DateTime, ForeignKey, String, Text, UniqueConstraint
+from sqlalchemy import (
+    DateTime,
+    ForeignKey,
+    String,
+    Text,
+    UniqueConstraint,
+    text,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -121,6 +128,27 @@ class MarketIntelligenceItem(TimestampMixin, Base):
         nullable=False,
         index=True,
         comment="SHA-256 over the item's canonical identity",
+    )
+
+    # ── Freshness / staleness ───────────────────────────────────────
+    stale_after: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        comment=(
+            "Freshness deadline: when the provider's max_age elapses "
+            "after fetched_at, the item may be marked stale.  NULL for "
+            "items whose source declares no freshness bound."
+        ),
+    )
+    is_stale: Mapped[bool] = mapped_column(
+        nullable=False,
+        default=False,
+        server_default=text("false"),
+        comment=(
+            "True when the item has aged past its provider's freshness "
+            "bound.  Stale is a soft flag — the observation is never "
+            "deleted or invalidated, it is only marked."
+        ),
     )
 
     # ── Content ─────────────────────────────────────────────────────
