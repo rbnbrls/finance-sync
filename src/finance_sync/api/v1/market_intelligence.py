@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 from finance_sync.api.deps.auth import AuthContext, require_permission
 from finance_sync.dependencies import get_container
 from finance_sync.services.market_intelligence_read import (
+    IntelRunDTO,
     MarketIntelligenceItemDTO,
     MarketIntelligenceListResponse,
     MarketIntelligenceReadService,
@@ -114,6 +115,36 @@ async def list_provider_states(
     service = _read_service(request)
     try:
         return await service.list_provider_states(auth.tenant_id)
+    finally:
+        await service._session.aclose()  # type: ignore[reportPrivateUsage]
+
+
+@router.get("/runs", response_model=list[IntelRunDTO])
+async def list_intel_runs(
+    request: Request,
+    auth: AuthContext = Depends(
+        require_permission("market-intelligence", "read")
+    ),
+    provider: str | None = Query(default=None),
+    status: str | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+) -> list[IntelRunDTO]:
+    """Return the recorded scheduler runs for the tenant (run registry).
+
+    Every run is observable: started/completed timestamps, duration,
+    quota usage, freshness snapshot and sanitised errors — newest
+    first, tenant-scoped.
+    """
+    service = _read_service(request)
+    try:
+        return await service.list_runs(
+            auth.tenant_id,
+            provider=provider,
+            status=status,
+            limit=limit,
+            offset=offset,
+        )
     finally:
         await service._session.aclose()  # type: ignore[reportPrivateUsage]
 

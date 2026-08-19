@@ -29,6 +29,9 @@ from finance_sync.models.market_intelligence_provider_state import (
 from finance_sync.models.market_intelligence_review_queue import (
     MarketIntelligenceReviewQueue,
 )
+from finance_sync.models.market_intelligence_run import (
+    MarketIntelligenceRun,
+)
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -81,6 +84,26 @@ class ProviderStateDTO(BaseModel):
     items_ingested: int | None = None
     quota_used: int | None = None
     quota_limit: int | None = None
+    freshness_max_age_seconds: int | None = None
+    freshness_min_interval_seconds: int | None = None
+    capabilities: list[str] | None = None
+    availability: dict[str, str] | None = None
+
+
+class IntelRunDTO(BaseModel):
+    """One recorded scheduler run (run registry, tenant-scoped)."""
+
+    id: str
+    provider: str
+    started_at: datetime
+    completed_at: datetime | None = None
+    status: str
+    latency_ms: int | None = None
+    items_ingested: int | None = None
+    quota_used: int | None = None
+    quota_limit: int | None = None
+    error: str | None = None
+    error_class: str | None = None
     freshness_max_age_seconds: int | None = None
     freshness_min_interval_seconds: int | None = None
     capabilities: list[str] | None = None
@@ -202,6 +225,46 @@ class MarketIntelligenceReadService:
         )
         return [_state_to_dto(row) for row in rows]
 
+    # ── Run registry ───────────────────────────────────────────────
+
+    async def list_runs(
+        self,
+        tenant_id: str,
+        *,
+        provider: str | None = None,
+        status: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[IntelRunDTO]:
+        """Return the recorded scheduler runs for *tenant_id*.
+
+        The run registry is the observable history behind the
+        latest-run state table: every run (started/completed, duration,
+        quota, freshness, sanitised errors) is queryable, newest first.
+        """
+        conditions: list[Any] = [
+            MarketIntelligenceRun.tenant_id == tenant_id  # type: ignore[attr-defined]
+        ]
+        if provider:
+            conditions.append(
+                MarketIntelligenceRun.provider == provider  # type: ignore[attr-defined]
+            )
+        if status:
+            conditions.append(
+                MarketIntelligenceRun.status == status  # type: ignore[attr-defined]
+            )
+        stmt = (
+            select(MarketIntelligenceRun)
+            .where(*conditions)
+            .order_by(desc(MarketIntelligenceRun.started_at))  # type: ignore[attr-defined]
+            .offset(offset)
+            .limit(limit)
+        )
+        rows = list(
+            (await self._session.execute(stmt)).scalars().all()  # type: ignore[assignment]
+        )
+        return [_run_to_dto(row) for row in rows]
+
     # ── Review queue ────────────────────────────────────────────────
 
     async def list_review_queue(
@@ -278,6 +341,27 @@ def _state_to_dto(row: MarketIntelligenceProviderState) -> ProviderStateDTO:
         items_ingested=row.items_ingested,
         quota_used=row.quota_used,
         quota_limit=row.quota_limit,
+        freshness_max_age_seconds=row.freshness_max_age_seconds,
+        freshness_min_interval_seconds=row.freshness_min_interval_seconds,
+        capabilities=row.capabilities,
+        availability=row.availability,
+    )
+
+
+def _run_to_dto(row: MarketIntelligenceRun) -> IntelRunDTO:
+    """Project a run-registry row to the read DTO."""
+    return IntelRunDTO(
+        id=str(row.id),
+        provider=row.provider,
+        started_at=row.started_at,
+        completed_at=row.completed_at,
+        status=row.status,
+        latency_ms=row.latency_ms,
+        items_ingested=row.items_ingested,
+        quota_used=row.quota_used,
+        quota_limit=row.quota_limit,
+        error=row.error,
+        error_class=row.error_class,
         freshness_max_age_seconds=row.freshness_max_age_seconds,
         freshness_min_interval_seconds=row.freshness_min_interval_seconds,
         capabilities=row.capabilities,

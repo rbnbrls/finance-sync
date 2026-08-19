@@ -68,6 +68,9 @@ from finance_sync.models.market_intelligence_provider_state import (
 from finance_sync.models.market_intelligence_review_queue import (
     MarketIntelligenceReviewQueue,
 )
+from finance_sync.models.market_intelligence_run import (
+    MarketIntelligenceRun,
+)
 from finance_sync.models.mixins import TenantAwareMixin, TimestampMixin
 from finance_sync.models.outbox import OutboxMessage
 from finance_sync.models.reconciliation import (
@@ -186,6 +189,7 @@ __all__ = [
     "MarketIntelligenceItem",
     "MarketIntelligenceProviderState",
     "MarketIntelligenceReviewQueue",
+    "MarketIntelligenceRun",
     "OutboxMessage",
     "OutboxMessageStatus",
     "ReconciliationResult",

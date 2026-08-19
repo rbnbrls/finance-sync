@@ -209,6 +209,17 @@ class IntelProvider(ABC):
         """
         del credentials  # default: no credentials required
 
+    async def quota_usage(self) -> tuple[int | None, int | None]:
+        """Return ``(quota_used, quota_limit)`` for the current window.
+
+        The default implementation reports ``(None, None)`` — providers
+        without a quota concept are recorded without quota metrics.  An
+        adapter that can observe quota (e.g. from response headers)
+        overrides this; it must never raise — a quota probe failure is
+        recorded as ``(None, None)`` and never fails the run.
+        """
+        return None, None
+
     # ── Shared machinery ────────────────────────────────────────────
 
     async def fetch_page(

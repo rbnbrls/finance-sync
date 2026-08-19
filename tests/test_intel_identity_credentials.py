@@ -788,6 +788,7 @@ class TestOpenAPIRegistration:
             "/api/v1/market-intelligence/credentials/{provider_key}",
             "/api/v1/market-intelligence/review-queue/{entry_id}/resolve",
             "/api/v1/market-intelligence/review-queue/{entry_id}/dismiss",
+            "/api/v1/market-intelligence/runs",
         ):
             assert path in paths, f"missing OpenAPI path {path}"
 

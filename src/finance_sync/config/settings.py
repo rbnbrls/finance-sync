@@ -393,6 +393,67 @@ class Settings(BaseSettings):
             "entirely."
         ),
     )
+    # ── Per-provider configurable freshness intervals ──────────────
+    # Each provider's own cadence comes from its IntelFreshnessPolicy
+    # (max_age = age beyond which stored data is stale, min_interval =
+    # earliest allowed re-fetch spacing).  These settings override the
+    # adapter defaults so operators can tune a source without touching
+    # code.  Seconds; the scheduler and run registry record the
+    # effective values.
+    intel_sec_freshness_max_age_seconds: int | None = Field(
+        default=None,
+        ge=60,
+        validation_alias="INTEL_SEC_FRESHNESS_MAX_AGE_SECONDS",
+        description=(
+            "Override the SEC EDGAR freshness max-age in seconds "
+            "(default 86400 = 24 h).  None = adapter default."
+        ),
+    )
+    intel_sec_freshness_min_interval_seconds: int | None = Field(
+        default=None,
+        ge=60,
+        validation_alias="INTEL_SEC_FRESHNESS_MIN_INTERVAL_SECONDS",
+        description=(
+            "Override the SEC EDGAR min re-fetch interval in seconds "
+            "(default 3600 = 1 h).  None = adapter default."
+        ),
+    )
+    intel_sec_press_freshness_max_age_seconds: int | None = Field(
+        default=None,
+        ge=60,
+        validation_alias="INTEL_SEC_PRESS_FRESHNESS_MAX_AGE_SECONDS",
+        description=(
+            "Override the SEC press-releases freshness max-age in "
+            "seconds (default 21600 = 6 h).  None = adapter default."
+        ),
+    )
+    intel_sec_press_freshness_min_interval_seconds: int | None = Field(
+        default=None,
+        ge=60,
+        validation_alias="INTEL_SEC_PRESS_FRESHNESS_MIN_INTERVAL_SECONDS",
+        description=(
+            "Override the SEC press-releases min re-fetch interval in "
+            "seconds (default 900 = 15 min).  None = adapter default."
+        ),
+    )
+    intel_openbb_freshness_max_age_seconds: int | None = Field(
+        default=None,
+        ge=60,
+        validation_alias="INTEL_OPENBB_FRESHNESS_MAX_AGE_SECONDS",
+        description=(
+            "Override the OpenBB freshness max-age in seconds "
+            "(default 21600 = 6 h).  None = adapter default."
+        ),
+    )
+    intel_openbb_freshness_min_interval_seconds: int | None = Field(
+        default=None,
+        ge=60,
+        validation_alias="INTEL_OPENBB_FRESHNESS_MIN_INTERVAL_SECONDS",
+        description=(
+            "Override the OpenBB min re-fetch interval in seconds "
+            "(default 900 = 15 min).  None = adapter default."
+        ),
+    )
 
     # ── Worker / APScheduler ───────────────────────────────────────
     worker_enabled: bool = Field(

@@ -12,6 +12,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from finance_sync.intel.exceptions import IntelProviderConfigError
+from finance_sync.intel.provider import IntelFreshnessPolicy
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -98,6 +99,10 @@ def build_intel_registry(settings: Settings) -> IntelProviderRegistry:
     Adapters requiring a user-owned subscription or API key are only
     registered after explicit configuration (future work; none are
     shipped yet).
+
+    Each provider's freshness policy (its own refresh cadence) can be
+    overridden per provider through the ``INTEL_*_FRESHNESS_*_SECONDS``
+    settings; when unset the adapter's declared default applies.
     """
     from finance_sync.intel.adapters.openbb import OpenBBIntelProvider
     from finance_sync.intel.adapters.sec import SecEdgarProvider
@@ -115,10 +120,57 @@ def build_intel_registry(settings: Settings) -> IntelProviderRegistry:
             ),
             base_url=settings.openbb_base_url,
             request_timeout=settings.openbb_request_timeout,
+            freshness=_freshness_override(
+                settings.intel_openbb_freshness_max_age_seconds,
+                settings.intel_openbb_freshness_min_interval_seconds,
+            ),
         )
     )
     if getattr(settings, "intel_sec_enabled", True):
-        registry.register(SecEdgarProvider())
+        registry.register(
+            SecEdgarProvider(
+                freshness=_freshness_override(
+                    settings.intel_sec_freshness_max_age_seconds,
+                    settings.intel_sec_freshness_min_interval_seconds,
+                ),
+            )
+        )
     if getattr(settings, "intel_sec_press_enabled", True):
-        registry.register(SecPressReleaseProvider())
+        registry.register(
+            SecPressReleaseProvider(
+                freshness=_freshness_override(
+                    settings.intel_sec_press_freshness_max_age_seconds,
+                    settings.intel_sec_press_freshness_min_interval_seconds,
+                ),
+            )
+        )
     return registry
+
+
+def _freshness_override(
+    max_age_seconds: int | None,
+    min_interval_seconds: int | None,
+) -> IntelFreshnessPolicy | None:
+    """Return an override :class:`IntelFreshnessPolicy` or ``None``.
+
+    ``None`` is returned when neither bound is set, so the adapter's
+    declared default freshness applies.  When only one bound is set the
+    other falls back to the adapter default (the provider constructor
+    merges a partial override with its own defaults).
+    """
+    if max_age_seconds is None and min_interval_seconds is None:
+        return None
+    from datetime import timedelta
+
+    return IntelFreshnessPolicy(
+        max_age=(
+            timedelta(seconds=max_age_seconds)
+            if max_age_seconds is not None
+            else IntelFreshnessPolicy().max_age
+        ),
+        min_interval=(
+            timedelta(seconds=min_interval_seconds)
+            if min_interval_seconds is not None
+            else IntelFreshnessPolicy().min_interval
+        ),
+    )
