@@ -421,6 +421,9 @@ class RelevanceNotificationPreference(TimestampMixin, Base):
 
     ``lockscreen_safe`` defaults to True: notification payloads never
     carry position sizes or financial values on the lockscreen.
+    ``detailed_preview`` is an **explicit** opt-in that additionally
+    includes the security ticker/name in the payload — still never raw
+    financial values.
     """
 
     __tablename__ = "relevance_notification_preferences"
@@ -458,10 +461,38 @@ class RelevanceNotificationPreference(TimestampMixin, Base):
         server_default="true",
         comment="Never leak position size/financial value on the lockscreen",
     )
+    detailed_preview: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="false",
+        comment=(
+            "Explicit opt-in: include security ticker/name in the "
+            "notification preview (still never financial values)"
+        ),
+    )
     event_types: Mapped[list[str] | None] = mapped_column(
         JSONB,
         nullable=True,
         comment="Allowed event types; NULL/empty = all",
+    )
+    security_id: Mapped[str | None] = mapped_column(
+        ForeignKey("securities.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+        comment=(
+            "Optional per-security scope: only notify for clusters of "
+            "this security (NULL/empty = all)"
+        ),
+    )
+    account_id: Mapped[str | None] = mapped_column(
+        ForeignKey("accounts.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+        comment=(
+            "Optional per-account scope: only notify for clusters "
+            "touching this account (NULL/empty = all)"
+        ),
     )
 
 

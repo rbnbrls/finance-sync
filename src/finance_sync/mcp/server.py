@@ -1337,6 +1337,114 @@ async def tool_correct_holding_item(
         await svc._uow.session.aclose()  # type: ignore[reportPrivateUsage]
 
 
+@mcp.tool(
+    name="get_holding_notification_preferences",
+    title="Get Holding News Notification Preferences",
+    description=(
+        "Return the principal's opt-in notification settings for the "
+        "holding feed: enabled, lockscreen_safe, detailed_preview, "
+        "event_types, security_id and account_id scopes.  Notifications "
+        "are off by default."
+    ),
+)
+async def tool_get_holding_notification_preferences(
+    ctx: ServerContext,
+) -> str:
+    """Return the principal's opt-in notification preferences."""
+    svc = _get_holding_relevance_service(ctx)
+    tenant_id, principal_id = _auth_principal(ctx)
+    try:
+        result = await svc.get_notification_preference(tenant_id, principal_id)
+        return _serialise(result)
+    finally:
+        await svc._uow.session.aclose()  # type: ignore[reportPrivateUsage]
+
+
+class HoldingNotificationPreferenceUpdate(BaseModel):
+    """Input for ``set_holding_notification_preferences`` tool."""
+
+    enabled: bool | None = Field(
+        default=None,
+        description="Opt-in master switch (off by default).",
+    )
+    lockscreen_safe: bool | None = Field(
+        default=None,
+        description=(
+            "When True (default) the payload never leaks position sizes "
+            "or financial values on the lockscreen."
+        ),
+    )
+    detailed_preview: bool | None = Field(
+        default=None,
+        description=(
+            "Explicit opt-in to include security ticker/name in the "
+            "preview (still never financial values); off by default."
+        ),
+    )
+    event_types: list[str] | None = Field(
+        default=None,
+        description=(
+            "Allowed event types (earnings, dividend, agm, split, "
+            "merger, acquisition, filing, news, interest, currency); "
+            "NULL/empty = all."
+        ),
+    )
+    security_id: str | None = Field(
+        default=None,
+        description=(
+            "Optional per-security scope: only notify for clusters of "
+            "this security; NULL/empty = all."
+        ),
+    )
+    account_id: str | None = Field(
+        default=None,
+        description=(
+            "Optional per-account scope: only notify for clusters "
+            "touching this account; NULL/empty = all."
+        ),
+    )
+
+
+@mcp.tool(
+    name="set_holding_notification_preferences",
+    title="Set Holding News Notification Preferences",
+    description=(
+        "Create/update the principal's opt-in notification settings for "
+        "the holding feed.  Only fields provided are changed.  "
+        "Notifications stay off until ``enabled`` is true; the "
+        "lockscreen-safe payload (no position sizes/values) is the "
+        "default."
+    ),
+)
+async def tool_set_holding_notification_preferences(
+    ctx: ServerContext,
+    enabled: bool | None = None,
+    lockscreen_safe: bool | None = None,
+    detailed_preview: bool | None = None,
+    event_types: list[str] | None = None,
+    security_id: str | None = None,
+    account_id: str | None = None,
+) -> str:
+    """Create/update the principal's notification preferences."""
+    svc = _get_holding_relevance_service(ctx)
+    tenant_id, principal_id = _auth_principal(ctx)
+    try:
+        result = await svc.set_notification_preference(
+            tenant_id,
+            principal_id,
+            enabled=enabled,
+            lockscreen_safe=lockscreen_safe,
+            detailed_preview=detailed_preview,
+            event_types=event_types,
+            security_id=security_id,
+            account_id=account_id,
+        )
+        await svc._uow.commit()  # type: ignore[reportPrivateUsage]
+        return _serialise(result)
+    finally:
+        await svc._uow.session.aclose()  # type: ignore[reportPrivateUsage]
+
+
 # ═════════════════════════════════════════════════════════════════════════
 # ASGI app factory
 # ═════════════════════════════════════════════════════════════════════════

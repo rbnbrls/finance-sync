@@ -914,6 +914,43 @@
         <div id="section-holding-news" class="hidden" role="region" aria-labelledby="holding-news-title">
             <h1 class="page-title" id="holding-news-title">Holdingnieuws &amp; events</h1>
             <p class="page-subtitle">Nieuws en corporate events die relevant zijn voor jouw actuele holdings, gerangschikt op relevantie. Elke cluster bundelt gesyndiceerde berichten tot één verhaal en toont alle bronlinks.</p>
+            <div class="card" style="margin-bottom: 16px;">
+                <h2 style="margin: 0 0 8px; font-size: 1rem;">Notificaties</h2>
+                <p class="page-subtitle" style="margin: 0 0 12px;">Opt-in meldingen over nieuwe clusters/events. Standaard lockscreen-veilig: nooit positiegrootte of financiële waarde.</p>
+                <label class="toggle-row" style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+                    <input type="checkbox" id="notif-enabled" onchange="saveNotificationPrefs()" />
+                    <span>Ingeschakeld (opt-in)</span>
+                </label>
+                <label class="toggle-row" style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+                    <input type="checkbox" id="notif-detailed" onchange="saveNotificationPrefs()" />
+                    <span>Gedetailleerde preview (ticker/naam, expliciet opt-in)</span>
+                </label>
+                <div style="display: flex; gap: 12px; flex-wrap: wrap; align-items: center;">
+                    <label style="display: flex; align-items: center; gap: 6px;">
+                        Eventtype
+                        <select id="notif-event-type" onchange="saveNotificationPrefs()">
+                            <option value="">Alle</option>
+                            <option value="earnings">Winstcijfers</option>
+                            <option value="dividend">Dividend</option>
+                            <option value="agm">AVG</option>
+                            <option value="split">Splitsing</option>
+                            <option value="merger">Fusie</option>
+                            <option value="acquisition">Overname</option>
+                            <option value="filing">Filing</option>
+                            <option value="news">Nieuws</option>
+                            <option value="interest">Rente</option>
+                            <option value="currency">Valuta</option>
+                        </select>
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 6px;">
+                        Security
+                        <select id="notif-security" onchange="saveNotificationPrefs()">
+                            <option value="">Alle</option>
+                        </select>
+                    </label>
+                    <span id="notif-saved" class="text-muted" style="font-size: 0.85rem; color: var(--text-muted);" aria-live="polite"></span>
+                </div>
+            </div>
             <div id="holding-feed" aria-live="polite" aria-busy="true"></div>
             <div id="holding-calendar" style="margin-top: 24px;"></div>
         </div>
@@ -2888,11 +2925,12 @@
             const calContainer = document.getElementById('holding-calendar');
             if (feedContainer) feedContainer.setAttribute('aria-busy', 'true');
             try {
-                const [feed, calendar, holdings, accounts] = await Promise.allSettled([
+                const [feed, calendar, holdings, accounts, prefs] = await Promise.allSettled([
                     api('GET', holdingFeedQueryString()),
                     api('GET', '/holding-relevance/calendar?limit=100'),
                     api('GET', '/holdings?limit=500'),
                     api('GET', '/accounts?limit=200'),
+                    api('GET', '/holding-relevance/notifications/preferences'),
                 ]);
                 holdingFeedItems = (feed.status === 'fulfilled' && feed.value && feed.value.items) || [];
                 if (feed.status === 'fulfilled' && feed.value) {
@@ -2909,6 +2947,9 @@
                 if (accounts.status === 'fulfilled' && accounts.value && accounts.value.items) {
                     holdingAccounts = (accounts.value.items || []).map(a => ({ id: a.id, name: a.name }));
                 }
+                if (prefs.status === 'fulfilled' && prefs.value) {
+                    applyNotificationPrefs(prefs.value);
+                }
                 renderHoldingFeed();
                 renderHoldingCalendar();
                 if (feed.status === 'rejected') {
@@ -2923,6 +2964,54 @@
             } catch (e) {
                 renderInlineError('holding-feed', 'Could not load holding feed', e.message || 'The holding feed service did not respond.', loadHoldingNews);
                 if (feedContainer) feedContainer.setAttribute('aria-busy', 'false');
+            }
+        }
+
+        // ── Notification preferences (opt-in, lockscreen-safe) ─────────
+        // Loads the user's settings into the Holdingnieuws panel. Values
+        // from the API are treated as data (never interpolated raw).
+        function applyNotificationPrefs(prefs) {
+            const enabled = document.getElementById('notif-enabled');
+            const detailed = document.getElementById('notif-detailed');
+            const eventType = document.getElementById('notif-event-type');
+            const security = document.getElementById('notif-security');
+            if (enabled) enabled.checked = !!prefs.enabled;
+            if (detailed) detailed.checked = !!prefs.detailed_preview;
+            if (eventType && prefs.event_types && prefs.event_types.length === 1) {
+                eventType.value = prefs.event_types[0];
+            } else if (eventType) {
+                eventType.value = '';
+            }
+            if (security && prefs.security_id) {
+                security.value = prefs.security_id;
+            } else if (security) {
+                security.value = '';
+            }
+        }
+
+        async function saveNotificationPrefs() {
+            const saved = document.getElementById('notif-saved');
+            const enabled = document.getElementById('notif-enabled');
+            const detailed = document.getElementById('notif-detailed');
+            const eventType = document.getElementById('notif-event-type');
+            const security = document.getElementById('notif-security');
+            if (!enabled) return;
+            const body = {
+                enabled: enabled.checked,
+                detailed_preview: detailed ? detailed.checked : false,
+            };
+            if (eventType && eventType.value) body.event_types = [eventType.value];
+            if (security && security.value) body.security_id = security.value;
+            try {
+                const result = await api('PUT', '/holding-relevance/notifications/preferences', body);
+                if (saved) {
+                    saved.textContent = 'Opgeslagen ✓';
+                    setTimeout(() => { if (saved) saved.textContent = ''; }, 2000);
+                }
+                // Re-apply the server's authoritative settings.
+                applyNotificationPrefs(result);
+            } catch (e) {
+                if (saved) saved.textContent = 'Opslaan mislukt';
             }
         }
 

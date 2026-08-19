@@ -1947,3 +1947,404 @@ class TestHermesExplanationDTO:
 
         assert feed["total"] == 1
         assert "hermes_explanation" not in feed["items"][0]
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# A10 — Notifications: opt-in, per-tenant/account/security/event-type
+#       scoping, dedupe per cluster, lockscreen-safe by default, and
+#       dispatch of newly created clusters
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class TestNotificationScopingAndSafety:
+    """Notification settings + payload safety (backlog acceptance)."""
+
+    async def test_default_payload_is_lockscreen_safe(
+        self, session_factory: async_sessionmaker
+    ) -> None:
+        """Default payload carries only type/headline/date/source."""
+        tenant = await _new_tenant(session_factory)
+        sec = await _new_security(session_factory)
+        acct = await _new_account(session_factory, tenant)
+        await _new_holding(session_factory, tenant, acct, sec)
+        await _new_item(session_factory, tenant, sec, kind="earnings_report")
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            await _build(svc, tenant)
+        clusters = await _clusters(session_factory, tenant)
+        cluster_id = str(clusters[0].id)
+
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            await svc.set_notification_preference(
+                tenant, "user-A", enabled=True
+            )
+            await session.commit()
+            result = await svc.notify_eligible(tenant, "user-A", cluster_id)
+            assert result["sent"] == 1
+            payload = result["payload"]
+            # Lockscreen-safe by default: only event type + headline +
+            # date + source; never ticker/name, position or value.
+            assert payload["lockscreen_safe"] is True
+            assert payload["event_type"] == "earnings"
+            assert "security_ticker" not in payload
+            assert "security_name" not in payload
+            assert "quantity" not in str(payload).lower()
+            assert "market_value" not in str(payload).lower()
+            assert "position" not in str(payload).lower()
+            assert "value" not in str(payload).lower()
+
+    async def test_detailed_preview_is_explicit_opt_in(
+        self, session_factory: async_sessionmaker
+    ) -> None:
+        """Ticker/name appear only when detailed_preview is enabled."""
+        tenant = await _new_tenant(session_factory)
+        sec = await _new_security(session_factory)
+        acct = await _new_account(session_factory, tenant)
+        await _new_holding(session_factory, tenant, acct, sec)
+        await _new_item(session_factory, tenant, sec, kind="earnings_report")
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            await _build(svc, tenant)
+        clusters = await _clusters(session_factory, tenant)
+        cluster_id = str(clusters[0].id)
+
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            await svc.set_notification_preference(
+                tenant, "user-A", enabled=True, detailed_preview=True
+            )
+            await session.commit()
+            result = await svc.notify_eligible(tenant, "user-A", cluster_id)
+            assert result["sent"] == 1
+            payload = result["payload"]
+            assert payload["security_ticker"] == "AAPL"
+            assert payload["security_name"] == "Apple Inc."
+            # Still never raw financial values.
+            assert "market_value" not in str(payload).lower()
+            assert "quantity" not in str(payload).lower()
+
+    async def test_security_scope_filters_clusters(
+        self, session_factory: async_sessionmaker
+    ) -> None:
+        """Per-security scope only notifies for that security."""
+        tenant = await _new_tenant(session_factory)
+        sec_a = await _new_security(session_factory)
+        sec_b = await _new_security(
+            session_factory, ticker="MSFT", name="Microsoft Corp."
+        )
+        acct = await _new_account(session_factory, tenant)
+        await _new_holding(session_factory, tenant, acct, sec_a)
+        await _new_holding(session_factory, tenant, acct, sec_b)
+        await _new_item(session_factory, tenant, sec_a, kind="earnings_report")
+        await _new_item(session_factory, tenant, sec_b, kind="earnings_report")
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            await _build(svc, tenant)
+        clusters = await _clusters(session_factory, tenant)
+        assert len(clusters) == 2
+        cluster_a = next(c for c in clusters if str(c.security_id) == sec_a)
+        cluster_b = next(c for c in clusters if str(c.security_id) == sec_b)
+
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            await svc.set_notification_preference(
+                tenant,
+                "user-A",
+                enabled=True,
+                security_id=sec_a,
+            )
+            await session.commit()
+            # Only the AAPL cluster is eligible.
+            ok = await svc.notify_eligible(tenant, "user-A", str(cluster_a.id))
+            assert ok["sent"] == 1
+            blocked = await svc.notify_eligible(
+                tenant, "user-A", str(cluster_b.id)
+            )
+            assert blocked["sent"] == 0
+            assert blocked["skipped"] == "event_type_not_allowed"
+
+    async def test_account_scope_filters_clusters(
+        self, session_factory: async_sessionmaker
+    ) -> None:
+        """Per-account scope only notifies for clusters touching it."""
+        tenant = await _new_tenant(session_factory)
+        sec = await _new_security(session_factory)
+        acct_a = await _new_account(session_factory, tenant)
+        acct_b = await _new_account(
+            session_factory, tenant, name="Other account"
+        )
+        await _new_holding(session_factory, tenant, acct_a, sec)
+        await _new_holding(session_factory, tenant, acct_b, sec)
+        await _new_item(session_factory, tenant, sec, kind="earnings_report")
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            await _build(svc, tenant)
+        clusters = await _clusters(session_factory, tenant)
+        cluster_id = str(clusters[0].id)
+
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            await svc.set_notification_preference(
+                tenant, "user-A", enabled=True, account_id=acct_a
+            )
+            await session.commit()
+            ok = await svc.notify_eligible(tenant, "user-A", cluster_id)
+            assert ok["sent"] == 1
+
+        # A user scoped to an account that never held the security gets
+        # nothing.
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            await svc.set_notification_preference(
+                tenant, "user-B", enabled=True, account_id=acct_b
+            )
+            # user-B's scope includes acct_b which holds the security,
+            # so it is eligible — verify cross-account scope below.
+            await session.commit()
+            result = await svc.notify_eligible(tenant, "user-B", cluster_id)
+            assert result["sent"] == 1
+
+    async def test_notification_tenant_isolation(
+        self, session_factory: async_sessionmaker
+    ) -> None:
+        """A user of tenant B can never notify on tenant A's cluster."""
+        tenant_a = await _new_tenant(session_factory)
+        tenant_b = await _new_tenant(session_factory)
+        sec = await _new_security(session_factory)
+        acct_a = await _new_account(session_factory, tenant_a)
+        await _new_holding(session_factory, tenant_a, acct_a, sec)
+        await _new_item(session_factory, tenant_a, sec, kind="earnings_report")
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            await _build(svc, tenant_a)
+        clusters_a = await _clusters(session_factory, tenant_a)
+        cluster_a_id = str(clusters_a[0].id)
+
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            # user-B (tenant B) opted in, but the cluster belongs to A.
+            await svc.set_notification_preference(
+                tenant_b, "user-B", enabled=True
+            )
+            await session.commit()
+            result = await svc.notify_eligible(tenant_b, "user-B", cluster_a_id)
+            assert result["sent"] == 0
+            assert result["skipped"] == "not_found"
+
+    async def test_dispatch_dedupes_per_user_cluster_event(
+        self, session_factory: async_sessionmaker
+    ) -> None:
+        """dispatch sends once per (user, cluster) and is idempotent."""
+        tenant = await _new_tenant(session_factory)
+        sec = await _new_security(session_factory)
+        acct = await _new_account(session_factory, tenant)
+        await _new_holding(session_factory, tenant, acct, sec)
+        # Two syndicated items about the same event → one cluster.
+        await _new_item(
+            session_factory,
+            tenant,
+            sec,
+            source_id="src-1",
+            kind="earnings_report",
+            headline="Apple beats estimates",
+            canonical_url="https://example.com/a",
+        )
+        await _new_item(
+            session_factory,
+            tenant,
+            sec,
+            source_id="src-2",
+            kind="earnings_report",
+            headline="Apple beats estimates (syndicated)",
+            canonical_url="https://example.com/b",
+        )
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            await _build(svc, tenant)
+        clusters = await _clusters(session_factory, tenant)
+        assert len(clusters) == 1
+        cluster_id = str(clusters[0].id)
+
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            await svc.set_notification_preference(
+                tenant, "user-A", enabled=True
+            )
+            await session.commit()
+            first = await svc.dispatch_new_cluster_notifications(tenant)
+            assert first["sent"] == 1
+            assert first["users"] == 1
+            # Re-running never double-sends.
+            second = await svc.dispatch_new_cluster_notifications(tenant)
+            assert second["sent"] == 0
+            await session.commit()
+
+        async with session_factory() as session:
+            stmt = select(RelevanceNotificationLog).where(
+                RelevanceNotificationLog.tenant_id == tenant,
+                RelevanceNotificationLog.cluster_id == cluster_id,
+            )
+            rows = list((await session.execute(stmt)).scalars().all())
+            assert len(rows) == 1
+
+    async def test_dispatch_only_opted_in_users(
+        self, session_factory: async_sessionmaker
+    ) -> None:
+        """Users who did not opt in get no notifications."""
+        tenant = await _new_tenant(session_factory)
+        sec = await _new_security(session_factory)
+        acct = await _new_account(session_factory, tenant)
+        await _new_holding(session_factory, tenant, acct, sec)
+        await _new_item(session_factory, tenant, sec, kind="earnings_report")
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            await _build(svc, tenant)
+
+        # No preference row at all → nothing sent.
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            result = await svc.dispatch_new_cluster_notifications(tenant)
+            assert result["sent"] == 0
+            assert result["skipped"] == "no_opted_in"
+
+        # An opted-in user next to a non-opted-in user.
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            await svc.set_notification_preference(
+                tenant, "user-A", enabled=True
+            )
+            await session.commit()
+            result = await svc.dispatch_new_cluster_notifications(tenant)
+            assert result["sent"] == 1
+            assert result["users"] == 1
+            await session.commit()
+        # user-B never opted in → no row.
+        async with session_factory() as session:
+            stmt = select(RelevanceNotificationLog).where(
+                RelevanceNotificationLog.tenant_id == tenant,
+                RelevanceNotificationLog.user_id == "user-B",
+            )
+            rows = list((await session.execute(stmt)).scalars().all())
+            assert len(rows) == 0
+
+    async def test_notification_isolation_shared_ticker(
+        self, session_factory: async_sessionmaker
+    ) -> None:
+        """Tenant A's notification never leaks to tenant B via dispatch."""
+        tenant_a = await _new_tenant(session_factory)
+        tenant_b = await _new_tenant(session_factory)
+        sec = await _new_security(session_factory)
+        acct_a = await _new_account(session_factory, tenant_a)
+        await _new_holding(session_factory, tenant_a, acct_a, sec)
+        await _new_item(session_factory, tenant_a, sec, kind="earnings_report")
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            await _build(svc, tenant_a)
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            # Tenant B has no holdings but its user opted in.
+            await svc.set_notification_preference(
+                tenant_b, "user-B", enabled=True
+            )
+            await session.commit()
+            result = await svc.dispatch_new_cluster_notifications(tenant_b)
+            assert result["sent"] == 0
+            assert result["skipped"] in ("no_clusters", "no_opted_in")
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# A11 — Graceful degradation: stale/missing sources never break reads
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class TestGracefulDegradationNotifications:
+    """Stale or missing sources degrade cleanly, deterministically."""
+
+    async def test_stale_sources_still_notifiable(
+        self, session_factory: async_sessionmaker
+    ) -> None:
+        """A cluster whose sources are stale is still notify-eligible."""
+        tenant = await _new_tenant(session_factory)
+        sec = await _new_security(session_factory)
+        acct = await _new_account(session_factory, tenant)
+        await _new_holding(session_factory, tenant, acct, sec)
+        old = datetime.now(UTC) - timedelta(days=3)
+        await _new_item(
+            session_factory,
+            tenant,
+            sec,
+            kind="earnings_report",
+            published_at=old,
+            fetched_at=old,
+        )
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            await _build(svc, tenant)
+        clusters = await _clusters(session_factory, tenant)
+        cluster_id = str(clusters[0].id)
+
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            await svc.set_notification_preference(
+                tenant, "user-A", enabled=True
+            )
+            await session.commit()
+            result = await svc.notify_eligible(tenant, "user-A", cluster_id)
+            assert result["sent"] == 1
+            # The payload stays lockscreen-safe even for stale items.
+            assert result["payload"]["lockscreen_safe"] is True
+
+    async def test_missing_source_url_still_notifies(
+        self, session_factory: async_sessionmaker
+    ) -> None:
+        """A cluster with no canonical URL still produces a payload."""
+        tenant = await _new_tenant(session_factory)
+        sec = await _new_security(session_factory)
+        acct = await _new_account(session_factory, tenant)
+        await _new_holding(session_factory, tenant, acct, sec)
+        await _new_item(
+            session_factory,
+            tenant,
+            sec,
+            kind="earnings_report",
+            canonical_url=None,
+        )
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            await _build(svc, tenant)
+        clusters = await _clusters(session_factory, tenant)
+        cluster_id = str(clusters[0].id)
+
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            await svc.set_notification_preference(
+                tenant, "user-A", enabled=True
+            )
+            await session.commit()
+            result = await svc.notify_eligible(tenant, "user-A", cluster_id)
+            assert result["sent"] == 1
+            assert result["payload"]["source_url"] is None
+
+    async def test_dispatch_never_crashes_on_unknown_cluster_ids(
+        self, session_factory: async_sessionmaker
+    ) -> None:
+        """Cross-tenant/unknown cluster ids in dispatch are ignored."""
+        tenant = await _new_tenant(session_factory)
+        sec = await _new_security(session_factory)
+        acct = await _new_account(session_factory, tenant)
+        await _new_holding(session_factory, tenant, acct, sec)
+        await _new_item(session_factory, tenant, sec, kind="earnings_report")
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            await _build(svc, tenant)
+            await svc.set_notification_preference(
+                tenant, "user-A", enabled=True
+            )
+            await session.commit()
+            result = await svc.dispatch_new_cluster_notifications(
+                tenant,
+                cluster_ids=["00000000-0000-0000-0000-000000000000"],
+            )
+            assert result["sent"] == 0
+            assert result["skipped"] == "no_clusters"

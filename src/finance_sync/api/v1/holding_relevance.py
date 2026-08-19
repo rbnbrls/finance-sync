@@ -274,9 +274,30 @@ class NotificationPreferenceRequest(BaseModel):
             "or financial values on the lockscreen"
         ),
     )
+    detailed_preview: bool | None = Field(
+        default=None,
+        description=(
+            "Explicit opt-in to include security ticker/name in the "
+            "preview (still never financial values); off by default"
+        ),
+    )
     event_types: list[str] | None = Field(
         default=None,
         description="Allowed event types; NULL/empty = all",
+    )
+    security_id: str | None = Field(
+        default=None,
+        description=(
+            "Optional per-security scope: only notify for clusters of "
+            "this security; NULL/empty = all"
+        ),
+    )
+    account_id: str | None = Field(
+        default=None,
+        description=(
+            "Optional per-account scope: only notify for clusters "
+            "touching this account; NULL/empty = all"
+        ),
     )
 
 
@@ -296,7 +317,10 @@ async def update_notification_preferences(
             auth.principal_id,
             enabled=body.enabled,
             lockscreen_safe=body.lockscreen_safe,
+            detailed_preview=body.detailed_preview,
             event_types=body.event_types,
+            security_id=body.security_id,
+            account_id=body.account_id,
         )
         await svc._uow.commit()  # type: ignore[reportPrivateUsage]
         return result

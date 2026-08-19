@@ -1166,6 +1166,10 @@ async def holding_relevance_build_job(container: Container) -> dict[str, Any]:
     ranked stories.  Idempotent: re-running never duplicates rows, so a
     missed tick is harmless and a concurrent run is safe (unique
     constraints absorb the race).
+
+    After each tenant's build, opt-in notifications are dispatched for
+    newly created clusters (deduplicated per user/cluster/event type —
+    never one notification per syndicated article).
     """
 
     from finance_sync.db.uow import UnitOfWork
@@ -1193,9 +1197,18 @@ async def holding_relevance_build_job(container: Container) -> dict[str, Any]:
             try:
                 svc = HoldingRelevanceService(uow, explainer=explainer)
                 summary = await svc.build_feed(str(tenant.id))
+                # Opt-in notifications for new clusters/events
+                # (deduplicated per user/cluster/event type).
+                notifications = await svc.dispatch_new_cluster_notifications(
+                    str(tenant.id)
+                )
                 await uow.commit()
                 results.append(
-                    {"tenant_id": str(tenant.id), "summary": summary}
+                    {
+                        "tenant_id": str(tenant.id),
+                        "summary": summary,
+                        "notifications": notifications,
+                    }
                 )
             except Exception as exc:
                 logger.error(

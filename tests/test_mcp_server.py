@@ -127,7 +127,9 @@ class TestMCPTools:
         assert "get_holding_calendar" in tool_names
         assert "acknowledge_holding_cluster" in tool_names
         assert "correct_holding_item" in tool_names
-        assert len(tool_names) == 17
+        assert "get_holding_notification_preferences" in tool_names
+        assert "set_holding_notification_preferences" in tool_names
+        assert len(tool_names) == 19
 
     def test_tool_input_schemas(self) -> None:
         """Tools have the expected input parameters."""
