@@ -1,6 +1,6 @@
 ---
 title: "Toon nieuws en events die relevant zijn voor actuele holdings"
-status: todo
+status: done
 priority: 13
 ---
 
