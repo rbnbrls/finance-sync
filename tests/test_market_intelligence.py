@@ -1054,6 +1054,7 @@ class TestInjectionSafety:
             assert "{" not in name and "}" not in name
         assert "list_market_intelligence" in tool_names
         assert "list_intel_provider_states" in tool_names
+        assert "list_intel_sources" in tool_names
 
 
 # ═══════════════════════════════════════════════════════════════════════

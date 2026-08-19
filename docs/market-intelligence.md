@@ -98,7 +98,7 @@ than the provider's freshness `max_age` are soft-flagged stale.
 | Config | `INTEL_SEC_ENABLED=false` disables the source entirely |
 | Storage | Metadata, headline, structured facts + canonical EDGAR URL; full filing text is never persisted (kept small and privacy friendly) |
 | Coverage | US-listed companies with EDGAR CIK; events limited to the 8-K item list in `adapters/sec.py` |
-| Disable / delete | Set `INTEL_SEC_ENABLED=false` and restart the worker; delete stored rows with `DELETE FROM market_intelligence_items WHERE provider='sec'` (per tenant) |
+| Disable / delete | Set `INTEL_SEC_ENABLED=false` and restart the worker; delete stored rows with `DELETE FROM market_intelligence_items WHERE provider='sec'` (per tenant).  Full runbook: [Operations](#operations) |
 
 ### SEC Press Releases (`sec_press`)
 
@@ -113,7 +113,7 @@ than the provider's freshness `max_age` are soft-flagged stale.
 | Config | `INTEL_SEC_PRESS_ENABLED=false` disables the source entirely |
 | Storage | Metadata, headline, snippet ≤ 500 chars, canonical SEC URL; full press-release text is never persisted |
 | Coverage | US SEC announcements only; not company-specific news (no ticker/security scoping) |
-| Disable / delete | Set `INTEL_SEC_PRESS_ENABLED=false` and restart the worker; delete stored rows with `DELETE FROM market_intelligence_items WHERE provider='sec_press'` (per tenant) |
+| Disable / delete | Set `INTEL_SEC_PRESS_ENABLED=false` and restart the worker; delete stored rows with `DELETE FROM market_intelligence_items WHERE provider='sec_press'` (per tenant).  Full runbook: [Operations](#operations) |
 
 ### OpenBB Platform (`openbb`)
 
@@ -128,7 +128,7 @@ than the provider's freshness `max_age` are soft-flagged stale.
 | Config | `OPENBB_API_KEY` (env).  No key = provider registered but disabled |
 | Storage | Headline, snippet ≤ 500 chars, structured facts, canonical URL |
 | Coverage | Depends on the configured OpenBB backend and key entitlements |
-| Disable / delete | Remove `OPENBB_API_KEY` (provider reports unavailable); or delete rows `WHERE provider='openbb'` |
+| Disable / delete | Remove `OPENBB_API_KEY` (provider reports unavailable); or delete rows `WHERE provider='openbb'`.  Full runbook: [Operations](#operations) |
 
 ### Future providers (user-subscription sources)
 
@@ -206,6 +206,7 @@ ingestion service resolves them through the existing
 
 | Endpoint | Description |
 |---|---|
+| `GET /api/v1/market-intelligence/sources` | **Source catalog** — static metadata of every configured provider: provenance, licence terms, configuration link, rate-limit and freshness policies, declared capabilities + runtime availability, and the *names* of the config flags that enable/disable the source (never their values) |
 | `GET /api/v1/market-intelligence/items` | List observations (filters: provider, kind, review_required, is_stale; pagination) |
 | `GET /api/v1/market-intelligence/items/{id}` | Single observation; cross-tenant id → 404 |
 | `GET /api/v1/market-intelligence/providers` | Per-provider run/freshness/availability state (sanitised errors) |
@@ -222,13 +223,25 @@ All endpoints are tenant-scoped via the existing JWT/API-key auth
 writes).  They never return provider credentials; restricted items never
 include `body`.
 
+The `sources` catalog is derived from the adapters themselves (their
+`display_name` / `license_note` / `config_url` declarations and their
+rate-limit / freshness policies), so it can never drift from what
+actually runs.  It is the *static* half of the read contract; combine it
+with `providers` (runtime state) and `items` (stored observations) for a
+complete picture.
+
 ### MCP
 
+- `list_intel_sources` — static source catalog (same contract as the
+  REST `sources` endpoint; tenant-scoped, never credentials, never raw
+  content).
 - `list_market_intelligence` — list stored observations (tenant-scoped;
   filters include `is_stale`).
 - `list_intel_provider_states` — per-provider state, sanitised errors.
 - `list_intel_runs` — run registry: every recorded scheduler run
   (started/completed, duration, quota, freshness, sanitised errors).
+- Resource `finance://intel-sources` — the source catalog as a
+  read-only MCP resource (JSON).
 
 ## Credential safety
 
@@ -254,14 +267,57 @@ data — it never includes credential values from the envelope.
 
 ## Operations
 
-- **Disable a source**: set its env flag (`INTEL_SEC_ENABLED=false`,
-  `INTEL_SEC_PRESS_ENABLED=false`, remove `OPENBB_API_KEY`) and restart
-  the worker.  The provider then reports `unavailable`; no new rows are
-  written.
-- **Delete a source's data**: `DELETE FROM market_intelligence_items
-  WHERE provider='...'` (per tenant, e.g. `AND tenant_id=...`), plus
-  `market_intelligence_provider_states` and
-  `market_intelligence_review_queue` for that provider.
-- **Migration**: `0021` (items + provider states), `0022` (review
-  queue), `0031` (item staleness), `0032` (run registry).  Run
-  `alembic upgrade head`.
+### Deactivate a source (disable)
+
+Each source has a dedicated env flag.  Deactivating stops all future
+refreshes; previously stored observations stay queryable (never
+deleted by a deactivation).
+
+| Source | Flag | Effect |
+|---|---|---|
+| SEC EDGAR | `INTEL_SEC_ENABLED=false` | Provider unregistered at next startup; no new rows; existing rows stay readable |
+| SEC Press Releases | `INTEL_SEC_PRESS_ENABLED=false` | Same as above |
+| OpenBB | remove `OPENBB_API_KEY` (or `DELETE /api/v1/market-intelligence/credentials/openbb`) | Provider reports `unavailable` for every capability; no new rows |
+
+Procedure (per source):
+
+1. Set the flag in the deployment environment (or delete the credential
+   via the credentials API).
+2. Restart the worker (`finance-sync-worker`) so the scheduler no longer
+   plans refreshes for that provider.
+3. Verify: `GET /api/v1/market-intelligence/providers` shows the source
+   with `status=unavailable` (or it disappears from the catalog when the
+   flag unregisters it — see the `sources` endpoint).
+4. Re-enable by restoring the flag/value and restarting the worker;
+   `GET /api/v1/market-intelligence/sources` again lists the source with
+   its declared capabilities.
+
+### Delete a source's data (full removal)
+
+Deactivation stops new data; deletion removes what is stored.  Both are
+deliberate, separate operations.  To fully remove a source's data:
+
+```sql
+BEGIN;
+-- 1. Observations
+DELETE FROM market_intelligence_items
+WHERE provider = '<provider_key>' AND tenant_id = '<tenant_id>';
+-- 2. Provider run-state
+DELETE FROM market_intelligence_provider_states
+WHERE provider = '<provider_key>' AND tenant_id = '<tenant_id>';
+-- 3. Review-queue entries for that provider's items
+DELETE FROM market_intelligence_review_queue
+WHERE provider = '<provider_key>' AND tenant_id = '<tenant_id>';
+COMMIT;
+```
+
+The tenant filter is optional; **without it the delete applies to every
+tenant** (use only when removing the source globally).  After the
+delete, `GET /api/v1/market-intelligence/items?provider=...` returns
+zero rows.  Data is not recoverable — export anything you need first via
+the read contract.
+
+### Migration
+
+`0021` (items + provider states), `0022` (review queue), `0031` (item
+staleness), `0032` (run registry).  Run `alembic upgrade head`.

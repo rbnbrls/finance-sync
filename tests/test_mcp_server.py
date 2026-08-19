@@ -76,13 +76,14 @@ class TestMCPResources:
         self._template_map = {str(t.uri_template): t for t in self._templates}
 
     def test_resource_count(self) -> None:
-        """There are exactly 4 resources defined."""
+        """There are exactly 5 resources defined."""
         uris = set(self._template_map.keys())
         assert "finance://accounts" in uris
         assert "finance://portfolio" in uris
         assert "finance://transactions" in uris
         assert "finance://net-worth" in uris
-        assert len(uris) == 4
+        assert "finance://intel-sources" in uris
+        assert len(uris) == 5
 
     def test_resource_metadata(self) -> None:
         """Check resource metadata."""
@@ -121,7 +122,8 @@ class TestMCPTools:
         assert "list_market_intelligence" in tool_names
         assert "list_intel_provider_states" in tool_names
         assert "list_intel_runs" in tool_names
-        assert len(tool_names) == 12
+        assert "list_intel_sources" in tool_names
+        assert len(tool_names) == 13
 
     def test_tool_input_schemas(self) -> None:
         """Tools have the expected input parameters."""

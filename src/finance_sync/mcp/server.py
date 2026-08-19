@@ -258,6 +258,36 @@ async def resource_net_worth(ctx: ServerContext) -> str:
         await read_service._session.aclose()
 
 
+@mcp.resource(
+    "finance://intel-sources",
+    name="intel_sources",
+    title="Market-Intelligence Source Catalog",
+    description=(
+        "Static catalog of market-intelligence providers: provenance, "
+        "licence terms, configuration links, rate-limit and freshness "
+        "policies and declared capabilities.  Never contains provider "
+        "credentials or raw/unlicensed content."
+    ),
+    mime_type="application/json",
+)
+async def resource_intel_sources(ctx: ServerContext) -> str:
+    """Return the market-intelligence source catalog.
+
+    URI: ``finance://intel-sources``
+
+    Returns a JSON array of source metadata entries (tenant-scoped read
+    contract — no credentials, no raw content).
+    """
+    from finance_sync.services.market_intelligence_catalog import (
+        IntelSourceCatalogService,
+    )
+
+    container = _get_container(ctx)
+    service = IntelSourceCatalogService(container.intel_registry)
+    result = await service.catalog()
+    return _serialise(result.model_dump())
+
+
 # ═════════════════════════════════════════════════════════════════════════
 # Tools — existing
 # ═════════════════════════════════════════════════════════════════════════
@@ -959,6 +989,29 @@ async def tool_list_intel_runs(
         return _serialise([r.model_dump() for r in runs])
     finally:
         await session.aclose()
+
+
+@mcp.tool(
+    name="list_intel_sources",
+    title="List Market-Intelligence Sources",
+    description=(
+        "Return the static source catalog of the market-intelligence "
+        "layer: for each provider its provenance, licence terms, "
+        "configuration link, rate-limit and freshness policies and "
+        "declared capabilities.  Tenant-scoped.  Never returns provider "
+        "credentials, raw API responses or unlicensed full content."
+    ),
+)
+async def tool_list_intel_sources(ctx: ServerContext) -> str:
+    """Return the static source catalog (metadata, never secrets)."""
+    from finance_sync.services.market_intelligence_catalog import (
+        IntelSourceCatalogService,
+    )
+
+    container = _get_container(ctx)
+    service = IntelSourceCatalogService(container.intel_registry)
+    result = await service.catalog()
+    return _serialise(result.model_dump())
 
 
 # ═════════════════════════════════════════════════════════════════════════
