@@ -73,6 +73,8 @@ from finance_sync.models.account import Account
 from finance_sync.models.enums import AccountType, HoldingSource
 from finance_sync.models.holding import Holding
 from finance_sync.models.holding_relevance import (
+    CLUSTER_REASON_EXACT_EVENT,
+    CLUSTER_REASON_TITLE_DUPLICATE,
     FRESHNESS_FRESH,
     FRESHNESS_STALE,
     HOLDING_STATUS_CURRENT,
@@ -870,6 +872,204 @@ class TestClustering:
         assert len(clusters) == 2
         assert {str(c.security_id) for c in clusters} == {sec_a, sec_b}
 
+    async def test_syndicated_items_with_different_event_dates_merge(
+        self, session_factory: async_sessionmaker
+    ) -> None:
+        """Syndicated posts of one story with slightly different event
+        dates collapse into one cluster via title fingerprint."""
+        tenant = await _new_tenant(session_factory)
+        sec = await _new_security(session_factory)
+        acct = await _new_account(session_factory, tenant)
+        await _new_holding(session_factory, tenant, acct, sec)
+        published = datetime.now(UTC) - timedelta(hours=1)
+        headlines = (
+            "Apple Q4 earnings beat expectations",
+            "Apple earnings beat Q4 expectations",
+            "Apple Q4 earnings beat expectations",
+        )
+        for i, (day, headline) in enumerate(
+            zip(
+                ("2026-09-14", "2026-09-15", "2026-09-16"),
+                headlines,
+                strict=True,
+            )
+        ):
+            await _new_item(
+                session_factory,
+                tenant,
+                sec,
+                provider="sec_press" if i == 0 else "openbb",
+                source_id=f"syn-date-{i}",
+                headline=headline,
+                canonical_url=f"https://example.com/syn-date/{i}",
+                kind="earnings_report",
+                published_at=published,
+                facts=[{"key": "event_date", "value": day}],
+            )
+
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            await _build(svc, tenant)
+
+        clusters = await _clusters(session_factory, tenant)
+        assert len(clusters) == 1
+        cluster = clusters[0]
+        assert cluster.source_count == 3
+        assert cluster.cluster_reason == CLUSTER_REASON_TITLE_DUPLICATE
+
+        # All three source links are retained in the feed DTO.
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            feed = await svc.feed(tenant, user_id="user-1")
+        assert feed["total"] == 1
+        item = feed["items"][0]
+        assert item["source_count"] == 3
+        urls = {s["url"] for s in item["sources"]}
+        assert urls == {
+            "https://example.com/syn-date/0",
+            "https://example.com/syn-date/1",
+            "https://example.com/syn-date/2",
+        }
+
+    async def test_same_story_distinct_published_times_merge(
+        self, session_factory: async_sessionmaker
+    ) -> None:
+        """Syndicated plain-news items (no structured event facts) with
+        different published_at timestamps collapse via title fingerprint,
+        while a genuinely different story stays separate."""
+        tenant = await _new_tenant(session_factory)
+        sec = await _new_security(session_factory)
+        acct = await _new_account(session_factory, tenant)
+        await _new_holding(session_factory, tenant, acct, sec)
+        now = datetime.now(UTC)
+        # Two syndicated posts of the same story, no facts, published
+        # ~2 hours apart → different event dates (published fallback).
+        for i, hrs in enumerate((1, 3)):
+            await _new_item(
+                session_factory,
+                tenant,
+                sec,
+                source_id=f"nodate-syn-{i}",
+                headline="Apple unveils new MacBook Pro",
+                canonical_url=f"https://example.com/nodate/{i}",
+                kind="news_article",
+                published_at=now - timedelta(hours=hrs),
+            )
+        # A distinct story, no facts → different title fingerprint.
+        await _new_item(
+            session_factory,
+            tenant,
+            sec,
+            source_id="nodate-other",
+            headline="Apple opens new store in Amsterdam",
+            canonical_url="https://example.com/nodate/other",
+            kind="news_article",
+            published_at=now - timedelta(hours=2),
+        )
+
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            await _build(svc, tenant)
+
+        clusters = await _clusters(session_factory, tenant)
+        assert len(clusters) == 2
+        # The syndicated pair merges with a title_duplicate reason.
+        fp_cluster = next(
+            c
+            for c in clusters
+            if c.cluster_reason == CLUSTER_REASON_TITLE_DUPLICATE
+        )
+        assert fp_cluster.source_count == 2
+
+    async def test_distinct_facts_with_same_title_never_merge(
+        self, session_factory: async_sessionmaker
+    ) -> None:
+        """Identical title fingerprints with different event dates are
+        different stories — never merged (no over-merge)."""
+        tenant = await _new_tenant(session_factory)
+        sec = await _new_security(session_factory)
+        acct = await _new_account(session_factory, tenant)
+        await _new_holding(session_factory, tenant, acct, sec)
+        await _new_item(
+            session_factory,
+            tenant,
+            sec,
+            source_id="q3",
+            kind="earnings_report",
+            headline="Apple Q3 earnings",
+            facts=[{"key": "event_date", "value": "2026-07-30"}],
+        )
+        await _new_item(
+            session_factory,
+            tenant,
+            sec,
+            source_id="q4",
+            kind="earnings_report",
+            headline="Apple Q3 earnings",
+            facts=[{"key": "event_date", "value": "2026-10-30"}],
+        )
+
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            await _build(svc, tenant)
+
+        clusters = await _clusters(session_factory, tenant)
+        assert len(clusters) == 2
+        # Both keep their own event dates.
+        dates = sorted(
+            c.event_date.date().isoformat()  # type: ignore[union-attr]
+            for c in clusters
+        )
+        assert dates == ["2026-07-30", "2026-10-30"]
+
+    async def test_cluster_metadata_exposed(
+        self, session_factory: async_sessionmaker
+    ) -> None:
+        """Cluster DTO carries cluster_id, item IDs, cluster reason and
+        earliest published_at."""
+        tenant = await _new_tenant(session_factory)
+        sec = await _new_security(session_factory)
+        acct = await _new_account(session_factory, tenant)
+        await _new_holding(session_factory, tenant, acct, sec)
+        now = datetime.now(UTC)
+        item_a = await _new_item(
+            session_factory,
+            tenant,
+            sec,
+            source_id="meta-a",
+            headline="Apple Q4 earnings",
+            canonical_url="https://example.com/meta-a",
+            kind="earnings_report",
+            published_at=now - timedelta(hours=2),
+            facts=[{"key": "event_date", "value": "2026-10-30"}],
+        )
+        item_b = await _new_item(
+            session_factory,
+            tenant,
+            sec,
+            source_id="meta-b",
+            headline="Apple Q4 earnings (update)",
+            canonical_url="https://example.com/meta-b",
+            kind="earnings_report",
+            published_at=now - timedelta(hours=1),
+            facts=[{"key": "event_date", "value": "2026-10-30"}],
+        )
+
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            await _build(svc, tenant)
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            feed = await svc.feed(tenant, user_id="user-1")
+
+        assert feed["total"] == 1
+        item = feed["items"][0]
+        assert item["cluster_id"] == item["id"]
+        assert item["cluster_reason"] == CLUSTER_REASON_EXACT_EVENT
+        assert set(item["item_ids"]) == {item_a, item_b}
+        # earliest published_at = min across sources.
+        assert item["earliest_published_at"] is not None
+
 
 # ═══════════════════════════════════════════════════════════════════════
 # A6 — Acknowledgement semantics (per-user per-cluster, idempotent)
@@ -986,6 +1186,62 @@ class TestAcknowledgement:
             assert feed["items"][0]["acknowledged"] is True
             assert feed["items"][0]["source_count"] == 2
 
+    async def test_ack_survives_fingerprint_merge(
+        self, session_factory: async_sessionmaker
+    ) -> None:
+        """Acking a story, then a syndicated twin with a slightly
+        different event date arrives → the story merges into a
+        fingerprint cluster, but the ack is migrated, not reset."""
+        tenant = await _new_tenant(session_factory)
+        sec = await _new_security(session_factory)
+        acct = await _new_account(session_factory, tenant)
+        await _new_holding(session_factory, tenant, acct, sec)
+        item_a = await _new_item(
+            session_factory,
+            tenant,
+            sec,
+            source_id="ack-a",
+            headline="Apple Q4 earnings beat",
+            kind="earnings_report",
+            facts=[{"key": "event_date", "value": "2026-09-15"}],
+        )
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            await _build(svc, tenant)
+        clusters = await _clusters(session_factory, tenant)
+        cluster_id = str(clusters[0].id)
+
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            await svc.set_ack(tenant, "user-A", cluster_id, True)
+            await session.commit()
+
+        # A syndicated twin with a different event date arrives.
+        await _new_item(
+            session_factory,
+            tenant,
+            sec,
+            source_id="ack-b",
+            headline="Apple Q4 earnings beat",
+            kind="earnings_report",
+            facts=[{"key": "event_date", "value": "2026-09-16"}],
+        )
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            await _build(svc, tenant)
+
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            feed = await svc.feed(tenant, user_id="user-A")
+            # One merged story, still acknowledged for user-A.
+            assert feed["total"] == 1
+            assert feed["items"][0]["acknowledged"] is True
+            assert feed["items"][0]["source_count"] == 2
+        # The original observation survives (never deleted).
+        async with session_factory() as session:
+            item = await session.get(MarketIntelligenceItem, item_a)
+            assert item is not None
+
 
 # ═══════════════════════════════════════════════════════════════════════
 # A7 — Corrections are per-user and never delete the observation
@@ -1087,6 +1343,162 @@ class TestCorrections:
             assert row is not None
             assert "sk_live_abcdefghijklmnop" not in (row.reason or "")
             assert "[REDACTED]" in (row.reason or "")
+
+    async def test_correction_is_pair_scoped_and_prevents_rematch(
+        self, session_factory: async_sessionmaker
+    ) -> None:
+        """Correcting (item, security) hides that pair in the correcting
+        user's feed immediately AND keeps a similar future item for the
+        same security claim out of that user's feed (re-match prevention).
+        The correction is per-user: B still sees everything, and the
+        underlying observation is never deleted."""
+        tenant = await _new_tenant(session_factory)
+        sec = await _new_security(session_factory)
+        acct = await _new_account(session_factory, tenant)
+        await _new_holding(session_factory, tenant, acct, sec)
+        item_id = await _new_item(
+            session_factory,
+            tenant,
+            sec,
+            source_id="fp-1",
+            headline="Apple Q4 earnings beat",
+            kind="earnings_report",
+            facts=[{"key": "event_date", "value": "2026-09-15"}],
+        )
+
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            await _build(svc, tenant)
+
+        # User A corrects the (item, security) pair.
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            ok = await svc.correct(tenant, "user-A", item_id, security_id=sec)
+            assert ok is True
+            await session.commit()
+
+        # A's feed hides it immediately; B still sees it.
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            feed_a = await svc.feed(tenant, user_id="user-A")
+            feed_b = await svc.feed(tenant, user_id="user-B")
+        assert feed_a["total"] == 0
+        assert feed_b["total"] == 1
+
+        # A similar FUTURE item for the same security claim is also kept
+        # out of A's feed (fingerprint-based re-match prevention) while
+        # B still sees the story (both items, one cluster).
+        await _new_item(
+            session_factory,
+            tenant,
+            sec,
+            source_id="fp-2",
+            headline="Apple Q4 earnings beat",
+            kind="earnings_report",
+            facts=[{"key": "event_date", "value": "2026-09-16"}],
+        )
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            await _build(svc, tenant)
+            feed_a = await svc.feed(tenant, user_id="user-A")
+            feed_b = await svc.feed(tenant, user_id="user-B")
+        assert feed_a["total"] == 0
+        # B sees the merged story with both source links.
+        assert feed_b["total"] == 1
+        assert feed_b["items"][0]["source_count"] == 2
+
+        # The observation itself still exists (never deleted).
+        async with session_factory() as session:
+            item = await session.get(MarketIntelligenceItem, item_id)
+            assert item is not None
+
+    async def test_correction_pair_scoped_keeps_other_security(
+        self, session_factory: async_sessionmaker
+    ) -> None:
+        """Correcting (item, sec_a) does not hide the item's match to
+        sec_b: corrections are pair-scoped, not item-scoped."""
+        tenant = await _new_tenant(session_factory)
+        sec_a = await _new_security(session_factory, ticker="AAPL")
+        sec_b = await _new_security(session_factory, ticker="MSFT")
+        acct = await _new_account(session_factory, tenant)
+        await _new_holding(session_factory, tenant, acct, sec_a)
+        await _new_holding(session_factory, tenant, acct, sec_b)
+        item_id = await _new_item(
+            session_factory,
+            tenant,
+            sec_a,
+            source_id="both-2",
+            kind="earnings_report",
+            facts=[{"key": "event_date", "value": "2026-09-15"}],
+        )
+        async with session_factory() as session:
+            from finance_sync.models.holding_relevance import (
+                HoldingRelevanceItem,
+            )
+
+            uow = UnitOfWork(session)
+            await uow.holding_relevance_items.add(
+                HoldingRelevanceItem(
+                    tenant_id=tenant,
+                    item_id=item_id,
+                    security_id=sec_b,
+                    account_id=None,
+                    match_reason=MATCH_REASON_EXACT_SECURITY,
+                    confidence=1.0,
+                    holding_status=HOLDING_STATUS_CURRENT,
+                    holding_weight=None,
+                    event_date=datetime.now(UTC),
+                )
+            )
+            await session.commit()
+
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            await _build(svc, tenant)
+            await svc.correct(tenant, "user-A", item_id, security_id=sec_a)
+            await session.commit()
+            feed = await svc.feed(tenant, user_id="user-A")
+            # sec_b's match is still visible to A.
+            assert feed["total"] == 1
+            assert str(feed["items"][0]["security_id"]) == sec_b
+
+    async def test_correction_signals_emitted(
+        self, session_factory: async_sessionmaker
+    ) -> None:
+        """Corrections surface deterministic counters in the build summary
+        (threshold tuning signal) and never affect other users."""
+        tenant = await _new_tenant(session_factory)
+        sec = await _new_security(session_factory)
+        acct = await _new_account(session_factory, tenant)
+        await _new_holding(session_factory, tenant, acct, sec)
+        item_id = await _new_item(
+            session_factory,
+            tenant,
+            sec,
+            kind="earnings_report",
+            facts=[{"key": "event_date", "value": "2026-09-15"}],
+        )
+
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            first = await _build(svc, tenant)
+            assert first["matched"] == 1
+
+        # User A corrects the (item, security) pair.
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            await svc.correct(tenant, "user-A", item_id, security_id=sec)
+            await session.commit()
+
+        # Rebuild: the build summary reports the correction count and the
+        # tenant-scoped row is NOT deleted (B still sees the item).
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            second = await _build(svc, tenant)
+            assert second["corrections"] == 1
+            assert second["matched"] == 1
+            feed_b = await svc.feed(tenant, user_id="user-B")
+        assert feed_b["total"] == 1
 
 
 # ═══════════════════════════════════════════════════════════════════════
