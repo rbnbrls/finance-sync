@@ -16,6 +16,7 @@ from finance_sync.db.repositories import (
     EnrichmentFreshnessRepository,
     FundamentalObservationRepository,
     FxRateRepository,
+    HoldingRelevanceItemRepository,
     HoldingRepository,
     MarketIntelligenceItemRepository,
     MarketIntelligenceProviderStateRepository,
@@ -24,6 +25,12 @@ from finance_sync.db.repositories import (
     OutboxMessageRepository,
     ReconciliationResultRepository,
     ReconciliationRunRepository,
+    RelevanceAckRepository,
+    RelevanceClusterItemRepository,
+    RelevanceClusterRepository,
+    RelevanceCorrectionRepository,
+    RelevanceNotificationLogRepository,
+    RelevanceNotificationPreferenceRepository,
     ResolutionAuditLogRepository,
     ScheduledPaymentRepository,
     SecurityListingRepository,
@@ -206,6 +213,48 @@ class UnitOfWork:
         return self._repo(
             "security_metadata_observations",
             SecurityMetadataObservationRepository,
+        )  # type: ignore[return-value]
+
+    @property
+    def holding_relevance_items(self) -> HoldingRelevanceItemRepository:
+        return self._repo(
+            "holding_relevance_items", HoldingRelevanceItemRepository
+        )  # type: ignore[return-value]
+
+    @property
+    def relevance_clusters(self) -> RelevanceClusterRepository:
+        return self._repo("relevance_clusters", RelevanceClusterRepository)  # type: ignore[return-value]
+
+    @property
+    def relevance_cluster_items(self) -> RelevanceClusterItemRepository:
+        return self._repo(
+            "relevance_cluster_items", RelevanceClusterItemRepository
+        )  # type: ignore[return-value]
+
+    @property
+    def relevance_acks(self) -> RelevanceAckRepository:
+        return self._repo("relevance_acks", RelevanceAckRepository)  # type: ignore[return-value]
+
+    @property
+    def relevance_corrections(self) -> RelevanceCorrectionRepository:
+        return self._repo(
+            "relevance_corrections", RelevanceCorrectionRepository
+        )  # type: ignore[return-value]
+
+    @property
+    def relevance_notification_preferences(
+        self,
+    ) -> RelevanceNotificationPreferenceRepository:
+        return self._repo(
+            "relevance_notification_preferences",
+            RelevanceNotificationPreferenceRepository,
+        )  # type: ignore[return-value]
+
+    @property
+    def relevance_notification_logs(self) -> RelevanceNotificationLogRepository:
+        return self._repo(
+            "relevance_notification_logs",
+            RelevanceNotificationLogRepository,
         )  # type: ignore[return-value]
 
     # ── Lifecycle ────────────────────────────────────────────────────

@@ -1155,3 +1155,53 @@ async def intel_refresh_job(container: Container) -> dict[str, Any]:
     from finance_sync.intel.scheduler import intel_refresh_job as _run
 
     return await _run(container)
+
+
+async def holding_relevance_build_job(container: Container) -> dict[str, Any]:
+    """Build the holding-relevance feed for every tenant.
+
+    Matches stored market-intelligence observations (already resolved
+    to a canonical security by the intel layer) against each tenant's
+    current and recently-sold holdings, then (re)clusters them into
+    ranked stories.  Idempotent: re-running never duplicates rows, so a
+    missed tick is harmless and a concurrent run is safe (unique
+    constraints absorb the race).
+    """
+
+    from finance_sync.db.uow import UnitOfWork
+    from finance_sync.services.holding_relevance import (
+        HoldingRelevanceService,
+    )
+
+    logger.info("holding_relevance_build_starting")
+    results: list[dict[str, Any]] = []
+    async with container.session_factory() as session:
+        uow = UnitOfWork(session)
+        tenants = await uow.tenants.list(limit=1000)
+        for tenant in tenants:
+            try:
+                svc = HoldingRelevanceService(uow)
+                summary = await svc.build_feed(str(tenant.id))
+                await uow.commit()
+                results.append(
+                    {"tenant_id": str(tenant.id), "summary": summary}
+                )
+            except Exception as exc:
+                logger.error(
+                    "holding_relevance_build_failed",
+                    tenant_id=str(tenant.id),
+                    error=str(exc)[:300],
+                )
+                await uow.rollback()
+                results.append(
+                    {
+                        "tenant_id": str(tenant.id),
+                        "error": str(exc)[:300],
+                    }
+                )
+    logger.info(
+        "holding_relevance_build_complete",
+        tenants=len(results),
+        failed=sum(1 for r in results if "error" in r),
+    )
+    return {"status": "completed", "tenants": len(results), "results": results}

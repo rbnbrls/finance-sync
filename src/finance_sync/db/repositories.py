@@ -23,6 +23,7 @@ from finance_sync.models import (
     FundamentalObservation,
     FxRate,
     Holding,
+    HoldingRelevanceItem,
     MarketIntelligenceItem,
     MarketIntelligenceProviderState,
     MarketIntelligenceReviewQueue,
@@ -30,6 +31,12 @@ from finance_sync.models import (
     OutboxMessage,
     ReconciliationResult,
     ReconciliationRun,
+    RelevanceAck,
+    RelevanceCluster,
+    RelevanceClusterItem,
+    RelevanceCorrection,
+    RelevanceNotificationLog,
+    RelevanceNotificationPreference,
     ResolutionAuditLog,
     ScheduledPayment,
     Security,
@@ -474,6 +481,36 @@ class SecurityMetadataObservationRepository(
 
 class FundamentalObservationRepository(Repository[FundamentalObservation]):
     model_class = FundamentalObservation
+
+
+class HoldingRelevanceItemRepository(Repository[HoldingRelevanceItem]):
+    model_class = HoldingRelevanceItem
+
+
+class RelevanceClusterRepository(Repository[RelevanceCluster]):
+    model_class = RelevanceCluster
+
+
+class RelevanceClusterItemRepository(Repository[RelevanceClusterItem]):
+    model_class = RelevanceClusterItem
+
+
+class RelevanceAckRepository(Repository[RelevanceAck]):
+    model_class = RelevanceAck
+
+
+class RelevanceCorrectionRepository(Repository[RelevanceCorrection]):
+    model_class = RelevanceCorrection
+
+
+class RelevanceNotificationPreferenceRepository(
+    Repository[RelevanceNotificationPreference]
+):
+    model_class = RelevanceNotificationPreference
+
+
+class RelevanceNotificationLogRepository(Repository[RelevanceNotificationLog]):
+    model_class = RelevanceNotificationLog
 
 
 class ConnectionAuditLogRepository(Repository[ConnectionAuditLog]):

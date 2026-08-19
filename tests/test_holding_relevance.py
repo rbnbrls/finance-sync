@@ -1,0 +1,1260 @@
+"""Tests for the holding-relevance service and data model.
+
+Covers the acceptance criteria of backlog/plus-relevant-nieuws-en-events.md:
+
+  A1  Canonical security matches are stored with match reason and
+      confidence; generic low-confidence ticker/name matches are
+      rejected (only canonical ``security_id`` rows ever surface).
+  A2  bunq cash accounts only influence portfolio events when genuinely
+      relevant (interest / currency events), never plain news.
+  A3  Ranking is deterministic and documented: same input → same order,
+      weighted by holding weight, event proximity, recency and source
+      reliability.
+  A4  Tenant/household isolation: a security held by tenant A but not B
+      yields an empty feed for B (never an error, never leaked rows),
+      including through ``unread``/``date`` filters and cross-tenant
+      account/security filters.
+  A5  Clustering: syndicated coverage of one event merges into one
+      cluster keeping every source link; distinct events (different
+      quarter, ex-date vs payment date) stay separate.
+  A6  Acknowledgement semantics: per-user per-cluster, idempotent, and
+      a later source link never resets an existing ack.
+  A7  Corrections are per-user and never delete the observation.
+  A8  Graceful degradation / freshness: stale items carry a freshness
+      value; filters treat payloads as data (no injection).
+"""
+
+from __future__ import annotations
+
+from datetime import UTC, datetime, timedelta
+from decimal import Decimal
+from typing import TYPE_CHECKING, Any
+from uuid import uuid4
+
+import pytest
+from sqlalchemy import select
+from sqlalchemy.dialects.sqlite.base import SQLiteTypeCompiler
+from sqlalchemy.ext.asyncio import (
+    async_sessionmaker,
+    create_async_engine,
+)
+
+# Make JSONB work with SQLite (same pattern as the repo's other tests).
+if not hasattr(SQLiteTypeCompiler, "visit_JSONB"):
+    SQLiteTypeCompiler.visit_JSONB = SQLiteTypeCompiler.visit_JSON  # type: ignore[assignment]
+
+import uuid as _uuid_mod
+
+from sqlalchemy import types as _sa_types
+
+_uuid_bind_orig = _sa_types.Uuid.bind_processor
+
+
+def _uuid_bind_patched(self: Any, dialect: Any) -> Any:
+    proc = _uuid_bind_orig(self, dialect)
+    if proc is None or not self.as_uuid:
+        return proc
+
+    def _patched(value: Any) -> Any:
+        if value is not None:
+            if isinstance(value, str):
+                return _uuid_mod.UUID(value).hex
+            return value.hex
+        return value
+
+    return _patched
+
+
+_sa_types.Uuid.bind_processor = _uuid_bind_patched
+
+from finance_sync.db import Base
+from finance_sync.db.uow import UnitOfWork
+from finance_sync.models.account import Account
+from finance_sync.models.enums import AccountType, HoldingSource
+from finance_sync.models.holding import Holding
+from finance_sync.models.holding_relevance import (
+    FRESHNESS_FRESH,
+    FRESHNESS_STALE,
+    HOLDING_STATUS_CURRENT,
+    HOLDING_STATUS_RECENTLY_SOLD,
+    MATCH_REASON_CURRENCY_INTEREST,
+    MATCH_REASON_EXACT_SECURITY,
+    MATCH_REASON_RECENTLY_SOLD,
+    HoldingRelevanceItem,
+    RelevanceCluster,
+    RelevanceCorrection,
+    RelevanceNotificationLog,
+)
+from finance_sync.models.market_intelligence_item import (
+    MarketIntelligenceItem,
+)
+from finance_sync.models.security import Security
+from finance_sync.models.tenant import Tenant
+from finance_sync.services.holding_relevance import (
+    HoldingRelevanceService,
+)
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncGenerator
+
+    from sqlalchemy.ext.asyncio import AsyncEngine
+
+
+# ── Fixtures ──────────────────────────────────────────────────────────
+
+
+@pytest.fixture
+def engine() -> AsyncEngine:
+    return create_async_engine("sqlite+aiosqlite://", echo=False)
+
+
+@pytest.fixture
+async def tables(engine: AsyncEngine) -> AsyncGenerator[None, None]:
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    yield
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
+
+
+@pytest.fixture
+async def session_factory(
+    engine: AsyncEngine, tables: Any
+) -> async_sessionmaker:
+    return async_sessionmaker(bind=engine, expire_on_commit=False)
+
+
+async def _new_tenant(
+    session_factory: async_sessionmaker, slug: str | None = None
+) -> str:
+    """Create a tenant row and return its id."""
+    async with session_factory() as session:
+        uow = UnitOfWork(session)
+        t = Tenant(slug=slug or f"tenant-{uuid4().hex[:8]}", name="Test tenant")
+        await uow.tenants.add(t)
+        await uow.commit()
+        return str(t.id)
+
+
+async def _new_security(
+    session_factory: async_sessionmaker,
+    *,
+    ticker: str = "AAPL",
+    name: str = "Apple Inc.",
+) -> str:
+    async with session_factory() as session:
+        uow = UnitOfWork(session)
+        s = Security(
+            isin="US0378331005" if ticker == "AAPL" else None,
+            ticker=ticker,
+            name=name,
+            security_type="stock",
+            currency_code="USD",
+        )
+        await uow.securities.add(s)
+        await uow.commit()
+        return str(s.id)
+
+
+async def _new_account(
+    session_factory: async_sessionmaker,
+    tenant_id: str,
+    *,
+    name: str = "Trading212",
+    account_type: AccountType = AccountType.BROKERAGE,
+) -> str:
+    async with session_factory() as session:
+        uow = UnitOfWork(session)
+        a = Account(
+            tenant_id=tenant_id,
+            provider_key="trading212",
+            external_account_id=f"ext-{uuid4().hex[:8]}",
+            name=name,
+            account_type=account_type,
+            currency_code="EUR",
+        )
+        await uow.accounts.add(a)
+        await uow.commit()
+        return str(a.id)
+
+
+async def _new_holding(
+    session_factory: async_sessionmaker,
+    tenant_id: str,
+    account_id: str,
+    security_id: str,
+    *,
+    quantity: Decimal = Decimal(10),
+    market_value: Decimal | None = Decimal(1500),
+    observed_at: datetime | None = None,
+) -> None:
+    async with session_factory() as session:
+        uow = UnitOfWork(session)
+        h = Holding(
+            tenant_id=tenant_id,
+            account_id=account_id,
+            security_id=security_id,
+            observed_at=observed_at or datetime.now(UTC),
+            quantity=quantity,
+            market_value=market_value,
+            currency_code="EUR",
+            source=HoldingSource.PROVIDER_SYNC,
+        )
+        await uow.holdings.add(h)
+        await uow.commit()
+
+
+async def _new_item(
+    session_factory: async_sessionmaker,
+    tenant_id: str,
+    security_id: str | None,
+    *,
+    provider: str = "openbb",
+    source_id: str | None = None,
+    kind: str = "news_article",
+    headline: str = "Apple beats estimates",
+    canonical_url: str | None = "https://example.com/news/1",
+    published_at: datetime | None = None,
+    fetched_at: datetime | None = None,
+    facts: list[dict[str, Any]] | None = None,
+    resolution_status: str = "resolved",
+) -> str:
+    """Create one stored market-intelligence observation."""
+    now = datetime.now(UTC)
+    sid = source_id or f"src-{uuid4().hex[:8]}"
+    async with session_factory() as session:
+        uow = UnitOfWork(session)
+        item = MarketIntelligenceItem(
+            tenant_id=tenant_id,
+            provider=provider,
+            source_id=sid,
+            canonical_url=canonical_url,
+            kind=kind,
+            published_at=published_at or now,
+            fetched_at=fetched_at or now,
+            language="en",
+            license_class="free_access",
+            content_hash=f"hash-{tenant_id}-{sid}",
+            headline=headline,
+            summary="Summary",
+            facts=facts or [],
+            identifiers={"ticker": "AAPL"},
+            resolution_status=resolution_status,
+            security_id=security_id,
+        )
+        await uow.market_intelligence_items.add(item)
+        await uow.commit()
+        return str(item.id)
+
+
+async def _build(
+    service: HoldingRelevanceService, tenant_id: str
+) -> dict[str, int]:
+    """Run the build pipeline and commit."""
+    result = await service.build_feed(tenant_id)
+    await service._uow.commit()  # type: ignore[reportPrivateUsage]
+    return result
+
+
+async def _clusters(
+    session_factory: async_sessionmaker, tenant_id: str
+) -> list[RelevanceCluster]:
+    async with session_factory() as session:
+        stmt = (
+            select(RelevanceCluster)
+            .where(RelevanceCluster.tenant_id == tenant_id)
+            .order_by(RelevanceCluster.score.desc())
+        )
+        return list((await session.execute(stmt)).scalars().all())
+
+
+async def _cluster_count(
+    session_factory: async_sessionmaker, tenant_id: str
+) -> int:
+    async with session_factory() as session:
+        stmt = select(RelevanceCluster).where(
+            RelevanceCluster.tenant_id == tenant_id
+        )
+        rows = (await session.execute(stmt)).scalars().all()
+        return len(list(rows))
+
+
+async def _relevance_count(
+    session_factory: async_sessionmaker, tenant_id: str
+) -> int:
+    async with session_factory() as session:
+        stmt = select(HoldingRelevanceItem).where(
+            HoldingRelevanceItem.tenant_id == tenant_id
+        )
+        rows = (await session.execute(stmt)).scalars().all()
+        return len(list(rows))
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# A1 — Canonical matches stored with reason + confidence; generic
+#      low-confidence ticker/name matches are rejected
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class TestCanonicalMatching:
+    async def test_current_holding_canonical_match_stored(
+        self, session_factory: async_sessionmaker
+    ) -> None:
+        """A resolved item whose security is held matches with reason."""
+        tenant = await _new_tenant(session_factory)
+        sec = await _new_security(session_factory)
+        acct = await _new_account(session_factory, tenant)
+        await _new_holding(session_factory, tenant, acct, sec)
+        item_id = await _new_item(
+            session_factory, tenant, sec, kind="earnings_report"
+        )
+
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            summary = await _build(svc, tenant)
+
+        assert summary["matched"] == 1
+        assert summary["current_holdings"] == 1
+
+        async with session_factory() as session:
+            stmt = select(HoldingRelevanceItem).where(
+                HoldingRelevanceItem.tenant_id == tenant
+            )
+            rows = list((await session.execute(stmt)).scalars().all())
+            assert len(rows) == 1
+            row = rows[0]
+            assert str(row.security_id) == sec
+            assert row.match_reason == MATCH_REASON_EXACT_SECURITY
+            assert row.confidence == 1.0
+            assert row.holding_status == HOLDING_STATUS_CURRENT
+            assert str(row.item_id) == item_id
+            # Feed surfaces exactly one cluster with the source.
+            clusters = await _clusters(session_factory, tenant)
+            assert len(clusters) == 1
+            assert clusters[0].event_type == "earnings"
+
+    async def test_recently_sold_holding_matches_with_reason(
+        self, session_factory: async_sessionmaker
+    ) -> None:
+        """A recently sold security matches with recently_sold reason."""
+        tenant = await _new_tenant(session_factory)
+        sec = await _new_security(session_factory, ticker="MSFT")
+        acct = await _new_account(session_factory, tenant)
+        # Sold: latest snapshot shows quantity 0 within the 180-day window.
+        await _new_holding(
+            session_factory,
+            tenant,
+            acct,
+            sec,
+            quantity=Decimal(0),
+            market_value=None,
+            observed_at=datetime.now(UTC) - timedelta(days=10),
+        )
+        await _new_item(session_factory, tenant, sec, kind="dividend")
+
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            summary = await _build(svc, tenant)
+
+        assert summary["matched"] == 1
+        assert summary["recently_sold"] == 1
+
+        async with session_factory() as session:
+            stmt = select(HoldingRelevanceItem).where(
+                HoldingRelevanceItem.tenant_id == tenant
+            )
+            row = (await session.execute(stmt)).scalars().first()
+            assert row is not None
+            assert row.match_reason == MATCH_REASON_RECENTLY_SOLD
+            assert row.confidence == 0.8
+            assert row.holding_status == HOLDING_STATUS_RECENTLY_SOLD
+
+    async def test_generic_low_confidence_match_rejected(
+        self, session_factory: async_sessionmaker
+    ) -> None:
+        """Unresolved items (no canonical security) never surface.
+
+        A generic ticker/name match that the intel layer could not
+        resolve to a canonical ``security_id`` is *not* holding news.
+        """
+        tenant = await _new_tenant(session_factory)
+        sec = await _new_security(session_factory)
+        acct = await _new_account(session_factory, tenant)
+        await _new_holding(session_factory, tenant, acct, sec)
+        # Item mentions AAPL in the headline but resolution was NOT
+        # canonical — security_id NULL, resolution_status unresolved.
+        await _new_item(
+            session_factory,
+            tenant,
+            None,
+            headline="AAPL jumps on earnings",
+            kind="news_article",
+            resolution_status="unresolved",
+        )
+
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            summary = await _build(svc, tenant)
+
+        # Only the canonical security's rows matter: no item matched.
+        assert summary["matched"] == 0
+        assert await _relevance_count(session_factory, tenant) == 0
+        assert await _cluster_count(session_factory, tenant) == 0
+
+    async def test_sold_beyond_window_not_matched(
+        self, session_factory: async_sessionmaker
+    ) -> None:
+        """A security sold longer than the window ago is not matched."""
+        tenant = await _new_tenant(session_factory)
+        sec = await _new_security(session_factory, ticker="NFLX")
+        acct = await _new_account(session_factory, tenant)
+        await _new_holding(
+            session_factory,
+            tenant,
+            acct,
+            sec,
+            quantity=Decimal(0),
+            market_value=None,
+            observed_at=datetime.now(UTC) - timedelta(days=400),
+        )
+        await _new_item(session_factory, tenant, sec)
+
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            summary = await _build(svc, tenant)
+
+        assert summary["matched"] == 0
+        assert summary["recently_sold"] == 0
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# A2 — bunq cash accounts only influence portfolio events when genuinely
+#      relevant (interest / currency), never plain news
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class TestCashAccountRelevance:
+    async def test_cash_news_not_matched(
+        self, session_factory: async_sessionmaker
+    ) -> None:
+        """Plain news with no security does NOT match a cash account."""
+        tenant = await _new_tenant(session_factory)
+        await _new_account(
+            session_factory,
+            tenant,
+            name="bunq savings",
+            account_type=AccountType.SAVINGS,
+        )
+        await _new_item(
+            session_factory,
+            tenant,
+            None,
+            provider="openbb",
+            kind="news_article",
+            headline="ECB keeps rates unchanged",
+        )
+
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            summary = await _build(svc, tenant)
+
+        assert summary["matched"] == 0
+        assert await _relevance_count(session_factory, tenant) == 0
+
+    async def test_cash_interest_event_matched(
+        self, session_factory: async_sessionmaker
+    ) -> None:
+        """An interest event genuinely relevant to cash matches."""
+        tenant = await _new_tenant(session_factory)
+        acct = await _new_account(
+            session_factory,
+            tenant,
+            name="bunq savings",
+            account_type=AccountType.SAVINGS,
+        )
+        await _new_item(
+            session_factory,
+            tenant,
+            None,
+            provider="openbb",
+            kind="interest_event",
+            headline="Savings rate rises to 3.2%",
+            facts=[{"key": "event_date", "value": "2026-09-01"}],
+        )
+
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            summary = await _build(svc, tenant)
+
+        assert summary["matched"] == 1
+        async with session_factory() as session:
+            stmt = select(HoldingRelevanceItem).where(
+                HoldingRelevanceItem.tenant_id == tenant
+            )
+            row = (await session.execute(stmt)).scalars().first()
+            assert row is not None
+            assert row.match_reason == MATCH_REASON_CURRENCY_INTEREST
+            assert row.security_id is None
+            assert str(row.account_id) == acct
+            assert row.confidence == 0.6
+
+    async def test_cash_currency_event_matched(
+        self, session_factory: async_sessionmaker
+    ) -> None:
+        """A currency event also counts as genuinely relevant to cash."""
+        tenant = await _new_tenant(session_factory)
+        await _new_account(
+            session_factory,
+            tenant,
+            name="bunq EUR",
+            account_type=AccountType.SAVINGS,
+        )
+        await _new_item(
+            session_factory,
+            tenant,
+            None,
+            provider="openbb",
+            kind="currency_event",
+            headline="EUR/USD moves above 1.10",
+        )
+
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            summary = await _build(svc, tenant)
+
+        assert summary["matched"] == 1
+        async with session_factory() as session:
+            stmt = select(HoldingRelevanceItem).where(
+                HoldingRelevanceItem.tenant_id == tenant
+            )
+            row = (await session.execute(stmt)).scalars().first()
+            assert row is not None
+            assert row.match_reason == MATCH_REASON_CURRENCY_INTEREST
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# A3 — Deterministic ranking
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class TestDeterministicRanking:
+    async def test_ranking_is_deterministic(
+        self, session_factory: async_sessionmaker
+    ) -> None:
+        """Same input twice → same cluster order and scores."""
+        tenant = await _new_tenant(session_factory)
+        sec_a = await _new_security(session_factory, ticker="AAPL")
+        sec_b = await _new_security(session_factory, ticker="MSFT")
+        acct = await _new_account(session_factory, tenant)
+        await _new_holding(
+            session_factory, tenant, acct, sec_a, market_value=Decimal(900)
+        )
+        await _new_holding(
+            session_factory, tenant, acct, sec_b, market_value=Decimal(100)
+        )
+        now = datetime.now(UTC)
+        await _new_item(
+            session_factory,
+            tenant,
+            sec_a,
+            kind="earnings_report",
+            published_at=now - timedelta(hours=2),
+        )
+        await _new_item(
+            session_factory,
+            tenant,
+            sec_b,
+            kind="earnings_report",
+            published_at=now - timedelta(hours=2),
+        )
+
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            await _build(svc, tenant)
+
+        first = await _clusters(session_factory, tenant)
+        first_scores = [c.score for c in first]
+        first_ids = [str(c.id) for c in first]
+
+        # Re-running is a no-op that yields identical rows.
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            await _build(svc, tenant)
+        second = await _clusters(session_factory, tenant)
+
+        assert [str(c.id) for c in second] == first_ids
+        assert [c.score for c in second] == first_scores
+
+        # The heavier holding ranks first (weight factor dominates).
+        assert str(first[0].security_id) == sec_a
+        assert first[0].score > first[1].score
+
+    async def test_score_is_bounded_and_documented(
+        self, session_factory: async_sessionmaker
+    ) -> None:
+        """Scores live in 0..1 and are computed from the documented factors."""
+        tenant = await _new_tenant(session_factory)
+        sec = await _new_security(session_factory)
+        acct = await _new_account(session_factory, tenant)
+        await _new_holding(session_factory, tenant, acct, sec)
+        await _new_item(session_factory, tenant, sec, kind="earnings_report")
+
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            await _build(svc, tenant)
+
+        clusters = await _clusters(session_factory, tenant)
+        assert len(clusters) == 1
+        assert 0.0 <= clusters[0].score <= 1.0
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# A4 — Tenant/household isolation
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class TestTenantIsolation:
+    async def test_shared_ticker_no_cross_tenant_leak(
+        self, session_factory: async_sessionmaker
+    ) -> None:
+        """AAPL held by tenant A; tenant B's feed for AAPL is empty."""
+        tenant_a = await _new_tenant(session_factory)
+        tenant_b = await _new_tenant(session_factory)
+        # Same canonical security row, held only by A.
+        sec = await _new_security(session_factory)
+        acct_a = await _new_account(session_factory, tenant_a)
+        acct_b = await _new_account(session_factory, tenant_b)
+        await _new_holding(session_factory, tenant_a, acct_a, sec)
+        # B holds a different security so B has an active account.
+        sec_b = await _new_security(session_factory, ticker="MSFT")
+        await _new_holding(session_factory, tenant_b, acct_b, sec_b)
+        await _new_item(session_factory, tenant_a, sec, kind="earnings_report")
+        await _new_item(
+            session_factory, tenant_b, sec_b, kind="earnings_report"
+        )
+
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            await _build(svc, tenant_a)
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            await _build(svc, tenant_b)
+
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            feed_a = await svc.feed(tenant_a, security_id=sec)
+            feed_b = await svc.feed(tenant_b, security_id=sec)
+
+        # B's feed for A's security is empty — no error, no leak.
+        assert feed_b["total"] == 0
+        assert feed_b["items"] == []
+        # A sees its own item.
+        assert feed_a["total"] == 1
+        assert str(feed_a["items"][0]["security_id"]) == sec
+
+    async def test_cross_tenant_account_filter_never_leaks(
+        self, session_factory: async_sessionmaker
+    ) -> None:
+        """Filtering B's feed by A's account id returns empty, not A's rows."""
+        tenant_a = await _new_tenant(session_factory)
+        tenant_b = await _new_tenant(session_factory)
+        sec = await _new_security(session_factory)
+        acct_a = await _new_account(session_factory, tenant_a)
+        acct_b = await _new_account(session_factory, tenant_b)
+        await _new_holding(session_factory, tenant_a, acct_a, sec)
+        sec_b = await _new_security(session_factory, ticker="MSFT")
+        await _new_holding(session_factory, tenant_b, acct_b, sec_b)
+        await _new_item(session_factory, tenant_a, sec, kind="earnings_report")
+
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            await _build(svc, tenant_a)
+
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            feed = await svc.feed(tenant_b, account_id=acct_a)
+
+        assert feed["total"] == 0
+        assert feed["items"] == []
+
+    async def test_injection_payloads_treated_as_data(
+        self, session_factory: async_sessionmaker
+    ) -> None:
+        """SQL/wildcard payloads in filters return empty, never an error."""
+        tenant = await _new_tenant(session_factory)
+        sec = await _new_security(session_factory)
+        acct = await _new_account(session_factory, tenant)
+        await _new_holding(session_factory, tenant, acct, sec)
+        await _new_item(session_factory, tenant, sec, kind="earnings_report")
+
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            await _build(svc, tenant)
+
+        payloads = [
+            "AAPL' OR '1'='1",
+            "%",
+            "_",
+            "'; DROP TABLE relevance_clusters; --",
+        ]
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            for payload in payloads:
+                feed = await svc.feed(
+                    tenant,
+                    security_id=payload,
+                    account_id=payload,
+                    item_type=payload,
+                    unread_only=False,
+                )
+                # Never an exception; payloads match no rows.
+                assert feed["total"] == 0
+                assert feed["items"] == []
+            # The real security still resolves.
+            feed = await svc.feed(tenant, security_id=sec)
+            assert feed["total"] == 1
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# A5 — Clustering precision: no over- and under-merge
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class TestClustering:
+    async def test_syndicated_items_merge_into_one_cluster(
+        self, session_factory: async_sessionmaker
+    ) -> None:
+        """Three syndicated posts about one event = one cluster, 3 links."""
+        tenant = await _new_tenant(session_factory)
+        sec = await _new_security(session_factory)
+        acct = await _new_account(session_factory, tenant)
+        await _new_holding(session_factory, tenant, acct, sec)
+        published = datetime.now(UTC) - timedelta(hours=1)
+        # Same event date for all three syndicated posts.
+        facts = [{"key": "event_date", "value": "2026-09-15"}]
+        for i in range(3):
+            await _new_item(
+                session_factory,
+                tenant,
+                sec,
+                provider="sec_press" if i == 0 else "openbb",
+                source_id=f"syn-{i}",
+                headline=f"Apple earnings Q4 (source {i})",
+                canonical_url=f"https://example.com/syn/{i}",
+                kind="earnings_report",
+                published_at=published,
+                facts=facts,
+            )
+
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            await _build(svc, tenant)
+
+        clusters = await _clusters(session_factory, tenant)
+        assert len(clusters) == 1
+        cluster = clusters[0]
+        assert cluster.source_count == 3
+        assert cluster.event_type == "earnings"
+
+        # Feed DTO carries all three source links.
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            feed = await svc.feed(tenant, user_id="user-1")
+        assert feed["total"] == 1
+        item = feed["items"][0]
+        assert item["source_count"] == 3
+        assert len(item["sources"]) == 3
+        urls = {s["url"] for s in item["sources"]}
+        assert urls == {
+            "https://example.com/syn/0",
+            "https://example.com/syn/1",
+            "https://example.com/syn/2",
+        }
+
+    async def test_distinct_events_stay_separate(
+        self, session_factory: async_sessionmaker
+    ) -> None:
+        """Different quarters / ex-date vs payment date = distinct clusters."""
+        tenant = await _new_tenant(session_factory)
+        sec = await _new_security(session_factory)
+        acct = await _new_account(session_factory, tenant)
+        await _new_holding(session_factory, tenant, acct, sec)
+
+        # Q3 earnings vs Q4 earnings — different event dates.
+        await _new_item(
+            session_factory,
+            tenant,
+            sec,
+            source_id="q3",
+            kind="earnings_report",
+            headline="Q3 earnings",
+            facts=[{"key": "event_date", "value": "2026-07-30"}],
+        )
+        await _new_item(
+            session_factory,
+            tenant,
+            sec,
+            source_id="q4",
+            kind="earnings_report",
+            headline="Q4 earnings",
+            facts=[{"key": "event_date", "value": "2026-10-30"}],
+        )
+        # Ex-date vs payment date — different event dates too.
+        await _new_item(
+            session_factory,
+            tenant,
+            sec,
+            source_id="ex",
+            kind="dividend",
+            headline="Dividend ex-date",
+            facts=[{"key": "ex_date", "value": "2026-08-10"}],
+        )
+        await _new_item(
+            session_factory,
+            tenant,
+            sec,
+            source_id="pay",
+            kind="dividend",
+            headline="Dividend payment",
+            facts=[{"key": "payment_date", "value": "2026-08-25"}],
+        )
+
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            await _build(svc, tenant)
+
+        clusters = await _clusters(session_factory, tenant)
+        # 2 earnings + 2 dividends = 4 distinct clusters.
+        assert len(clusters) == 4
+        types = sorted(c.event_type for c in clusters)
+        assert types == ["dividend", "dividend", "earnings", "earnings"]
+        dates = sorted(
+            c.event_date.date().isoformat()  # type: ignore[union-attr]
+            for c in clusters
+        )
+        assert dates == ["2026-07-30", "2026-08-10", "2026-08-25", "2026-10-30"]
+
+    async def test_different_securities_stay_separate(
+        self, session_factory: async_sessionmaker
+    ) -> None:
+        """Same event date, different securities → separate clusters."""
+        tenant = await _new_tenant(session_factory)
+        sec_a = await _new_security(session_factory, ticker="AAPL")
+        sec_b = await _new_security(session_factory, ticker="MSFT")
+        acct = await _new_account(session_factory, tenant)
+        await _new_holding(session_factory, tenant, acct, sec_a)
+        await _new_holding(session_factory, tenant, acct, sec_b)
+        facts = [{"key": "event_date", "value": "2026-09-15"}]
+        await _new_item(
+            session_factory,
+            tenant,
+            sec_a,
+            source_id="a",
+            kind="earnings_report",
+            facts=facts,
+        )
+        await _new_item(
+            session_factory,
+            tenant,
+            sec_b,
+            source_id="b",
+            kind="earnings_report",
+            facts=facts,
+        )
+
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            await _build(svc, tenant)
+
+        clusters = await _clusters(session_factory, tenant)
+        assert len(clusters) == 2
+        assert {str(c.security_id) for c in clusters} == {sec_a, sec_b}
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# A6 — Acknowledgement semantics (per-user per-cluster, idempotent)
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class TestAcknowledgement:
+    async def _seed(
+        self, session_factory: async_sessionmaker
+    ) -> tuple[str, str]:
+        tenant = await _new_tenant(session_factory)
+        sec = await _new_security(session_factory)
+        acct = await _new_account(session_factory, tenant)
+        await _new_holding(session_factory, tenant, acct, sec)
+        await _new_item(
+            session_factory,
+            tenant,
+            sec,
+            kind="earnings_report",
+            facts=[{"key": "event_date", "value": "2026-09-15"}],
+        )
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            await _build(svc, tenant)
+        clusters = await _clusters(session_factory, tenant)
+        return tenant, str(clusters[0].id)
+
+    async def test_ack_is_per_user(
+        self, session_factory: async_sessionmaker
+    ) -> None:
+        """User A acks; user B still sees unread."""
+        tenant, cluster_id = await self._seed(session_factory)
+
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            assert await svc.set_ack(tenant, "user-A", cluster_id, True)
+            await session.commit()
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            feed_a = await svc.feed(tenant, user_id="user-A")
+            feed_b = await svc.feed(tenant, user_id="user-B")
+
+        assert feed_a["items"][0]["acknowledged"] is True
+        assert feed_b["items"][0]["acknowledged"] is False
+
+    async def test_ack_idempotent(
+        self, session_factory: async_sessionmaker
+    ) -> None:
+        """Re-ack and un-ack are idempotent."""
+        tenant, cluster_id = await self._seed(session_factory)
+
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            assert await svc.set_ack(tenant, "user-A", cluster_id, True)
+            assert await svc.set_ack(tenant, "user-A", cluster_id, True)
+            await session.commit()
+            assert await svc.set_ack(tenant, "user-A", cluster_id, False)
+            assert await svc.set_ack(tenant, "user-A", cluster_id, False)
+            await session.commit()
+            feed = await svc.feed(tenant, user_id="user-A")
+            assert feed["items"][0]["acknowledged"] is False
+
+    async def test_cross_tenant_ack_returns_false(
+        self, session_factory: async_sessionmaker
+    ) -> None:
+        """Acking a cluster from another tenant is a safe no-op (False)."""
+        tenant_a, cluster_id = await self._seed(session_factory)
+        tenant_b = await _new_tenant(session_factory)
+
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            ok = await svc.set_ack(tenant_b, "user-B", cluster_id, True)
+            assert ok is False
+
+    async def test_new_source_link_does_not_reset_ack(
+        self, session_factory: async_sessionmaker
+    ) -> None:
+        """Adding a later syndicated source never resets an existing ack."""
+        tenant, cluster_id = await self._seed(session_factory)
+
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            await svc.set_ack(tenant, "user-A", cluster_id, True)
+            await session.commit()
+
+        # A second syndicated post about the same event arrives.
+        async with session_factory() as session:
+            stmt = select(HoldingRelevanceItem).where(
+                HoldingRelevanceItem.tenant_id == tenant
+            )
+            row = (await session.execute(stmt)).scalars().first()
+            sec_id = str(row.security_id)
+        published = datetime.now(UTC) - timedelta(hours=1)
+        await _new_item(
+            session_factory,
+            tenant,
+            sec_id,
+            provider="sec_press",
+            source_id="syn-later",
+            headline="Apple earnings update",
+            canonical_url="https://example.com/syn/later",
+            kind="earnings_report",
+            published_at=published,
+            facts=[{"key": "event_date", "value": "2026-09-15"}],
+        )
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            await _build(svc, tenant)
+
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            feed = await svc.feed(tenant, user_id="user-A")
+            assert feed["items"][0]["acknowledged"] is True
+            assert feed["items"][0]["source_count"] == 2
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# A7 — Corrections are per-user and never delete the observation
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class TestCorrections:
+    async def test_correction_suppresses_for_user_only(
+        self, session_factory: async_sessionmaker
+    ) -> None:
+        """A's correction hides the item in A's feed; B still sees it."""
+        tenant = await _new_tenant(session_factory)
+        sec = await _new_security(session_factory)
+        acct = await _new_account(session_factory, tenant)
+        await _new_holding(session_factory, tenant, acct, sec)
+        item_id = await _new_item(
+            session_factory, tenant, sec, kind="earnings_report"
+        )
+
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            await _build(svc, tenant)
+
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            ok = await svc.correct(
+                tenant,
+                "user-A",
+                item_id,
+                security_id=sec,
+                reason="Wrong company",
+            )
+            assert ok is True
+            await session.commit()
+
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            feed_a = await svc.feed(tenant, user_id="user-A")
+            feed_b = await svc.feed(tenant, user_id="user-B")
+
+        assert feed_a["total"] == 0
+        assert feed_b["total"] == 1
+
+        # The observation itself still exists.
+        async with session_factory() as session:
+            item = await session.get(MarketIntelligenceItem, item_id)
+            assert item is not None
+
+    async def test_correction_is_idempotent_and_cross_tenant_safe(
+        self, session_factory: async_sessionmaker
+    ) -> None:
+        tenant = await _new_tenant(session_factory)
+        other = await _new_tenant(session_factory)
+        sec = await _new_security(session_factory)
+        acct = await _new_account(session_factory, tenant)
+        await _new_holding(session_factory, tenant, acct, sec)
+        item_id = await _new_item(session_factory, tenant, sec)
+
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            assert await svc.correct(tenant, "user-A", item_id) is True
+            assert await svc.correct(tenant, "user-A", item_id) is True
+            await session.commit()
+            # Cross-tenant item id is a safe False.
+            assert await svc.correct(other, "user-B", item_id) is False
+
+        async with session_factory() as session:
+            stmt = select(RelevanceCorrection).where(
+                RelevanceCorrection.tenant_id == tenant
+            )
+            rows = (await session.execute(stmt)).scalars().all()
+            assert len(list(rows)) == 1
+
+    async def test_correction_reason_is_sanitised(
+        self, session_factory: async_sessionmaker
+    ) -> None:
+        """Free-form correction text is redacted before persistence."""
+        tenant = await _new_tenant(session_factory)
+        sec = await _new_security(session_factory)
+        acct = await _new_account(session_factory, tenant)
+        await _new_holding(session_factory, tenant, acct, sec)
+        item_id = await _new_item(session_factory, tenant, sec)
+
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            await svc.correct(
+                tenant,
+                "user-A",
+                item_id,
+                reason="Wrong, secret=sk_live_abcdefghijklmnop",
+            )
+            await session.commit()
+
+        async with session_factory() as session:
+            stmt = select(RelevanceCorrection).where(
+                RelevanceCorrection.tenant_id == tenant
+            )
+            row = (await session.execute(stmt)).scalars().first()
+            assert row is not None
+            assert "sk_live_abcdefghijklmnop" not in (row.reason or "")
+            assert "[REDACTED]" in (row.reason or "")
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# A8 — Freshness / graceful degradation
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class TestFreshness:
+    async def test_stale_items_carry_freshness(
+        self, session_factory: async_sessionmaker
+    ) -> None:
+        tenant = await _new_tenant(session_factory)
+        sec = await _new_security(session_factory)
+        acct = await _new_account(session_factory, tenant)
+        await _new_holding(session_factory, tenant, acct, sec)
+        now = datetime.now(UTC)
+        # Fresh item: fetched just now.
+        fresh_id = await _new_item(
+            session_factory,
+            tenant,
+            sec,
+            source_id="fresh",
+            kind="earnings_report",
+            published_at=now - timedelta(hours=1),
+            fetched_at=now,
+        )
+        # Stale item: fetched 3 days ago (> 24h threshold).
+        await _new_item(
+            session_factory,
+            tenant,
+            sec,
+            source_id="stale",
+            kind="dividend",
+            published_at=now - timedelta(days=3),
+            fetched_at=now - timedelta(days=3),
+        )
+
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            await _build(svc, tenant)
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            feed = await svc.feed(tenant, user_id="user-1")
+
+        assert feed["total"] == 2
+        freshness = {
+            s["item_id"]: s["freshness"]
+            for item in feed["items"]
+            for s in item["sources"]
+        }
+        assert freshness[fresh_id] == FRESHNESS_FRESH
+        assert any(v == FRESHNESS_STALE for v in freshness.values())
+        # Every source carries fetched_at.
+        for item in feed["items"]:
+            for s in item["sources"]:
+                assert s["fetched_at"] is not None
+                assert s["url"] is not None
+
+    async def test_include_stale_false_drops_stale_clusters(
+        self, session_factory: async_sessionmaker
+    ) -> None:
+        tenant = await _new_tenant(session_factory)
+        sec = await _new_security(session_factory)
+        acct = await _new_account(session_factory, tenant)
+        await _new_holding(session_factory, tenant, acct, sec)
+        now = datetime.now(UTC)
+        await _new_item(
+            session_factory,
+            tenant,
+            sec,
+            source_id="fresh-only",
+            kind="earnings_report",
+            published_at=now - timedelta(hours=1),
+            fetched_at=now,
+        )
+        await _new_item(
+            session_factory,
+            tenant,
+            sec,
+            source_id="stale-only",
+            kind="dividend",
+            published_at=now - timedelta(days=3),
+            fetched_at=now - timedelta(days=3),
+        )
+
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            await _build(svc, tenant)
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            feed = await svc.feed(tenant, user_id="user-1", include_stale=False)
+
+        assert feed["total"] == 1
+        assert feed["items"][0]["event_type"] == "earnings"
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Notifications — opt-in, dedupe, lockscreen-safe
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class TestNotifications:
+    async def test_opt_in_and_dedupe(
+        self, session_factory: async_sessionmaker
+    ) -> None:
+        """Notifications require opt-in and dedupe per (user, cluster)."""
+        tenant = await _new_tenant(session_factory)
+        sec = await _new_security(session_factory)
+        acct = await _new_account(session_factory, tenant)
+        await _new_holding(session_factory, tenant, acct, sec)
+        await _new_item(session_factory, tenant, sec, kind="earnings_report")
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            await _build(svc, tenant)
+        clusters = await _clusters(session_factory, tenant)
+        cluster_id = str(clusters[0].id)
+
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            # Opt-in required.
+            result = await svc.notify_eligible(tenant, "user-A", cluster_id)
+            assert result["sent"] == 0
+            assert result["skipped"] == "disabled"
+
+            await svc.set_notification_preference(
+                tenant, "user-A", enabled=True
+            )
+            await session.commit()
+
+            first = await svc.notify_eligible(tenant, "user-A", cluster_id)
+            assert first["sent"] == 1
+            assert first["skipped"] is None
+            assert "headline" in first["payload"]
+            assert "position" not in str(first["payload"]).lower()
+            assert "value" not in str(first["payload"]).lower()
+            await session.commit()
+
+            # Deduped on the second call.
+            second = await svc.notify_eligible(tenant, "user-A", cluster_id)
+            assert second["sent"] == 0
+            assert second["skipped"] == "already_notified"
+
+        async with session_factory() as session:
+            stmt = select(RelevanceNotificationLog).where(
+                RelevanceNotificationLog.tenant_id == tenant
+            )
+            rows = (await session.execute(stmt)).scalars().all()
+            assert len(list(rows)) == 1
+
+    async def test_event_type_filter_respected(
+        self, session_factory: async_sessionmaker
+    ) -> None:
+        tenant = await _new_tenant(session_factory)
+        sec = await _new_security(session_factory)
+        acct = await _new_account(session_factory, tenant)
+        await _new_holding(session_factory, tenant, acct, sec)
+        await _new_item(session_factory, tenant, sec, kind="earnings_report")
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            await _build(svc, tenant)
+        clusters = await _clusters(session_factory, tenant)
+        cluster_id = str(clusters[0].id)
+
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            await svc.set_notification_preference(
+                tenant, "user-A", enabled=True, event_types=["dividend"]
+            )
+            await session.commit()
+            result = await svc.notify_eligible(tenant, "user-A", cluster_id)
+            assert result["sent"] == 0
+            assert result["skipped"] == "event_type_not_allowed"

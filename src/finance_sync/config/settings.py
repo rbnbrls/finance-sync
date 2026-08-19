@@ -473,6 +473,29 @@ class Settings(BaseSettings):
             "manual syncs/exports stay available."
         ),
     )
+    # ── Worker: holding-relevance feed job ─────────────────────────
+    # backlog/plus-relevant-nieuws-en-events.md: matches stored intel
+    # observations to current/recently-sold holdings and (re)clusters
+    # them into stories on its own cadence.
+    worker_job_holding_relevance_enabled: bool = Field(
+        default=True,
+        validation_alias="WORKER_JOB_HOLDING_RELEVANCE_ENABLED",
+        description=(
+            "Enable the holding-relevance feed build job.  When false, "
+            "no relevance rows/clusters are produced and the feed/calendar "
+            "endpoints return empty (matching still runs on demand)."
+        ),
+    )
+    worker_job_holding_relevance_interval_minutes: int = Field(
+        default=60,
+        ge=5,
+        validation_alias="WORKER_JOB_HOLDING_RELEVANCE_INTERVAL_MINUTES",
+        description=(
+            "Cadence of the holding-relevance build job in minutes.  "
+            "Matching + clustering are idempotent, so re-running is a "
+            "no-op except for newly ingested observations."
+        ),
+    )
     worker_health_port: int = Field(
         default=9090,
         ge=1024,
