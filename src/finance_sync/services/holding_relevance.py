@@ -744,7 +744,7 @@ class HoldingRelevanceService:
         stmt = select(RelevanceCorrection).where(
             RelevanceCorrection.tenant_id == tenant_id,  # type: ignore[attr-defined]
             RelevanceCorrection.user_id == user_id,  # type: ignore[attr-defined]
-            RelevanceCorrection.item_id == item_id,  # type: ignore[attr-defined]
+            RelevanceCorrection.item_id == item_uuid,  # type: ignore[attr-defined]
         )
         existing = (await self._uow.session.execute(stmt)).scalar_one_or_none()  # type: ignore[assignment]
         if existing is None:
