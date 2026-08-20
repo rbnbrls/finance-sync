@@ -661,14 +661,17 @@ class HoldingRelevanceService:
         Adding a new source link to a cluster later never resets an
         existing ack (the ack row is keyed on cluster, not on items).
         """
-        cluster = await self._uow.relevance_clusters.get(cluster_id)
+        cluster_uuid = _valid_uuid_or_none(cluster_id)
+        if cluster_uuid is None:
+            return False
+        cluster = await self._uow.relevance_clusters.get(cluster_uuid)
         if cluster is None or str(cluster.tenant_id) != str(tenant_id):
             return False
 
         stmt = select(RelevanceAck).where(
             RelevanceAck.tenant_id == tenant_id,  # type: ignore[attr-defined]
             RelevanceAck.user_id == user_id,  # type: ignore[attr-defined]
-            RelevanceAck.cluster_id == cluster_id,  # type: ignore[attr-defined]
+            RelevanceAck.cluster_id == cluster_uuid,  # type: ignore[attr-defined]
         )
         ack = (await self._uow.session.execute(stmt)).scalar_one_or_none()  # type: ignore[assignment]
         if ack is None:
@@ -705,7 +708,10 @@ class HoldingRelevanceService:
         matcher.  It never deletes the underlying observation and never
         affects other tenants.  Idempotent per (tenant, user, item).
         """
-        item = await self._uow.market_intelligence_items.get(item_id)
+        item_uuid = _valid_uuid_or_none(item_id)
+        if item_uuid is None:
+            return False
+        item = await self._uow.market_intelligence_items.get(item_uuid)
         if item is None or str(item.tenant_id) != str(tenant_id):
             return False
         # Sanitise free-form user input before persistence.
@@ -714,7 +720,7 @@ class HoldingRelevanceService:
         stmt = select(RelevanceCorrection).where(
             RelevanceCorrection.tenant_id == tenant_id,  # type: ignore[attr-defined]
             RelevanceCorrection.user_id == user_id,  # type: ignore[attr-defined]
-            RelevanceCorrection.item_id == item_id,  # type: ignore[attr-defined]
+            RelevanceCorrection.item_id == item_uuid,  # type: ignore[attr-defined]
         )
         existing = (await self._uow.session.execute(stmt)).scalar_one_or_none()  # type: ignore[assignment]
         if existing is None:

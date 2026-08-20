@@ -697,6 +697,89 @@ class TestAckFlow:
         )
         assert resp_cross.status_code == 404
 
+    async def test_malformed_ids_never_raise_db_error(
+        self,
+        relevance_client: httpx.AsyncClient,
+        seeded_tenant: dict[str, Any],
+        session_factory: async_sessionmaker[AsyncSession],
+    ) -> None:
+        """Scenario-2 holdout: non-UUID ids return 404, never a 500.
+
+        Regression (real PostgreSQL): set_ack/correct passed the raw
+        path/body id into session.get() without UUID validation, raising
+        asyncpg DataError (invalid UUID) → HTTP 500.  Malformed values
+        must behave as data: 400/404/empty, never a SQL/query error.
+        """
+        tenant_a = seeded_tenant["tenant_a"]
+        security_a = seeded_tenant["security_a"]
+        cluster_ids = await _cluster_ids(session_factory, tenant_a["tenant_id"])
+        assert cluster_ids, "seeded feed must produce clusters"
+        target = cluster_ids[0]
+
+        malformed = ["not-a-uuid", "1", "AAPL' OR '1'='1", "%", "_"]
+        for bad in malformed:
+            resp = await relevance_client.post(
+                f"/api/v1/holding-relevance/clusters/{bad}/ack",
+                json={"acknowledged": True},
+                headers=tenant_a["headers"],
+            )
+            # 404 (service returned False → HTTPException) — never 500.
+            assert resp.status_code == 404, (
+                f"ack {bad!r}: expected 404, got {resp.status_code}: {resp.text[:120]}"
+            )
+            resp = await relevance_client.post(
+                "/api/v1/holding-relevance/corrections",
+                json={"item_id": bad, "security_id": security_a},
+                headers=tenant_a["headers"],
+            )
+            assert resp.status_code == 404, (
+                f"correction {bad!r}: expected 404, got {resp.status_code}: {resp.text[:120]}"
+            )
+
+        # A well-formed-but-unknown id is also 404 (no existence leak).
+        unknown = "00000000-0000-0000-0000-000000000000"
+        resp = await relevance_client.post(
+            f"/api/v1/holding-relevance/clusters/{unknown}/ack",
+            json={"acknowledged": True},
+            headers=tenant_a["headers"],
+        )
+        assert resp.status_code == 404
+        resp = await relevance_client.post(
+            "/api/v1/holding-relevance/corrections",
+            json={"item_id": unknown, "security_id": security_a},
+            headers=tenant_a["headers"],
+        )
+        assert resp.status_code == 404
+
+        # Real ids still work (ack round-trips, correction is accepted).
+        resp = await relevance_client.post(
+            f"/api/v1/holding-relevance/clusters/{target}/ack",
+            json={"acknowledged": True},
+            headers=tenant_a["headers"],
+        )
+        assert resp.status_code == 200, resp.text
+        item_ids: list[str] = []
+        async with session_factory() as session:
+            from sqlalchemy import select
+
+            from finance_sync.models.holding_relevance import (
+                RelevanceClusterItem,
+            )
+
+            stmt = select(RelevanceClusterItem.item_id).where(
+                RelevanceClusterItem.cluster_id == target
+            )
+            item_ids = [
+                str(r) for r in (await session.execute(stmt)).scalars().all()
+            ]
+        if item_ids:
+            resp = await relevance_client.post(
+                "/api/v1/holding-relevance/corrections",
+                json={"item_id": item_ids[0], "security_id": security_a},
+                headers=tenant_a["headers"],
+            )
+            assert resp.status_code == 200, resp.text
+
 
 # ═══════════════════════════════════════════════════════════════════════
 # Tenant isolation
