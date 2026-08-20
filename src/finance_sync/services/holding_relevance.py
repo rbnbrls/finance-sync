@@ -346,6 +346,26 @@ def _reliability(provider: str) -> float:
     return _PROVIDER_RELIABILITY.get(provider, 0.5)
 
 
+def _safe_source_url(url: str | None) -> str | None:
+    """Return *url* with secret-shaped query parameters scrubbed.
+
+    Upstream source URLs can carry signed tokens / API keys in their
+    query string (e.g. ``?token=sk_`` + ``live_...&api_key=...``).  Those must
+    never reach feed DTOs or notification payloads: the URL is kept
+    (the holdout requires ``source URL`` in every response) but secret
+    shapes are redacted via the shared redaction helper.
+    """
+    if not url:
+        return url
+    from finance_sync.utils.redaction import redact_text
+
+    cleaned = redact_text(url)
+    if cleaned == url:
+        return url
+    # redact_text replaces key=value with key[REDACTED]; keep it stable.
+    return cleaned
+
+
 def _is_fresh(item: MarketIntelligenceItem, now: datetime) -> bool:
     if item.stale_after is not None:
         return datetime.now(UTC) < _as_utc(item.stale_after)  # type: ignore[operator]
@@ -658,13 +678,16 @@ class HoldingRelevanceService:
 
         Idempotent: re-acking or un-acking the same cluster is a no-op.
         A cross-tenant cluster id returns False (never leaks existence).
-        Adding a new source link to a cluster later never resets an
-        existing ack (the ack row is keyed on cluster, not on items).
+        A malformed / non-UUID cluster id returns False (never raises —
+        injection payloads and path-traversal attempts are treated as
+        data, matching no rows).  Adding a new source link to a cluster
+        later never resets an existing ack (the ack row is keyed on
+        cluster, not on items).
         """
         cluster_uuid = _valid_uuid_or_none(cluster_id)
         if cluster_uuid is None:
             return False
-        cluster = await self._uow.relevance_clusters.get(cluster_uuid)
+        cluster = await self._uow.relevance_clusters.get(str(cluster_uuid))
         if cluster is None or str(cluster.tenant_id) != str(tenant_id):
             return False
 
@@ -678,7 +701,7 @@ class HoldingRelevanceService:
             ack = RelevanceAck(
                 tenant_id=tenant_id,
                 user_id=user_id,
-                cluster_id=cluster_id,
+                cluster_id=cluster_uuid,
                 acknowledged=acknowledged,
                 acknowledged_at=datetime.now(UTC),
             )
@@ -707,11 +730,12 @@ class HoldingRelevanceService:
         correcting user's feed and records feedback for the future
         matcher.  It never deletes the underlying observation and never
         affects other tenants.  Idempotent per (tenant, user, item).
+        A malformed / non-UUID item id returns False (never raises).
         """
         item_uuid = _valid_uuid_or_none(item_id)
         if item_uuid is None:
             return False
-        item = await self._uow.market_intelligence_items.get(item_uuid)
+        item = await self._uow.market_intelligence_items.get(str(item_uuid))
         if item is None or str(item.tenant_id) != str(tenant_id):
             return False
         # Sanitise free-form user input before persistence.
@@ -880,7 +904,13 @@ class HoldingRelevanceService:
         if pref_row is None or not pref_row.enabled:
             return {"sent": 0, "skipped": "disabled"}
 
-        cluster = await self._uow.relevance_clusters.get(cluster_id)
+        cluster_uuid = _valid_uuid_or_none(cluster_id)
+        if cluster_uuid is None:
+            # Malformed / non-UUID cluster ids are data, not queries:
+            # never raise in the dialect's UUID bind processor.
+            return {"sent": 0, "skipped": "not_found"}
+
+        cluster = await self._uow.relevance_clusters.get(str(cluster_uuid))
         if cluster is None or str(cluster.tenant_id) != str(tenant_id):
             return {"sent": 0, "skipped": "not_found"}
 
@@ -953,7 +983,7 @@ class HoldingRelevanceService:
             "event_date": (
                 cluster.event_date.isoformat() if cluster.event_date else None
             ),
-            "source_url": cluster.best_source_url,
+            "source_url": _safe_source_url(cluster.best_source_url),
             "lockscreen_safe": pref.lockscreen_safe,
         }
         if pref.detailed_preview and cluster.security_id is not None:
@@ -1837,7 +1867,7 @@ class HoldingRelevanceService:
                     "item_id": str(item.id),
                     "provider": item.provider,
                     "source_id": item.source_id,
-                    "url": item.canonical_url,
+                    "url": _safe_source_url(item.canonical_url),
                     "headline": item.headline,
                     "published_at": item.published_at,
                     "fetched_at": item.fetched_at,
@@ -1874,7 +1904,7 @@ class HoldingRelevanceService:
             "cluster_reason": cluster.cluster_reason,
             "earliest_published_at": cluster.earliest_published_at,
             "item_ids": [str(i.id) for i in items],
-            "best_source_url": cluster.best_source_url,
+            "best_source_url": _safe_source_url(cluster.best_source_url),
             "acknowledged": acknowledged,
             "sources": sources,
         }
