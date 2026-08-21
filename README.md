@@ -128,8 +128,12 @@ ephemeral** PostgreSQL and Redis instead of SQLite mocks.  It covers:
 * **Redis** — distributed locks (SET NX EX + Lua release), rate-limit
   counters, TTL cache semantics, and shared webhook delivery throttling
   (`test_redis_integration.py`)
+* **Webhook throttling** — Redis-backed fixed-window rate limiting of
+  webhook deliveries: budget enforcement, per-webhook isolation, and
+  `RATE_LIMITED` delivery-log status (`test_webhook_throttling_pg.py`)
 * **Migrations** — `alembic upgrade head` on a fresh database, schema
-  assertions, `downgrade base` round-trip (`test_migrations.py`)
+  assertions, `downgrade base` round-trip, incl. migrations 0036/0037
+  (`test_migrations.py`)
 
 Run it with Docker (ephemeral PG+Redis via compose):
 
@@ -147,7 +151,10 @@ uv run pytest -m integration -v
 
 If `TEST_DATABASE_URL` / `TEST_REDIS_URL` are unset the integration tests
 are skipped with a pointer to this section, so plain `pytest` stays green
-on machines without Docker.
+on machines without Docker.  In CI the service containers always provide
+PG/Redis, so the integration and e2e jobs **fail on any unexpected test
+skip** — the formal database-service gate must actually run, and the
+JUnit + service-container logs are uploaded as CI artifacts.
 
 ### Release 2 resource safeguards
 
