@@ -870,6 +870,12 @@
             <a href="#" class="active" data-section="connectors" data-perm="connectors:read" aria-current="page" onclick="switchSection('connectors')">
                 <span class="icon" aria-hidden="true">&#9881;</span> Connectors
             </a>
+            <a href="#" data-section="viewer" onclick="switchSection('viewer')">
+                <span class="icon" aria-hidden="true">&#128065;</span> Viewer
+            </a>
+            <a href="#" data-section="uploads" data-perm="connectors:read" onclick="switchSection('uploads')">
+                <span class="icon" aria-hidden="true">&#128228;</span> Uploads
+            </a>
             <a href="#" data-section="exporters" onclick="switchSection('exporters')">
                 <span class="icon" aria-hidden="true">&#10145;</span> Bestemmingen
             </a>
@@ -898,6 +904,55 @@
                 <button type="button" class="btn btn-primary" id="add-connection-btn" onclick="openCreateWizard()" aria-haspopup="dialog">&#43; Add connection</button>
             </div>
             <div id="connector-list" aria-live="polite" aria-busy="true"></div>
+        </div>
+        <div id="section-viewer" class="hidden" role="region" aria-labelledby="viewer-title">
+            <div class="card-header">
+                <div>
+                    <h1 class="page-title" id="viewer-title">Viewer</h1>
+                    <p class="page-subtitle" style="margin-bottom:0;">Read-only overzicht van de financiële data die momenteel in jouw finance-sync database staat.</p>
+                </div>
+                <button type="button" class="btn btn-secondary" onclick="loadViewer()">&#8635; Vernieuwen</button>
+            </div>
+            <div id="viewer-summary" class="connector-grid" aria-live="polite" aria-busy="true"></div>
+            <div class="card">
+                <div class="card-header"><h2>Accounts</h2></div>
+                <div id="viewer-accounts" aria-live="polite" aria-busy="true"></div>
+            </div>
+            <div class="card">
+                <div class="card-header"><h2>Holdings</h2></div>
+                <div id="viewer-holdings" aria-live="polite" aria-busy="true"></div>
+            </div>
+            <div class="card">
+                <div class="card-header"><h2>Recente transacties</h2></div>
+                <div id="viewer-transactions" aria-live="polite" aria-busy="true"></div>
+            </div>
+        </div>
+        <div id="section-uploads" class="hidden" role="region" aria-labelledby="uploads-title">
+            <h1 class="page-title" id="uploads-title">Uploads</h1>
+            <p class="page-subtitle">Upload officiële DEGIRO Pensioen-bestanden vanaf je lokale computer. De upload wordt eerst gevalideerd; financiële data wordt pas na bevestiging opgeslagen.</p>
+            <div class="card">
+                <div class="card-header">
+                    <h2>DEGIRO Pensioen</h2>
+                    <span class="badge pending">Handmatige import</span>
+                </div>
+                <div id="degiro-upload-profile" aria-live="polite" aria-busy="true"></div>
+                <div class="form-group">
+                    <label for="degiro-upload-files">Bestanden (CSV, XLSX of XLS)</label>
+                    <input id="degiro-upload-files" type="file" multiple accept=".csv,.xlsx,.xls" aria-required="true">
+                    <div class="field-hint">Je kunt onder andere Portfolio.csv, het transactieoverzicht en het rekeningoverzicht uploaden.</div>
+                </div>
+                <div id="degiro-upload-preview" aria-live="polite"></div>
+                <div class="modal-footer" style="justify-content:flex-start;">
+                    <button type="button" id="degiro-upload-preview-btn" class="btn btn-primary" onclick="previewDegiroUpload()">Preview upload</button>
+                    <button type="button" id="degiro-upload-confirm-btn" class="btn btn-success hidden" onclick="confirmDegiroUpload()">Bevestig import</button>
+                </div>
+            </div>
+            <div class="card">
+                <div class="card-header">
+                    <h2>Recente uploads</h2>
+                </div>
+                <div id="degiro-upload-runs" aria-live="polite" aria-busy="true"></div>
+            </div>
         </div>
         <div id="section-exporters" class="hidden" role="region" aria-labelledby="exporters-title">
             <h1 class="page-title" id="exporters-title">Bestemmingen</h1>
@@ -977,8 +1032,11 @@
         let API_BASE = '/api/v1';
         let token = localStorage.getItem('fs_token');
         let connectors = [];     // available connector types
+        let connectorCatalog = [];
         let configs = [];        // saved configs (one entry per connection)
         let degiroRuns = [];     // path-free DEGIRO import status
+        let degiroConfigs = [];
+        let degiroUploadRunId = null;
         let wizardAccounts = [];      // accounts returned by the create-wizard inline test
         let connTestAccounts = {};    // cache: connectionId -> accounts from last test
 
@@ -1187,6 +1245,8 @@
             const section = document.getElementById(`section-${name}`);
             if (section) section.classList.remove('hidden');
             if (name === 'connectors') loadConnectors();
+            if (name === 'viewer') loadViewer();
+            if (name === 'uploads') loadDegiroUploads();
             if (name === 'exporters') loadExporters();
             if (name === 'sync') loadSyncRuns();
             if (name === 'holding-news') loadHoldingNews();
@@ -1204,6 +1264,90 @@
             return data;
         }
 
+        function viewerMoney(value, currency = 'EUR') {
+            if (value === null || value === undefined || value === '') return '—';
+            const amount = Number(value);
+            if (!Number.isFinite(amount)) return escapeHtml(String(value));
+            try {
+                return escapeHtml(new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(amount));
+            } catch (_) {
+                return escapeHtml(`${amount.toFixed(2)} ${currency}`);
+            }
+        }
+
+        function viewerCell(value) {
+            return escapeHtml(value === null || value === undefined || value === '' ? '—' : String(value));
+        }
+
+        function renderViewerError(title, error, retry) {
+            return `<div class="alert alert-error inline-error" role="alert"><div class="inline-error-msg"><strong>${escapeHtml(title)}</strong><span>${escapeHtml(error || 'De gegevens konden niet worden geladen.')}</span></div><button type="button" class="btn btn-secondary btn-sm" onclick="${retry}()">&#8635; Retry</button></div>`;
+        }
+
+        async function loadViewer() {
+            const summary = document.getElementById('viewer-summary');
+            const accounts = document.getElementById('viewer-accounts');
+            const holdings = document.getElementById('viewer-holdings');
+            const transactions = document.getElementById('viewer-transactions');
+            [summary, accounts, holdings, transactions].forEach(el => { if (el) el.setAttribute('aria-busy', 'true'); });
+            const settled = await Promise.allSettled([
+                api('GET', '/accounts?limit=200'),
+                api('GET', '/portfolio'),
+                api('GET', '/holdings?limit=500'),
+                api('GET', '/transactions?limit=50&sort_order=desc'),
+            ]);
+            const [accountResult, portfolioResult, holdingResult, transactionResult] = settled;
+            const accountData = accountResult.status === 'fulfilled' ? accountResult.value : null;
+            const portfolioData = portfolioResult.status === 'fulfilled' ? portfolioResult.value : null;
+            const holdingData = holdingResult.status === 'fulfilled' ? holdingResult.value : null;
+            const transactionData = transactionResult.status === 'fulfilled' ? transactionResult.value : null;
+
+            if (summary) {
+                const currency = portfolioData?.currency_code || 'EUR';
+                summary.innerHTML = `
+                    <div class="card"><div class="field-hint">Portefeuillewaarde</div><div class="page-title">${viewerMoney(portfolioData?.total_value, currency)}</div></div>
+                    <div class="card"><div class="field-hint">Kostprijs</div><div class="page-title">${viewerMoney(portfolioData?.total_cost_basis, currency)}</div></div>
+                    <div class="card"><div class="field-hint">Accounts / holdings</div><div class="page-title">${viewerCell(accountData?.total ?? '—')} / ${viewerCell(holdingData?.total ?? '—')}</div></div>
+                    <div class="card"><div class="field-hint">Transacties</div><div class="page-title">${viewerCell(transactionData?.total ?? '—')}</div></div>`;
+                summary.setAttribute('aria-busy', 'false');
+            }
+            if (accounts) {
+                accounts.innerHTML = accountResult.status === 'rejected'
+                    ? renderViewerError('Accounts konden niet worden geladen.', accountResult.reason?.message, 'loadViewer')
+                    : renderViewerAccounts(accountData?.items || []);
+                accounts.setAttribute('aria-busy', 'false');
+            }
+            if (holdings) {
+                holdings.innerHTML = holdingResult.status === 'rejected'
+                    ? renderViewerError('Holdings konden niet worden geladen.', holdingResult.reason?.message, 'loadViewer')
+                    : renderViewerHoldings(holdingData?.items || []);
+                holdings.setAttribute('aria-busy', 'false');
+            }
+            if (transactions) {
+                transactions.innerHTML = transactionResult.status === 'rejected'
+                    ? renderViewerError('Transacties konden niet worden geladen.', transactionResult.reason?.message, 'loadViewer')
+                    : renderViewerTransactions(transactionData?.items || []);
+                transactions.setAttribute('aria-busy', 'false');
+            }
+            if (portfolioResult.status === 'rejected' && summary) {
+                summary.insertAdjacentHTML('afterbegin', renderViewerError('Portefeuilleoverzicht kon niet worden geladen.', portfolioResult.reason?.message, 'loadViewer'));
+            }
+        }
+
+        function renderViewerAccounts(items) {
+            if (!items.length) return '<div class="empty-state" style="padding:24px 10px;"><p>Geen accounts in de database.</p></div>';
+            return `<div style="overflow-x:auto;"><table class="data-table"><thead><tr><th>Naam</th><th>Provider</th><th>Type</th><th>Saldo</th><th>Beschikbaar</th><th>Status</th></tr></thead><tbody>${items.map(item => `<tr><td>${viewerCell(item.name)}</td><td>${viewerCell(item.provider_key)}</td><td>${viewerCell(item.account_type)}</td><td>${viewerMoney(item.current_balance, item.currency_code)}</td><td>${viewerMoney(item.available_balance, item.currency_code)}</td><td>${item.is_active ? '<span class="badge connected">Actief</span>' : '<span class="badge pending">Inactief</span>'}</td></tr>`).join('')}</tbody></table></div>`;
+        }
+
+        function renderViewerHoldings(items) {
+            if (!items.length) return '<div class="empty-state" style="padding:24px 10px;"><p>Geen holdings in de database.</p></div>';
+            return `<div style="overflow-x:auto;"><table class="data-table"><thead><tr><th>Effect</th><th>Account</th><th>Aantal</th><th>Marktwaarde</th><th>Prijs</th><th>Geobserveerd</th></tr></thead><tbody>${items.map(item => `<tr><td><strong>${viewerCell(item.ticker || item.security_name)}</strong><br><span class="field-hint">${viewerCell(item.security_name)}</span></td><td>${viewerCell(item.account_name)}</td><td>${viewerCell(item.quantity)}</td><td>${viewerMoney(item.market_value, item.currency_code)}</td><td>${viewerMoney(item.price, item.price_currency || item.currency_code)}</td><td>${viewerCell(fmtDate(item.observed_at))}</td></tr>`).join('')}</tbody></table></div>`;
+        }
+
+        function renderViewerTransactions(items) {
+            if (!items.length) return '<div class="empty-state" style="padding:24px 10px;"><p>Geen transacties in de database.</p></div>';
+            return `<div style="overflow-x:auto;"><table class="data-table"><thead><tr><th>Datum</th><th>Provider</th><th>Type</th><th>Omschrijving</th><th>Bedrag</th><th>Status</th></tr></thead><tbody>${items.map(item => `<tr><td>${viewerCell(fmtDate(item.occurred_at))}</td><td>${viewerCell(item.provider_key)}</td><td>${viewerCell(item.transaction_type)}</td><td>${viewerCell(item.description)}</td><td>${viewerMoney(item.amount, item.currency_code)}</td><td>${viewerCell(item.status)}</td></tr>`).join('')}</tbody></table></div>`;
+        }
+
         // ── Load & render connectors ────────────────────────────────────
         // Loads each connector endpoint independently so a single failing
         // call can never blank the whole page: we render whatever loaded
@@ -1214,10 +1358,9 @@
             const settled = await Promise.allSettled([
                 api('GET', '/connectors'),
                 api('GET', '/connectors/configs'),
-                api('GET', '/connectors/degiro-pension/imports'),
             ]);
-            const [avail, cfgs, imports] = settled.map(r => r.status === 'fulfilled' ? r.value : null);
-            const failed = [avail, cfgs, imports].filter(v => v === null).length;
+            const [avail, cfgs] = settled.map(r => r.status === 'fulfilled' ? r.value : null);
+            const failed = [avail, cfgs].filter(v => v === null).length;
 
             if (failed === settled.length) {
                 const firstErr = settled.find(r => r.status === 'rejected');
@@ -1227,9 +1370,9 @@
                 return;
             }
 
-            connectors = avail || [];
-            configs = cfgs || [];
-            degiroRuns = imports || [];
+            connectorCatalog = avail || [];
+            connectors = connectorCatalog.filter(c => c.name !== 'degiro_pension');
+            configs = (cfgs || []).filter(c => c.provider_type !== 'degiro_pension');
             renderConnections();
 
             // Friendly inline notice for any endpoint that failed, each
@@ -1238,7 +1381,6 @@
                 const notices = [];
                 if (!avail) notices.push(['connector catalog', 'Failed to load the list of available connectors.']);
                 if (!cfgs) notices.push(['saved configurations', 'Failed to load your saved configurations.']);
-                if (!imports) notices.push(['DEGIRO import status', 'Failed to load DEGIRO import status.']);
                 const noticeEl = document.createElement('div');
                 noticeEl.innerHTML = `
                     <div class="alert alert-error inline-error" role="alert">
@@ -1251,6 +1393,50 @@
                 container.prepend(noticeEl);
             }
             if (container) container.setAttribute('aria-busy', 'false');
+        }
+
+        async function loadDegiroUploads() {
+            const profile = document.getElementById('degiro-upload-profile');
+            const runs = document.getElementById('degiro-upload-runs');
+            if (profile) profile.setAttribute('aria-busy', 'true');
+            const settled = await Promise.allSettled([
+                api('GET', '/connectors/configs'),
+                api('GET', '/connectors/degiro-pension/imports'),
+            ]);
+            const cfgResult = settled[0];
+            const runsResult = settled[1];
+            degiroConfigs = cfgResult.status === 'fulfilled'
+                ? (cfgResult.value || []).filter(c => c.provider_type === 'degiro_pension')
+                : [];
+            degiroRuns = runsResult.status === 'fulfilled' ? (runsResult.value || []) : [];
+
+            if (profile) {
+                if (cfgResult.status === 'rejected') {
+                    profile.innerHTML = '<div class="alert alert-error" role="alert">DEGIRO-uploadprofiel kon niet worden geladen. <button type="button" class="btn btn-secondary btn-sm" onclick="loadDegiroUploads()">Retry</button></div>';
+                } else if (!degiroConfigs.length) {
+                    profile.innerHTML = `<div class="alert alert-info">
+                        <strong>Een uploadprofiel is nog niet ingesteld.</strong>
+                        <span style="display:block;margin-top:4px;">Maak een profiel aan met een blijvend rekeningkenmerk. Dat zorgt ervoor dat latere uploads aan hetzelfde account worden gekoppeld.</span>
+                        <button type="button" class="btn btn-primary btn-sm" style="margin-top:12px;" onclick="openCreateWizard('degiro_pension')">Profiel instellen</button>
+                    </div>`;
+                } else {
+                    const options = degiroConfigs.map(c => `<option value="${escapeHtml(String(c.id))}">${escapeHtml(String(c.description || c.options?.account_name || 'DEGIRO Pensioen'))}</option>`).join('');
+                    profile.innerHTML = `<label for="degiro-upload-connection">Uploadprofiel</label>
+                        <select id="degiro-upload-connection">${options}</select>
+                        <div class="field-hint">Gebruik hetzelfde profiel bij iedere nieuwe export.</div>`;
+                }
+                profile.setAttribute('aria-busy', 'false');
+            }
+            if (runs) {
+                if (runsResult.status === 'rejected') {
+                    runs.innerHTML = '<div class="alert alert-error" role="alert">Uploadgeschiedenis kon niet worden geladen. <button type="button" class="btn btn-secondary btn-sm" onclick="loadDegiroUploads()">Retry</button></div>';
+                } else if (!degiroRuns.length) {
+                    runs.innerHTML = '<div class="empty-state" style="padding:24px 10px;"><p>Nog geen DEGIRO-uploads.</p></div>';
+                } else {
+                    runs.innerHTML = `<table class="data-table"><thead><tr><th>Datum</th><th>Bestanden</th><th>Status</th><th>Nieuw</th><th>Bijgewerkt</th></tr></thead><tbody>${degiroRuns.slice(0, 10).map(run => `<tr><td>${escapeHtml(fmtDate(run.created_at))}</td><td>${escapeHtml((run.file_names || []).join(', '))}</td><td>${escapeHtml(run.status || '—')}</td><td>${escapeHtml(String(run.created_count ?? '—'))}</td><td>${escapeHtml(String(run.updated_count ?? '—'))}</td></tr>`).join('')}</tbody></table>`;
+                }
+                runs.setAttribute('aria-busy', 'false');
+            }
         }
 
         function detailHint(failedCount) {
@@ -1347,8 +1533,6 @@
             const lastError = cfg.last_error
                 ? `<div class="conn-error" role="alert" title="${escapeHtml(String(cfg.last_error))}">&#9888; ${escapeHtml(truncateText(cfg.last_error, 160))}</div>`
                 : '';
-            const isDegiro = cfg.provider_type === 'degiro_pension';
-
             return `
                 <div class="connector-card" data-connection="${connectionId}" data-provider="${provider}">
                     <div class="top">
@@ -1376,8 +1560,7 @@
                         ${isPaused
                             ? `<button class="btn btn-success btn-sm" onclick="resumeConnection('${connectionId}')">&#9654; Resume</button>`
                             : `<button class="btn btn-secondary btn-sm" onclick="pauseConnection('${connectionId}')">&#10074;&#10074; Pause</button>`}
-                        ${!isDegiro ? `<button class="btn btn-danger btn-sm" onclick="deleteConfig('${connectionId}', '${provider}')">&#10005; Delete</button>` : ''}
-                        ${isDegiro ? `<button class="btn btn-success btn-sm" onclick="openDegiroImport('${connectionId}')">&#8679; Import</button>` : ''}
+                        <button class="btn btn-danger btn-sm" onclick="deleteConfig('${connectionId}', '${provider}')">&#10005; Delete</button>
                     </div>
                     <div id="test-result-${connectionId}" style="margin-top: 12px;" aria-live="polite"></div>
                 </div>`;
@@ -1477,19 +1660,90 @@
             }
         }
 
+        async function previewDegiroUpload() {
+            const filesInput = document.getElementById('degiro-upload-files');
+            const connectionInput = document.getElementById('degiro-upload-connection');
+            const preview = document.getElementById('degiro-upload-preview');
+            const button = document.getElementById('degiro-upload-preview-btn');
+            const confirmButton = document.getElementById('degiro-upload-confirm-btn');
+            if (!filesInput || !filesInput.files.length) {
+                toast('Selecteer minimaal één DEGIRO-bestand.', 'error');
+                return;
+            }
+            if (!connectionInput || !connectionInput.value) {
+                toast('Stel eerst een DEGIRO-uploadprofiel in.', 'error');
+                return;
+            }
+            const form = new FormData();
+            form.append('connection_id', connectionInput.value);
+            for (const file of filesInput.files) form.append('files', file);
+            const headers = {};
+            if (token) headers.Authorization = `Bearer ${token}`;
+            button.disabled = true;
+            confirmButton.classList.add('hidden');
+            try {
+                const response = await fetch(`${API_BASE}/connectors/degiro-pension/imports/preview`, { method: 'POST', headers, body: form });
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.detail || 'Preview mislukt');
+                const p = data.preview || {};
+                degiroUploadRunId = data.id;
+                const duplicateNotice = p.already_processed
+                    ? '<div class="alert alert-info" style="margin-top:12px;">Deze exacte bestanden zijn al succesvol verwerkt. Bevestigen wordt door de server geblokkeerd.</div>'
+                    : '';
+                preview.innerHTML = `<div class="alert alert-success">
+                    <strong>${escapeHtml(String(p.account_label || 'DEGIRO Pensioen'))}</strong><br>
+                    Rapporten: ${escapeHtml((p.report_types || []).join(', ') || 'geen')}<br>
+                    Regels: ${escapeHtml(String(p.rows ?? 0))}; transacties: ${escapeHtml(String(p.transactions ?? 0))}; holdings: ${escapeHtml(String(p.holdings ?? 0))}<br>
+                    Mogelijke dubbele transacties: ${escapeHtml(String(p.possible_duplicates ?? 0))}<br>
+                    Ontbrekende rapporten: ${escapeHtml((p.missing_report_types || []).join(', ') || 'geen')}
+                </div>${duplicateNotice}`;
+                confirmButton.classList.remove('hidden');
+                confirmButton.disabled = !!p.already_processed;
+                button.disabled = false;
+            } catch (e) {
+                preview.innerHTML = `<div class="alert alert-error inline-error" role="alert">
+                    <div class="inline-error-msg"><strong>Upload kon niet worden gepreviewd.</strong><span>${escapeHtml(e.message || 'De server heeft de bestanden geweigerd.')}</span></div>
+                    <button type="button" class="btn btn-secondary btn-sm" onclick="previewDegiroUpload()">&#8635; Retry</button>
+                </div>`;
+                button.disabled = false;
+            }
+        }
+
+        async function confirmDegiroUpload() {
+            const button = document.getElementById('degiro-upload-confirm-btn');
+            const preview = document.getElementById('degiro-upload-preview');
+            if (!degiroUploadRunId) return;
+            button.disabled = true;
+            try {
+                const result = await api('POST', `/connectors/degiro-pension/imports/${degiroUploadRunId}/confirm`, {});
+                preview.innerHTML = `<div class="alert alert-success" role="status"><strong>Import voltooid.</strong> ${escapeHtml(String(result.created_count ?? 0))} nieuwe items, ${escapeHtml(String(result.updated_count ?? 0))} bijgewerkte items.</div>`;
+                degiroUploadRunId = null;
+                document.getElementById('degiro-upload-files').value = '';
+                button.classList.add('hidden');
+                await loadDegiroUploads();
+            } catch (e) {
+                preview.innerHTML = `<div class="alert alert-error inline-error" role="alert">
+                    <div class="inline-error-msg"><strong>Import kon niet worden bevestigd.</strong><span>${escapeHtml(e.message || 'De server heeft de bevestiging geweigerd.')}</span></div>
+                    <button type="button" class="btn btn-secondary btn-sm" onclick="confirmDegiroUpload()">&#8635; Retry</button>
+                </div>`;
+                button.disabled = false;
+            }
+        }
+
         // ── Configuration Wizard ────────────────────────────────────────
         // Supports creating a brand-new connection (multiple connections
         // per provider are allowed) and editing an existing one.  Stored
         // credentials are never rendered back: password fields in edit
         // mode show a masked placeholder and stay untouched when blank.
 
-        function wizardProviders() {
-            return connectors.filter(c => c.configuration_mode !== 'staging_choice'
+        function wizardProviders(includeManualUpload = false) {
+            const source = includeManualUpload ? connectorCatalog : connectors;
+            return source.filter(c => c.configuration_mode !== 'staging_choice'
                 && ((c.credential_fields && c.credential_fields.length) || (c.option_fields && c.option_fields.length)));
         }
 
         function openCreateWizard(presetProvider) {
-            const candidates = wizardProviders();
+            const candidates = wizardProviders(presetProvider === 'degiro_pension');
             if (!candidates.length) {
                 toast('No configurable connectors are available', 'error');
                 return;
@@ -1501,10 +1755,10 @@
 
         function openConfigModal(providerType, connectionId) {
             const isEdit = !!connectionId;
-            const c = connectors.find(x => x.name === providerType);
+            const c = connectorCatalog.find(x => x.name === providerType);
             if (!c) return;
             const cfg = isEdit ? findConfig(connectionId) : null;
-            const candidates = wizardProviders();
+            const candidates = wizardProviders(providerType === 'degiro_pension');
 
             let fieldsHtml = '';
             for (const f of c.credential_fields || []) {
@@ -1623,7 +1877,7 @@
             const sel = document.getElementById('config-provider');
             if (!sel) return;
             const chosen = sel.value;
-            const c = connectors.find(x => x.name === chosen);
+            const c = connectorCatalog.find(x => x.name === chosen);
             if (!c) return;
             closeModal();
             openConfigModal(chosen, null);
@@ -1632,7 +1886,7 @@
         async function testWizardConnection() {
             const sel = document.getElementById('config-provider');
             const providerName = sel ? sel.value : '';
-            const c = connectors.find(x => x.name === providerName);
+            const c = connectorCatalog.find(x => x.name === providerName);
             if (!c) return;
             const errorEl = document.getElementById('config-error');
             const resultEl = document.getElementById('wizard-test-result');
@@ -1722,7 +1976,7 @@
                 const sel = document.getElementById('config-provider');
                 if (sel && sel.value) providerType = sel.value;
             }
-            const c = connectors.find(x => x.name === providerType);
+            const c = connectorCatalog.find(x => x.name === providerType);
             if (!c) {
                 errorEl.innerHTML = '<strong>Configuration error</strong> Unknown connector. Please reload the page and try again.';
                 errorEl.classList.remove('hidden');
@@ -1792,6 +2046,7 @@
                 closeModal();
                 toast(`Configuration saved for ${c.display_name}`, 'success');
                 await loadConnectors();
+                if (providerType === 'degiro_pension') await loadDegiroUploads();
             } catch (e) {
                 errorEl.innerHTML = `
                     <strong>Could not save the configuration.</strong>
