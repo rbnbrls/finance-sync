@@ -134,9 +134,9 @@ class PortfolioReadService:
                 if cost_basis is not None and market_value is not None:
                     unrealised_pl = market_value - cost_basis
                     if cost_basis != E("0"):
-                        unrealised_pl_pct = (
-                            unrealised_pl / cost_basis
-                        ) * E("100")
+                        unrealised_pl_pct = (unrealised_pl / cost_basis) * E(
+                            "100"
+                        )
                 if market_value is not None:
                     account_value += market_value
                 if cost_basis is not None:
@@ -147,9 +147,7 @@ class PortfolioReadService:
                         ticker=security.ticker if security else None,
                         security_name=security.name if security else "Unknown",
                         security_type=(
-                            str(security.security_type)
-                            if security
-                            else "other"
+                            str(security.security_type) if security else "other"
                         ),
                         quantity=holding.quantity,
                         cost_basis=cost_basis,
@@ -235,9 +233,9 @@ class PortfolioReadService:
         )
         holdings: list[Holding] = list(result.scalars().all())
         count_result = await self._session.execute(
-            select(func.count()).select_from(Holding).where(
-                expression(*conditions)
-            )
+            select(func.count())
+            .select_from(Holding)
+            .where(expression(*conditions))
         )
         total: int = count_result.scalar() or 0
         if not holdings:
@@ -261,9 +259,7 @@ class PortfolioReadService:
         securities_result = await self._session.execute(
             select(Security).where(Security.id.in_(security_ids))
         )
-        securities = {
-            str(s.id): s for s in securities_result.scalars().all()
-        }
+        securities = {str(s.id): s for s in securities_result.scalars().all()}
         items: list[Any] = []
         for holding in holdings:
             security = securities.get(str(holding.security_id))
