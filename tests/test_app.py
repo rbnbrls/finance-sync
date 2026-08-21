@@ -93,16 +93,17 @@ class TestAppFactory:
 
     def test_production_hides_debug(self) -> None:
         """Production environment disables debug."""
-        from finance_sync.config.settings import Settings
+        from pydantic import RedisDsn
+
+        from finance_sync.config.environments import Environment
 
         settings = Settings(
-            environment="prod",
-            secret_key="test-production-secret-key-1234",
-            master_encryption_key="00" * 32,
+            environment=Environment.PRODUCTION,
+            secret_key=SecretStr("test-production-secret-key-1234"),
+            master_encryption_key=SecretStr("00" * 32),
             cors_origins=["https://example.test"],
-            redis_url="redis://localhost:6379/0",
-            _env_file=None,
-        )  # type: ignore[call-arg]
+            redis_url=RedisDsn("redis://localhost:6379/0"),
+        )
         app = create_app(settings=settings)
         assert app.debug is False
 
