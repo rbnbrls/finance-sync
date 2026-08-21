@@ -26,7 +26,7 @@ from unittest.mock import MagicMock
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
-from pydantic import SecretStr
+from pydantic import RedisDsn, SecretStr
 from sqlalchemy.sql import visitors
 from sqlalchemy.sql.elements import BinaryExpression
 
@@ -59,8 +59,8 @@ def _settings() -> Settings:
     return Settings(
         environment=Environment.PRODUCTION,
         database_url=None,
-        redis_url="redis://localhost:6379/0",
-        secret_key="test-production-secret-key-1234",
+        redis_url=RedisDsn("redis://localhost:6379/0"),
+        secret_key=SecretStr("test-production-secret-key-1234"),
         cors_origins=["https://example.test"],
         master_encryption_key=SecretStr(_MASTER_KEY),
     )

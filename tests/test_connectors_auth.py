@@ -19,6 +19,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi.testclient import TestClient
+from pydantic import RedisDsn, SecretStr
 
 from finance_sync.api.deps.auth import (
     APIKeyAuthResult,
@@ -78,9 +79,9 @@ def _make_app(
         Settings(
             environment=Environment.PRODUCTION,
             database_url=None,
-            redis_url="redis://localhost:6379/0",
-            secret_key="test-production-secret-key-1234",
-            master_encryption_key="a1b2c3d4" * 8,
+            redis_url=RedisDsn("redis://localhost:6379/0"),
+            secret_key=SecretStr("test-production-secret-key-1234"),
+            master_encryption_key=SecretStr("a1b2c3d4" * 8),
             cors_origins=["https://example.test"],
             degiro_import_staging_directory=staging_dir,
         )

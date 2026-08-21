@@ -36,7 +36,6 @@ if TYPE_CHECKING:
     from finance_sync.db.uow import UnitOfWork
 
 
-
 class PersistenceWriter(Protocol):
     """Minimal write contract required by :class:`SyncPersistence`."""
 
@@ -162,9 +161,7 @@ class AccountPersistence:
             tenant_id=self._tenant_id,
             provider_key=account.provider_key,
             connection_id=connection_id,
-            owner_user_id=await self._connection_owner_id(
-                uow, connection_id
-            ),
+            owner_user_id=await self._connection_owner_id(uow, connection_id),
             external_account_id=account.external_account_id,
             name=account.name,
             account_type=account.account_type,
@@ -215,10 +212,21 @@ class TransactionPersistence:
             connection_id=connection_id,
         )
         fields = (
-            "amount", "currency_code", "occurred_at", "booked_at",
-            "transaction_type", "description", "quantity", "unit_price",
-            "fee_amount", "fee_currency_code", "status", "amount_in_base",
-            "base_currency_code", "fx_rate", "provider_fingerprint",
+            "amount",
+            "currency_code",
+            "occurred_at",
+            "booked_at",
+            "transaction_type",
+            "description",
+            "quantity",
+            "unit_price",
+            "fee_amount",
+            "fee_currency_code",
+            "status",
+            "amount_in_base",
+            "base_currency_code",
+            "fx_rate",
+            "provider_fingerprint",
         )
         if existing is not None:
             changed: dict[str, object] = {}
@@ -249,9 +257,8 @@ class TransactionPersistence:
 
         transaction_type = (
             TransactionType(transaction.transaction_type)
-            if transaction.transaction_type in (
-                TransactionType.__members__.values()
-            )
+            if transaction.transaction_type
+            in (TransactionType.__members__.values())
             else TransactionType.OTHER
         )
         transaction_status = (
@@ -271,12 +278,14 @@ class TransactionPersistence:
             currency_code=transaction.currency_code,
             amount_in_base=(
                 Decimal(str(transaction.amount_in_base))
-                if transaction.amount_in_base is not None else None
+                if transaction.amount_in_base is not None
+                else None
             ),
             base_currency_code=transaction.base_currency_code,
             fx_rate=(
                 Decimal(str(transaction.fx_rate))
-                if transaction.fx_rate is not None else None
+                if transaction.fx_rate is not None
+                else None
             ),
             occurred_at=transaction.occurred_at,
             booked_at=transaction.booked_at,
@@ -336,17 +345,20 @@ class HoldingPersistence:
             "quantity": Decimal(str(holding.quantity)),
             "cost_basis": (
                 Decimal(str(holding.cost_basis))
-                if holding.cost_basis is not None else None
+                if holding.cost_basis is not None
+                else None
             ),
             "cost_basis_currency": holding.cost_basis_currency,
             "market_value": (
                 Decimal(str(holding.market_value))
-                if holding.market_value is not None else None
+                if holding.market_value is not None
+                else None
             ),
             "currency_code": holding.currency_code,
             "price": (
                 Decimal(str(holding.price))
-                if holding.price is not None else None
+                if holding.price is not None
+                else None
             ),
             "price_currency": holding.price_currency,
         }
