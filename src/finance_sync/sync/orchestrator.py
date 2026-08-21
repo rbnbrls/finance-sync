@@ -26,7 +26,7 @@ from __future__ import annotations
 import json
 import traceback
 from datetime import UTC, datetime
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 from typing import TYPE_CHECKING, Any, Protocol, cast, runtime_checkable
 
 import structlog
@@ -77,7 +77,11 @@ from finance_sync.sync.outbox import (
     outbox_reconciliation_completed,
     outbox_sync_completed,
 )
-from finance_sync.sync.persistence import PersistenceContext, SyncPersistence
+from finance_sync.sync.persistence import (
+    PersistenceContext,
+    SyncPersistence,
+    values_differ,
+)
 from finance_sync.sync.stages.accounts import AccountSyncStage
 from finance_sync.sync.stages.holdings import HoldingsSyncStage
 from finance_sync.sync.stages.transactions import TransactionSyncStage
@@ -161,12 +165,7 @@ def _values_differ(new_val: Any, old_val: Any) -> bool:
     deterministic outbox idempotency key until the unique constraint aborts
     the whole sync run.
     """
-    if isinstance(new_val, Decimal) or isinstance(old_val, Decimal):
-        try:
-            return Decimal(str(new_val)) != Decimal(str(old_val))
-        except (InvalidOperation, TypeError, ValueError):
-            pass
-    return str(new_val) != str(old_val)
+    return values_differ(new_val, old_val)
 
 
 class SyncOrchestrator:

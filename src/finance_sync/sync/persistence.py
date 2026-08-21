@@ -9,8 +9,8 @@ replace or test.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from decimal import Decimal
-from typing import TYPE_CHECKING, Protocol
+from decimal import Decimal, InvalidOperation
+from typing import TYPE_CHECKING, Any, Protocol
 
 from finance_sync.models.account import Account
 from finance_sync.models.credential import Credential
@@ -34,6 +34,29 @@ if TYPE_CHECKING:
         SecurityReference,
     )
     from finance_sync.db.uow import UnitOfWork
+
+
+def values_differ(new_val: Any, old_val: Any) -> bool:
+    """Compare two field values for change detection.
+
+    Scale-insensitive for Decimals: a ``Numeric(24,8)`` column reads back
+    as e.g. ``Decimal('-13.80000000')``, which must compare equal to the
+    raw connector ``Decimal('-13.80')``.  Comparing via plain ``!=``
+    instead makes every re-sync look "changed", re-emitting
+    ``{entity}.updated`` with the same deterministic outbox idempotency
+    key until the unique constraint aborts the whole sync run.
+
+    UUID-insensitive: PK/FK columns are ``UUID(as_uuid=True)`` so they
+    read back as ``uuid.UUID`` objects, while the sync stages pass ids as
+    lowercase hex strings.  ``str()``-normalising both sides keeps
+    ``str(uuid)`` equal to the same ``uuid.UUID``.
+    """
+    if isinstance(new_val, Decimal) or isinstance(old_val, Decimal):
+        try:
+            return Decimal(str(new_val)) != Decimal(str(old_val))
+        except (InvalidOperation, TypeError, ValueError):
+            pass
+    return str(new_val) != str(old_val)
 
 
 class PersistenceWriter(Protocol):
@@ -137,8 +160,8 @@ class AccountPersistence:
             changed: dict[str, object] = {}
             for field in fields:
                 value = getattr(account, field, None)
-                if value is not None and value != getattr(
-                    existing, field, None
+                if value is not None and values_differ(
+                    value, getattr(existing, field, None)
                 ):
                     setattr(existing, field, value)
                     changed[field] = value
@@ -232,12 +255,14 @@ class TransactionPersistence:
             changed: dict[str, object] = {}
             for field in fields:
                 value = getattr(transaction, field, None)
-                if value is not None and value != getattr(
-                    existing, field, None
+                if value is not None and values_differ(
+                    value, getattr(existing, field, None)
                 ):
                     setattr(existing, field, value)
                     changed[field] = value
-            if security_id is not None and security_id != existing.security_id:
+            if security_id is not None and values_differ(
+                security_id, existing.security_id
+            ):
                 existing.security_id = security_id
                 changed["security_id"] = security_id
             if changed:
@@ -365,7 +390,7 @@ class HoldingPersistence:
         if existing is not None:
             changed = False
             for field, value in values.items():
-                if value != getattr(existing, field):
+                if values_differ(value, getattr(existing, field)):
                     setattr(existing, field, value)
                     changed = True
             if changed:
