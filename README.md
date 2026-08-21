@@ -11,7 +11,7 @@ The project uses GitHub Actions for CI/CD (`.github/workflows/ci.yml`):
 | Stage | Description |
 |-------|-------------|
 | **Lint** | Ruff check + format check |
-| **Type check** | Pyright strict for `src/`, basic for `tests/` (two configs: `pyproject.toml`, `pyrightconfig.tests.json`) |
+| **Type check** | Pyright strict for `src/`, basic for `tests/`, plus a versioned source-warning budget (`config/pyright-warning-budget.json`) |
 | **Test** | Pytest unit suite (aiosqlite, no external services) with coverage gate ≥ 70% |
 | **Migrations** | Alembic linear-chain check + `upgrade head` on an empty PostgreSQL |
 | **Integration** | `pytest -m integration` against ephemeral PostgreSQL + Redis (repositories, outbox, sync orchestrator, Redis locks/rate-limits, migration upgrade/downgrade) |
@@ -91,6 +91,13 @@ the scan passes.
 
 ## Testing
 
+### Production security configuration
+
+Production startup requires an explicit `SECRET_KEY`, `MASTER_ENCRYPTION_KEY`,
+`REDIS_URL` and non-wildcard `CORS_ORIGINS`. Webhooks require HTTPS and reject
+private or loopback destinations. Set `TRUSTED_PROXY_IPS` only to the actual
+reverse-proxy IPs/CIDRs; untrusted `X-Forwarded-For` headers are ignored.
+
 There are three test suites, split by the `integration` and `e2e` pytest
 markers:
 
@@ -119,7 +126,8 @@ ephemeral** PostgreSQL and Redis instead of SQLite mocks.  It covers:
 * **Sync orchestrator** — full pipeline persistence, idempotent re-runs,
   rollback on failure (`test_sync_orchestrator_pg.py`)
 * **Redis** — distributed locks (SET NX EX + Lua release), rate-limit
-  counters, TTL cache semantics (`test_redis_integration.py`)
+  counters, TTL cache semantics, and shared webhook delivery throttling
+  (`test_redis_integration.py`)
 * **Migrations** — `alembic upgrade head` on a fresh database, schema
   assertions, `downgrade base` round-trip (`test_migrations.py`)
 
@@ -140,6 +148,28 @@ uv run pytest -m integration -v
 If `TEST_DATABASE_URL` / `TEST_REDIS_URL` are unset the integration tests
 are skipped with a pointer to this section, so plain `pytest` stays green
 on machines without Docker.
+
+### Release 2 resource safeguards
+
+Release 2 adds three production safeguards that are easy to miss during
+local development:
+
+* portfolio/security reads fetch the latest prices in one set-based query;
+  migration `0037` adds the `(security_id, interval, timestamp DESC)` index
+  supporting that access pattern;
+* DeGiro imports enforce both a per-file limit and a combined upload-batch
+  limit (`DEGIRO_IMPORT_MAX_BATCH_BYTES`, default 100 MiB) while streaming;
+* webhook delivery uses Redis-backed per-webhook minute buckets when Redis is
+  configured, so throttling is shared across API and worker replicas.
+
+The upload limit should be sized together with reverse-proxy request limits.
+The Redis limiter is intentionally fail-open to the existing local limiter if
+Redis is temporarily unavailable; delivery is still bounded per process.
+
+Release 8 extends the sync-service extraction with typed account, transaction
+and holdings stages plus an immutable per-run context. Stage writes now pass
+through `sync/persistence.py`; the orchestrator retains ownership of the
+single UnitOfWork and its transaction lifecycle.
 
 ### E2E tests (API → worker exactly-once)
 

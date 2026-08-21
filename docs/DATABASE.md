@@ -34,7 +34,7 @@ All tables use UUID primary keys, `tenant_id`, `created_at`, and `updated_at` un
 
 ## Indexes, integrity, and lifecycle
 
-- Index every tenant-filtered access path: e.g. `(tenant_id, occurred_at DESC)` on transactions; `(tenant_id, as_of DESC)` on summaries; `(portfolio_id, observed_at DESC)` on holdings.
+- Index every tenant-filtered access path: e.g. `(tenant_id, occurred_at DESC)` on transactions; `(tenant_id, as_of DESC)` on summaries; `(portfolio_id, observed_at DESC)` on holdings. Migration `0037` adds `(security_id, interval, timestamp DESC)` for set-based latest-price reads.
 - Partial indexes for current records: `WHERE deleted_at IS NULL`, pending outbox events, and active connections.
 - Use `CHECK` constraints for ISO code length, non-negative quantities where applicable, valid enum status, `valid_to >= valid_from`, and non-zero transaction amount. Use foreign keys with restrictive deletes for financial records; soft-delete user-facing configuration.
 - Partition high-volume immutable observations (`transaction`, `price_observation`, `raw_payload`, `audit_log`, `outbox_event`) monthly after operational volume justifies it. Start unpartitioned to reduce migration complexity.

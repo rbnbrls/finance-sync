@@ -45,8 +45,13 @@ from finance_sync.monitoring.wealthfolio_monitor import (  # noqa: E402
 API_PREFIX = "/api/v1"
 
 
-def _request(base_url: str, path: str, *, password: str | None = None,
-             timeout: float = 30.0) -> tuple[int, object]:
+def _request(
+    base_url: str,
+    path: str,
+    *,
+    password: str | None = None,
+    timeout: float = 30.0,
+) -> tuple[int, object]:
     url = base_url.rstrip("/") + path
     headers = {"User-Agent": "curl/8.5.0", "Accept": "application/json"}
     data = None
@@ -77,8 +82,9 @@ class Client:
         self.authenticated = False
 
     def login(self) -> None:
-        status, body = _request(self.base_url, f"{API_PREFIX}/auth/login",
-                                password=self.password)
+        status, body = _request(
+            self.base_url, f"{API_PREFIX}/auth/login", password=self.password
+        )
         if status != 200:
             raise SystemExit(
                 f"login failed (HTTP {status}): {body!r} — aborting smoke run"
@@ -122,21 +128,25 @@ def main(argv: list[str] | None = None) -> int:
     public_url = args.public_url.rstrip("/")
     password = os.environ.get("WF_PASSWORD")
     if not password:
-        print("error: WF_PASSWORD env var required (Wealthfolio password)",
-              file=sys.stderr)
+        print(
+            "error: WF_PASSWORD env var required (Wealthfolio password)",
+            file=sys.stderr,
+        )
         return 2
 
     print(f"1) public URL {public_url} ...")
     status, body = _request(public_url, "/")
-    ok_html = status == 200 and isinstance(body, str) and "<html" in body.lower()
+    ok_html = (
+        status == 200 and isinstance(body, str) and "<html" in body.lower()
+    )
     print(f"   PWA root: HTTP {status} html={ok_html}")
     if not ok_html:
         print("   FAIL: public URL does not serve the Wealthfolio PWA")
         return 1
 
     status, body = _request(public_url, f"{API_PREFIX}/auth/status")
-    requires_password = (
-        isinstance(body, dict) and bool(body.get("requiresPassword"))
+    requires_password = isinstance(body, dict) and bool(
+        body.get("requiresPassword")
     )
     print(f"   auth/status: HTTP {status} requiresPassword={requires_password}")
     if status != 200 or not requires_password:
@@ -162,7 +172,9 @@ def main(argv: list[str] | None = None) -> int:
     n_activities = (
         str(activities_a["total"]) if isinstance(activities_a, dict) else "?"
     )
-    print(f"   OK: both clients agree — accounts={n_accounts} activities={n_activities}")
+    print(
+        f"   OK: both clients agree — accounts={n_accounts} activities={n_activities}"
+    )
 
     print("3) export freshness ...")
     database_url = os.environ.get("DATABASE_URL")
@@ -175,7 +187,8 @@ def main(argv: list[str] | None = None) -> int:
             print(f"   FAIL: cannot read delivery cursors: {exc}")
             return 1
         result = check_export_freshness(
-            deliveries, max_stale_hours=args.max_stale_hours,
+            deliveries,
+            max_stale_hours=args.max_stale_hours,
             now=datetime.now(UTC),
         )
         print(f"   {'OK' if result.ok else 'FAIL'}: {result.detail}")

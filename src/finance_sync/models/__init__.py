@@ -86,6 +86,7 @@ from finance_sync.models.reconciliation import (
     ReconciliationResult,
     ReconciliationRun,
 )
+from finance_sync.models.refresh_token import RefreshToken
 from finance_sync.models.resolution_audit_log import ResolutionAuditLog
 from finance_sync.models.scheduled_payment import ScheduledPayment
 from finance_sync.models.security import Security
@@ -207,6 +208,7 @@ __all__ = [
     "ReconciliationRun",
     "ReconciliationRunStatus",
     "ReconciliationSeverity",
+    "RefreshToken",
     "RelevanceAck",
     "RelevanceCluster",
     "RelevanceClusterItem",

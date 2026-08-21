@@ -102,10 +102,16 @@ class ActualBudgetConfig(BaseModel):
 
         Looks for ``ACTUAL_BUDGET_*`` env variables via the settings.
         """
+        password_value = getattr(settings, "actual_budget_password", None)
+        password = (
+            password_value.get_secret_value()
+            if hasattr(password_value, "get_secret_value")
+            else str(password_value or "")
+        )
         return cls(
             server_url=getattr(settings, "actual_budget_server_url", "")
             or "http://localhost:5006",
-            password=getattr(settings, "actual_budget_password", "") or "",
+            password=password,
             sync_id=getattr(settings, "actual_budget_sync_id", None),
             budget_name=getattr(settings, "actual_budget_budget_name", None),
             encryption_password=getattr(

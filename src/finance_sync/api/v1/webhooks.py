@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field, HttpUrl
 
 from finance_sync.api.deps.auth import AuthContext, require_permission
-from finance_sync.services.webhook import WebhookService
+from finance_sync.services.webhook import WebhookService, validate_webhook_url
 
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 
@@ -76,6 +76,11 @@ def _get_service(request: Request) -> WebhookService:
         svc = WebhookService(
             session_factory=container.session_factory,
             settings=settings,
+            redis_client=(
+                container.redis_client
+                if settings.redis_url is not None
+                else None
+            ),
         )
         request.app.state.webhook_service_instance = svc
     return svc
@@ -93,6 +98,10 @@ async def create_webhook(
     auth: AuthContext = Depends(require_permission("webhooks", "write")),
 ) -> dict[str, Any]:
     """Register a new webhook endpoint."""
+    try:
+        validate_webhook_url(str(body.url))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     svc = _get_service(request)
     wh = await svc.create_webhook(
         tenant_id=auth.tenant_id,

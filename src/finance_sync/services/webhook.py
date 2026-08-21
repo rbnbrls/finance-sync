@@ -10,11 +10,14 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import ipaddress
 import json
+import socket
 import time
 import traceback
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urlsplit
 from uuid import uuid4
 
 import httpx
@@ -68,6 +71,42 @@ class _SlidingWindowCounter:
 _rate_limiter = _SlidingWindowCounter()
 
 
+def validate_webhook_url(url: str, *, resolve: bool = False) -> None:
+    """Reject non-HTTPS and private webhook destinations."""
+    parsed = urlsplit(url)
+    if parsed.scheme != "https" or not parsed.hostname:
+        msg = "Webhook URL must use HTTPS and include a hostname"
+        raise ValueError(msg)
+    try:
+        addresses = [ipaddress.ip_address(parsed.hostname)]
+    except ValueError:
+        addresses = []
+        if resolve:
+            try:
+                addresses = [
+                    ipaddress.ip_address(item[4][0])
+                    for item in socket.getaddrinfo(
+                        parsed.hostname,
+                        parsed.port or 443,
+                        type=socket.SOCK_STREAM,
+                    )
+                ]
+            except OSError as exc:
+                msg = "Webhook hostname could not be resolved"
+                raise ValueError(msg) from exc
+    for address in addresses:
+        if (
+            address.is_private
+            or address.is_loopback
+            or address.is_link_local
+            or address.is_multicast
+            or address.is_reserved
+            or address.is_unspecified
+        ):
+            msg = "Private webhook destinations are not allowed"
+            raise ValueError(msg)
+
+
 # ── Service ─────────────────────────────────────────────────────────
 
 
@@ -78,9 +117,11 @@ class WebhookService:
         self,
         session_factory: async_sessionmaker[AsyncSession],
         settings: Settings,
+        redis_client: Any | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._settings = settings
+        self._redis = redis_client
         self._http_client: httpx.AsyncClient | None = None
 
     @property
@@ -98,6 +139,22 @@ class WebhookService:
         if self._http_client is not None:
             await self._http_client.aclose()
             self._http_client = None
+
+    async def _is_rate_allowed(self, webhook: Webhook) -> bool:
+        """Use Redis, falling back to local development state."""
+        if self._redis is not None:
+            try:
+                bucket = int(time.time() // 60)
+                key = f"finance-sync:webhook-rate:{webhook.id}:{bucket}"
+                count = int(await self._redis.incr(key))
+                if count == 1:
+                    await self._redis.expire(key, 61)
+                return count <= webhook.rate_limit_max_per_minute
+            except Exception:
+                logger.warning("webhook_redis_rate_limit_unavailable")
+        return _rate_limiter.is_allowed(
+            str(webhook.id), webhook.rate_limit_max_per_minute
+        )
 
     # ── Webhook CRUD ────────────────────────────────────────────────
 
@@ -118,6 +175,7 @@ class WebhookService:
         from finance_sync.db.uow import UnitOfWork
         from finance_sync.models.webhook import Webhook
 
+        validate_webhook_url(url)
         actual_secret = secret or self._generate_secret()
 
         webhook = Webhook(
@@ -359,10 +417,7 @@ class WebhookService:
         error_msg: str | None = None
 
         # Rate-limit check
-        if not _rate_limiter.is_allowed(
-            str(webhook.id),
-            webhook.rate_limit_max_per_minute,
-        ):
+        if not await self._is_rate_allowed(webhook):
             logger.warning(
                 "webhook_rate_limited",
                 webhook_id=str(webhook.id),
@@ -374,6 +429,7 @@ class WebhookService:
             log_entry.status = WebhookDeliveryStatus.RATE_LIMITED
         else:
             try:
+                validate_webhook_url(webhook.url, resolve=True)
                 response = await self.http_client.post(
                     webhook.url,
                     json=log_entry.payload,

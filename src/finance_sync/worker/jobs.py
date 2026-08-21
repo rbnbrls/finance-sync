@@ -21,6 +21,7 @@ from uuid import uuid4
 import structlog
 from sqlalchemy import func, select
 
+from finance_sync.config.settings import secret_value
 from finance_sync.connectors.models import ConnectorConfig
 from finance_sync.connectors.registry import ConnectorRegistry
 from finance_sync.db.uow import UnitOfWork
@@ -962,6 +963,11 @@ async def process_webhook_retries_job(container: Container) -> dict[str, Any]:
     svc = WebhookService(
         session_factory=container.session_factory,
         settings=container.settings,
+        redis_client=(
+            container.redis_client
+            if container.settings.redis_url is not None
+            else None
+        ),
     )
     try:
         retried = await svc.retry_due_deliveries()
@@ -994,6 +1000,11 @@ async def process_outbox_job(container: Container) -> dict[str, Any]:
     webhook_svc = WebhookService(
         session_factory=container.session_factory,
         settings=container.settings,
+        redis_client=(
+            container.redis_client
+            if container.settings.redis_url is not None
+            else None
+        ),
     )
     publisher.register_handler("*", webhook_svc.handle_outbox_message)
 
@@ -1041,7 +1052,7 @@ async def export_wealthfolio_job(container: Container) -> dict[str, Any]:
         }
 
     server_url = settings.wealthfolio_server_url
-    password = settings.wealthfolio_password
+    password = secret_value(settings.wealthfolio_password)
     if not server_url or not password:
         log.info(
             "export_job_skipped_unconfigured",

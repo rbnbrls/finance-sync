@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import secrets
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
@@ -68,11 +69,21 @@ def create_refresh_token(
         days=settings.refresh_token_expire_days
     )
     to_encode.update(
-        {"exp": expire, "type": "refresh", "iat": datetime.now(UTC)}
+        {
+            "exp": expire,
+            "type": "refresh",
+            "iat": datetime.now(UTC),
+            "jti": data.get("jti") or secrets.token_urlsafe(32),
+        }
     )
     return jwt.encode(
         to_encode, _secret_bytes(settings), algorithm=settings.jwt_algorithm
     )
+
+
+def hash_refresh_token(token: str) -> str:
+    """Hash a refresh token before persistence."""
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
 def decode_token(token: str, settings: Settings) -> dict[str, Any]:

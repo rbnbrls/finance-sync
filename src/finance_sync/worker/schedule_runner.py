@@ -41,6 +41,7 @@ from typing import TYPE_CHECKING, Any
 import structlog
 from sqlalchemy import select, update
 
+from finance_sync.config.settings import secret_value
 from finance_sync.models import Account, Credential, ExportTarget, SyncSchedule
 from finance_sync.models.export_target import TARGET_ACTIVE
 from finance_sync.models.sync_schedule import (
@@ -269,7 +270,7 @@ async def run_export(
             return {"status": "skipped", "reason": "global_gate_disabled"}
         if not target and (
             not settings.wealthfolio_server_url
-            or not settings.wealthfolio_password
+            or not secret_value(settings.wealthfolio_password)
         ):
             return {"status": "skipped", "reason": "target_unconfigured"}
 
@@ -305,7 +306,7 @@ async def run_export(
                 password=(
                     target_secret["password"]
                     if target
-                    else settings.wealthfolio_password
+                    else secret_value(settings.wealthfolio_password)
                 ),
             ),
         )

@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
 
 from finance_sync.api.deps.auth import get_current_user
+from finance_sync.config.settings import secret_value
 from finance_sync.dependencies import get_settings
 from finance_sync.models.user import User as UserModel
 from finance_sync.services.github_issue import GitHubIssueService
@@ -60,7 +61,8 @@ async def submit_feedback(
             ),
         )
 
-    if not settings.github_token:
+    github_token = secret_value(settings.github_token)
+    if not github_token:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=(
@@ -92,7 +94,7 @@ async def submit_feedback(
     )
 
     # ── Call the service ─────────────────────────────────────────────
-    service = GitHubIssueService(token=settings.github_token)
+    service = GitHubIssueService(token=github_token)
     title_with_prefix = f"[{label.upper()}] {title}"
 
     # Append feedback label so issues are also discoverable
@@ -156,7 +158,8 @@ async def report_client_error(
     """
     settings = get_settings(request)
 
-    if not settings.github_token:
+    github_token = secret_value(settings.github_token)
+    if not github_token:
         # Silent discard when GitHub integration is not configured
         return {
             "success": True,
@@ -196,7 +199,7 @@ async def report_client_error(
 
     title = f"[FRONTEND] {body.message[:120]}"
 
-    service = GitHubIssueService(token=settings.github_token)
+    service = GitHubIssueService(token=github_token)
     result = await service.create_issue(
         owner=owner,
         repo=repo_name,

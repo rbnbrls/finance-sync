@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING, Any, cast
 if TYPE_CHECKING:
     from collections.abc import Coroutine
 
-from finance_sync.config.settings import Settings
+from finance_sync.config.settings import Settings, secret_value
 from finance_sync.container import Container
 from finance_sync.db.uow import UnitOfWork
 from finance_sync.models.enums import ReconciliationRunStatus
@@ -786,8 +786,8 @@ async def _cmd_wealthfolio_push(
     server_url = args.server_url or getattr(
         container.settings, "wealthfolio_server_url", ""
     )
-    password = args.password or getattr(
-        container.settings, "wealthfolio_password", ""
+    password = args.password or secret_value(
+        container.settings.wealthfolio_password
     )
 
     if not server_url:
@@ -884,7 +884,9 @@ async def _cmd_wealthfolio_smoke(
     from finance_sync.exporter.wealthfolio.exporter import WealthfolioExporter
 
     server_url = args.server_url or container.settings.wealthfolio_server_url
-    password = args.password or container.settings.wealthfolio_password
+    password = args.password or secret_value(
+        container.settings.wealthfolio_password
+    )
     if not server_url or not password:
         print(
             "ERROR: configure WEALTHFOLIO_SERVER_URL and WEALTHFOLIO_PASSWORD.",
@@ -1075,8 +1077,8 @@ async def _cmd_actual_budget_push(
     server_url = args.server_url or getattr(
         container.settings, "actual_budget_server_url", ""
     )
-    password = args.password or getattr(
-        container.settings, "actual_budget_password", ""
+    password = args.password or secret_value(
+        container.settings.actual_budget_password
     )
 
     if not server_url:

@@ -32,6 +32,7 @@ def app() -> FastAPI:
             database_url=None,
             redis_url=None,
             secret_key=_TEST_SECRET,
+            cors_origins=["http://example.com"],
         )
     )
 
@@ -94,7 +95,14 @@ class TestAppFactory:
         """Production environment disables debug."""
         from finance_sync.config.settings import Settings
 
-        settings = Settings(environment="prod", _env_file=None)  # type: ignore[call-arg]
+        settings = Settings(
+            environment="prod",
+            secret_key="test-production-secret-key-1234",
+            master_encryption_key="00" * 32,
+            cors_origins=["https://example.test"],
+            redis_url="redis://localhost:6379/0",
+            _env_file=None,
+        )  # type: ignore[call-arg]
         app = create_app(settings=settings)
         assert app.debug is False
 

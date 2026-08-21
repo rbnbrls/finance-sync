@@ -39,3 +39,51 @@ Use labels `area:api`, `area:connector`, `area:data`, `area:enrichment`, `area:e
 | Credential/financial-data exposure | Envelope encryption, scoped access, redaction, audit, backups, security scans. |
 | Exporter API mismatch | Isolated adapters, integration contract tests, delivery cursor and dead-letter visibility. |
 | Premature distributed complexity | Modular-monolith boundaries; extract only after measured operational need. |
+
+## Next release
+
+Release 3 is gepland als een onderhoudbaarheidsrelease. Het uitvoerbare plan
+staat in [RELEASE-3-PLAN.md](RELEASE-3-PLAN.md) en behandelt de decompositie
+van de read API en sync-orchestrator, gestandaardiseerde foutafhandeling,
+typekwaliteit, query-budgettests en dependency/documentatie-hygiëne.
+
+De volgende release is Release 4. Het plan staat in
+[RELEASE-4-PLAN.md](RELEASE-4-PLAN.md) en sluit de volledige read-/sync-
+decompositie, echte PostgreSQL/Redis-gates, query-benchmarks en CI-warning-
+budgetten af.
+
+De daaropvolgende Release 5 focust op de daadwerkelijke service-extractie en
+de volledige verificatie van integration-, migration-, E2E-, performance- en
+typegates. Zie [RELEASE-5-PLAN.md](RELEASE-5-PLAN.md).
+
+Release 6 rondt deze extractie en verificatie af. Het plan staat in
+[RELEASE-6-PLAN.md](RELEASE-6-PLAN.md) en behandelt de resterende read-/sync-
+componenten, endpoint query-budgets, benchmarks en real-service gates.
+
+Release 7 vervolgt met de portfolio-, securities- en analytics-extractie,
+holdings/persistence-stages en de volledige query-, benchmark- en real-service
+gates. Zie [RELEASE-7-PLAN.md](RELEASE-7-PLAN.md).
+
+Release 8 sluit de modularisering af met de volledige read-componenten,
+`sync/persistence.py`, query-/benchmarkgates en formele PostgreSQL/Redis/E2E-
+verificatie. Zie [RELEASE-8-PLAN.md](RELEASE-8-PLAN.md).
+
+Release 9 is de afsluitende modulariserings- en productieverificatierelease.
+Deze release verplaatst de concrete persistence-logica, extraheert de
+portfolio-, securities- en analytics-readservices, voegt reproduceerbare
+query-/benchmarkgates toe en voert de PostgreSQL/Redis/E2E-, security- en
+stagingchecks uit. Zie [RELEASE-9-PLAN.md](RELEASE-9-PLAN.md).
+
+Release 10 vervolgt de nog niet afgeronde delen van Release 9 met concrete
+read/write-decompositie, echte database-querybudgetten, PostgreSQL/Redis/E2E-
+gates en release-readiness. Zie [RELEASE-10-PLAN.md](RELEASE-10-PLAN.md).
+
+Release 11 voert de daadwerkelijke portfolio-, securities-, analytics- en
+persistence-extractie uit, koppelt querybudgetten aan echte PostgreSQL-sessies
+en sluit de Redis-, migration-, E2E-, security- en staginggates. Zie
+[RELEASE-11-PLAN.md](RELEASE-11-PLAN.md).
+
+Release 12 is de afsluitende cleanup- en release-validatierelease. Deze
+verwijdert de resterende legacyblokken, voert query-/benchmarkevidence uit,
+draait de PostgreSQL/Redis/E2E- en securitygates en sluit staging-, rollback-
+en documentatiechecks af. Zie [RELEASE-12-PLAN.md](RELEASE-12-PLAN.md).

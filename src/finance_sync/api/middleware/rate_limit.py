@@ -9,9 +9,11 @@ For distributed deployments, replace with a Redis-backed limiter.
 
 from __future__ import annotations
 
+import hashlib
+import ipaddress
 import time
 from collections import defaultdict
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -92,15 +94,61 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             "authorization", ""
         )
         if api_key:
-            # Truncate long tokens to avoid memory bloat
-            return f"key:{api_key[:32]}"
-        forwarded = request.headers.get("x-forwarded-for", "")
-        if forwarded:
-            return f"ip:{forwarded.split(',')[0].strip()}"
+            digest = hashlib.sha256(api_key.encode()).hexdigest()[:32]
+            return f"key:{digest}"
         client = request.client
+        client_host = client.host if client is not None else None
+        settings = None
+        container = getattr(request.app.state, "container", None)
+        if container is not None:
+            try:
+                settings = container.settings
+            except RuntimeError:
+                settings = None
+        trusted_proxies = getattr(settings, "trusted_proxy_ips", [])
+        if client_host and self._is_trusted_proxy(client_host, trusted_proxies):
+            forwarded = request.headers.get("x-forwarded-for", "")
+            if forwarded:
+                return f"ip:{forwarded.split(',')[0].strip()}"
         if client is not None:
             return f"ip:{client.host}"
         return "ip:unknown"
+
+    @staticmethod
+    def _is_trusted_proxy(host: str, trusted: list[str]) -> bool:
+        """Return whether *host* matches a configured proxy IP or CIDR."""
+        try:
+            address = ipaddress.ip_address(host)
+        except ValueError:
+            return False
+        for item in trusted:
+            try:
+                if address in ipaddress.ip_network(item, strict=False):
+                    return True
+            except ValueError:
+                continue
+        return False
+
+    async def _redis_limit(
+        self, request: Request, key: str
+    ) -> tuple[bool, int, int] | None:
+        """Apply a shared Redis fixed-window limit when Redis is available."""
+        container = getattr(request.app.state, "container", None)
+        if container is None:
+            return None
+        try:
+            redis: Any = container.redis_client
+            bucket = int(time.time() // self._default_window)
+            redis_key = f"finance-sync:ratelimit:{key}:{bucket}"
+            count = int(await redis.incr(redis_key))
+            if count == 1:
+                await redis.expire(redis_key, int(self._default_window) + 1)
+            ttl = int(await redis.ttl(redis_key))
+            return count <= self._default_max, count, max(ttl, 1)
+        except Exception:
+            # Local fallback keeps development usable; production health and
+            # deployment checks must ensure Redis is available.
+            return None
 
     async def dispatch(
         self,
@@ -112,6 +160,31 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         key = self._client_key(request)
+        redis_result = await self._redis_limit(request, key)
+        if redis_result is not None:
+            allowed, count, reset_seconds = redis_result
+            remaining = max(0, self._default_max - count)
+            if not allowed:
+                return JSONResponse(
+                    status_code=429,
+                    content={
+                        "detail": "Too many requests",
+                        "retry_after_seconds": reset_seconds,
+                    },
+                    headers={
+                        "Retry-After": str(reset_seconds),
+                        "X-RateLimit-Limit": str(self._default_max),
+                        "X-RateLimit-Remaining": "0",
+                    },
+                )
+            response = await call_next(request)
+            response.headers["X-RateLimit-Limit"] = str(self._default_max)
+            response.headers["X-RateLimit-Remaining"] = str(remaining)
+            response.headers["X-RateLimit-Reset"] = str(
+                int(time.time() + reset_seconds)
+            )
+            return response
+
         entry = self._clients[key]
 
         if not entry.is_allowed():

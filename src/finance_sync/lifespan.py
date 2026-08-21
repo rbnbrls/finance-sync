@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 import structlog
 from sqlalchemy import text
 
-from finance_sync.config.settings import Settings
+from finance_sync.config.settings import Settings, secret_value
 from finance_sync.container import Container
 
 if TYPE_CHECKING:
@@ -205,16 +205,18 @@ async def _bootstrap_legacy_export_targets(container: Container) -> None:
 
     settings = container.settings
     candidates: list[tuple[str, str, dict[str, object], dict[str, str]]] = []
-    if settings.wealthfolio_server_url and settings.wealthfolio_password:
+    wealthfolio_password = secret_value(settings.wealthfolio_password)
+    actual_budget_password = secret_value(settings.actual_budget_password)
+    if settings.wealthfolio_server_url and wealthfolio_password:
         candidates.append(
             (
                 "wealthfolio",
                 "Migrated Wealthfolio",
                 {"server_url": settings.wealthfolio_server_url},
-                {"password": settings.wealthfolio_password},
+                {"password": wealthfolio_password},
             )
         )
-    if settings.actual_budget_server_url and settings.actual_budget_password:
+    if settings.actual_budget_server_url and actual_budget_password:
         candidates.append(
             (
                 "actual-budget",
@@ -225,7 +227,7 @@ async def _bootstrap_legacy_export_targets(container: Container) -> None:
                     "sync_id": settings.actual_budget_sync_id or "",
                 },
                 {
-                    "password": settings.actual_budget_password,
+                    "password": actual_budget_password,
                     "encryption_password": (
                         settings.actual_budget_encryption_password or ""
                     ),

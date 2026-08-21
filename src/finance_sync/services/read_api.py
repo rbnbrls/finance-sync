@@ -31,6 +31,13 @@ from finance_sync.schemas.freshness import (
     build_meta,
     freshness_for,
 )
+from finance_sync.services.read.pagination import expression, sort_field
+from finance_sync.services.read.prices import fetch_latest_daily_prices
+
+# Compatibility aliases keep the large legacy service readable while callers
+# are migrated to the shared read components incrementally.
+_expr = expression
+_sort_field = sort_field
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -488,31 +495,6 @@ _SORTABLE_SYNC_RUN_FIELDS = {
 }
 
 
-def _sort_field(
-    mapping: dict[str, Any],
-    sort_by: str,
-    sort_order: str = "desc",
-) -> Any:
-    """Return the SQLAlchemy order_by expression from a field mapping."""
-    col = mapping.get(sort_by)
-    if col is None:
-        col = next(iter(mapping.values()))  # default to first
-        sort_order = "desc"
-    return desc(col) if sort_order == "desc" else col.asc()
-
-
-def _expr(*conditions: Any) -> Any:
-    """Wrap conditions in ``and_()``, handling the empty case.
-
-    SQLAlchemy 2.1+ deprecates calling ``and_()`` with no arguments;
-    this helper transparently returns ``True`` (no-op) when there are
-    no conditions so callers never need to check ``if conditions``.
-    """
-    if not conditions:
-        return True  # no-op filter
-    return and_(*conditions)
-
-
 class ReadService:
     """Provides read-query methods for the read-only API.
 
@@ -568,6 +550,21 @@ class ReadService:
         is_active: bool | None = None,
     ) -> AccountDetailResponse:
         """List accounts for a tenant with optional filters."""
+        from finance_sync.services.read.accounts import AccountReadService
+
+        return await AccountReadService(
+            self._session, scope=self._scope
+        ).list_accounts(
+            tenant_id,
+            limit=limit,
+            offset=offset,
+            sort_by=sort_by,
+            sort_order=sort_order,
+            account_type=account_type,
+            is_active=is_active,
+        )
+
+        # Legacy implementation retained temporarily during extraction.
         conditions = [
             Account.tenant_id == tenant_id,  # type: ignore[attr-defined]
             self._account_scope_condition(),
@@ -608,6 +605,13 @@ class ReadService:
         self, tenant_id: str, account_id: str
     ) -> AccountSummary | None:
         """Fetch a single account by ID (scoped to tenant + visibility)."""
+        from finance_sync.services.read.accounts import AccountReadService
+
+        return await AccountReadService(
+            self._session, scope=self._scope
+        ).get_account(tenant_id, account_id)
+
+        # Legacy implementation retained temporarily during extraction.
         stmt = select(Account).where(
             Account.id == account_id,  # type: ignore[attr-defined]
             Account.tenant_id == tenant_id,  # type: ignore[attr-defined]
@@ -651,6 +655,24 @@ class ReadService:
         security_id: str | None = None,
     ) -> TransactionListResponse:
         """List transactions for an account with optional filters."""
+        from finance_sync.services.read.accounts import AccountReadService
+
+        return await AccountReadService(
+            self._session, scope=self._scope
+        ).list_account_transactions(
+            tenant_id,
+            account_id,
+            limit=limit,
+            offset=offset,
+            sort_by=sort_by,
+            sort_order=sort_order,
+            date_from=date_from,
+            date_to=date_to,
+            transaction_type=transaction_type,
+            security_id=security_id,
+        )
+
+        # Legacy implementation retained temporarily during extraction.
         conditions = [
             Transaction.tenant_id == tenant_id,  # type: ignore[attr-defined]
             Transaction.account_id == account_id,  # type: ignore[attr-defined]
@@ -1107,6 +1129,13 @@ class ReadService:
         enriches with the latest available price, and calculates
         unrealised P&L.  Returns a breakdown by account.
         """
+        from finance_sync.services.read.portfolio import PortfolioReadService
+
+        return await PortfolioReadService(
+            self._session, scope=self._scope
+        ).get_portfolio(tenant_id)
+
+        # Legacy implementation retained temporarily during extraction.
         # Latest holding per (account_id, security_id) for this tenant
         # Uses a window/partition approach via a subquery
         latest_holding_subq = (
@@ -1172,21 +1201,8 @@ class ReadService:
             for s in sec_result.scalars().all()  # type: ignore[assignment]
         }
 
-        # Fetch latest prices per security
-        price_map: dict[str, SecurityPrice] = {}
-        for sid in security_ids:
-            price_result = await self._session.execute(
-                select(SecurityPrice)
-                .where(
-                    SecurityPrice.security_id == sid,  # type: ignore[attr-defined]
-                    SecurityPrice.interval == "1d",  # type: ignore[attr-defined]
-                )
-                .order_by(SecurityPrice.timestamp.desc())  # type: ignore[attr-defined]
-                .limit(1)
-            )
-            sp: SecurityPrice | None = price_result.scalar_one_or_none()  # type: ignore[assignment]
-            if sp is not None:
-                price_map[sid] = sp
+        # Fetch latest prices for all securities in one round-trip.
+        price_map = await fetch_latest_daily_prices(self._session, security_ids)
 
         # Build account breakdowns
         by_account: dict[str, list[Holding]] = {}
@@ -1290,6 +1306,20 @@ class ReadService:
         that timestamp.  Each item is enriched with security metadata
         and unrealised P&L (mirroring ``get_portfolio``).
         """
+        from finance_sync.services.read.portfolio import PortfolioReadService
+
+        return await PortfolioReadService(
+            self._session, scope=self._scope
+        ).get_holdings(
+            tenant_id,
+            account_id=account_id,
+            security_id=security_id,
+            as_of=as_of,
+            limit=limit,
+            offset=offset,
+        )
+
+        # Legacy implementation retained temporarily during extraction.
         subq_conditions: list[Any] = [
             Holding.tenant_id == tenant_id,  # type: ignore[attr-defined]
             self._derived_scope_condition(Holding),
@@ -1498,6 +1528,16 @@ class ReadService:
         search: str | None = None,
     ) -> SecurityListResponse:
         """List known securities with optional filtering and search."""
+        from finance_sync.services.read.securities import SecuritiesReadService
+
+        return await SecuritiesReadService(self._session).list_securities(
+            limit=limit,
+            offset=offset,
+            security_type=security_type,
+            search=search,
+        )
+
+        # Legacy implementation retained temporarily during extraction.
         conditions: list[Any] = []
 
         if security_type is not None:
@@ -1531,19 +1571,13 @@ class ReadService:
         result = await self._session.execute(stmt)
         rows: list[Security] = list(result.scalars().all())  # type: ignore[assignment]
 
-        # Get latest price for each security
+        # Get latest prices for the page in one round-trip.
+        price_map = await fetch_latest_daily_prices(
+            self._session, [str(s.id) for s in rows]
+        )
         items: list[SecurityInfo] = []
         for s in rows:
-            latest_price = await self._session.execute(
-                select(SecurityPrice)
-                .where(
-                    SecurityPrice.security_id == s.id,  # type: ignore[attr-defined]
-                    SecurityPrice.interval == "1d",  # type: ignore[attr-defined]
-                )
-                .order_by(SecurityPrice.timestamp.desc())  # type: ignore[attr-defined]
-                .limit(1)
-            )
-            sp: SecurityPrice | None = latest_price.scalar_one_or_none()  # type: ignore[assignment]
+            sp = price_map.get(str(s.id))
 
             items.append(
                 SecurityInfo(
@@ -1577,6 +1611,20 @@ class ReadService:
         date_to: datetime | None = None,
     ) -> SecurityPriceListResponse:
         """List price observations for a security."""
+        from finance_sync.services.read.securities import SecuritiesReadService
+
+        return await SecuritiesReadService(
+            self._session
+        ).get_security_prices(
+            security_id,
+            limit=limit,
+            offset=offset,
+            interval=interval,
+            date_from=date_from,
+            date_to=date_to,
+        )
+
+        # Legacy implementation retained temporarily during extraction.
         conditions: list[Any] = [
             SecurityPrice.security_id == security_id,  # type: ignore[attr-defined]
             SecurityPrice.interval == interval,  # type: ignore[attr-defined]
@@ -1633,6 +1681,13 @@ class ReadService:
 
     async def resolve_listing_security_id(self, listing_id: str) -> str | None:
         """Resolve a ``SecurityListing`` id to its canonical security id."""
+        from finance_sync.services.read.securities import SecuritiesReadService
+
+        return await SecuritiesReadService(
+            self._session
+        ).resolve_listing_security_id(listing_id)
+
+        # Legacy implementation retained temporarily during extraction.
         result = await self._session.execute(
             select(SecurityListing.security_id).where(  # type: ignore[attr-defined]
                 SecurityListing.id == listing_id  # type: ignore[attr-defined]
@@ -1656,6 +1711,18 @@ class ReadService:
         (interval + date range).  Without it, returns the latest price
         observation per security.
         """
+        from finance_sync.services.read.securities import SecuritiesReadService
+
+        return await SecuritiesReadService(self._session).get_prices(
+            security_id=security_id,
+            interval=interval,
+            date_from=date_from,
+            date_to=date_to,
+            limit=limit,
+            offset=offset,
+        )
+
+        # Legacy implementation retained temporarily during extraction.
         if security_id is not None:
             conditions: list[Any] = [
                 SecurityPrice.security_id == security_id,  # type: ignore[attr-defined]
@@ -1763,6 +1830,13 @@ class ReadService:
         (debit balances) grouped by currency.  Uses the latest
         current_balance on each account.
         """
+        from finance_sync.services.read.analytics import AnalyticsReadService
+
+        return await AnalyticsReadService(
+            self._session, scope=self._scope
+        ).get_net_worth(tenant_id)
+
+        # Legacy implementation retained temporarily during extraction.
         result = await self._session.execute(
             select(Account).where(
                 Account.tenant_id == tenant_id,  # type: ignore[attr-defined]
@@ -1887,6 +1961,18 @@ class ReadService:
         Uses booked transactions: positive amounts = inflows,
         negative amounts → ABS = outflows.
         """
+        from finance_sync.services.read.analytics import AnalyticsReadService
+
+        return await AnalyticsReadService(
+            self._session, scope=self._scope
+        ).get_cashflow(
+            tenant_id,
+            date_from=date_from,
+            date_to=date_to,
+            account_id=account_id,
+        )
+
+        # Legacy implementation retained temporarily during extraction.
         conditions: list[Any] = [
             Transaction.tenant_id == tenant_id,  # type: ignore[attr-defined]
             Transaction.status == "booked",  # type: ignore[attr-defined]

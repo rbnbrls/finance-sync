@@ -186,6 +186,7 @@ async def stage_uploads(
     paths: list[Path] = []
     display_names: list[str] = []
     hashes: list[str] = []
+    batch_size = 0
     try:
         for index, upload in enumerate(files, start=1):
             display, suffix = _safe_name(upload.filename, index)
@@ -195,10 +196,16 @@ async def stage_uploads(
             with destination.open("xb") as output:
                 while chunk := await upload.read(64 * 1024):
                     size += len(chunk)
+                    batch_size += len(chunk)
                     if size > settings.degiro_import_max_file_bytes:
                         message = (
                             f"{display} is groter dan de ingestelde "
                             "uploadlimiet."
+                        )
+                        raise ImportValidationError(message)
+                    if batch_size > settings.degiro_import_max_batch_bytes:
+                        message = (
+                            "De totale uploadbatch overschrijdt de limiet."
                         )
                         raise ImportValidationError(message)
                     digest.update(chunk)
@@ -234,13 +241,19 @@ def validate_local_files(paths: list[Path], settings: Settings) -> None:
     if not paths or len(paths) > settings.degiro_import_max_files:
         message = "De watchfolderbatch bevat een ongeldig aantal bestanden."
         raise ImportValidationError(message)
+    total_size = 0
     for path in paths:
         suffix = path.suffix.lower()
         if suffix not in _SUPPORTED_SUFFIXES or not path.is_file():
             message = "De watchfolderbatch bevat een niet-ondersteund bestand."
             raise ImportValidationError(message)
-        if path.stat().st_size > settings.degiro_import_max_file_bytes:
+        file_size = path.stat().st_size
+        total_size += file_size
+        if file_size > settings.degiro_import_max_file_bytes:
             message = "Een watchfolderbestand overschrijdt de bestandlimiet."
+            raise ImportValidationError(message)
+        if total_size > settings.degiro_import_max_batch_bytes:
+            message = "De totale watchfolderbatch overschrijdt de limiet."
             raise ImportValidationError(message)
         if suffix == ".xlsx":
             _check_xlsx_archive(path, settings.degiro_import_max_file_bytes)

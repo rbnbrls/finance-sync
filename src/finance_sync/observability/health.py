@@ -15,6 +15,7 @@ from typing import Any
 from fastapi import APIRouter, Request
 from sqlalchemy import text
 
+from finance_sync.config.settings import secret_value
 from finance_sync.dependencies import get_container
 from finance_sync.services.github_issue import check_github_issue_access
 
@@ -66,13 +67,14 @@ async def _check_github(request: Request) -> dict[str, str]:
     no token is set.
     """
     settings = get_container(request).settings
-    if not settings.github_token:
+    github_token = secret_value(settings.github_token)
+    if not github_token:
         return {
             "status": "not_configured",
             "detail": "GITHUB_TOKEN is not set",
         }
     return await check_github_issue_access(
-        token=settings.github_token,
+        token=github_token,
         repo_full=settings.github_repo,
     )
 

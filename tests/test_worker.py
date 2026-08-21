@@ -8,6 +8,7 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from pydantic import SecretStr
 
 from finance_sync.worker.jobs import JobRetryError, retry_with_backoff
 from finance_sync.worker.monitoring import (
@@ -841,7 +842,7 @@ class TestExportWealthfolioJob:
             worker_job_export_enabled=enabled,
             worker_job_export_interval_minutes=5,
             wealthfolio_server_url=server_url,
-            wealthfolio_password=password,
+            wealthfolio_password=SecretStr(password),
         )
 
         tenants = [

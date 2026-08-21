@@ -4,13 +4,13 @@ NOTE: ``from __future__ import annotations`` is intentionally omitted
 because FastAPI needs runtime type introspection for OpenAPI generation.
 """
 
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from jose import JWTError
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from finance_sync.api.deps.auth import (
@@ -20,6 +20,7 @@ from finance_sync.api.deps.auth import (
 )
 from finance_sync.dependencies import get_container, get_db
 from finance_sync.models.api_key import ApiKey
+from finance_sync.models.refresh_token import RefreshToken
 from finance_sync.models.user import User as UserModel
 from finance_sync.services.auth import (
     create_access_token,
@@ -27,10 +28,32 @@ from finance_sync.services.auth import (
     decode_token,
     generate_api_key,
     hash_password,
+    hash_refresh_token,
     verify_password,
 )
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+
+def _persist_refresh_token(
+    db: AsyncSession,
+    token: str,
+    settings: Any,
+) -> RefreshToken:
+    """Create the server-side record used for refresh-token rotation."""
+    payload = decode_token(token, settings)
+    expires_at = datetime.now(UTC) + timedelta(
+        days=settings.refresh_token_expire_days
+    )
+    row = RefreshToken(
+        user_id=str(payload["sub"]),
+        tenant_id=str(payload["tenant_id"]),
+        jti=str(payload["jti"]),
+        token_hash=hash_refresh_token(token),
+        expires_at=expires_at,
+    )
+    db.add(row)
+    return row
 
 
 # ── Request / Response schemas ────────────────────────────────────────
@@ -200,6 +223,7 @@ async def register(
     }
     access_token = create_access_token(token_data, settings)
     refresh_token = create_refresh_token(token_data, settings)
+    _persist_refresh_token(db, refresh_token, settings)
 
     return RegisterResponse(
         access_token=access_token,
@@ -249,6 +273,7 @@ async def login(
     }
     access_token = create_access_token(token_data, settings)
     refresh_token = create_refresh_token(token_data, settings)
+    _persist_refresh_token(db, refresh_token, settings)
 
     return LoginResponse(
         access_token=access_token,
@@ -268,6 +293,7 @@ async def login(
 async def refresh(
     body: RefreshRequest,
     request: Request,
+    db: AsyncSession = Depends(get_db),
 ) -> RefreshResponse:
     """Exchange a valid refresh token for a new access + refresh pair."""
     container = get_container(request)
@@ -281,19 +307,58 @@ async def refresh(
             detail="Invalid or expired refresh token",
         ) from None
 
-    if payload.get("type") != "refresh":
+    if payload.get("type") != "refresh" or not payload.get("jti"):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Token is not a refresh token",
         )
 
+    token_row = await db.scalar(
+        select(RefreshToken).where(
+            RefreshToken.jti == str(payload["jti"]),
+            RefreshToken.user_id == str(payload["sub"]),
+            RefreshToken.tenant_id == str(payload["tenant_id"]),
+        )
+    )
+    now = datetime.now(UTC)
+    if (
+        token_row is None
+        or token_row.revoked_at is not None
+        or token_row.expires_at <= now
+        or token_row.token_hash != hash_refresh_token(body.refresh_token)
+    ):
+        # Reuse of a rotated token is treated as credential compromise.
+        if token_row is not None and token_row.revoked_at is not None:
+            await db.execute(
+                update(RefreshToken)
+                .where(
+                    RefreshToken.user_id == token_row.user_id,
+                    RefreshToken.revoked_at.is_(None),
+                )
+                .values(revoked_at=now)
+            )
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired refresh token",
+        )
+
+    user = await db.get(UserModel, token_row.user_id)
+    if user is None or not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User account is unavailable",
+        )
     token_data = {
-        "sub": payload["sub"],
-        "tenant_id": payload["tenant_id"],
-        "role": payload["role"],
+        "sub": str(user.id),
+        "tenant_id": str(user.tenant_id),
+        "role": user.role,
     }
     new_access = create_access_token(token_data, settings)
     new_refresh = create_refresh_token(token_data, settings)
+    token_row.revoked_at = now
+    new_payload = decode_token(new_refresh, settings)
+    token_row.replaced_by_jti = str(new_payload["jti"])
+    _persist_refresh_token(db, new_refresh, settings)
 
     return RefreshResponse(
         access_token=new_access,

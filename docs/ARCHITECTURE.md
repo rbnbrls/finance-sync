@@ -67,6 +67,25 @@ finance-sync/
 
 Dependency direction is `api/workers -> services -> domain <- infrastructure/connectors/exporters`. SQLAlchemy mappings and Pydantic transport models are kept separate from domain value objects. All network and database I/O is async.
 
+Read-side query composition lives under `services/read/`: shared pagination
+and latest-price helpers are kept separate from the compatibility facade in
+`read_api.py`. Sync-boundary failures are classified in
+`sync/errors.py`; provider-facing errors retain retry semantics while
+unexpected failures return a bounded message and keep diagnostic detail in
+structured logs only.
+
+CI enforces the source Pyright warning budget and validates the Alembic chain
+with both an empty-database upgrade and a downgrade/upgrade round-trip. These
+checks protect the modular boundaries without making a production downgrade
+the normal rollback strategy.
+
+The sync pipeline is being extracted incrementally. Account and transaction
+ingestion now run through `sync/stages/accounts.py` and
+`sync/stages/transactions.py` with an immutable `SyncContext`; stages receive
+the explicit `sync/persistence.py` boundary, the caller's UnitOfWork, and
+never commit independently. The orchestrator remains responsible for the
+transaction lifecycle.
+
 ## 4. Synchronization flow
 
 The generic pipeline ingests accounts and transactions for every connector. A
@@ -164,7 +183,7 @@ Use separate database users for runtime and migration jobs. Apply Alembic migrat
 - Roles: `admin` (connections/secrets/config), `operator` (sync/retry/read), `reader` (read projections), `exporter` (only exporter delivery), `ai_reader` (read-only AI endpoints).
 - Connector credentials are envelope-encrypted (AES-256-GCM data encryption key wrapped by a deployment-managed master key); decrypt only inside connector execution.
 - REST scope is tenant-aware from day one even if the first deployment has one tenant. Every financial table includes `tenant_id`; authorization always filters it.
-- Apply per-principal and per-IP rate limits in Redis, request-size limits, CORS allowlists, TLS, secret redaction, audit logs, and dependency/image scanning.
+- Apply per-principal and per-IP rate limits in Redis, request-size limits, explicit CORS allowlists, TLS, secret redaction, audit logs, and dependency/image scanning. Webhook delivery throttling also uses shared Redis minute buckets, with a bounded local fallback during Redis outages. Production startup rejects missing Redis, wildcard CORS, and placeholder JWT/encryption secrets.
 - Do not put account numbers, tokens, or transaction descriptions into metrics labels. Logs use correlation IDs and redacted structured fields.
 
 ## 8. Exporter design

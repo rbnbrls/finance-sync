@@ -1,5 +1,4 @@
 {
-  "//": "G-11: tests/ run at basic type-checking mode while src/ runs strict (pyproject.toml [tool.pyright]). CI invokes: pyright -p pyrightconfig.tests.json tests. Settings mirror the historical repo-wide basic config so test checking is unchanged.",
   "typeCheckingMode": "basic",
   "include": ["tests"],
   "exclude": ["tests/test_plugin_integration.py", "**/__pycache__"],

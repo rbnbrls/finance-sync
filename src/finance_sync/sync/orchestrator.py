@@ -66,12 +66,21 @@ from finance_sync.observability.metrics import (
     transactions_ingested_total,
     unresolved_securities_total,
 )
+from finance_sync.sync.context import SyncContext
+from finance_sync.sync.errors import (
+    classify_sync_error,
+    safe_sync_error_message,
+)
 from finance_sync.sync.outbox import (
     outbox_entity_created,
     outbox_entity_updated,
     outbox_reconciliation_completed,
     outbox_sync_completed,
 )
+from finance_sync.sync.persistence import PersistenceContext, SyncPersistence
+from finance_sync.sync.stages.accounts import AccountSyncStage
+from finance_sync.sync.stages.holdings import HoldingsSyncStage
+from finance_sync.sync.stages.transactions import TransactionSyncStage
 from finance_sync.sync.sync_cursor import (
     RESOURCE_CARD_TRANSACTIONS,
     get_connector_cursors,
@@ -754,6 +763,12 @@ class SyncOrchestrator:
         from datetime import datetime as _dt
 
         start_ts = _dt.now(UTC)
+        context = SyncContext(
+            tenant_id=self._tenant_id,
+            provider_type=provider_type,
+            since=since,
+            connection_id=connection_id,
+        )
         from finance_sync.db.uow import UnitOfWork as _UnitOfWork
 
         uow = _UnitOfWork(session)
@@ -777,6 +792,14 @@ class SyncOrchestrator:
 
         try:
             async with uow:
+                persistence = SyncPersistence(
+                    self,
+                    context=PersistenceContext(
+                        tenant_id=self._tenant_id,
+                        provider_type=provider_type,
+                        connection_id=connection_id,
+                    ),
+                )
                 # 1. SyncRun record
                 run = await start_sync_run(
                     uow,
@@ -789,29 +812,15 @@ class SyncOrchestrator:
                 await connector.authenticate()
                 log.debug("authenticated")
 
-                # 3. Fetch + upsert accounts
-                raw_accounts = await connector._rate_limited_fetch_accounts()  # type: ignore[attr-defined]
-                canonical_accounts = connector.transform_accounts(raw_accounts)
-                if selected_set is not None:
-                    canonical_accounts = [
-                        ca
-                        for ca in canonical_accounts
-                        if ca.external_account_id in selected_set
-                    ]
-                resources = cast(
-                    "frozenset[str]",
-                    getattr(
-                        type(connector),
-                        "supported_resources",
-                        frozenset[str](),
-                    ),
+                # 3. Fetch + upsert accounts through an isolated stage.
+                account_result = await AccountSyncStage(persistence).run(
+                    uow,
+                    connector,
+                    selected_accounts=selected_accounts,
+                    connection_id=context.connection_id,
                 )
-                supports_holdings = "holdings" in resources
-
-                for ca in canonical_accounts:
-                    await self._upsert_account(
-                        uow, ca, connection_id=connection_id
-                    )
+                canonical_accounts = account_result.accounts
+                supports_holdings = account_result.supports_holdings
                 accounts_synced = len(canonical_accounts)
                 log.debug("accounts_fetched", count=accounts_synced)
 
@@ -856,28 +865,17 @@ class SyncOrchestrator:
                         )
                         continue
 
-                    for ct in canonical_txns:
-                        security_id = None
-                        if ct.security_reference is not None:
-                            (
-                                security,
-                                unresolved_key,
-                            ) = await self._resolve_security_reference(
-                                uow,
-                                provider_type,
-                                ct.security_reference,
-                            )
-                            security_id = security.id if security else None
-                            if unresolved_key:
-                                unresolved_keys.add(unresolved_key)
-                        await self._upsert_transaction(
-                            uow,
-                            ct,
-                            acct.id,
-                            security_id=security_id,
-                            connection_id=connection_id,
-                        )
-                    transactions_synced += len(canonical_txns)
+                    transaction_result = await TransactionSyncStage(
+                        persistence
+                    ).run(
+                        uow,
+                        canonical_txns,
+                        account_id=str(acct.id),
+                        provider_type=provider_type,
+                        connection_id=connection_id,
+                    )
+                    transactions_synced += transaction_result.count
+                    unresolved_keys.update(transaction_result.unresolved_keys)
 
                     if supports_holdings:
                         raw_holdings = (
@@ -888,23 +886,16 @@ class SyncOrchestrator:
                         canonical_holdings = connector.transform_holdings(
                             raw_holdings
                         )
-                        for holding in canonical_holdings:
-                            (
-                                security,
-                                unresolved_key,
-                            ) = await self._resolve_security_reference(
-                                uow,
-                                provider_type,
-                                holding.security_reference,
-                            )
-                            if security is None:
-                                if unresolved_key:
-                                    unresolved_keys.add(unresolved_key)
-                                continue
-                            await self._upsert_holding(
-                                uow, holding, acct.id, security.id
-                            )
-                            holdings_synced += 1
+                        holdings_result = await HoldingsSyncStage(
+                            persistence
+                        ).run(
+                            uow,
+                            canonical_holdings,
+                            account_id=str(acct.id),
+                            provider_key=provider_type,
+                        )
+                        holdings_synced += holdings_result.count
+                        unresolved_keys.update(holdings_result.unresolved_keys)
 
                 log.debug("transactions_fetched", count=transactions_synced)
 
@@ -982,11 +973,17 @@ class SyncOrchestrator:
                 error_message=str(exc),
                 duration_s=(end_ts - start_ts).total_seconds(),
             )
-        except Exception:
+        except Exception as exc:
             end_ts = _dt.now(UTC)
-            tb = traceback.format_exc()
+            error_message = safe_sync_error_message(exc)
+            log.error(
+                "sync_pipeline_failed",
+                error_type=type(exc).__name__,
+                error_kind=classify_sync_error(exc).value,
+                error=str(exc)[:500],
+            )
             await self._mark_run_failed(
-                session, run, tb, log, connection_id=connection_id
+                session, run, error_message, log, connection_id=connection_id
             )
             return SyncResult(
                 status=SyncRunStatus.FAILED,
@@ -994,7 +991,7 @@ class SyncOrchestrator:
                 transactions_synced=transactions_synced,
                 holdings_synced=holdings_synced,
                 unresolved_securities=len(unresolved_keys),
-                error_message=tb,
+                error_message=error_message,
                 duration_s=(end_ts - start_ts).total_seconds(),
             )
 
@@ -1174,6 +1171,18 @@ class SyncOrchestrator:
 
     # ── Entity upsert helpers ──────────────────────────────────────
 
+    async def persist_account(
+        self,
+        uow: UnitOfWork,
+        account: CanonicalAccountData,
+        *,
+        connection_id: str | None = None,
+    ) -> Account:
+        """Public stage boundary for account persistence."""
+        return await self._upsert_account(
+            uow, account, connection_id=connection_id
+        )
+
     async def _connection_owner_id(
         self,
         uow: UnitOfWork,
@@ -1277,6 +1286,24 @@ class SyncOrchestrator:
             provider_key=ca.provider_key,
         )
         return account
+
+    async def persist_transaction(
+        self,
+        uow: UnitOfWork,
+        transaction: CanonicalTransactionData,
+        account_id: str,
+        *,
+        security_id: str | None = None,
+        connection_id: str | None = None,
+    ) -> Transaction:
+        """Public transaction-stage boundary for persistence."""
+        return await self._upsert_transaction(
+            uow,
+            transaction,
+            account_id,
+            security_id=security_id,
+            connection_id=connection_id,
+        )
 
     async def _upsert_transaction(
         self,
@@ -1405,6 +1432,16 @@ class SyncOrchestrator:
         )
         return transaction
 
+    async def persist_holding(
+        self,
+        uow: UnitOfWork,
+        holding: CanonicalHoldingData,
+        account_id: str,
+        security_id: str,
+    ) -> Holding:
+        """Public holding-stage boundary for persistence."""
+        return await self._upsert_holding(uow, holding, account_id, security_id)
+
     async def _upsert_holding(
         self,
         uow: UnitOfWork,
@@ -1485,6 +1522,17 @@ class SyncOrchestrator:
             provider_key=holding.provider_key,
         )
         return entity
+
+    async def resolve_security_reference(
+        self,
+        uow: UnitOfWork,
+        provider_key: str,
+        reference: SecurityReference,
+    ) -> tuple[Security | None, str | None]:
+        """Public security-resolution boundary for transaction stages."""
+        return await self._resolve_security_reference(
+            uow, provider_key, reference
+        )
 
     async def _resolve_security_reference(
         self,

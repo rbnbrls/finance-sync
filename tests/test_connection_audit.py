@@ -83,7 +83,9 @@ def _settings() -> Settings:
     return Settings(
         environment=Environment.PRODUCTION,
         database_url=None,
-        redis_url=None,
+        redis_url="redis://localhost:6379/0",
+        secret_key="test-production-secret-key-1234",
+        cors_origins=["https://example.test"],
         master_encryption_key=SecretStr(_MASTER_KEY),
     )
 

@@ -30,7 +30,8 @@ def _settings(environment: str) -> Settings:
         {
             "APP_ENVIRONMENT": environment,
             "database_url": None,
-            "redis_url": None,
+            "redis_url": "redis://localhost:6379/0",
+            "cors_origins": ["https://example.test"],
             "secret_key": _SECRET,
             "master_encryption_key": _MASTER_KEY,
             "DEBUG": False,

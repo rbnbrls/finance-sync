@@ -21,6 +21,15 @@ from finance_sync.config.environments import Environment
 ROOT_DIR: Path = Path(__file__).resolve().parent.parent.parent.parent
 
 
+def secret_value(value: SecretStr | str | None) -> str:
+    """Return plaintext for a secret field or test double."""
+    if value is None:
+        return ""
+    if isinstance(value, SecretStr):
+        return value.get_secret_value()
+    return value
+
+
 class Settings(BaseSettings):
     """Application configuration.
 
@@ -66,8 +75,13 @@ class Settings(BaseSettings):
 
     # ── CORS ─────────────────────────────────────────────────────────
     cors_origins: list[str] = Field(
-        default_factory=lambda: ["*"],
+        default_factory=list,
         validation_alias="CORS_ORIGINS",
+    )
+    trusted_proxy_ips: list[str] = Field(
+        default_factory=list,
+        validation_alias="TRUSTED_PROXY_IPS",
+        description="IPs/CIDRs allowed to supply X-Forwarded-For.",
     )
 
     # ── Database ─────────────────────────────────────────────────────
@@ -205,8 +219,8 @@ class Settings(BaseSettings):
         validation_alias="ACTUAL_BUDGET_SERVER_URL",
         description="Actual Budget server URL.",
     )
-    actual_budget_password: str = Field(
-        default="",
+    actual_budget_password: SecretStr = Field(
+        default=SecretStr(""),
         validation_alias="ACTUAL_BUDGET_PASSWORD",
         description="Actual Budget server password.",
     )
@@ -320,8 +334,8 @@ class Settings(BaseSettings):
         description="Wealthfolio self-hosted server URL for direct API "
         "push (e.g. http://192.168.3.50:8080).",
     )
-    wealthfolio_password: str = Field(
-        default="",
+    wealthfolio_password: SecretStr = Field(
+        default=SecretStr(""),
         validation_alias="WEALTHFOLIO_PASSWORD",
         description="Password for Wealthfolio self-hosted authentication.",
     )
@@ -564,6 +578,12 @@ class Settings(BaseSettings):
         le=50,
         validation_alias="DEGIRO_IMPORT_MAX_FILES",
     )
+    degiro_import_max_batch_bytes: int = Field(
+        default=100 * 1024 * 1024,
+        ge=1024,
+        validation_alias="DEGIRO_IMPORT_MAX_BATCH_BYTES",
+        description="Maximum combined size of one DEGIRO upload batch.",
+    )
     degiro_import_preview_ttl_minutes: int = Field(
         default=30,
         ge=1,
@@ -757,8 +777,8 @@ class Settings(BaseSettings):
     )
 
     # ── GitHub issue creation (feedback) ────────────────────────────
-    github_token: str = Field(
-        default="",
+    github_token: SecretStr = Field(
+        default=SecretStr(""),
         validation_alias="GITHUB_TOKEN",
         description=(
             "GitHub personal access token for creating issues from feedback."
@@ -808,8 +828,31 @@ class Settings(BaseSettings):
         """
         if self.worker_job_export_enabled is None:
             self.worker_job_export_enabled = bool(
-                self.wealthfolio_server_url and self.wealthfolio_password
+                self.wealthfolio_server_url
+                and self.wealthfolio_password.get_secret_value()
             )
+        return self
+
+    @model_validator(mode="after")
+    def _validate_production_security(self) -> Settings:
+        """Reject insecure authentication and infrastructure defaults."""
+        secret = self.secret_key.get_secret_value()
+        if self.is_production:
+            if secret == "change-me-in-production":
+                msg = "SECRET_KEY must be explicitly configured in production"
+                raise ValueError(msg)
+            if self.master_encryption_key is None:
+                msg = "MASTER_ENCRYPTION_KEY is required in production"
+                raise ValueError(msg)
+            if not self.cors_origins or "*" in self.cors_origins:
+                msg = "CORS_ORIGINS must be an explicit production allowlist"
+                raise ValueError(msg)
+            if self.redis_url is None:
+                msg = "REDIS_URL is required in production"
+                raise ValueError(msg)
+        if self.jwt_algorithm not in {"HS256", "HS384", "HS512"}:
+            msg = "JWT_ALGORITHM must be HS256, HS384, or HS512"
+            raise ValueError(msg)
         return self
 
     # ── Computed properties ──────────────────────────────────────────

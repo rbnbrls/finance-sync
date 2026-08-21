@@ -60,7 +60,7 @@ class TestSettings:
         assert settings.app_version == "0.1.0"
         assert settings.debug is False
         assert settings.environment == Environment.DEVELOPMENT
-        assert settings.cors_origins == ["*"]
+        assert settings.cors_origins == []
         assert settings.database_url is None
         assert settings.redis_url is None
         assert isinstance(settings.secret_key, SecretStr)
@@ -71,19 +71,39 @@ class TestSettings:
         settings = Settings(_env_file=None)
         assert settings.is_debug is True  # dev is debug
 
-        settings_prod = Settings(environment="prod", _env_file=None)  # type: ignore[call-arg]
+        settings_prod = Settings(
+            environment="prod",
+            secret_key="test-production-secret-key-1234",
+            master_encryption_key="00" * 32,
+            cors_origins=["https://example.test"],
+            redis_url="redis://localhost:6379/0",
+            _env_file=None,
+        )  # type: ignore[call-arg]
         assert settings_prod.is_debug is False
 
     def test_debug_flag_overrides(self) -> None:
         """Explicit debug flag overrides environment-based debug."""
-        settings = Settings(debug=True, environment="prod")  # type: ignore[call-arg]
+        settings = Settings(
+            debug=True,
+            environment="prod",
+            secret_key="test-production-secret-key-1234",
+            master_encryption_key="00" * 32,
+            cors_origins=["https://example.test"],
+            redis_url="redis://localhost:6379/0",
+        )  # type: ignore[call-arg]
         assert settings.is_debug is True
 
     def test_is_production_property(self) -> None:
         settings_dev = Settings()
         assert settings_dev.is_production is False
 
-        settings_prod = Settings(environment="prod")  # type: ignore[call-arg]
+        settings_prod = Settings(
+            environment="prod",
+            secret_key="test-production-secret-key-1234",
+            master_encryption_key="00" * 32,
+            cors_origins=["https://example.test"],
+            redis_url="redis://localhost:6379/0",
+        )  # type: ignore[call-arg]
         assert settings_prod.is_production is True
 
     def test_app_environment_alias(
@@ -117,6 +137,24 @@ class TestSettings:
         """Keys >= 16 chars are accepted."""
         settings = Settings(secret_key="this-is-32-chars-key-ok!!")  # type: ignore[call-arg]
         assert settings.secret_key is not None
+
+    def test_production_rejects_default_secret(self) -> None:
+        with pytest.raises(ValueError, match="SECRET_KEY"):
+            Settings(
+                environment="prod",
+                master_encryption_key="00" * 32,
+                cors_origins=["https://example.test"],
+                redis_url="redis://localhost:6379/0",
+            )  # type: ignore[call-arg]
+
+    def test_production_requires_secure_infrastructure(self) -> None:
+        with pytest.raises(ValueError, match="MASTER_ENCRYPTION_KEY"):
+            Settings(
+                environment="prod",
+                secret_key="test-production-secret-key-1234",
+                cors_origins=["https://example.test"],
+                redis_url="redis://localhost:6379/0",
+            )  # type: ignore[call-arg]
 
 
 class TestExporterSettings:
