@@ -81,6 +81,41 @@ def test_dashboard_ships_connector_list_surface(client: TestClient) -> None:
     assert "loadConnectors()" in html
 
 
+def test_dashboard_ships_read_only_database_viewer(client: TestClient) -> None:
+    """The viewer exposes tenant-scoped read data without write controls."""
+    html = _dashboard_html(client)
+    assert 'data-section="viewer"' in html
+    assert 'id="section-viewer"' in html
+    assert 'id="viewer-summary"' in html
+    assert 'id="viewer-accounts"' in html
+    assert 'id="viewer-holdings"' in html
+    assert 'id="viewer-transactions"' in html
+    assert "api('GET', '/accounts?limit=200')" in html
+    assert "api('GET', '/portfolio')" in html
+    assert "api('GET', '/holdings?limit=500')" in html
+    assert "api('GET', '/transactions?limit=50&sort_order=desc')" in html
+    assert "function loadViewer()" in html
+    assert "function renderViewerAccounts" in html
+    assert "function renderViewerHoldings" in html
+    assert "function renderViewerTransactions" in html
+
+
+def test_dashboard_separates_manual_uploads_from_api_connectors(
+    client: TestClient,
+) -> None:
+    """Manual DEGIRO files have a dedicated upload page, not an API card."""
+    html = _dashboard_html(client)
+    assert 'data-section="uploads"' in html
+    assert 'id="section-uploads"' in html
+    assert 'id="degiro-upload-files"' in html
+    assert 'id="degiro-upload-connection"' in html
+    assert "previewDegiroUpload()" in html
+    assert "confirmDegiroUpload()" in html
+    # The API connector page filters the manual-only provider client-side.
+    assert "connectorCatalog.filter(c => c.name !== 'degiro_pension')" in html
+    assert "c.provider_type !== 'degiro_pension'" in html
+
+
 def test_dashboard_serves_login_and_register(client: TestClient) -> None:
     for path in ("/login", "/register"):
         resp = client.get(path)
