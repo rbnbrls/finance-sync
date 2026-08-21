@@ -17,6 +17,7 @@ the CI workflow treats any skip here as a job failure.
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 
 import pytest
@@ -63,6 +64,26 @@ async def _make_webhook(
 
 class TestWebhookRedisRateLimit:
     """Redis-backed fixed-window throttling of webhook deliveries."""
+
+    async def test_concurrent_burst_single_accept(
+        self, session_factory, redis_client
+    ) -> None:
+        """A 10-way concurrent burst yields exactly one accepted delivery.
+
+        The Redis INCR is atomic, so ten simultaneous attempts against a
+        limit of 1 must produce exactly one ``True`` and nine ``False`` —
+        no lost updates, no double-accepts (holdout #8).
+        """
+        service = WebhookService(session_factory, _settings(), redis_client)
+        webhook = await _make_webhook(session_factory, rate_limit=1)
+
+        results = await asyncio.gather(
+            *[service._is_rate_allowed(webhook) for _ in range(10)]
+        )
+        assert sum(results) == 1, (
+            f"expected exactly 1 accept, got {sum(results)}"
+        )
+        assert sum(not r for r in results) == 9
 
     async def test_redis_bucket_allows_within_limit(
         self, session_factory, redis_client

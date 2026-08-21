@@ -71,6 +71,31 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
             item.add_marker(pytest.mark.integration)
 
 
+def pytest_terminal_summary(
+    terminalreporter: pytest.TerminalReporter, exitstatus: int
+) -> None:
+    """Fail the run on unexpected skips when running in CI.
+
+    The formal database-service gate must actually run.  When
+    ``CI`` is set (GitHub Actions service containers provide PG/Redis),
+    any skipped integration test means the gate silently did nothing —
+    that must make the job red, even if the skip came from a fixture
+    (e.g. a dead service) rather than a marker mismatch.
+    """
+    if not os.environ.get("CI"):
+        return
+    skipped = len(terminalreporter.stats.get("skipped", []))
+    if skipped > 0:
+        terminalreporter.write_line(
+            f"\n❌ Unexpected integration test skips in CI: {skipped} — "
+            "the PostgreSQL/Redis gate must actually run."
+        )
+        raise pytest.UsageError(
+            f"Unexpected integration test skips in CI: {skipped}. "
+            "The PostgreSQL/Redis gate must actually run."
+        )
+
+
 # ── Connection URLs ──────────────────────────────────────────────────
 
 
