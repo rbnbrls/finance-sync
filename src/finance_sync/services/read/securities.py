@@ -52,9 +52,9 @@ class SecuritiesReadService:
                 )
             )
         total_result = await self._session.execute(
-            select(func.count()).select_from(Security).where(
-                expression(*conditions)
-            )
+            select(func.count())
+            .select_from(Security)
+            .where(expression(*conditions))
         )
         total: int = total_result.scalar() or 0
         result = await self._session.execute(
@@ -120,9 +120,9 @@ class SecuritiesReadService:
         if date_to is not None:
             conditions.append(SecurityPrice.timestamp <= date_to)
         total_result = await self._session.execute(
-            select(func.count()).select_from(SecurityPrice).where(
-                expression(*conditions)
-            )
+            select(func.count())
+            .select_from(SecurityPrice)
+            .where(expression(*conditions))
         )
         total: int = total_result.scalar() or 0
         result = await self._session.execute(

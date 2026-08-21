@@ -1613,9 +1613,7 @@ class ReadService:
         """List price observations for a security."""
         from finance_sync.services.read.securities import SecuritiesReadService
 
-        return await SecuritiesReadService(
-            self._session
-        ).get_security_prices(
+        return await SecuritiesReadService(self._session).get_security_prices(
             security_id,
             limit=limit,
             offset=offset,

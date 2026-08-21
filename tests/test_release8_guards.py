@@ -9,7 +9,9 @@ from finance_sync.sync.persistence import PersistenceContext, SyncPersistence
 
 
 @pytest.mark.asyncio
-async def test_sync_persistence_forwards_writes_without_transaction_control() -> None:
+async def test_sync_persistence_forwards_writes_without_transaction_control() -> (
+    None
+):
     writer = SimpleNamespace(
         persist_account=AsyncMock(return_value="account"),
         persist_transaction=AsyncMock(return_value="transaction"),
@@ -40,10 +42,9 @@ async def test_sync_persistence_forwards_writes_without_transaction_control() ->
         )
         == "holding"
     )
-    assert (
-        await persistence.resolve_security_reference(uow, "provider", reference)
-        == (None, "ISIN")
-    )
+    assert await persistence.resolve_security_reference(
+        uow, "provider", reference
+    ) == (None, "ISIN")
 
     writer.persist_account.assert_awaited_once_with(
         uow, account, connection_id=None

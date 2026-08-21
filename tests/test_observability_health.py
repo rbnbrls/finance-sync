@@ -34,7 +34,7 @@ def app() -> FastAPI:
             # Hermetic tests: never inherit a real GITHUB_TOKEN from the
             # environment, otherwise /health would make a live GitHub API
             # call (issue #273 regression coverage depends on this).
-            github_token="",
+            github_token=SecretStr(""),
         )
     )
 
@@ -177,7 +177,7 @@ class TestHealthGithubComponent:
                 database_url=None,
                 redis_url=None,
                 secret_key=_TEST_SECRET,
-                github_token="ghp_test_configured_token",
+                github_token=SecretStr("ghp_test_configured_token"),
             )
         )
         with patch(
@@ -201,7 +201,7 @@ class TestHealthGithubComponent:
                 database_url=None,
                 redis_url=None,
                 secret_key=_TEST_SECRET,
-                github_token="ghp_test_configured_token",
+                github_token=SecretStr("ghp_test_configured_token"),
             )
         )
         with patch(

@@ -44,7 +44,7 @@ def app(mock_user: MagicMock) -> ...:
         database_url=None,
         redis_url=None,
         secret_key=_TEST_SECRET,
-        github_token="ghp_test_token_12345",
+        github_token=SecretStr("ghp_test_token_12345"),
         github_repo="rbnbrls/finance-sync",
     )
     app = create_app(settings=settings)
