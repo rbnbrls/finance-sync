@@ -13,6 +13,10 @@
 #   openapi-diff – OpenAPI public-surface diff (PRs only, no secrets)
 #   build        – Docker image build, Trivy image scan (fail on HIGH/CRITICAL), push on main
 #
+# The integration/e2e jobs fail on unexpected test skips (the PG/Redis
+# gate must actually run) and upload JUnit + service-container logs as
+# CI artifacts; the migrations job uploads its upgrade/downgrade logs.
+#
 name: CI
 
 on:
@@ -212,14 +216,14 @@ jobs:
           ASYNC_DB_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/finance_sync_test
 
       - name: Run alembic upgrade head on empty database
-        run: uv run alembic upgrade head
+        run: uv run alembic upgrade head 2>&1 | tee migration-upgrade.log
         env:
           ASYNC_DB_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/finance_sync_test
 
       - name: Verify migration downgrade and upgrade round-trip
         run: |
-          uv run alembic downgrade base
-          uv run alembic upgrade head
+          uv run alembic downgrade base 2>&1 | tee migration-downgrade.log
+          uv run alembic upgrade head 2>&1 | tee -a migration-upgrade.log
         env:
           ASYNC_DB_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/finance_sync_test
 
@@ -252,6 +256,16 @@ jobs:
           PY
         env:
           ASYNC_DB_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/finance_sync_test
+
+      - name: Upload migration logs
+        uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: migration-logs
+          path: |
+            migration-upgrade.log
+            migration-downgrade.log
+          retention-days: 14
 
   # ── Integration tests (real PG + Redis) ────────────────────────────
   integration:
@@ -304,12 +318,47 @@ jobs:
           TEST_DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/finance_sync_test
           TEST_REDIS_URL: redis://localhost:6379/15
 
+      - name: Fail on unexpected integration test skips
+        # Gate: the formal PG/Redis validation must actually run.  A skip
+        # here means the suite silently did nothing — make the job red.
+        # (The harness uses pytest.skip() only when TEST_DATABASE_URL /
+        # TEST_REDIS_URL are unset and not in CI — i.e. never in CI.)
+        run: |
+          SKIPPED=$(uv run python -c "
+          import xml.etree.ElementTree as ET
+          tree = ET.parse('junit-integration.xml')
+          skipped = int(tree.getroot().get('skipped', 0))
+          print(skipped)
+          ")
+          echo "Integration skipped tests: ${SKIPPED}"
+          if [ "${SKIPPED}" -ne 0 ]; then
+            echo "❌ Unexpected integration test skips (${SKIPPED}) — the PG/Redis gate did not fully run."
+            exit 1
+          fi
+          echo "✅ No unexpected integration test skips."
+
+      - name: Capture service container logs
+        if: always()
+        run: |
+          docker logs "${{ job.services.postgres.id }}" > pg-service.log 2>&1 || true
+          docker logs "${{ job.services.redis.id }}" > redis-service.log 2>&1 || true
+
       - name: Upload integration test results
         uses: actions/upload-artifact@v7
         if: always()
         with:
           name: integration-junit
           path: junit-integration.xml
+          retention-days: 14
+
+      - name: Upload integration service logs
+        uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: integration-service-logs
+          path: |
+            pg-service.log
+            redis-service.log
           retention-days: 14
 
   # ── E2E tests (full API → worker → outbox pipeline) ──────────────
@@ -363,12 +412,44 @@ jobs:
           TEST_DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/finance_sync_test
           TEST_REDIS_URL: redis://localhost:6379/15
 
+      - name: Fail on unexpected e2e test skips
+        # Gate: the exactly-once pipeline validation must actually run.
+        run: |
+          SKIPPED=$(uv run python -c "
+          import xml.etree.ElementTree as ET
+          tree = ET.parse('junit-e2e.xml')
+          skipped = int(tree.getroot().get('skipped', 0))
+          print(skipped)
+          ")
+          echo "E2E skipped tests: ${SKIPPED}"
+          if [ "${SKIPPED}" -ne 0 ]; then
+            echo "❌ Unexpected e2e test skips (${SKIPPED}) — the exactly-once gate did not fully run."
+            exit 1
+          fi
+          echo "✅ No unexpected e2e test skips."
+
+      - name: Capture service container logs
+        if: always()
+        run: |
+          docker logs "${{ job.services.postgres.id }}" > pg-service.log 2>&1 || true
+          docker logs "${{ job.services.redis.id }}" > redis-service.log 2>&1 || true
+
       - name: Upload e2e test results
         uses: actions/upload-artifact@v7
         if: always()
         with:
           name: e2e-junit
           path: junit-e2e.xml
+          retention-days: 14
+
+      - name: Upload e2e service logs
+        uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: e2e-service-logs
+          path: |
+            pg-service.log
+            redis-service.log
           retention-days: 14
 
   # ── Security + SBOM ───────────────────────────────────────────────────

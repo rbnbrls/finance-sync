@@ -438,6 +438,7 @@ class WebhookService:
 
         start = time.monotonic()
         success = False
+        rate_limited = False
         status_code: int | None = None
         response_body: str | None = None
         error_msg: str | None = None
@@ -450,6 +451,7 @@ class WebhookService:
                 url=webhook.url,
                 attempt=log_entry.attempt_number,
             )
+            rate_limited = True
             status_code = 429
             error_msg = "Rate limited: too many requests in the last 60 seconds"
             log_entry.status = WebhookDeliveryStatus.RATE_LIMITED
@@ -505,6 +507,13 @@ class WebhookService:
                 status=status_code,
                 duration_ms=duration_ms,
             )
+        elif rate_limited:
+            # Rate-limited attempts are recorded as RATE_LIMITED (not
+            # FAILED) — the retry worker must not re-attempt them within
+            # the same window.
+            log_entry.response_status_code = status_code
+            log_entry.duration_ms = duration_ms
+            log_entry.error_message = error_msg
         else:
             log_entry.status = WebhookDeliveryStatus.FAILED
             log_entry.response_status_code = status_code
