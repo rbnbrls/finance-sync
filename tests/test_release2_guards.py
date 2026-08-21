@@ -12,10 +12,19 @@ from finance_sync.services.webhook import WebhookService, validate_webhook_url
 
 def test_webhook_policy_requires_public_https() -> None:
     validate_webhook_url("https://example.com/hook")
-    with pytest.raises(ValueError, match="HTTPS"):
+    with pytest.raises(ValueError, match=r"HTTPS|loopback"):
         validate_webhook_url("http://example.com/hook")
     with pytest.raises(ValueError, match="Private"):
         validate_webhook_url("https://127.0.0.1/hook")
+    # Loopback HTTP is allowed (local/self-hosted receivers, E2E harness).
+    validate_webhook_url("http://127.0.0.1:8080/hook")
+    validate_webhook_url("http://localhost:8080/hook")
+    validate_webhook_url("http://[::1]:8080/hook")
+    # Private LAN HTTP stays blocked (SSRF protection).
+    with pytest.raises(ValueError, match="loopback"):
+        validate_webhook_url("http://192.168.1.8:8080/hook")
+    with pytest.raises(ValueError, match="Private"):
+        validate_webhook_url("https://10.0.0.5/hook")
 
 
 class _FakeRedis:
