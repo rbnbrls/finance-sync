@@ -42,6 +42,13 @@
 #    │                                  │ for cred  │ variable.                    │
 #    │                                  │ enc.      │                              │
 #    │ CORS_ORIGINS                     │ No       │ Default: *                   │
+#    │                                  │          │ ⚠️ PROD: must be an explicit │
+#    │                                  │          │ non-wildcard allowlist — the │
+#    │                                  │          │ production settings validator│
+#    │                                  │          │ (Settings._validate_prod-    │
+#    │                                  │          │ uction_security) rejects `*`│
+#    │                                  │          │ or an empty list at startup │
+#    │                                  │          │ (e.g. ["https://<app-fqdn>"])│
 #    └──────────────────────────────────┴──────────┴──────────────────────────────┘
 #
 # 5. Volume Mounts:
