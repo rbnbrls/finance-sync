@@ -42,6 +42,11 @@ CVE-2025-7458
 # integer overflow (no bookworm fix yet)
 # expiry="2026-12-31"
 CVE-2026-53615
+# util-linux family (bsdutils, libblkid1, libmount1, libsmartcols1,
+# libuuid1, mount, util-linux, util-linux-extra): TOCTOU in mount program
+# via ancestor directory swap (no bookworm fix yet)
+# expiry="2026-12-31"
+CVE-2026-53613
 # perl-base: Archive::Tar DoS (no fix yet)
 # expiry="2026-12-31"
 CVE-2026-9538
