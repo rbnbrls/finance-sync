@@ -72,13 +72,23 @@ _rate_limiter = _SlidingWindowCounter()
 
 
 def validate_webhook_url(url: str, *, resolve: bool = False) -> None:
-    """Reject non-HTTPS and private webhook destinations."""
+    """Validate a webhook destination URL.
+
+    Policy:
+    * HTTPS is allowed for any host that resolves to a public address
+      (private/LAN/reserved ranges stay blocked — SSRF protection).
+    * HTTP is allowed only for loopback destinations (``127.0.0.1``,
+      ``::1``, ``localhost``) — required for local/self-hosted webhook
+      receivers and the E2E harness.
+    * Every URL must include a hostname.
+    """
     parsed = urlsplit(url)
-    if parsed.scheme != "https" or not parsed.hostname:
-        msg = "Webhook URL must use HTTPS and include a hostname"
+    hostname = parsed.hostname
+    if not hostname:
+        msg = "Webhook URL must include a hostname"
         raise ValueError(msg)
     try:
-        addresses = [ipaddress.ip_address(parsed.hostname)]
+        addresses = [ipaddress.ip_address(hostname)]
     except ValueError:
         addresses = []
         if resolve:
@@ -86,7 +96,7 @@ def validate_webhook_url(url: str, *, resolve: bool = False) -> None:
                 addresses = [
                     ipaddress.ip_address(item[4][0])
                     for item in socket.getaddrinfo(
-                        parsed.hostname,
+                        hostname,
                         parsed.port or 443,
                         type=socket.SOCK_STREAM,
                     )
@@ -94,16 +104,32 @@ def validate_webhook_url(url: str, *, resolve: bool = False) -> None:
             except OSError as exc:
                 msg = "Webhook hostname could not be resolved"
                 raise ValueError(msg) from exc
-    for address in addresses:
-        if (
-            address.is_private
-            or address.is_loopback
-            or address.is_link_local
-            or address.is_multicast
-            or address.is_reserved
-            or address.is_unspecified
-        ):
-            msg = "Private webhook destinations are not allowed"
+
+    def _is_loopback_host() -> bool:
+        if any(a.is_loopback for a in addresses):
+            return True
+        host = hostname.lower()
+        return host == "localhost" or host.endswith(".localhost")
+
+    if parsed.scheme == "https":
+        for address in addresses:
+            if (
+                address.is_private
+                or address.is_loopback
+                or address.is_link_local
+                or address.is_multicast
+                or address.is_reserved
+                or address.is_unspecified
+            ):
+                msg = "Private webhook destinations are not allowed"
+                raise ValueError(msg)
+    else:
+        # Only loopback destinations may use plain HTTP.
+        if parsed.scheme != "http":
+            msg = "Webhook URL must use HTTPS or a loopback HTTP URL"
+            raise ValueError(msg)
+        if not _is_loopback_host():
+            msg = "HTTP is only allowed for loopback webhook destinations"
             raise ValueError(msg)
 
 
