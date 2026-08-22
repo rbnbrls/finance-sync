@@ -45,5 +45,5 @@ def test_expired_exception_fails_and_removed_exception_disappears(
 
 def test_security_ci_publishes_exception_report() -> None:
     workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
-    assert "security_exception_report.py" in workflow
+    assert "scripts.security_exception_report" in workflow
     assert "security-exceptions.json" in workflow
