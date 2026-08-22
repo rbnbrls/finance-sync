@@ -132,7 +132,7 @@ set_env REDIS_URL "redis://default:${REDIS_PW}@${RD_UUID}:6379/0"
 set_env SECRET_KEY "${SECRET}"
 set_env MASTER_ENCRYPTION_KEY "${MASTER}"
 set_env LOG_LEVEL "INFO"
-set_env CORS_ORIGINS '["*"]'
+set_env CORS_ORIGINS '["*"]'   # staging only — production must use an explicit non-wildcard allowlist (see docs/RELEASING.md)
 echo "  ✓ envs set"
 
 echo ""

@@ -62,6 +62,24 @@ class TestRedisConnectivity:
 class TestDistributedLock:
     """SET NX EX lock with Lua compare-and-delete release."""
 
+    async def test_concurrent_acquire_single_winner(self, redis_client) -> None:
+        """Ten parallel acquirers — exactly one wins the lock.
+
+        SET NX is atomic on Redis, so a concurrent burst must yield a
+        single winner (holdout #8: concurrency semantics on real Redis).
+        """
+        key = f"it:lock:race:{uuid.uuid4().hex}"
+
+        async def _try_acquire() -> bool:
+            result = await redis_client.set(key, "t", nx=True, ex=60)
+            return result is True
+
+        outcomes = await asyncio.gather(*[_try_acquire() for _ in range(10)])
+        assert sum(outcomes) == 1, f"expected 1 winner, got {sum(outcomes)}"
+
+        # Winner's token is stored; the lock is held.
+        assert await redis_client.get(key) == "t"
+
     async def test_acquire_and_release(self, redis_client) -> None:
         key = f"it:lock:{uuid.uuid4().hex}"
         token = uuid.uuid4().hex

@@ -79,6 +79,8 @@ EXPECTED_TABLES = {
     "sync_schedules",
     # persisted destination targets (migration 0021)
     "export_targets",
+    # persisted refresh-token state for rotation/replay detection (0036)
+    "refresh_tokens",
 }
 
 
@@ -988,3 +990,141 @@ class TestSyncScheduleBackfill:
 
         tables = await _public_tables(fresh_database_url)
         assert "sync_schedules" not in tables
+
+
+class TestRefreshTokensAndLatestPriceIndex:
+    """Migrations 0036 (refresh_tokens) and 0037 (latest-price index).
+
+    ``0036_add_refresh_tokens.py`` persists refresh-token state for
+    rotation / replay detection; ``0037_add_latest_price_index.py`` adds
+    the composite index backing latest-price read queries.  Both run on
+    the *empty* database (the formal CI gate: ``upgrade head`` on a
+    fresh PG 16 service container) and must survive the full
+    ``downgrade base → upgrade head`` round-trip.
+    """
+
+    @pytest.fixture
+    async def fresh_database_url(
+        self, database_url: str
+    ) -> AsyncGenerator[str, None]:
+        """Dedicated database per test (see TestMultiConnectionUpgrade)."""
+        url = make_url(database_url)
+        db_name = f"finance_sync_migtest_{uuid.uuid4().hex[:8]}"
+
+        admin_url = url.set(database="postgres")
+        admin_engine = create_async_engine(
+            admin_url.render_as_string(hide_password=False),
+            isolation_level="AUTOCOMMIT",
+        )
+        try:
+            async with admin_engine.connect() as conn:
+                await conn.execute(sa.text(f'CREATE DATABASE "{db_name}"'))
+        finally:
+            await admin_engine.dispose()
+
+        fresh_url = url.set(database=db_name)
+        try:
+            yield fresh_url.render_as_string(hide_password=False)
+        finally:
+            drop_engine = create_async_engine(
+                admin_url.render_as_string(hide_password=False),
+                isolation_level="AUTOCOMMIT",
+            )
+            try:
+                async with drop_engine.connect() as conn:
+                    await conn.execute(
+                        sa.text(
+                            f'DROP DATABASE IF EXISTS "{db_name}" WITH (FORCE)'
+                        )
+                    )
+            finally:
+                await drop_engine.dispose()
+
+    async def _columns(self, url: str, table: str) -> set[str]:
+        """Column names of *table* in the dedicated database."""
+        engine = create_async_engine(url)
+        try:
+            async with engine.connect() as conn:
+                result = await conn.execute(
+                    sa.text(
+                        "SELECT column_name FROM information_schema.columns "
+                        "WHERE table_name = :table"
+                    ),
+                    {"table": table},
+                )
+                return {row[0] for row in result}
+        finally:
+            await engine.dispose()
+
+    async def _indexes(self, url: str, table: str) -> set[str]:
+        """Index names on *table* in the dedicated database."""
+        engine = create_async_engine(url)
+        try:
+            async with engine.connect() as conn:
+                result = await conn.execute(
+                    sa.text(
+                        "SELECT indexname FROM pg_indexes "
+                        "WHERE tablename = :table"
+                    ),
+                    {"table": table},
+                )
+                return {row[0] for row in result}
+        finally:
+            await engine.dispose()
+
+    async def test_0036_refresh_tokens_table_on_empty_db(
+        self, fresh_database_url: str
+    ) -> None:
+        """0036 creates the refresh_tokens table with its indexes."""
+        run_alembic("upgrade", "head", url=fresh_database_url)
+
+        tables = await _public_tables(fresh_database_url)
+        assert "refresh_tokens" in tables
+
+        cols = await self._columns(fresh_database_url, "refresh_tokens")
+        for col in (
+            "id",
+            "user_id",
+            "tenant_id",
+            "jti",
+            "token_hash",
+            "expires_at",
+            "revoked_at",
+            "replaced_by_jti",
+            "created_at",
+        ):
+            assert col in cols, f"refresh_tokens missing column {col}"
+
+        indexes = await self._indexes(fresh_database_url, "refresh_tokens")
+        for index in (
+            "ix_refresh_tokens_user_id",
+            "ix_refresh_tokens_tenant_id",
+            "ix_refresh_tokens_expires_at",
+        ):
+            assert index in indexes, f"refresh_tokens missing index {index}"
+
+    async def test_0037_latest_price_index_on_empty_db(
+        self, fresh_database_url: str
+    ) -> None:
+        """0037 creates the composite latest-price lookup index."""
+        run_alembic("upgrade", "head", url=fresh_database_url)
+
+        indexes = await self._indexes(fresh_database_url, "security_prices")
+        assert "ix_security_prices_latest_lookup" in indexes
+
+    async def test_0036_0037_survive_downgrade_roundtrip(
+        self, fresh_database_url: str
+    ) -> None:
+        """Both artifacts are re-created after downgrade base → upgrade."""
+        run_alembic("upgrade", "head", url=fresh_database_url)
+        run_alembic("downgrade", "base", url=fresh_database_url)
+        run_alembic("upgrade", "head", url=fresh_database_url)
+
+        tables = await _public_tables(fresh_database_url)
+        assert "refresh_tokens" in tables
+
+        indexes = await self._indexes(fresh_database_url, "security_prices")
+        assert "ix_security_prices_latest_lookup" in indexes
+        assert "ix_refresh_tokens_user_id" in (
+            await self._indexes(fresh_database_url, "refresh_tokens")
+        )
