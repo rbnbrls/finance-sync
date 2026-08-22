@@ -31,7 +31,7 @@ dependencies = [
     "actualpy>=0.22",
     "apscheduler>=3.10",
     "aiohttp>=3.9",
-    "mcp>=1.28.1",
+    "mcp>=1.28",
     "openpyxl>=3.1",
     "xlrd>=2.0",
 ]
