@@ -421,7 +421,7 @@ class EnrichmentGateway:
                 ticker=h.get("ticker") or h.get("symbol"),
                 name=h.get("name") or h.get("description"),
                 weight=_safe_decimal(h.get("weight") or h.get("percentage")),
-                sector=h.get("sector"),
+                sector=str(h.get("sector") or ""),
                 market_value=_safe_decimal(
                     h.get("marketValue") or h.get("market_value")
                 ),
@@ -444,7 +444,7 @@ class EnrichmentGateway:
 
         region_exposures = [
             RegionExposure(
-                region=r.get("region") or r.get("name"),
+                region=r.get("region") or r.get("name") or "",
                 weight=_safe_decimal(
                     r.get("weight") or r.get("exposure") or r.get("percentage")
                 )

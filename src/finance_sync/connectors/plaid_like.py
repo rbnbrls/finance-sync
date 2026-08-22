@@ -66,6 +66,14 @@ _PLAID_TYPE_MAP: dict[str, str] = {
 }
 
 
+def _required_string(value: object, field: str) -> str:
+    """Validate a required string in a provider payload."""
+    if not isinstance(value, str):
+        message = f"Plaid payload field {field!r} must be a string"
+        raise ValueError(message)
+    return value
+
+
 def _plaid_to_canonical_type(plaid_type: str, subtype: str) -> str:
     """Map Plaid account type + subtype to canonical type.
 
@@ -289,14 +297,26 @@ class PlaidLikeConnector(Connector):
 
         return [
             RawTransaction(
-                external_transaction_id=t["transaction_id"],
-                external_account_id=t["account_id"],
-                amount=Decimal(str(t["amount"])),
-                currency_code=t["iso_currency_code"],
-                occurred_at=datetime.fromisoformat(t["date"]).replace(
-                    tzinfo=UTC
+                external_transaction_id=_required_string(
+                    t["transaction_id"], "transaction_id"
                 ),
-                description=(t.get("merchant_name") or t.get("name", "")),
+                external_account_id=_required_string(
+                    t["account_id"], "account_id"
+                ),
+                amount=Decimal(str(t["amount"])),
+                currency_code=_required_string(
+                    t["iso_currency_code"], "iso_currency_code"
+                ),
+                occurred_at=datetime.fromisoformat(
+                    _required_string(t["date"], "date")
+                ).replace(tzinfo=UTC),
+                description=(
+                    t.get("merchant_name")
+                    if isinstance(t.get("merchant_name"), str)
+                    else t.get("name")
+                    if isinstance(t.get("name"), str)
+                    else None
+                ),
                 transaction_type="payment",
                 status="pending" if t.get("pending") else "booked",
                 provider_metadata={

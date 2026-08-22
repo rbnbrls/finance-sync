@@ -660,11 +660,14 @@ class FxService:
             )
             response.raise_for_status()
             data: dict[str, Any] = response.json()
+            rate = _safe_decimal(data.get("rate"))
+            if rate is None:
+                return None
 
             return FxRateObservation(
                 base_currency=data.get("base", base_currency),
                 quote_currency=data.get("quote", quote_currency),
-                rate=_safe_decimal(data.get("rate")),
+                rate=rate,
                 timestamp=_parse_timestamp(data.get("timestamp")),
                 source=data.get("source", "openbb"),
             )

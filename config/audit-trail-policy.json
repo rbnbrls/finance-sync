@@ -1,0 +1,13 @@
+{
+  "retention_days": 3650,
+  "read_roles": ["admin", "operator"],
+  "read_only": true,
+  "events": [
+    {"object_type": "credential", "actions": ["create", "update", "delete", "rotate"]},
+    {"object_type": "sync_configuration", "actions": ["create", "update", "pause", "resume"]},
+    {"object_type": "security_resolution", "actions": ["resolve", "reject"]},
+    {"object_type": "export", "actions": ["start", "complete", "fail", "retry"]}
+  ],
+  "required_fields": ["actor", "timestamp", "tenant", "object_type", "action", "redacted_diff"],
+  "forbidden_fields": ["password", "token", "api_key", "credential_value", "amount", "description"]
+}

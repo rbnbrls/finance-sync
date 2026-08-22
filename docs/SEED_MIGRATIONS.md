@@ -63,6 +63,15 @@ async def seed_default_data(session_factory):
 
 This is the **last resort** — prefer Alembic seeds for anything that should be tracked in version control.
 
+The application startup also inserts the deterministic synthetic dataset from
+`finance_sync.services.non_production_seed` when `APP_ENVIRONMENT` is `dev` or
+`staging`. It creates normalized bunq, Trading 212 and DEGIRO Pension records
+(accounts, balances, transactions, securities and holdings) using provider
+IDs prefixed with `finance-sync.synthetic.v1`. The operation is idempotent and
+does not seed credentials or run in `prod`, so it is safe for a local Mac
+PostgreSQL database and the Coolify staging database. Recreate the
+non-production database to get a clean dataset again.
+
 ## Rollback philosophy
 
 - **Schema migrations**: always provide a `downgrade()`.

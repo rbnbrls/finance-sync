@@ -1,0 +1,60 @@
+{
+  "owner": "privacy-operations",
+  "review_cadence_days": 90,
+  "categories": [
+    {
+      "name": "credentials",
+      "locations": ["postgresql.connections.credentials_encrypted", "coolify-secrets"],
+      "retention": "until_connection_deleted",
+      "deletion": "delete_encrypted_envelope_with_connection",
+      "rationale": "Required only while the connector is configured.",
+      "tenant_scoped": true,
+      "redacted": true
+    },
+    {
+      "name": "audit_data",
+      "locations": ["postgresql.connection_audit", "postgresql.sync_audit"],
+      "retention_days": 3650,
+      "deletion": "tenant_scoped_prune_after_retention",
+      "rationale": "Operational and accountability evidence.",
+      "tenant_scoped": true,
+      "redacted": true
+    },
+    {
+      "name": "outbox_payloads",
+      "locations": ["postgresql.outbox_messages", "redis.transient_queues"],
+      "retention_days": 30,
+      "deletion": "delete_after_delivery_or_dead_letter_expiry",
+      "rationale": "Retry and incident recovery window only.",
+      "tenant_scoped": true,
+      "redacted": true
+    },
+    {
+      "name": "logs",
+      "locations": ["container_stdout", "github_actions_artifacts"],
+      "retention_days": 30,
+      "deletion": "provider_retention_prune",
+      "rationale": "Short operational troubleshooting window.",
+      "tenant_scoped": true,
+      "redacted": true
+    },
+    {
+      "name": "financial_facts",
+      "locations": ["postgresql.transactions", "postgresql.holdings", "postgresql.prices"],
+      "retention_days": 2555,
+      "deletion": "tenant_scoped_delete_or_anonymise_on_request",
+      "rationale": "User history and applicable accounting obligations.",
+      "tenant_scoped": true,
+      "redacted": false
+    },
+    {
+      "name": "provider_payloads",
+      "locations": ["postgresql.raw_payloads", "quarantine_import_files"],
+      "retention_days": 0,
+      "deletion": "delete_after_normalisation_or_explicit_import_retention",
+      "rationale": "Raw provider data is not needed after canonicalisation.",
+      "tenant_scoped": true,
+      "redacted": true
+    }
+  ]
+}

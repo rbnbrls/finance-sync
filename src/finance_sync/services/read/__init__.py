@@ -1,6 +1,10 @@
 """Focused read-side query components."""
 
 from finance_sync.services.read.analytics import AnalyticsReadService
+from finance_sync.services.read.benchmarking import (
+    ReadBenchmarkResult,
+    write_benchmark_report,
+)
 from finance_sync.services.read.benchmarks import (
     READ_BENCHMARKS,
     ReadBenchmark,
@@ -21,5 +25,7 @@ __all__ = [
     "QueryBudget",
     "QueryCounter",
     "ReadBenchmark",
+    "ReadBenchmarkResult",
     "SecuritiesReadService",
+    "write_benchmark_report",
 ]

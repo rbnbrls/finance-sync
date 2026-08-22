@@ -39,6 +39,12 @@ All tables use UUID primary keys, `tenant_id`, `created_at`, and `updated_at` un
 - Use `CHECK` constraints for ISO code length, non-negative quantities where applicable, valid enum status, `valid_to >= valid_from`, and non-zero transaction amount. Use foreign keys with restrictive deletes for financial records; soft-delete user-facing configuration.
 - Partition high-volume immutable observations (`transaction`, `price_observation`, `raw_payload`, `audit_log`, `outbox_event`) monthly after operational volume justifies it. Start unpartitioned to reduce migration complexity.
 - Alembic owns all schema changes. Each revision is backward-compatible first (expand), app code migrates/read-dual, then a later release contracts. Production migration runs once as a release job, with backup and tested rollback plan.
+- Staging smoke validates the running image against synthetic sync/outbox and
+  exporter flows after migration. Production recovery is an image rollback
+  with backward-compatible migrations; never a blind schema downgrade.
+- Release 13 publishes the PostgreSQL query benchmark dataset profile and
+  database version as a CI artifact; query count is the hard gate and latency
+  is diagnostic only.
 
 ## Accounting semantics
 

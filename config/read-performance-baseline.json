@@ -1,0 +1,15 @@
+{
+  "metadata": {
+    "dataset": "holdings-1000",
+    "postgres_version": "PostgreSQL 16",
+    "hardware": "github-actions-ubuntu-latest"
+  },
+  "operations": {
+    "cashflow": {"query_count": 2, "latency_ms": 100.0},
+    "holdings": {"query_count": 3, "latency_ms": 100.0},
+    "latest_prices": {"query_count": 1, "latency_ms": 100.0},
+    "net_worth": {"query_count": 1, "latency_ms": 100.0},
+    "portfolio": {"query_count": 2, "latency_ms": 100.0},
+    "securities": {"query_count": 3, "latency_ms": 100.0}
+  }
+}

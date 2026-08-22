@@ -1009,11 +1009,11 @@ class TestPostSyncReconciliation:
                 new=AsyncMock(return_value=None),
             ),
             patch(
-                "finance_sync.sync.orchestrator.outbox_entity_created",
+                "finance_sync.sync.persistence.outbox_entity_created",
                 new=AsyncMock(return_value=None),
             ),
             patch(
-                "finance_sync.sync.orchestrator.outbox_entity_updated",
+                "finance_sync.sync.persistence.outbox_entity_updated",
                 new=AsyncMock(return_value=None),
             ),
         ):
@@ -1085,11 +1085,11 @@ class TestPostSyncReconciliation:
                 new=AsyncMock(return_value=None),
             ),
             patch(
-                "finance_sync.sync.orchestrator.outbox_entity_created",
+                "finance_sync.sync.persistence.outbox_entity_created",
                 new=AsyncMock(return_value=None),
             ),
             patch(
-                "finance_sync.sync.orchestrator.outbox_entity_updated",
+                "finance_sync.sync.persistence.outbox_entity_updated",
                 new=AsyncMock(return_value=None),
             ),
             patch.object(

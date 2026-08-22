@@ -8,19 +8,28 @@ replace or test.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from typing import TYPE_CHECKING, Any, Protocol
 
 from finance_sync.models.account import Account
+from finance_sync.models.card_transaction import CardTransaction
 from finance_sync.models.credential import Credential
 from finance_sync.models.enums import (
+    CardAuthorizationType,
     HoldingSource,
+    ScheduleFrequency,
+    ScheduleStatus,
+    SecurityType,
     TransactionStatus,
     TransactionType,
 )
 from finance_sync.models.holding import Holding
+from finance_sync.models.scheduled_payment import ScheduledPayment
+from finance_sync.models.security import Security
 from finance_sync.models.transaction import Transaction
+from finance_sync.models.unresolved_security import UnresolvedSecurity
 from finance_sync.sync.outbox import (
     outbox_entity_created,
     outbox_entity_updated,
@@ -29,7 +38,9 @@ from finance_sync.sync.outbox import (
 if TYPE_CHECKING:
     from finance_sync.connectors.models import (
         CanonicalAccountData,
+        CanonicalCardTransactionData,
         CanonicalHoldingData,
+        CanonicalScheduledPaymentData,
         CanonicalTransactionData,
         SecurityReference,
     )
@@ -437,7 +448,7 @@ class SyncPersistence:
 
     def __init__(
         self,
-        writer: PersistenceWriter,
+        writer: Any,
         *,
         context: PersistenceContext | None = None,
     ) -> None:
@@ -450,6 +461,12 @@ class SyncPersistence:
             context.tenant_id if context is not None else ""
         )
         self._holding_persistence = HoldingPersistence(
+            context.tenant_id if context is not None else ""
+        )
+        self._security_persistence = SecurityPersistence(
+            context.tenant_id if context is not None else ""
+        )
+        self._cards_persistence = CardsPersistence(
             context.tenant_id if context is not None else ""
         )
 
@@ -514,6 +531,487 @@ class SyncPersistence:
         provider_key: str,
         reference: SecurityReference,
     ) -> tuple[object | None, str | None]:
+        if self.context is not None:
+            return await self._security_persistence.resolve_security_reference(
+                uow, provider_key, reference
+            )
         return await self._writer.resolve_security_reference(
             uow, provider_key, reference
         )
+
+    async def persist_scheduled_payment(
+        self,
+        uow: UnitOfWork,
+        schedule: CanonicalScheduledPaymentData,
+        account_id: str,
+        *,
+        connection_id: str | None = None,
+    ) -> object:
+        if self.context is None:
+            message = "scheduled-payment persistence requires context"
+            raise ValueError(message)
+        return await self._cards_persistence.persist_scheduled_payment(
+            uow, schedule, account_id, connection_id=connection_id
+        )
+
+    async def persist_card_transaction(
+        self,
+        uow: UnitOfWork,
+        card_transaction: CanonicalCardTransactionData,
+        *,
+        connection_id: str | None = None,
+    ) -> object:
+        if self.context is None:
+            message = "card-transaction persistence requires context"
+            raise ValueError(message)
+        return await self._cards_persistence.persist_card_transaction(
+            uow, card_transaction, connection_id=connection_id
+        )
+
+
+class SecurityPersistence:
+    """Resolve provider security references without owning transactions."""
+
+    def __init__(self, tenant_id: str) -> None:
+        self._tenant_id = tenant_id
+
+    async def resolve_security_reference(
+        self,
+        uow: UnitOfWork,
+        provider_key: str,
+        reference: SecurityReference,
+    ) -> tuple[Security | None, str | None]:
+        """Resolve ISIN-first, avoiding ambiguous ticker matches.
+
+        Unknown but sufficiently identified provider instruments become new
+        canonical securities. Ambiguous or incomplete references enter the
+        existing manual-resolution queue. A previously manual-resolved queue
+        item is honoured before automatic matching.
+        """
+        external_id = reference.provider_identifier()
+        if external_id:
+            queued = await uow.unresolved_securities.list(
+                UnresolvedSecurity.provider_key == provider_key,
+                UnresolvedSecurity.external_security_id == external_id,
+                limit=1,
+            )
+            if queued and queued[0].resolved_security_id:
+                resolved = await uow.securities.get(
+                    queued[0].resolved_security_id
+                )
+                if resolved is not None:
+                    return resolved, None
+
+        candidates: list[Security] = []
+        if reference.isin:
+            candidates = await uow.securities.list(
+                Security.isin == reference.isin.upper()
+            )
+        if not candidates and reference.figi:
+            candidates = await uow.securities.list(
+                Security.figi == reference.figi.upper()
+            )
+        if (
+            not candidates
+            and reference.ticker
+            and reference.external_id is None
+        ):
+            candidates = await uow.securities.list(
+                Security.ticker == reference.ticker.upper()
+            )
+            if reference.currency_code:
+                currency_matches = [
+                    item
+                    for item in candidates
+                    if item.currency_code == reference.currency_code.upper()
+                ]
+                candidates = currency_matches
+
+        if len(candidates) == 1:
+            if reference.external_id:
+                await self._queue_unresolved_security(
+                    uow,
+                    provider_key,
+                    reference,
+                    resolved_security_id=str(candidates[0].id),
+                    resolution_method=(
+                        "auto_isin"
+                        if reference.isin
+                        else "auto_figi"
+                        if reference.figi
+                        else "auto_ticker"
+                    ),
+                )
+            return candidates[0], None
+        if len(candidates) > 1:
+            return None, await self._queue_unresolved_security(
+                uow, provider_key, reference
+            )
+
+        can_create = bool(
+            reference.isin
+            or reference.figi
+            or (
+                reference.external_id
+                and reference.ticker
+                and reference.name
+                and reference.currency_code
+            )
+        )
+        if can_create:
+            try:
+                security_type = SecurityType(
+                    reference.security_type or SecurityType.OTHER.value
+                )
+            except ValueError:
+                security_type = SecurityType.OTHER
+            from uuid import uuid4
+
+            security = Security(
+                id=uuid4(),
+                isin=reference.isin.upper() if reference.isin else None,
+                figi=(
+                    reference.figi.upper()
+                    if reference.figi and len(reference.figi) <= 12
+                    else None
+                ),
+                ticker=(reference.ticker.upper() if reference.ticker else None),
+                name=reference.name
+                or reference.ticker
+                or reference.isin
+                or reference.figi
+                or "Unknown security",
+                security_type=security_type,
+                currency_code=(reference.currency_code or "EUR").upper(),
+            )
+            uow.session.add(security)
+            await uow.session.flush()
+            if reference.external_id:
+                await self._queue_unresolved_security(
+                    uow,
+                    provider_key,
+                    reference,
+                    resolved_security_id=str(security.id),
+                    resolution_method=(
+                        "auto_isin"
+                        if reference.isin
+                        else "auto_figi"
+                        if reference.figi
+                        else "provider_instrument"
+                    ),
+                )
+            return security, None
+
+        return None, await self._queue_unresolved_security(
+            uow, provider_key, reference
+        )
+
+    async def _queue_unresolved_security(
+        self,
+        uow: UnitOfWork,
+        provider_key: str,
+        reference: SecurityReference,
+        *,
+        resolved_security_id: str | None = None,
+        resolution_method: str | None = None,
+    ) -> str | None:
+        """Create or refresh a provider identity mapping/queue item."""
+        external_id = reference.provider_identifier()
+        if not external_id:
+            # No stable key means silently storing the row would itself create
+            # an unresolvable duplicate stream. It is still counted by type.
+            return "missing-provider-identifier"
+        rows = await uow.unresolved_securities.list(
+            UnresolvedSecurity.provider_key == provider_key,
+            UnresolvedSecurity.external_security_id == external_id,
+            limit=1,
+        )
+        metadata = dict(reference.provider_metadata or {})
+        if reference.venue:
+            metadata["venue"] = reference.venue
+        raw_metadata = (
+            json.dumps(metadata, sort_keys=True) if metadata else None
+        )
+        if rows:
+            unresolved = rows[0]
+            unresolved.raw_isin = reference.isin
+            unresolved.raw_figi = reference.figi
+            unresolved.raw_ticker = reference.ticker
+            unresolved.raw_name = reference.name
+            unresolved.raw_currency_code = reference.currency_code
+            unresolved.raw_metadata = raw_metadata
+            unresolved.resolved_security_id = resolved_security_id
+            unresolved.resolution_method = resolution_method
+            await uow.session.flush()
+        else:
+            from uuid import uuid4
+
+            uow.session.add(
+                UnresolvedSecurity(
+                    id=uuid4(),
+                    provider_key=provider_key,
+                    external_security_id=external_id,
+                    raw_isin=reference.isin,
+                    raw_figi=reference.figi,
+                    raw_ticker=reference.ticker,
+                    raw_name=reference.name,
+                    raw_currency_code=reference.currency_code,
+                    raw_metadata=raw_metadata,
+                    resolved_security_id=resolved_security_id,
+                    resolution_method=resolution_method,
+                )
+            )
+            await uow.session.flush()
+        return external_id
+
+
+class CardsPersistence:
+    """Persistence boundary for bunq schedule and card records."""
+
+    def __init__(self, tenant_id: str) -> None:
+        self._tenant_id = tenant_id
+
+    async def persist_scheduled_payment(
+        self,
+        uow: UnitOfWork,
+        csp: CanonicalScheduledPaymentData,
+        account_id: str,
+        *,
+        connection_id: str | None = None,
+    ) -> ScheduledPayment:
+        """Create or update a ScheduledPayment from connector data.
+
+        Idempotent: looked up by the ``(tenant, provider, external
+        schedule id)`` unique constraint — a re-run updates mutable
+        fields instead of inserting a duplicate.  The lookup is scoped
+        to *connection_id* when provided; the scope is persisted on the
+        row itself.
+        """
+        existing = await uow.scheduled_payments.get_by_external_id(
+            tenant_id=self._tenant_id,
+            provider_key=csp.provider_key,
+            external_schedule_id=csp.external_schedule_id,
+            connection_id=connection_id,
+        )
+
+        if existing is not None:
+            changed: dict[str, Any] = {}
+            for field in (
+                "amount",
+                "currency_code",
+                "frequency",
+                "interval",
+                "next_execution_date",
+                "end_date",
+                "max_executions",
+                "execution_count",
+                "counterparty_name",
+                "counterparty_iban",
+                "description",
+                "status",
+            ):
+                new_val = getattr(csp, field, None)
+                old_val = getattr(existing, field, None)
+                if new_val is not None and values_differ(new_val, old_val):
+                    setattr(existing, field, new_val)
+                    changed[field] = new_val
+
+            if changed:
+                await uow.session.flush()
+                await outbox_entity_updated(
+                    uow,
+                    tenant_id=self._tenant_id,
+                    entity_type="scheduled_payment",
+                    entity_id=str(existing.id),
+                    changed_fields=changed,
+                    provider_key=csp.provider_key,
+                )
+            return existing
+
+        # Create new scheduled payment
+        from uuid import uuid4
+
+        frequency = (
+            ScheduleFrequency(csp.frequency)
+            if csp.frequency in ScheduleFrequency.__members__.values()
+            else ScheduleFrequency.CUSTOM
+        )
+        status = (
+            ScheduleStatus(csp.status)
+            if csp.status in ScheduleStatus.__members__.values()
+            else ScheduleStatus.ACTIVE
+        )
+
+        schedule = ScheduledPayment(
+            id=uuid4(),
+            tenant_id=self._tenant_id,
+            provider_key=csp.provider_key,
+            connection_id=connection_id,
+            external_schedule_id=csp.external_schedule_id,
+            account_id=account_id,
+            amount=Decimal(str(csp.amount)),
+            currency_code=csp.currency_code,
+            frequency=frequency,
+            interval=csp.interval,
+            next_execution_date=csp.next_execution_date,
+            end_date=csp.end_date,
+            max_executions=csp.max_executions,
+            execution_count=csp.execution_count or 0,
+            counterparty_name=csp.counterparty_name,
+            counterparty_iban=csp.counterparty_iban,
+            description=csp.description,
+            status=status,
+        )
+        uow.session.add(schedule)
+        await uow.session.flush()
+        await outbox_entity_created(
+            uow,
+            tenant_id=self._tenant_id,
+            entity_type="scheduled_payment",
+            entity_id=str(schedule.id),
+            entity_data={
+                "provider_key": csp.provider_key,
+                "external_schedule_id": csp.external_schedule_id,
+                "account_id": account_id,
+            },
+            provider_key=csp.provider_key,
+        )
+        return schedule
+
+    async def persist_card_transaction(
+        self,
+        uow: UnitOfWork,
+        cct: CanonicalCardTransactionData,
+        *,
+        connection_id: str | None = None,
+    ) -> CardTransaction:
+        """Create or update a CardTransaction from connector data.
+
+        Idempotent: looked up by the ``(tenant, provider, external card
+        transaction id)`` unique constraint — scoped to *connection_id*
+        when provided so identical card-transaction ids from two
+        connections never collide.
+
+        The canonical record's ``external_account_id`` is the *card*
+        identifier for bunq (card payments are card-scoped, not
+        account-scoped), so the account link is best-effort: it is set
+        when the id resolves to a known account, otherwise ``None``.
+        """
+        existing = await uow.card_transactions.get_by_external_id(
+            tenant_id=self._tenant_id,
+            provider_key=cct.provider_key,
+            external_card_transaction_id=cct.external_card_transaction_id,
+            connection_id=connection_id,
+        )
+
+        if existing is not None:
+            changed: dict[str, Any] = {}
+            for field in (
+                "amount",
+                "currency_code",
+                "merchant_name",
+                "merchant_city",
+                "merchant_country",
+                "mcc",
+                "card_id",
+                "card_type",
+                "card_last_four",
+                "occurred_at",
+                "booked_at",
+                "authorization_type",
+                "description",
+                "status",
+            ):
+                new_val = getattr(cct, field, None)
+                old_val = getattr(existing, field, None)
+                if new_val is not None and values_differ(new_val, old_val):
+                    setattr(existing, field, new_val)
+                    changed[field] = new_val
+
+            if changed:
+                await uow.session.flush()
+                await outbox_entity_updated(
+                    uow,
+                    tenant_id=self._tenant_id,
+                    entity_type="card_transaction",
+                    entity_id=str(existing.id),
+                    changed_fields=changed,
+                    provider_key=cct.provider_key,
+                )
+            return existing
+
+        # Best-effort account resolution (card id may not be an account)
+        account_id: str | None = None
+        if cct.external_account_id:
+            acct = await uow.accounts.get_by_external_id(
+                tenant_id=self._tenant_id,
+                provider_key=cct.provider_key,
+                external_account_id=cct.external_account_id,
+                connection_id=connection_id,
+            )
+            if acct is not None:
+                account_id = acct.id
+
+        # Create new card transaction
+        from uuid import uuid4
+
+        # Canonical card data carries no transaction_type — card payments
+        # are always classified as card_payment unless a provider says
+        # otherwise.
+        raw_txn_type = getattr(cct, "transaction_type", None)
+        txn_type = (
+            TransactionType(raw_txn_type)
+            if raw_txn_type in TransactionType.__members__.values()
+            else TransactionType.CARD_PAYMENT
+        )
+        auth_type = (
+            CardAuthorizationType(cct.authorization_type)
+            if cct.authorization_type
+            in CardAuthorizationType.__members__.values()
+            else CardAuthorizationType.OTHER
+        )
+        txn_status = (
+            TransactionStatus(cct.status)
+            if cct.status in TransactionStatus.__members__.values()
+            else TransactionStatus.PENDING
+        )
+
+        card_txn = CardTransaction(
+            id=uuid4(),
+            tenant_id=self._tenant_id,
+            provider_key=cct.provider_key,
+            connection_id=connection_id,
+            external_card_transaction_id=cct.external_card_transaction_id,
+            account_id=account_id,
+            amount=Decimal(str(cct.amount)),
+            currency_code=cct.currency_code,
+            merchant_name=cct.merchant_name,
+            merchant_city=cct.merchant_city,
+            merchant_country=cct.merchant_country,
+            mcc=cct.mcc,
+            card_id=cct.card_id,
+            card_type=cct.card_type,
+            card_last_four=cct.card_last_four,
+            occurred_at=cct.occurred_at,
+            booked_at=cct.booked_at,
+            transaction_type=txn_type,
+            authorization_type=auth_type,
+            description=cct.description,
+            status=txn_status,
+        )
+        uow.session.add(card_txn)
+        await uow.session.flush()
+        await outbox_entity_created(
+            uow,
+            tenant_id=self._tenant_id,
+            entity_type="card_transaction",
+            entity_id=str(card_txn.id),
+            entity_data={
+                "provider_key": cct.provider_key,
+                "external_card_transaction_id": (
+                    cct.external_card_transaction_id
+                ),
+            },
+            provider_key=cct.provider_key,
+        )
+        return card_txn

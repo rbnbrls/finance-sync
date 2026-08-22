@@ -1,0 +1,14 @@
+{
+  "synthetic_data_only": true,
+  "rpo_minutes": 15,
+  "rto_minutes": 30,
+  "steps": [
+    "restore_database",
+    "start_api",
+    "start_worker",
+    "check_migration_head",
+    "validate_outbox",
+    "run_idempotency_probe"
+  ],
+  "required_services": ["postgresql", "redis", "api", "worker"]
+}

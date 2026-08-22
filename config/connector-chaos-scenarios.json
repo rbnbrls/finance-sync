@@ -1,0 +1,15 @@
+{
+  "synthetic_data_only": true,
+  "providers": ["bank-fixture", "broker-fixture"],
+  "scenarios": [
+    {"name": "timeout", "expected": "retry_then_success"},
+    {"name": "http_429", "expected": "retry_then_success"},
+    {"name": "malformed_response", "expected": "permanent_failure"},
+    {"name": "redis_transient_failure", "expected": "retry_then_success"},
+    {"name": "database_transient_failure", "expected": "retry_then_success"}
+  ],
+  "max_retries": 3,
+  "backoff_cap_seconds": 8,
+  "credentials_logged": false,
+  "provider_payloads_logged": false
+}

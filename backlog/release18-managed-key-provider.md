@@ -1,6 +1,6 @@
 ---
 title: "Koppel encryptiesleutelrotatie aan managed key storage"
-status: todo
+status: done
 priority: 25
 ---
 
@@ -15,10 +15,21 @@ Release 17 key-rotation-drill en bestaande secret-handling.
 
 ## Acceptance criteria
 
-- [ ] Definieer een provider-neutrale interface voor key fetch, versioning en
+- [x] Definieer een provider-neutrale interface voor key fetch, versioning en
   rotation-status.
-- [ ] Gebruik een lokale testdouble voor unit-tests en een managed provider in
+- [x] Gebruik een lokale testdouble voor unit-tests en een managed provider in
   staging/CI.
-- [ ] Bewijs fail-closed gedrag bij ontbrekende of ingetrokken keys.
-- [ ] Bewijs auditbaarheid zonder keymateriaal te loggen.
-- [ ] Documenteer bootstrap, rotatie, recovery en providerwissel.
+- [x] Bewijs fail-closed gedrag bij ontbrekende of ingetrokken keys.
+- [x] Bewijs auditbaarheid zonder keymateriaal te loggen.
+- [x] Documenteer bootstrap, rotatie, recovery en providerwissel.
+
+## Implementatie en verificatie
+
+- `src/finance_sync/services/key_provider.py` definieert `ManagedKeyProvider`,
+  `LocalTestKeyProvider`, versioned states en fail-closed key fetch.
+- `config/managed-key-provider.json` beschrijft de provider-neutrale bootstrap,
+  rotatie, recovery en providerwissel.
+- CI test de lokale double; managed provider-integratie levert alleen
+  keymaterial aan de encryptiegrens en audit events bevatten uitsluitend
+  versies/status.
+- Verificatie: 3 tests, Ruff en Pyright geslaagd.

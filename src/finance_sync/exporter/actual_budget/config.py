@@ -105,7 +105,8 @@ class ActualBudgetConfig(BaseModel):
         password_value = getattr(settings, "actual_budget_password", None)
         password = (
             password_value.get_secret_value()
-            if hasattr(password_value, "get_secret_value")
+            if password_value is not None
+            and hasattr(password_value, "get_secret_value")
             else str(password_value or "")
         )
         return cls(

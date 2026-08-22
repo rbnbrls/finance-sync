@@ -1,0 +1,22 @@
+{
+  "synthetic_data_only": true,
+  "incident_id": "inc-release17-001",
+  "records": [
+    {
+      "actor": "operator-fixture",
+      "timestamp": "2026-01-15T10:00:00Z",
+      "tenant": "tenant-fixture-a",
+      "object_type": "credential",
+      "action": "rotate",
+      "redacted_diff": {"provider": "bank-fixture", "credential_changed": true}
+    },
+    {
+      "actor": "operator-fixture",
+      "timestamp": "2026-01-15T10:01:00Z",
+      "tenant": "tenant-fixture-a",
+      "object_type": "export",
+      "action": "retry",
+      "redacted_diff": {"status": "replayed", "run_reference": "run-fixture-1"}
+    }
+  ]
+}

@@ -1,0 +1,43 @@
+{
+  "owner": "finance-platform-oncall",
+  "dashboard": "sync-health",
+  "maintenance_suppression": "maintenance-window",
+  "slos": [
+    {
+      "name": "sync_success_rate",
+      "target": 0.99,
+      "window": "24h",
+      "metric": "sync_runs_total",
+      "labels": ["provider", "status"],
+      "severity": "critical",
+      "runbook": "docs/observability.md#sync-failures"
+    },
+    {
+      "name": "sync_duration_p95",
+      "target_seconds": 900,
+      "window": "1h",
+      "metric": "sync_duration_seconds",
+      "labels": ["provider"],
+      "severity": "warning",
+      "runbook": "docs/observability.md#sync-duration"
+    },
+    {
+      "name": "outbox_lag",
+      "target_messages": 50,
+      "window": "10m",
+      "metric": "outbox_messages_pending_total",
+      "labels": ["queue"],
+      "severity": "warning",
+      "runbook": "docs/observability.md#outbox-backlog"
+    },
+    {
+      "name": "worker_failure_rate",
+      "target": 0.01,
+      "window": "1h",
+      "metric": "worker_jobs_total",
+      "labels": ["job", "status"],
+      "severity": "critical",
+      "runbook": "docs/observability.md#worker-failures"
+    }
+  ]
+}

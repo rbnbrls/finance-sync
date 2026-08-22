@@ -600,6 +600,12 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="JSON file mapping breaking-finding signatures to reasons.",
     )
+    parser.add_argument(
+        "--report",
+        type=Path,
+        default=None,
+        help="Write a machine-readable diff report to this path.",
+    )
     args = parser.parse_args(argv)
 
     base = load_spec(args.base)
@@ -626,6 +632,56 @@ def main(argv: list[str] | None = None) -> int:
             remaining.append(finding)
 
     stale = sorted(set(allowlist.keys()) - {f.signature for f in breaking})
+    if args.report is not None:
+        args.report.write_text(
+            json.dumps(
+                {
+                    "base": str(args.base),
+                    "head": str(args.head),
+                    "breaking": [
+                        {
+                            "kind": f.kind,
+                            "detail": f.detail,
+                            "signature": f.signature,
+                        }
+                        for f in remaining
+                    ],
+                    "allowlisted_breaking": [
+                        {
+                            "kind": f.kind,
+                            "detail": f.detail,
+                            "signature": f.signature,
+                        }
+                        for f in breaking
+                        if f.signature
+                        not in {item.signature for item in remaining}
+                    ],
+                    "additive": [
+                        {
+                            "kind": f.kind,
+                            "detail": f.detail,
+                            "signature": f.signature,
+                        }
+                        for f in additive
+                    ],
+                    "info": [
+                        {
+                            "kind": f.kind,
+                            "detail": f.detail,
+                            "signature": f.signature,
+                        }
+                        for f in info
+                    ],
+                    "policy": (
+                        "breaking changes fail; additive changes are allowed"
+                    ),
+                },
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
     if stale:
         print(
             "error: stale allowlist entries (no matching finding): "

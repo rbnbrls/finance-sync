@@ -12,6 +12,14 @@ from finance_sync.models.security_price import SecurityPrice
 from finance_sync.schemas.freshness import freshness_for
 from finance_sync.services.read.pagination import expression
 from finance_sync.services.read.prices import fetch_latest_daily_prices
+from finance_sync.services.read.schemas import (
+    CollectionMeta,
+    SecurityInfo,
+    SecurityListResponse,
+    SecurityPriceListResponse,
+    SecurityPriceResponse,
+    TopLevelPriceListResponse,
+)
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -33,11 +41,6 @@ class SecuritiesReadService:
         security_type: str | None = None,
         search: str | None = None,
     ) -> Any:
-        from finance_sync.services.read_api import (
-            SecurityInfo,
-            SecurityListResponse,
-        )
-
         conditions: list[Any] = []
         if security_type is not None:
             conditions.append(Security.security_type == security_type)
@@ -106,11 +109,6 @@ class SecuritiesReadService:
         date_from: datetime | None = None,
         date_to: datetime | None = None,
     ) -> Any:
-        from finance_sync.services.read_api import (
-            SecurityPriceListResponse,
-            SecurityPriceResponse,
-        )
-
         conditions: list[Any] = [
             SecurityPrice.security_id == security_id,
             SecurityPrice.interval == interval,
@@ -173,12 +171,6 @@ class SecuritiesReadService:
         limit: int = 100,
         offset: int = 0,
     ) -> Any:
-        from finance_sync.services.read_api import (
-            CollectionMeta,
-            SecurityPriceResponse,
-            TopLevelPriceListResponse,
-        )
-
         if security_id is not None:
             conditions: list[Any] = [
                 SecurityPrice.security_id == security_id,

@@ -1,0 +1,12 @@
+{
+  "synthetic_data_only": true,
+  "scenarios": [
+    {"name": "database_loss", "recovery": "backup_restore", "rpo_minutes": 15, "rto_minutes": 30},
+    {"name": "redis_loss", "recovery": "rebuild_cache_and_locks", "rpo_minutes": 0, "rto_minutes": 10},
+    {"name": "worker_outage", "recovery": "restart_worker_and_replay_outbox", "rpo_minutes": 0, "rto_minutes": 10}
+  ],
+  "actions": [
+    {"action": "Automate restore verification", "owner": "platform", "deadline": "next-release"},
+    {"action": "Add Redis recovery dashboard panel", "owner": "on-call", "deadline": "next-release"}
+  ]
+}

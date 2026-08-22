@@ -1,6 +1,6 @@
 ---
 title: "Verwijder legacy account-upsert uit orchestrator"
-status: todo
+status: done
 priority: 40
 ---
 
@@ -15,8 +15,17 @@ priority: 40
 
 ## Acceptance criteria
 
-- [ ] Verwijder `_upsert_account` en maak bestaande directe tests component-
+- [x] Verwijder `_upsert_account` en maak bestaande directe tests component-
   gericht.
-- [ ] Account create/update/unchanged/outbox/owner-provenance blijft gelijk.
-- [ ] De sync-orchestrator bevat geen account-modelconstructie meer.
-- [ ] Sync-, persistence- en migration-tests slagen.
+- [x] Account create/update/unchanged/outbox/owner-provenance blijft gelijk.
+- [x] De sync-orchestrator bevat geen account-modelconstructie meer.
+- [x] Sync-, persistence- en migration-tests slagen.
+
+## Implementatie en verificatie
+
+- Account persistence blijft eigendom van `AccountPersistence`; de
+  orchestrator bevat geen account-upsert of modelconstructie.
+- De componentgerichte tests en boundary-characterizationtest dekken create,
+  update, unchanged, outbox en owner-provenance.
+- Verificatie: sync-, persistence- en migration-tests plus Ruff, Pyright en
+  `git diff --check` geslaagd.

@@ -1,0 +1,18 @@
+{
+  "synthetic_data_only": true,
+  "limits": {
+    "sync_concurrency_min": 1,
+    "sync_concurrency_max": 4,
+    "api_requests_per_second": 100,
+    "queue_depth_soft": 50,
+    "queue_depth_hard": 500,
+    "database_connections_max": 40
+  },
+  "backpressure": {
+    "queue_soft": "scale_worker_up_and_slow_new_syncs",
+    "queue_hard": "reject_new_syncs_with_retry_after",
+    "database_exhausted": "return_service_busy_without_retry_storm",
+    "provider_rate_limited": "honour_provider_backoff_per_tenant"
+  },
+  "alerts": {"queue_depth": 50, "database_connections": 36, "sync_concurrency": 4}
+}

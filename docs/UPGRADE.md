@@ -25,6 +25,16 @@ deployment, and follow the **Operator action** for each step you cross.
 > Use `alembic downgrade` only in development / scratch environments.
 > See [Rollback notes](#rollback-notes) at the bottom.
 
+The release smoke gate runs on staging with synthetic financial fixtures only.
+It records health, readiness, sync/outbox and exporter evidence together with
+the commit and immutable image tag. This evidence is an operational check; it
+never contains credentials or financial payloads.
+
+Release 13 closeout evidence includes the immutable image tag, migration
+artifact link and staging smoke artifact link. Rollback remains an image
+rollback against backward-compatible migrations, never an automatic
+production downgrade.
+
 ---
 
 ## Milestone 1 — Foundation (revisions 0001–0003)

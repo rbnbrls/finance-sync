@@ -1,0 +1,12 @@
+{
+  "synthetic_data_only": true,
+  "datasets": [100, 1000, 10000],
+  "soft_limits": {"holdings": 10000, "concurrent_workers": 2, "outbox_lag": 50},
+  "hard_limits": {"holdings": 20000, "concurrent_workers": 4, "outbox_lag": 500},
+  "recommended_deployment": {
+    "api_workers": 2,
+    "sync_workers": 2,
+    "postgresql": "PostgreSQL 16 with pooled connections",
+    "redis": "Redis 7 for locks and rate limits"
+  }
+}
