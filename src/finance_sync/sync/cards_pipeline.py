@@ -97,6 +97,7 @@ class BunqCardsSyncResult:
             f"err={self.error_message!r} dur={self.duration_s:.2f}s>"
         )
 
+
 class CardsSyncMixin:
     """Reusable cards pipeline; the host supplies orchestration callbacks."""
 
@@ -288,7 +289,7 @@ class CardsSyncMixin:
                         ca
                         for ca in canonical_accounts
                         if ca.external_account_id in selected_set
-                ]
+                    ]
                 for ca in canonical_accounts:
                     await persistence.persist_account(
                         uow, ca, connection_id=connection_id

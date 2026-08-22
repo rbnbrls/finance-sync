@@ -18,7 +18,10 @@ def test_matrix_covers_supported_connectors_without_real_data() -> None:
     matrix = _matrix()
     validate_matrix(matrix)
     assert {item["name"] for item in matrix["connectors"]} >= {
-        "bunq", "trading212", "degiro_pension", "ynab"
+        "bunq",
+        "trading212",
+        "degiro_pension",
+        "ynab",
     }
     assert matrix["synthetic_data_only"] is True
     assert "api_key" not in json.dumps(matrix).lower()
@@ -31,7 +34,9 @@ def test_missing_field_and_invalid_enum_are_clear_failures() -> None:
     with pytest.raises(ValueError, match="missing fields"):
         validate_matrix(matrix)
     matrix = _matrix()
-    matrix["connectors"][0]["fixtures"]["accounts"]["fields"]["status"] = "enum:"
+    matrix["connectors"][0]["fixtures"]["accounts"]["fields"]["status"] = (
+        "enum:"
+    )
     with pytest.raises(ValueError, match="empty enum"):
         validate_matrix(matrix)
 

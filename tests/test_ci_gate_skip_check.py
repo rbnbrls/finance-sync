@@ -24,7 +24,7 @@ def test_count_skips_detects_skipped_cases(tmp_path: Path) -> None:
     report = tmp_path / "junit.xml"
     report.write_text(
         '<testsuite tests="2" skipped="1">'
-        '<testcase /><testcase><skipped /></testcase></testsuite>',
+        "<testcase /><testcase><skipped /></testcase></testsuite>",
         encoding="utf-8",
     )
 

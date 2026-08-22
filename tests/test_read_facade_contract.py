@@ -23,7 +23,10 @@ def test_read_api_is_a_small_composed_facade() -> None:
     assert ReadService.get_holdings is PortfolioReadService.get_holdings
     assert ReadService.list_securities is SecuritiesReadService.list_securities
     assert ReadService.get_net_worth is AnalyticsReadService.get_net_worth
-    assert ReadService.list_transactions is OperationalReadService.list_transactions
+    assert (
+        ReadService.list_transactions
+        is OperationalReadService.list_transactions
+    )
 
 
 def test_public_read_response_schemas_remain_exported() -> None:

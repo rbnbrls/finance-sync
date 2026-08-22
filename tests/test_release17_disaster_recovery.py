@@ -17,7 +17,9 @@ def test_game_day_covers_loss_modes_and_safe_recovery() -> None:
     assert all(item["idempotent_replay"] for item in report["scenarios"])
     assert report["credentials_detected"] is False
     assert report["financial_values_in_report"] is False
-    assert all(action["owner"] and action["deadline"] for action in report["actions"])
+    assert all(
+        action["owner"] and action["deadline"] for action in report["actions"]
+    )
 
 
 def test_ci_runs_and_uploads_the_game_day() -> None:

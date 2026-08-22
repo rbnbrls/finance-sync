@@ -318,13 +318,11 @@ jobs:
           uv run pytest -m integration -v --junitxml=junit-integration.xml \
             2>&1 | tee integration.log
           uv run pytest tests/integration/test_read_query_benchmarks_pg.py -m integration -q
-          TEST_DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/finance_sync_test
-          TEST_REDIS_URL: redis://localhost:6379/15
-          READ_BENCHMARK_ARTIFACT: read-benchmarks.json
           uv run python scripts/check_junit_no_skips.py junit-integration.xml
         env:
           TEST_DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/finance_sync_test
           TEST_REDIS_URL: redis://localhost:6379/15
+          READ_BENCHMARK_ARTIFACT: read-benchmarks.json
 
       - name: Fail on unexpected integration test skips
         # Gate: the formal PG/Redis validation must actually run.  A skip
@@ -368,8 +366,6 @@ jobs:
             pg-service.log
             redis-service.log
           retention-days: 14
-
-  # ── E2E tests (full API → worker → outbox pipeline) ──────────────
       - name: Compare read performance with baseline
         run: >
           DEBUG=false uv run python scripts/check_read_performance.py
@@ -490,31 +486,6 @@ jobs:
             redis-service.log
           retention-days: 14
 
-  # ── Security + SBOM ───────────────────────────────────────────────────
-  security:
-
-      - name: Capture integration service logs
-        if: always()
-        run: |
-          postgres_id=$(docker ps --format '{{.ID}} {{.Image}}' \
-            | awk '$2 ~ /^postgres:16/ {print $1; exit}')
-          redis_id=$(docker ps --format '{{.ID}} {{.Image}}' \
-            | awk '$2 ~ /^redis:7/ {print $1; exit}')
-          [ -z "$postgres_id" ] || docker logs "$postgres_id" \
-            > postgres-integration-service.log 2>&1
-          [ -z "$redis_id" ] || docker logs "$redis_id" \
-            > redis-integration-service.log 2>&1
-
-      - name: Upload integration service logs
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: integration-service-logs
-          path: |
-            integration.log
-            postgres-integration-service.log
-            redis-integration-service.log
-          retention-days: 14
 
   # ── Provider contract refresh ─────────────────────────────────────────
   provider-contracts:
@@ -801,110 +772,7 @@ jobs:
       - name: Run synthetic bank and broker chaos fixtures
         run: DEBUG=false uv run pytest tests/test_release16_connector_chaos.py -q
 
-  # ── E2E tests (full API → worker → outbox pipeline) ──────────────
-  e2e:
-    name: E2E
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: finance_sync_test
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U postgres"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-      redis:
-        image: redis:7
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v8.1.0
-        with:
-          enable-cache: true
-          cache-suffix: e2e
-
-      - name: Install Python 3.12
-        uses: actions/setup-python@v7
-        with:
-          python-version: "3.12"
-
-      - name: Install dependencies
-        run: uv sync --extra dev --frozen
-
-      - name: Run e2e tests (API → worker exactly-once, real PG + Redis)
-        run: |
-          set -o pipefail
-          uv run pytest -m e2e -v --junitxml=junit-e2e.xml 2>&1 \
-            | tee e2e.log
-          uv run python scripts/check_junit_no_skips.py junit-e2e.xml
-        env:
-          TEST_DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/finance_sync_test
-          TEST_REDIS_URL: redis://localhost:6379/15
-
-      - name: Upload e2e test results
-        uses: actions/upload-artifact@v7
-        if: always()
-        with:
-          name: e2e-junit
-          path: junit-e2e.xml
-          retention-days: 14
-
-      - name: Capture e2e service logs
-        if: always()
-        run: |
-          postgres_id=$(docker ps --format '{{.ID}} {{.Image}}' \
-            | awk '$2 ~ /^postgres:16/ {print $1; exit}')
-          redis_id=$(docker ps --format '{{.ID}} {{.Image}}' \
-            | awk '$2 ~ /^redis:7/ {print $1; exit}')
-          [ -z "$postgres_id" ] || docker logs "$postgres_id" \
-            > postgres-e2e-service.log 2>&1
-          [ -z "$redis_id" ] || docker logs "$redis_id" \
-            > redis-e2e-service.log 2>&1
-
-      - name: Upload e2e service logs
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: e2e-service-logs
-          path: |
-            e2e.log
-            postgres-e2e-service.log
-            redis-e2e-service.log
-          retention-days: 14
-
-  # ── Security + SBOM ───────────────────────────────────────────────────
   security:
-    name: Security
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v8.1.0
-        with:
-          enable-cache: true
-          cache-suffix: security
-
-      - name: Install Python 3.12
-        uses: actions/setup-python@v7
-        with:
-          python-version: "3.12"
     name: Security
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -950,7 +818,7 @@ jobs:
 
       - name: Generate security exception lifecycle report
         run: >-
-          uv run python scripts/security_exception_report.py
+          uv run python -m scripts.security_exception_report
           .trivyignore security-exceptions.json
 
       - name: Validate data retention and privacy policy

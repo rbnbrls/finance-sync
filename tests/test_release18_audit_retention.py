@@ -25,7 +25,12 @@ def _records(now: datetime) -> list[dict[str, str]]:
 def test_retention_is_tenant_scoped_and_dry_run_safe() -> None:
     now = datetime(2026, 1, 1, tzinfo=UTC)
     records = _records(now)
-    assert [item["id"] for item in select_expired(records, now=now, retention_days=3650, tenant_id="tenant-a")] == ["a-old", "a-old-2"]
+    assert [
+        item["id"]
+        for item in select_expired(
+            records, now=now, retention_days=3650, tenant_id="tenant-a"
+        )
+    ] == ["a-old", "a-old-2"]
     report = execute_retention(
         records,
         now=now,
@@ -55,14 +60,24 @@ def test_failure_rolls_back_and_retry_can_succeed() -> None:
         raise RuntimeError(message)
 
     failed = execute_retention(
-        records, now=now, retention_days=3650, tenant_id="tenant-a", dry_run=False,
-        delete=fail_after_first, restore=restored.append,
+        records,
+        now=now,
+        retention_days=3650,
+        tenant_id="tenant-a",
+        dry_run=False,
+        delete=fail_after_first,
+        restore=restored.append,
     )
     assert failed["status"] == "rolled-back"
     assert restored == ["a-old"]
     retried = execute_retention(
-        records, now=now, retention_days=3650, tenant_id="tenant-a", dry_run=False,
-        delete=lambda record_id: deleted.append(record_id), restore=restored.append,
+        records,
+        now=now,
+        retention_days=3650,
+        tenant_id="tenant-a",
+        dry_run=False,
+        delete=lambda record_id: deleted.append(record_id),
+        restore=restored.append,
     )
     assert retried["status"] == "passed"
     assert retried["deleted_count"] == 2

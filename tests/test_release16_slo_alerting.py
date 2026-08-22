@@ -26,10 +26,18 @@ def test_synthetic_failures_trigger_alerts_and_maintenance_suppresses() -> None:
     config = _config()
     failures = evaluate(
         config,
-        {"sync_success_rate": 0.9, "sync_duration_p95": 1200, "outbox_lag": 80, "worker_failure_rate": 0.2},
+        {
+            "sync_success_rate": 0.9,
+            "sync_duration_p95": 1200,
+            "outbox_lag": 80,
+            "worker_failure_rate": 0.2,
+        },
     )
     assert {item["name"] for item in failures} == {
-        "sync_success_rate", "sync_duration_p95", "outbox_lag", "worker_failure_rate"
+        "sync_success_rate",
+        "sync_duration_p95",
+        "outbox_lag",
+        "worker_failure_rate",
     }
     assert all(item["severity"] in {"warning", "critical"} for item in failures)
     assert evaluate(config, {"outbox_lag": 100}, maintenance=True) == []
