@@ -15,7 +15,9 @@ from finance_sync.services.key_provider import (
 )
 
 
-def test_local_testdouble_supports_rotation_states_without_material_audit() -> None:
+def test_local_testdouble_supports_rotation_states_without_material_audit() -> (
+    None
+):
     keys = {
         "v1": KeyVersion("v1", "previous", b"1" * 32),
         "v2": KeyVersion("v2", "current", b"2" * 32),
@@ -24,7 +26,10 @@ def test_local_testdouble_supports_rotation_states_without_material_audit() -> N
     provider = LocalTestKeyProvider(keys, current="v2")
     assert provider.current().version == "v2"
     assert provider.fetch("v1").state == "previous"
-    assert provider.rotation_status() == {"current_version": "v2", "state": "ready"}
+    assert provider.rotation_status() == {
+        "current_version": "v2",
+        "state": "ready",
+    }
     with pytest.raises(KeyProviderError, match="unavailable"):
         provider.fetch("v0")
 
@@ -38,7 +43,9 @@ def test_managed_provider_fails_closed_and_audits_only_versions() -> None:
     )
     assert provider.current().version == "v2"
     assert provider.audit_rotation("v1", "v2") == {
-        "event": "encryption_key.rotated", "from_version": "v1", "to_version": "v2"
+        "event": "encryption_key.rotated",
+        "from_version": "v1",
+        "to_version": "v2",
     }
     with pytest.raises(KeyProviderError, match="revoked"):
         provider.fetch("v1")

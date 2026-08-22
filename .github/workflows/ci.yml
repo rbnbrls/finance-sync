@@ -818,7 +818,7 @@ jobs:
 
       - name: Generate security exception lifecycle report
         run: >-
-          uv run python scripts/security_exception_report.py
+          uv run python -m scripts.security_exception_report
           .trivyignore security-exceptions.json
 
       - name: Validate data retention and privacy policy

@@ -35,7 +35,9 @@ async def test_transient_chaos_is_bounded_and_idempotent(
         return event_id
 
     monkeypatch.setattr(asyncio, "sleep", fake_sleep)
-    limiter = RateLimiter(RateLimitPolicy(backoff_base=1, jitter=0, max_retries=3))
+    limiter = RateLimiter(
+        RateLimitPolicy(backoff_base=1, jitter=0, max_retries=3)
+    )
     result = await limiter.retry(fetch)
     assert result == f"{provider}-event-1"
     assert attempts == 3
@@ -62,11 +64,17 @@ async def test_malformed_response_is_permanent_and_redacted() -> None:
 
 
 def test_chaos_matrix_is_synthetic_and_covers_bank_and_broker() -> None:
-    matrix = json.loads(Path("config/connector-chaos-scenarios.json").read_text())
+    matrix = json.loads(
+        Path("config/connector-chaos-scenarios.json").read_text()
+    )
     assert matrix["synthetic_data_only"] is True
     assert set(matrix["providers"]) == {"bank-fixture", "broker-fixture"}
     assert {item["name"] for item in matrix["scenarios"]} >= {
-        "timeout", "http_429", "malformed_response", "redis_transient_failure", "database_transient_failure"
+        "timeout",
+        "http_429",
+        "malformed_response",
+        "redis_transient_failure",
+        "database_transient_failure",
     }
     assert matrix["credentials_logged"] is False
     assert matrix["provider_payloads_logged"] is False
