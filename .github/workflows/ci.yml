@@ -318,6 +318,9 @@ jobs:
           uv run pytest -m integration -v --junitxml=junit-integration.xml \
             2>&1 | tee integration.log
           uv run pytest tests/integration/test_read_query_benchmarks_pg.py -m integration -q
+          TEST_DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/finance_sync_test
+          TEST_REDIS_URL: redis://localhost:6379/15
+          READ_BENCHMARK_ARTIFACT: read-benchmarks.json
           uv run python scripts/check_junit_no_skips.py junit-integration.xml
         env:
           TEST_DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/finance_sync_test
@@ -367,6 +370,32 @@ jobs:
           retention-days: 14
 
   # ── E2E tests (full API → worker → outbox pipeline) ──────────────
+      - name: Compare read performance with baseline
+        run: >
+          DEBUG=false uv run python scripts/check_read_performance.py
+          --baseline config/read-performance-baseline.json
+          --current read-benchmarks.json
+          --report read-performance-comparison.json
+          --latency-tolerance 0.25
+        env:
+          PERF_FAIL_LATENCY: "false"
+
+      - name: Upload PostgreSQL read benchmark report
+        uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: read-query-benchmarks
+          path: read-benchmarks.json
+          retention-days: 14
+
+      - name: Upload read performance comparison
+        uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: read-performance-comparison
+          path: read-performance-comparison.json
+          retention-days: 14
+
   e2e:
     name: E2E
     runs-on: ubuntu-latest
@@ -463,6 +492,419 @@ jobs:
 
   # ── Security + SBOM ───────────────────────────────────────────────────
   security:
+
+      - name: Capture integration service logs
+        if: always()
+        run: |
+          postgres_id=$(docker ps --format '{{.ID}} {{.Image}}' \
+            | awk '$2 ~ /^postgres:16/ {print $1; exit}')
+          redis_id=$(docker ps --format '{{.ID}} {{.Image}}' \
+            | awk '$2 ~ /^redis:7/ {print $1; exit}')
+          [ -z "$postgres_id" ] || docker logs "$postgres_id" \
+            > postgres-integration-service.log 2>&1
+          [ -z "$redis_id" ] || docker logs "$redis_id" \
+            > redis-integration-service.log 2>&1
+
+      - name: Upload integration service logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: integration-service-logs
+          path: |
+            integration.log
+            postgres-integration-service.log
+            redis-integration-service.log
+          retention-days: 14
+
+  # ── Provider contract refresh ─────────────────────────────────────────
+  provider-contracts:
+    name: Provider contract refresh
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v8.1.0
+        with:
+          enable-cache: true
+          cache-suffix: provider-contracts
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: uv sync --extra dev --frozen
+      - name: Validate synthetic provider compatibility matrix
+        run: >
+          uv run python scripts/provider_contract_refresh.py
+          --matrix config/provider-contract-matrix.json
+          --artifact provider-contract-report.json
+      - uses: actions/upload-artifact@v7
+        with:
+          name: provider-contracts-${{ github.sha }}
+          path: provider-contract-report.json
+          retention-days: 30
+
+  # ── Capacity-limit measurements ──────────────────────────────────────
+  capacity-limits:
+    name: Capacity limits
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v8.1.0
+        with:
+          enable-cache: true
+          cache-suffix: capacity-limits
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: uv sync --extra dev --frozen
+      - name: Measure synthetic capacity profiles
+        run: >
+          uv run python scripts/capacity_limit_report.py
+          --config config/capacity-limits.json
+          --artifact capacity-limits.json
+      - uses: actions/upload-artifact@v7
+        with:
+          name: capacity-limits-${{ github.sha }}
+          path: capacity-limits.json
+          retention-days: 30
+
+  # ── Connector version lifecycle ───────────────────────────────────────
+  connector-lifecycle:
+    name: Connector lifecycle
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v8.1.0
+        with:
+          enable-cache: true
+          cache-suffix: connector-lifecycle
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: uv sync --extra dev --frozen
+      - run: DEBUG=false uv run pytest tests/test_release18_connector_lifecycle.py -q
+      - name: Publish safe connector lifecycle diagnostics
+        run: >
+          uv run python scripts/connector_lifecycle.py
+          --config config/connector-lifecycle.json
+          --artifact connector-lifecycle-report.json
+      - uses: actions/upload-artifact@v7
+        with:
+          name: connector-lifecycle-${{ github.sha }}
+          path: connector-lifecycle-report.json
+          retention-days: 30
+
+  # ── Autoscaling and backpressure policy ──────────────────────────────
+  autoscaling-policy:
+    name: Autoscaling policy
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v8.1.0
+        with:
+          enable-cache: true
+          cache-suffix: autoscaling-policy
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: uv sync --extra dev --frozen
+      - run: DEBUG=false uv run pytest tests/test_release18_autoscaling.py -q
+      - name: Publish baseline autoscaling decision
+        run: >
+          uv run python scripts/autoscaling_policy.py
+          --policy config/autoscaling-policy.json
+          --artifact autoscaling-decision.json
+      - uses: actions/upload-artifact@v7
+        with:
+          name: autoscaling-policy-${{ github.sha }}
+          path: autoscaling-decision.json
+          retention-days: 30
+
+  # ── Audit retention enforcement ───────────────────────────────────────
+  audit-retention:
+    name: Audit retention enforcement
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v8.1.0
+        with:
+          enable-cache: true
+          cache-suffix: audit-retention
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: uv sync --extra dev --frozen
+      - name: Run tenant-scoped retention dry-run
+        run: >
+          uv run python scripts/enforce_audit_retention.py
+          --policy config/audit-retention-policy.json
+          --tenant synthetic-tenant
+          --artifact audit-retention-run.json
+          --dry-run
+      - uses: actions/upload-artifact@v7
+        with:
+          name: audit-retention-${{ github.sha }}
+          path: audit-retention-run.json
+          retention-days: 30
+
+  # ── Managed key provider contract ─────────────────────────────────────
+  managed-key-provider:
+    name: Managed key provider
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v8.1.0
+        with:
+          enable-cache: true
+          cache-suffix: managed-key-provider
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: uv sync --extra dev --frozen
+      - run: DEBUG=false uv run pytest tests/test_release18_managed_key_provider.py -q
+
+  # ── Automated disaster-recovery runbook ──────────────────────────────
+  automated-dr:
+    name: Automated DR runbook
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v8.1.0
+        with:
+          enable-cache: true
+          cache-suffix: automated-dr
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: uv sync --extra dev --frozen
+      - name: Execute isolated dry-run recovery
+        run: >
+          uv run python scripts/automated_dr_runbook.py
+          --config config/automated-dr-runbook.json
+          --artifact automated-dr-runbook.json
+          --dry-run
+      - uses: actions/upload-artifact@v7
+        with:
+          name: automated-dr-${{ github.sha }}
+          path: automated-dr-runbook.json
+          retention-days: 30
+
+  # ── Encryption key-rotation drill ────────────────────────────────────
+  key-rotation:
+    name: Encryption key rotation
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v8.1.0
+        with:
+          enable-cache: true
+          cache-suffix: key-rotation
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: uv sync --extra dev --frozen
+      - name: Run synthetic key rotation and restore checks
+        run: >
+          uv run python scripts/key_rotation_drill.py
+          --config config/key-rotation-drill.json
+          --artifact key-rotation-drill.json
+      - uses: actions/upload-artifact@v7
+        with:
+          name: key-rotation-${{ github.sha }}
+          path: key-rotation-drill.json
+          retention-days: 30
+
+  # ── Disaster-recovery game day ────────────────────────────────────────
+  dr-game-day:
+    name: Disaster-recovery game day
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v8.1.0
+        with:
+          enable-cache: true
+          cache-suffix: dr-game-day
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: uv sync --extra dev --frozen
+      - name: Simulate database, Redis and worker loss
+        run: >
+          uv run python scripts/dr_game_day.py
+          --config config/dr-game-day.json
+          --artifact dr-game-day.json
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dr-game-day-${{ github.sha }}
+          path: dr-game-day.json
+          retention-days: 30
+
+  # ── PostgreSQL backup/restore drill ───────────────────────────────────
+  backup-restore:
+    name: Backup and restore drill
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: finance_sync_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s --health-timeout 5s --health-retries 5
+    steps:
+      - uses: actions/checkout@v7
+      - name: Create isolated restore database
+        run: createdb -h localhost -U postgres finance_sync_restore
+        env:
+          PGPASSWORD: postgres
+      - name: Run synthetic PostgreSQL backup/restore drill
+        run: >
+          python3 scripts/backup_restore_drill.py
+          --source-url postgresql://postgres:postgres@localhost:5432/finance_sync_test
+          --target-url postgresql://postgres:postgres@localhost:5432/finance_sync_restore
+          --artifact backup-restore-drill.json
+        env:
+          MIGRATION_HEAD: alembic-head
+      - uses: actions/upload-artifact@v7
+        with:
+          name: backup-restore-drill-${{ github.sha }}
+          path: backup-restore-drill.json
+          retention-days: 30
+
+  # ── Connector retry/rate-limit chaos matrix ──────────────────────────
+  connector-chaos:
+    name: Connector chaos and retry tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v8.1.0
+        with:
+          enable-cache: true
+          cache-suffix: connector-chaos
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: uv sync --extra dev --frozen
+      - name: Run synthetic bank and broker chaos fixtures
+        run: DEBUG=false uv run pytest tests/test_release16_connector_chaos.py -q
+
+  # ── E2E tests (full API → worker → outbox pipeline) ──────────────
+  e2e:
+    name: E2E
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: finance_sync_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.1.0
+        with:
+          enable-cache: true
+          cache-suffix: e2e
+
+      - name: Install Python 3.12
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: uv sync --extra dev --frozen
+
+      - name: Run e2e tests (API → worker exactly-once, real PG + Redis)
+        run: |
+          set -o pipefail
+          uv run pytest -m e2e -v --junitxml=junit-e2e.xml 2>&1 \
+            | tee e2e.log
+          uv run python scripts/check_junit_no_skips.py junit-e2e.xml
+        env:
+          TEST_DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/finance_sync_test
+          TEST_REDIS_URL: redis://localhost:6379/15
+
+      - name: Upload e2e test results
+        uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: e2e-junit
+          path: junit-e2e.xml
+          retention-days: 14
+
+      - name: Capture e2e service logs
+        if: always()
+        run: |
+          postgres_id=$(docker ps --format '{{.ID}} {{.Image}}' \
+            | awk '$2 ~ /^postgres:16/ {print $1; exit}')
+          redis_id=$(docker ps --format '{{.ID}} {{.Image}}' \
+            | awk '$2 ~ /^redis:7/ {print $1; exit}')
+          [ -z "$postgres_id" ] || docker logs "$postgres_id" \
+            > postgres-e2e-service.log 2>&1
+          [ -z "$redis_id" ] || docker logs "$redis_id" \
+            > redis-e2e-service.log 2>&1
+
+      - name: Upload e2e service logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-service-logs
+          path: |
+            e2e.log
+            postgres-e2e-service.log
+            redis-e2e-service.log
+          retention-days: 14
+
+  # ── Security + SBOM ───────────────────────────────────────────────────
+  security:
+    name: Security
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.1.0
+        with:
+          enable-cache: true
+          cache-suffix: security
+
+      - name: Install Python 3.12
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
     name: Security
     runs-on: ubuntu-latest
     timeout-minutes: 10
