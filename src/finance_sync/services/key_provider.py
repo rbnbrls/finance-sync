@@ -1,6 +1,6 @@
 """Provider-neutral interface for versioned encryption-key storage."""
 
-# ruff: noqa: E501, EM101
+# ruff: noqa: EM101
 
 from __future__ import annotations
 
@@ -99,7 +99,9 @@ class ManagedKeyProvider:
     def rotation_status(self) -> dict[str, str]:
         return {"current_version": self._current_version, "state": "managed"}
 
-    def audit_rotation(self, from_version: str, to_version: str) -> dict[str, str]:
+    def audit_rotation(
+        self, from_version: str, to_version: str
+    ) -> dict[str, str]:
         return {
             "event": "encryption_key.rotated",
             "from_version": from_version,

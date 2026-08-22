@@ -72,10 +72,6 @@ if TYPE_CHECKING:
     from finance_sync.connectors.registry import ConnectorRegistry
 
 
-
-
-
-
 logger = structlog.get_logger("finance_sync.sync.orchestrator")
 
 
@@ -457,7 +453,6 @@ class SyncOrchestrator(CardsSyncMixin):
 
     # ── Bunq cards / scheduled payments sync ──────────────────────────
 
-
     # ── Post-sync reconciliation ─────────────────────────────────────
 
     async def run_reconciliation(
@@ -792,20 +787,7 @@ class SyncOrchestrator(CardsSyncMixin):
 
     # ── Cards pipeline ─────────────────────────────────────────────
 
-
     # ── Entity upsert helpers ──────────────────────────────────────
-
-
-
-
-
-
-
-
-
-
-
-
 
     # ── Failure handling ───────────────────────────────────────────
 
@@ -868,8 +850,6 @@ class SyncOrchestrator(CardsSyncMixin):
                 "failed_to_persist_failed_sync_run",
                 error=str(exc),
             )
-
-
 
 
 def _default_since() -> dt_type:

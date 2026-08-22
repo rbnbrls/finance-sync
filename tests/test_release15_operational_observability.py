@@ -15,9 +15,18 @@ def test_summary_requires_fresh_artifacts_and_exposes_safe_health() -> None:
         for path in artifacts.values():
             path.write_text("{}", encoding="utf-8")
         reference_time = artifacts["unit"].stat().st_mtime
-        summary = build_summary(artifacts, now=reference_time, max_age_hours=1, sync_status="healthy", outbox_lag="0")
+        summary = build_summary(
+            artifacts,
+            now=reference_time,
+            max_age_hours=1,
+            sync_status="healthy",
+            outbox_lag="0",
+        )
         assert summary["failures"] == []
-        assert summary["sync_health"] == {"status": "healthy", "outbox_lag": "0"}
+        assert summary["sync_health"] == {
+            "status": "healthy",
+            "outbox_lag": "0",
+        }
         assert summary["contains_financial_data"] is False
         assert summary["contains_secrets"] is False
         os.utime(artifacts["benchmark"], (0, 0))

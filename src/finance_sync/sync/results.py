@@ -46,6 +46,7 @@ class SyncResult:
             f"err={self.error_message!r} dur={self.duration_s:.2f}s>"
         )
 
+
 class ReconciliationRunSummary:
     """Outcome of a reconciliation analysis run."""
 
