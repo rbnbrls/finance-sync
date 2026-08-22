@@ -31,7 +31,7 @@ dependencies = [
     "actualpy>=0.22",
     "apscheduler>=3.10",
     "aiohttp>=3.9",
-    "mcp>=1.28",
+    "mcp>=1.28,<2",
     "openpyxl>=3.1",
     "xlrd>=2.0",
 ]
@@ -53,7 +53,7 @@ openbb = [
 ]
 
 mcp = [
-    "mcp>=1.28",
+    "mcp>=1.28,<2",
     "sse-starlette>=3.4",
 ]
 
