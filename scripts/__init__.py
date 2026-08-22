@@ -1,0 +1,1 @@
+"""Scripts package for finance-sync CI/CD and operational tooling."""
