@@ -1,6 +1,6 @@
 ---
 title: "Verwijder legacy-SQL uit de read-facade"
-status: todo
+status: done
 priority: 40
 ---
 
@@ -12,12 +12,23 @@ delegatieblokken. Dit maakt onderhoud en review onnodig moeilijk.
 
 ## Acceptance criteria
 
-- [ ] Verwijder onbereikbare legacyblokken uit `read_api.py` zonder publieke
+- [x] Verwijder onbereikbare legacyblokken uit `read_api.py` zonder publieke
   methodesignatures of response-schema's te wijzigen.
-- [ ] `ReadService` bevat uitsluitend facade-/delegatielogica en gedeelde
+- [x] `ReadService` bevat uitsluitend facade-/delegatielogica en gedeelde
   compatibiliteitshelpers die daadwerkelijk worden gebruikt.
-- [ ] Portfolio, holdings, securities, prices, net-worth en cashflow blijven
+- [x] Portfolio, holdings, securities, prices, net-worth en cashflow blijven
   tenant- en account-scoped werken.
-- [ ] OpenAPI-output vóór en na de wijziging is inhoudelijk gelijk.
-- [ ] Read-component-, API- en characterizationtests zijn groen.
-- [ ] `read_api.py` is maximaal 300 regels.
+- [x] OpenAPI-output vóór en na de wijziging is inhoudelijk gelijk.
+- [x] Read-component-, API- en characterizationtests zijn groen.
+- [x] `read_api.py` is maximaal 300 regels.
+
+## Verification
+
+- `ReadService` is teruggebracht tot een composition facade van de account-,
+  portfolio-, securities-, analytics- en operationele read-componenten.
+- Response-schema's zijn verplaatst naar `services/read/schemas.py` en blijven
+  vanuit `read_api.py` geëxporteerd voor backward compatibility.
+- Onbereikbare legacy-SQL is verwijderd; `read_api.py` is 113 regels.
+- Contracttest toegevoegd: `tests/test_read_facade_contract.py`.
+- Verificatie: `201 passed`, Pyright `0 errors`, Ruff en `git diff --check`
+  geslaagd.

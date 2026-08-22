@@ -1,0 +1,48 @@
+{
+  "synthetic_data_only": true,
+  "fixture_policy": "no credentials or personal financial data",
+  "connectors": [
+    {
+      "name": "bunq",
+      "version": "0.1.0",
+      "fixture_date": "2026-01-15",
+      "capabilities": ["accounts", "transactions"],
+      "fixtures": {
+        "accounts": {"fields": {"external_id": "string", "currency": "string", "status": "enum:active|closed"}},
+        "transactions": {"fields": {"external_id": "string", "account_id": "string", "amount": "decimal", "status": "enum:booked|pending|cancelled"}}
+      }
+    },
+    {
+      "name": "trading212",
+      "version": "0.1.0",
+      "fixture_date": "2026-01-15",
+      "capabilities": ["accounts", "transactions", "holdings"],
+      "fixtures": {
+        "accounts": {"fields": {"external_id": "string", "currency": "string", "status": "enum:active|closed"}},
+        "transactions": {"fields": {"external_id": "string", "account_id": "string", "amount": "decimal", "status": "enum:booked|pending|cancelled"}},
+        "holdings": {"fields": {"external_id": "string", "security_id": "string", "quantity": "decimal", "currency": "string"}}
+      }
+    },
+    {
+      "name": "degiro_pension",
+      "version": "0.1.0",
+      "fixture_date": "2026-01-15",
+      "capabilities": ["accounts", "transactions", "holdings"],
+      "fixtures": {
+        "accounts": {"fields": {"external_id": "string", "currency": "string", "status": "enum:active|closed"}},
+        "transactions": {"fields": {"external_id": "string", "account_id": "string", "amount": "decimal", "status": "enum:booked|pending|cancelled"}},
+        "holdings": {"fields": {"external_id": "string", "security_id": "string", "quantity": "decimal", "currency": "string"}}
+      }
+    },
+    {
+      "name": "ynab",
+      "version": "0.1.0",
+      "fixture_date": "2026-01-15",
+      "capabilities": ["accounts", "transactions"],
+      "fixtures": {
+        "accounts": {"fields": {"external_id": "string", "currency": "string", "status": "enum:active|closed"}},
+        "transactions": {"fields": {"external_id": "string", "account_id": "string", "amount": "decimal", "status": "enum:booked|pending|cancelled"}}
+      }
+    }
+  ]
+}

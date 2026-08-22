@@ -155,6 +155,38 @@ async def _init_database(container: Container) -> None:
                     )
                 await conn.commit()
 
+            # Seed normalized, synthetic records for local development and
+            # staging. Production is intentionally excluded in the caller.
+            if not container.settings.is_production:
+                from sqlalchemy import select
+
+                from finance_sync.models import Tenant, User
+                from finance_sync.services.non_production_seed import (
+                    seed_non_production_dataset,
+                )
+
+                async with container.session_factory() as session:
+                    tenant_id = await session.scalar(
+                        select(Tenant.id).where(Tenant.slug == "default")
+                    )
+                    owner_user_id = await session.scalar(
+                        select(User.id).where(
+                            User.email == "admin@finance-sync.local"
+                        )
+                    )
+                    if tenant_id is not None:
+                        seeded = await seed_non_production_dataset(
+                            session,
+                            tenant_id,
+                            str(owner_user_id) if owner_user_id else None,
+                        )
+                        logger.info(
+                            "non_production_dataset_seeded"
+                            if seeded
+                            else "non_production_dataset_exists",
+                            providers=["bunq", "trading212", "degiro_pension"],
+                        )
+
             # Success — exit the retry loop
             logger.info("database_initialised", attempt=attempt)
             return

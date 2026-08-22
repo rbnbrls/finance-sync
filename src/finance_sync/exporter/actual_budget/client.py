@@ -411,7 +411,9 @@ def _discover_budgets_sync(config: ActualBudgetConfig) -> list[dict[str, Any]]:
         timeout=config.request_timeout,
     )
     try:
-        actual.login()
+        login = getattr(actual, "login", None)
+        if callable(login):
+            login()
         files = actual.list_user_files()
         return [
             {

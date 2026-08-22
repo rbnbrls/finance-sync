@@ -28,7 +28,8 @@ Releases are **tag-driven** (`.github/workflows/release.yml`).  Pushing a
 `v*` tag runs: build (immutable `ghcr.io/rbnbrls/finance-sync:<sha>` +
 semver tag) → Trivy scan → cosign keyless sign/verify → migration job
 (`alembic upgrade head` on a staging database) → staging stack deploy
-(Coolify) → acceptance smoke tests (health + auth + sync-read) → **promote
+(Coolify) → acceptance smoke tests (health, auth, synthetic sync, outbox and
+exporter readback) → **promote
 to production** via the Coolify API.  The staging smoke tests are the
 promotion gate: any failure stops the pipeline before production is
 touched.  Manual runs via *Actions → Release → Run workflow*.
@@ -36,6 +37,14 @@ touched.  Manual runs via *Actions → Release → Run workflow*.
 Rollback is **image rollback + backward-compatible migrations** — full
 runbook in `docs/RELEASING.md`; migration policy in `docs/MIGRATIONS.md` /
 `docs/UPGRADE.md`.
+
+The smoke run uses deterministic staging-provider fixtures and uploads
+commit/image-tag-bound evidence as `release-staging-smoke-<sha>`. It contains
+status and counts only; secrets and financial payloads are excluded.
+
+Release 13 closes with a Pyright source-warning budget of at most 60,
+mandatory scan/service gates and a commit/image/artifact/owner/date checklist
+in [docs/RELEASING.md](docs/RELEASING.md).
 
 ### API contract (OpenAPI) diff gate
 

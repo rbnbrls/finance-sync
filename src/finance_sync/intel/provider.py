@@ -176,9 +176,7 @@ class IntelProvider(ABC):
         and whose storage flags honour the source license.
         """
         if TYPE_CHECKING:
-            from finance_sync.intel.models import IntelItem as _ItemType
-
-            return [_ItemType()]  # pragma: no cover — typing-only stub
+            return []  # pragma: no cover — typing-only stub
         return None
 
     # ── Defaults ────────────────────────────────────────────────────

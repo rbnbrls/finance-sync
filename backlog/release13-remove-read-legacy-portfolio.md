@@ -1,6 +1,6 @@
 ---
 title: "Verwijder legacy portfolio- en holdings-SQL uit ReadService"
-status: todo
+status: done
 priority: 40
 ---
 
@@ -16,8 +16,30 @@ De bestaande portfolio-characterization tests en
 
 ## Acceptance criteria
 
-- [ ] Verwijder alleen de onbereikbare portfolio-/holdingsblokken.
-- [ ] `get_portfolio()` en `get_holdings()` blijven dezelfde responses,
+- [x] Verwijder alleen de onbereikbare portfolio-/holdingsblokken.
+- [x] `get_portfolio()` en `get_holdings()` blijven dezelfde responses,
   scopefilters en metadata leveren.
-- [ ] Portfolio- en holdings-tests plus OpenAPI-generatie slagen.
-- [ ] Geen nieuwe import van facade-DTO's in querylogica.
+- [x] Portfolio- en holdings-tests plus OpenAPI-generatie slagen.
+- [x] Geen nieuwe import van facade-DTO's in querylogica.
+
+## Implementatie en verificatie
+
+- De portfolio- en holdingsimplementaties blijven uitsluitend in
+  `PortfolioReadService`; de compatibility-facade bevat geen SQL.
+- Response-DTO's worden rechtstreeks uit `read.schemas` geïmporteerd, zodat
+  querylogica niet afhankelijk is van facade-imports.
+- Characterizationtests bewaken delegatie, DTO-locatie en het ontbreken van
+  legacy-SQL.
+
+Verificatie:
+
+```text
+uv run pytest tests/test_release13_portfolio_cleanup.py \
+tests/test_read_facade_contract.py tests/test_read_api.py \
+tests/test_top_level_read_endpoints.py -q
+122 passed
+
+uv run ruff check src/finance_sync/services/read/portfolio.py \
+tests/test_release13_portfolio_cleanup.py
+Geslaagd
+```

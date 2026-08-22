@@ -1,0 +1,9 @@
+{
+  "retention_days": 3650,
+  "batch_size": 500,
+  "tenant_scoped": true,
+  "archive_before_delete": true,
+  "dry_run_default": true,
+  "audit_event": "audit_retention.run",
+  "schema_migration_required": false
+}

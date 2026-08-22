@@ -79,6 +79,15 @@ with both an empty-database upgrade and a downgrade/upgrade round-trip. These
 checks protect the modular boundaries without making a production downgrade
 the normal rollback strategy.
 
+Staging release smoke runs against synthetic provider fixtures and verifies
+health, readiness, sync/outbox evidence and exporter readback before
+promotion. A failed smoke blocks production. Recovery uses image rollback
+against backward-compatible migrations; it is never a blind schema
+downgrade.
+
+Release 13 also publishes commit-bound benchmark and security evidence; the
+release checklist records the image tag, artifact links, owner and UTC date.
+
 The sync pipeline is being extracted incrementally. Account and transaction
 ingestion now run through `sync/stages/accounts.py` and
 `sync/stages/transactions.py` with an immutable `SyncContext`; stages receive

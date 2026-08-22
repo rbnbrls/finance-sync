@@ -1,6 +1,6 @@
 ---
 title: "Verwijder legacy securities- en price-SQL uit ReadService"
-status: todo
+status: done
 priority: 40
 ---
 
@@ -15,8 +15,19 @@ oude SQL blijft in `read_api.py` staan.
 
 ## Acceptance criteria
 
-- [ ] Verwijder de onbereikbare securities-, listing- en priceblokken.
-- [ ] Search, filters, pagination, latest-price-batch en freshness blijven
+- [x] Verwijder de onbereikbare securities-, listing- en priceblokken.
+- [x] Search, filters, pagination, latest-price-batch en freshness blijven
   gelijk.
-- [ ] Security identity- en top-level price-tests slagen.
-- [ ] OpenAPI en querybudget-contracten blijven ongewijzigd.
+- [x] Security identity- en top-level price-tests slagen.
+- [x] OpenAPI en querybudget-contracten blijven ongewijzigd.
+
+## Implementatie en verificatie
+
+- De securities-, listing- en price-query's blijven uitsluitend in
+  `SecuritiesReadService`; de compatibility-facade bevat geen query-SQL.
+- Securities-response-DTO's worden rechtstreeks uit `read.schemas` gebruikt.
+- Characterizationtests bewaken facade-compositie, component-eigenaarschap en
+  de DTO-module.
+
+Verificatie: securities-, price-, read-facade- en OpenAPI-tests geslaagd; Ruff,
+Pyright en `git diff --check` geslaagd.

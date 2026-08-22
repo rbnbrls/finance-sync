@@ -1,0 +1,45 @@
+{
+  "connectors": [
+    {
+      "name": "bunq",
+      "version": "0.1.0",
+      "previous_version": "0.0.9",
+      "capabilities": ["accounts", "transactions"],
+      "minimum_fixture_version": "2026-01-15",
+      "feature_flag": "connector_bunq_enabled",
+      "deprecation_date": null,
+      "removal_date": "2027-01-01"
+    },
+    {
+      "name": "trading212",
+      "version": "0.1.0",
+      "previous_version": "0.0.9",
+      "capabilities": ["accounts", "transactions", "holdings"],
+      "minimum_fixture_version": "2026-01-15",
+      "feature_flag": "connector_trading212_enabled",
+      "deprecation_date": null,
+      "removal_date": "2027-01-01"
+    },
+    {
+      "name": "degiro_pension",
+      "version": "0.1.0",
+      "previous_version": "0.0.9",
+      "capabilities": ["accounts", "transactions", "holdings"],
+      "minimum_fixture_version": "2026-01-15",
+      "feature_flag": "connector_degiro_pension_enabled",
+      "deprecation_date": null,
+      "removal_date": "2027-01-01"
+    },
+    {
+      "name": "ynab",
+      "version": "0.1.0",
+      "previous_version": "0.0.9",
+      "capabilities": ["accounts", "transactions"],
+      "minimum_fixture_version": "2026-01-15",
+      "feature_flag": "connector_ynab_enabled",
+      "deprecation_date": null,
+      "removal_date": "2027-01-01"
+    }
+  ],
+  "rollback_policy": "retain previous version until current fixture and existing connections pass"
+}

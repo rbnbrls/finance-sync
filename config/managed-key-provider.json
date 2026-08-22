@@ -1,0 +1,11 @@
+{
+  "provider": "managed-kms-adapter",
+  "interface": "finance_sync.services.key_provider.ManagedKeyProvider",
+  "states": ["current", "previous", "retired"],
+  "fail_closed": true,
+  "material_logged": false,
+  "bootstrap": "bind provider identity and current key version in staging secret store",
+  "rotation": "publish new version, re-encrypt, verify, retire previous after window",
+  "recovery": "restore provider access and version metadata before decrypting backups",
+  "provider_switch": "pause writes, verify new provider with synthetic fixture, then resume"
+}

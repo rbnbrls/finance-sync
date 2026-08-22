@@ -32,8 +32,12 @@ class QueryBudget:
 READ_QUERY_BUDGETS: dict[str, QueryBudget] = {
     "portfolio": QueryBudget("portfolio", 4),
     "holdings": QueryBudget("holdings", 4),
-    "securities": QueryBudget("securities", 2),
+    # Count + page + one set-based latest-price query.
+    "securities": QueryBudget("securities", 3),
     "latest_prices": QueryBudget("latest_prices", 1),
     "net_worth": QueryBudget("net_worth", 4),
     "cashflow": QueryBudget("cashflow", 4),
+    "portfolio_history": QueryBudget("portfolio_history", 2),
+    "net_worth_history": QueryBudget("net_worth_history", 2),
+    "cashflow_history": QueryBudget("cashflow_history", 4),
 }

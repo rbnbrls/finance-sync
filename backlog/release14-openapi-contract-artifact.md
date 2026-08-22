@@ -1,6 +1,6 @@
 ---
 title: "Publiceer een controleerbare OpenAPI-contractdiff"
-status: todo
+status: done
 priority: 20
 ---
 
@@ -15,9 +15,21 @@ Release 13 read-cleanup stories.
 
 ## Acceptance criteria
 
-- [ ] Genereer OpenAPI voor de vorige en huidige release.
-- [ ] Vergelijk paths, methods, parameters, response-schema's en security-
+- [x] Genereer OpenAPI voor de vorige en huidige release.
+- [x] Vergelijk paths, methods, parameters, response-schema's en security-
   schemes met een machineleesbaar diff.
-- [ ] Additieve wijzigingen zijn expliciet toegestaan; breaking changes falen.
-- [ ] Upload diff en beide snapshots als CI-artifacts.
-- [ ] Voeg een regressietest toe voor de diff-policy.
+- [x] Additieve wijzigingen zijn expliciet toegestaan; breaking changes falen.
+- [x] Upload diff en beide snapshots als CI-artifacts.
+- [x] Voeg een regressietest toe voor de diff-policy.
+
+## Implementatie en verificatie
+
+- `check_openapi_diff.py` schrijft naast de console-uitvoer een JSON-report met
+  breaking, allowlisted, additive en informational findings.
+- CI uploadt base/head snapshots plus `openapi-diff.json`; breaking changes
+  blijven een harde gate en additions zijn toegestaan.
+- Verificatie: OpenAPI diff policy tests, API/OpenAPI-tests, Ruff, Pyright en
+  `git diff --check` geslaagd.
+- Tests: `tests/test_release14_openapi_contract.py`.
+- CI/artifact: `openapi-base.json`, `openapi-head.json` en
+  `openapi-diff.json` uit artifact `openapi-docs`.

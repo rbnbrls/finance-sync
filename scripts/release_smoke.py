@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# ruff: noqa: T201, E501
+# pyright: basic
 """Acceptance smoke tests for a deployed finance-sync staging stack.
 
 Used by ``.github/workflows/release.yml`` (job ``smoke``) as the promotion
@@ -26,6 +28,12 @@ SMOKE_PASSWORD       Login password (default: ``admin`` — the lifespan-seeded
                      rotated).
 SMOKE_TIMEOUT        Overall budget in seconds (default: 600).
 SMOKE_POLL_INTERVAL  Health poll interval in seconds (default: 10).
+SMOKE_ARTIFACT       Optional JSON evidence output path.
+SMOKE_COMMIT         Commit SHA recorded in the evidence.
+SMOKE_IMAGE_TAG      Immutable image tag recorded in the evidence.
+SMOKE_SCHEMA_VERSION Schema/migration head verified before deployment.
+SMOKE_DATASET        Synthetic dataset identifier used by the run.
+SMOKE_JUNIT          Optional JUnit XML output path.
 
 Stdlib only — no dependencies, safe to run from a bare checkout.
 """
@@ -44,6 +52,16 @@ EMAIL = os.environ.get("SMOKE_EMAIL", "admin@finance-sync.local")
 PASSWORD = os.environ.get("SMOKE_PASSWORD", "admin")
 TIMEOUT = float(os.environ.get("SMOKE_TIMEOUT", "600"))
 POLL_INTERVAL = float(os.environ.get("SMOKE_POLL_INTERVAL", "10"))
+ARTIFACT = os.environ.get("SMOKE_ARTIFACT", "")
+COMMIT = os.environ.get("SMOKE_COMMIT", "unknown")
+IMAGE_TAG = os.environ.get("SMOKE_IMAGE_TAG", "unknown")
+SCHEMA_VERSION = os.environ.get("SMOKE_SCHEMA_VERSION", "unknown")
+DATASET = os.environ.get("SMOKE_DATASET", "synthetic-provider-fixtures")
+JUNIT = os.environ.get("SMOKE_JUNIT", "")
+ENVIRONMENT = os.environ.get("SMOKE_ENVIRONMENT", "staging")
+ARTIFACT_LINK = os.environ.get(
+    "SMOKE_ARTIFACT_LINK", "staging-smoke-evidence.json"
+)
 
 if not BASE_URL:
     sys.exit(
@@ -108,24 +126,46 @@ def wait_for_health(path: str) -> None:
 
 
 def main() -> int:
+    checks: list[dict[str, object]] = []
+
+    def record(name: str, status: int, detail: str) -> None:
+        checks.append({"name": name, "http_status": status, "detail": detail})
+
+    def require_status(
+        name: str,
+        status: int,
+        body: dict | str,
+        expected: set[int],
+    ) -> dict | str:
+        if status not in expected:
+            safe_body = (
+                body if isinstance(body, str) else {"keys": sorted(body)}
+            )
+            sys.exit(
+                f"✗ {name} failed (HTTP {status}): "
+                f"{json.dumps(safe_body)[:200]}"
+            )
+        record(name, status, "ok")
+        return body
+
     print(f"finance-sync release smoke tests — {BASE_URL}")
-    print(f"  email: {EMAIL}")
 
     # 1. Liveness — the app is serving.
-    print("[1/4] liveness (/health/live)")
+    print("[1/7] liveness (/health/live)")
     wait_for_health("/health/live")
+    record("health_live", 200, "ok")
 
     # 2. Readiness — DB + Redis reachable.
-    print("[2/4] readiness (/health/ready)")
+    print("[2/7] readiness (/health/ready)")
     wait_for_health("/health/ready")
+    record("health_ready", 200, "database and redis ready")
 
     # 3. Authentication — login and obtain a bearer token.
-    print("[3/4] authentication (POST /api/v1/auth/login)")
+    print("[3/7] authentication (POST /api/v1/auth/login)")
     status, body = request(
         "POST", "/api/v1/auth/login", {"email": EMAIL, "password": PASSWORD}
     )
-    if status != 200:
-        sys.exit(f"✗ login failed (HTTP {status}): {json.dumps(body)[:200]}")
+    require_status("auth_login", status, body, {200})
     token = body.get("access_token") if isinstance(body, dict) else None
     if not token:
         sys.exit(
@@ -134,25 +174,75 @@ def main() -> int:
     print("  ✓ login OK (access_token obtained)")
 
     # 4. DB-backed read — GET /transactions returns the documented shape.
-    print("[4/4] sync-read (GET /api/v1/transactions)")
+    print("[4/7] sync-read (GET /api/v1/transactions)")
     status, body = request("GET", "/api/v1/transactions", token=token)
-    if status != 200:
-        sys.exit(
-            f"✗ GET /api/v1/transactions failed (HTTP {status}): {json.dumps(body)[:200]}"
-        )
+    require_status("transactions_read", status, body, {200})
     if not isinstance(body, dict) or "meta" not in body:
-        sys.exit(
-            f"✗ GET /api/v1/transactions missing meta envelope: {json.dumps(body)[:200]}"
-        )
+        sys.exit("✗ GET /api/v1/transactions missing meta envelope")
     meta = body["meta"]
     expected_keys = {"as_of", "currency", "next_cursor", "freshness"}
     if not isinstance(meta, dict) or not expected_keys.issubset(meta):
-        sys.exit(
-            f"✗ GET /api/v1/transactions meta envelope wrong shape: {json.dumps(meta)[:200]}"
-        )
+        sys.exit("✗ GET /api/v1/transactions meta envelope wrong shape")
     print(
         f"  ✓ GET /api/v1/transactions -> 200 (meta keys: {sorted(expected_keys)})"
     )
+
+    # 5. Synthetic provider sync — no external provider credentials or data.
+    print("[5/7] synthetic sync (POST /api/v1/sync/bunq)")
+    status, body = request("POST", "/api/v1/sync/bunq", token=token)
+    sync_body = require_status("synthetic_sync", status, body, {202})
+    sync_links = (
+        sync_body.get("sync_runs", []) if isinstance(sync_body, dict) else []
+    )
+    if not isinstance(sync_links, list) or not sync_links:
+        sys.exit("✗ synthetic sync returned no sync-run/outbox evidence")
+    record("sync_outbox_evidence", 202, f"sync_links={len(sync_links)}")
+
+    # 6. Durable sync-run listing proves the write path committed.
+    print("[6/7] sync-run listing and exporter flow")
+    status, body = request("GET", "/api/v1/sync-runs", token=token)
+    runs_body = require_status("sync_runs_read", status, body, {200})
+    if not isinstance(runs_body, (dict, list)):
+        sys.exit("✗ sync-run response has an unexpected shape")
+
+    status, body = request("POST", "/api/v1/exporters/export", token=token)
+    export_body = require_status("exporter_run", status, body, {200, 202})
+    if isinstance(export_body, dict) and export_body.get("status") == "failed":
+        sys.exit("✗ exporter smoke run returned failed")
+    status, body = request("GET", "/api/v1/exporters/runs", token=token)
+    require_status("exporter_runs_read", status, body, {200})
+
+    if ARTIFACT:
+        evidence = {
+            "commit": COMMIT,
+            "image_tag": IMAGE_TAG,
+            "schema_version": SCHEMA_VERSION,
+            "synthetic_dataset": DATASET,
+            "environment": ENVIRONMENT,
+            "finished_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "artifact_link": ARTIFACT_LINK,
+            "checks": checks,
+            "synthetic_data_only": True,
+            "secrets_included": False,
+        }
+        with open(ARTIFACT, "w", encoding="utf-8") as evidence_file:
+            json.dump(evidence, evidence_file, indent=2)
+            evidence_file.write("\n")
+
+    if JUNIT:
+        testcase_count = len(checks)
+        junit = (
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            f'<testsuite name="release-smoke" tests="{testcase_count}" '
+            'failures="0" errors="0" skipped="0">\n'
+            + "".join(
+                f'  <testcase classname="release_smoke" name="{check["name"]}"/>\n'
+                for check in checks
+            )
+            + "</testsuite>\n"
+        )
+        with open(JUNIT, "w", encoding="utf-8") as junit_file:
+            junit_file.write(junit)
 
     print("✅ All staging smoke tests passed — promotion gate cleared")
     return 0

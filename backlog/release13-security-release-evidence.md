@@ -1,6 +1,6 @@
 ---
 title: "Bundel security- en image-scanbewijs voor release candidates"
-status: todo
+status: done
 priority: 30
 ---
 
@@ -15,7 +15,15 @@ per commit/image-tag herleidbaar en gecontroleerd zijn.
 
 ## Acceptance criteria
 
-- [ ] Upload pip-audit-, CycloneDX- en Trivy-output per releasecandidate.
-- [ ] `.trivyignore`-entries worden op expiry en rationale gecontroleerd.
-- [ ] Ongeaccepteerde kwetsbaarheden falen de releasejob.
-- [ ] Artifacts bevatten geen secrets, credentials of financiële waarden.
+- [x] Upload pip-audit-, CycloneDX- en Trivy-output per releasecandidate.
+- [x] `.trivyignore`-entries worden op expiry en rationale gecontroleerd.
+- [x] Ongeaccepteerde kwetsbaarheden falen de releasejob.
+- [x] Artifacts bevatten geen secrets, credentials of financiële waarden.
+
+## Implementatie en verificatie
+
+- De releaseworkflow heeft een verplichte `security-evidence`-job voor
+  pip-audit, CycloneDX en de Trivy-output van de image-build.
+- De job valideert `.trivyignore`, controleert evidence op credentials en
+  uploadt alle outputs als één releaseartifact; elke scanuitkomst gate de job.
+- Contracttests toegevoegd in `tests/test_release13_security_evidence.py`.

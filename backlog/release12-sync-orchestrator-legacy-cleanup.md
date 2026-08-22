@@ -1,6 +1,6 @@
 ---
 title: "Maak de sync-orchestrator uitsluitend coördinerend"
-status: todo
+status: done
 priority: 40
 ---
 
@@ -12,13 +12,26 @@ Concrete account-, transaction- en holding-persistence wordt door
 
 ## Acceptance criteria
 
-- [ ] Verwijder private entity-persistence uit `sync/orchestrator.py` nadat
+- [x] Verwijder private entity-persistence uit `sync/orchestrator.py` nadat
   callers en characterizationtests naar de concrete componenten verwijzen.
-- [ ] De orchestrator houdt alleen pipelineflow, cursors, run-status,
+- [x] De orchestrator houdt alleen pipelineflow, cursors, run-status,
   logging/metrics en UnitOfWork-lifecycle.
-- [ ] Transaction- en holding-stages gebruiken geen fallback naar private
+- [x] Transaction- en holding-stages gebruiken geen fallback naar private
   orchestrator-methodes.
-- [ ] Create, changed update, unchanged update, duplicate sync, outbox en
+- [x] Create, changed update, unchanged update, duplicate sync, outbox en
   rollback blijven functioneel gelijk.
-- [ ] De orchestrator heeft maximaal 900 regels.
-- [ ] Sync-, outbox-, persistence- en integratietests zijn groen.
+- [x] De orchestrator heeft maximaal 900 regels.
+- [x] Sync-, outbox-, persistence- en integratietests zijn groen.
+
+## Verification
+
+- Account-, transaction-, holding-, security-, scheduled-payment- en
+  card-transaction-persistence staat nu in concrete componenten onder
+  `sync/persistence.py`.
+- De cards-pipeline en result value objects zijn uit de orchestrator gehaald;
+  de orchestrator bevat 879 regels en geen `_upsert_*`- of private security-
+  persistence-methodes meer.
+- Characterizationtest toegevoegd:
+  `tests/test_sync_orchestrator_boundary.py`.
+- Verificatie: `67 passed` voor sync/persistence/stage-tests, PostgreSQL/Redis
+  integration `138 passed`, E2E `31 passed`, Ruff en `git diff --check` groen.

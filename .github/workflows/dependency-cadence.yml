@@ -1,0 +1,65 @@
+name: Dependency cadence
+
+on:
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  dependency-gates:
+    name: Dependency compatibility gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: finance_sync_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s --health-timeout 5s --health-retries 5
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s --health-timeout 5s --health-retries 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v8.1.0
+        with:
+          enable-cache: true
+          cache-suffix: dependency-cadence
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: uv lock --check
+      - run: uv sync --extra dev --frozen
+      - name: Unit gate
+        run: DEBUG=false uv run pytest -m 'not integration and not e2e' -q
+      - name: Integration gate
+        run: DEBUG=false uv run pytest -m integration -q
+        env:
+          TEST_DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/finance_sync_test
+          TEST_REDIS_URL: redis://localhost:6379/15
+      - name: E2E gate
+        run: DEBUG=false uv run pytest -m e2e -q
+        env:
+          TEST_DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/finance_sync_test
+          TEST_REDIS_URL: redis://localhost:6379/15
+      - name: Security and SBOM gate
+        run: |
+          uv pip install pip-audit cyclonedx-bom
+          uv export --format requirements-txt --no-dev --locked --no-emit-project --output-file release-requirements.txt
+          uv run pip-audit --requirement release-requirements.txt --progress-spinner=off
+          uv run cyclonedx-py requirements release-requirements.txt --pyproject pyproject.toml -o sbom.cyclonedx.json
+          uv run python scripts/check_data_retention_policy.py config/data-retention-policy.json
+          uv run python scripts/check_trivyignore.py .trivyignore

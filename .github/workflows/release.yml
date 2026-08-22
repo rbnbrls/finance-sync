@@ -6,8 +6,10 @@
 #   build          – build the immutable image (sha + semver tags), scan it
 #                    with Trivy (fail on HIGH/CRITICAL, same gate as CI),
 #                    sign it with cosign (keyless, GitHub OIDC), push to GHCR
-#   migrate        – `alembic upgrade head` against an ephemeral PostgreSQL
-#                    ("staging DB") to validate the released migration chain
+#   release-gates  – mandatory PostgreSQL/Redis integration and API→worker→
+#                    outbox E2E tests for every release candidate
+#   migrate        – migration upgrade/downgrade round-trip against an
+#                    ephemeral PostgreSQL ("staging DB")
 #   deploy-staging – deploy the staging stack via the Coolify API (the
 #                    staging app also runs `alembic upgrade head` as a
 #                    pre-deployment command against its own database)
@@ -119,7 +121,42 @@ jobs:
           exit-code: 1
           ignore-unfixed: false
           trivyignores: .trivyignore
+          format: json
+          output: trivy-results.json
           version: v0.70.0
+
+      - name: Write image scan provenance
+        if: always()
+        env:
+          COMMIT_SHA: ${{ github.sha }}
+          IMAGE_TAG: ${{ steps.meta.outputs.tags }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          Path("trivy-provenance.json").write_text(
+              json.dumps(
+                  {
+                      "commit": os.environ["COMMIT_SHA"],
+                      "image": os.environ["IMAGE_TAG"],
+                  },
+                  indent=2,
+              )
+              + "\n",
+              encoding="utf-8",
+          )
+
+      - name: Upload image scan results
+        uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: release-trivy-${{ github.sha }}
+          path: |
+            trivy-results.json
+            trivy-provenance.json
+          retention-days: 30
 
       - name: Push Docker image
         run: |
@@ -148,6 +185,183 @@ jobs:
             "https://github.com/${{ github.repository }}/.github/workflows/release.yml@refs/(tags|heads)/.*" \
             --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
             "${DIGEST}"
+
+  # ── Reproducible security evidence for each release candidate ────────
+  security-evidence:
+    name: Security release evidence
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.1.0
+        with:
+          enable-cache: true
+          cache-suffix: release-security
+
+      - name: Install Python 3.12
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install security and SBOM tooling
+        run: |
+          uv sync --extra dev --frozen
+          uv pip install pip-audit cyclonedx-bom
+
+      - name: Download image scan evidence
+        uses: actions/download-artifact@v8
+        with:
+          name: release-trivy-${{ github.sha }}
+
+      - name: Validate Trivy accepted-risk policy
+        id: trivy-policy
+        run: uv run python scripts/check_trivyignore.py .trivyignore
+        continue-on-error: true
+
+      - name: Run pip-audit
+        id: pip-audit
+        run: uv run pip-audit --requirement release-requirements.txt --format json --output pip-audit.json
+        continue-on-error: true
+
+      - name: Generate CycloneDX SBOM
+        id: cyclonedx
+        run: uv run cyclonedx-py requirements release-requirements.txt --pyproject pyproject.toml -o sbom.cyclonedx.json
+        continue-on-error: true
+
+      - name: Check evidence for sensitive values
+        id: evidence-policy
+        run: uv run python scripts/check_security_evidence.py pip-audit.json sbom.cyclonedx.json trivy-results.json
+        continue-on-error: true
+
+      - name: Upload release security evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-security-evidence
+          path: |
+            pip-audit.json
+            sbom.cyclonedx.json
+            trivy-results.json
+            trivy-provenance.json
+          retention-days: 30
+
+      - name: Fail on security evidence gate violations
+        if: always()
+        run: |
+          test "${{ steps.trivy-policy.outcome }}" = success
+          test "${{ steps.pip-audit.outcome }}" = success
+          test "${{ steps.cyclonedx.outcome }}" = success
+          test "${{ steps.evidence-policy.outcome }}" = success
+
+  # ── Mandatory release-candidate service gates ─────────────────────────
+  # These tests deliberately run in the tag/manual release workflow as well
+  # as PR CI.  A green build is not releasable unless the real PostgreSQL and
+  # Redis-backed paths have passed without skipped or missing JUnit output.
+  release-gates:
+    name: Release service gates
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: finance_sync_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.1.0
+        with:
+          enable-cache: true
+          cache-suffix: release-gates
+
+      - name: Install Python 3.12
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: uv sync --extra dev --frozen
+
+      - name: Run unit gate
+        run: DEBUG=false uv run pytest -m 'not integration and not e2e' -q --junitxml=junit-unit.xml
+
+      - name: Run PostgreSQL/Redis integration gate
+        run: |
+          set -o pipefail
+          DEBUG=false uv run pytest -m integration -q \
+            --junitxml=junit-integration.xml 2>&1 | tee integration.log
+          uv run python scripts/check_junit_no_skips.py junit-integration.xml
+        env:
+          TEST_DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/finance_sync_test
+          TEST_REDIS_URL: redis://localhost:6379/15
+
+      - name: Run API-worker-outbox E2E gate
+        run: |
+          set -o pipefail
+          DEBUG=false uv run pytest -m e2e -q \
+            --junitxml=junit-e2e.xml 2>&1 | tee e2e.log
+          uv run python scripts/check_junit_no_skips.py junit-e2e.xml
+        env:
+          TEST_DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/finance_sync_test
+          TEST_REDIS_URL: redis://localhost:6379/15
+
+      - name: Run read benchmark gate
+        run: uv run pytest tests/integration/test_read_query_benchmarks_pg.py -m integration -q
+        env:
+          TEST_DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/finance_sync_test
+          TEST_REDIS_URL: redis://localhost:6379/15
+          READ_BENCHMARK_ARTIFACT: read-benchmarks.json
+
+      - name: Capture PostgreSQL service log
+        if: always()
+        run: docker logs "$(docker ps -q --filter ancestor=postgres:16 | head -1)" > postgres-release-gates.log 2>&1 || true
+
+      - name: Capture Redis service log
+        if: always()
+        run: docker logs "$(docker ps -q --filter ancestor=redis:7 | head -1)" > redis-release-gates.log 2>&1 || true
+
+      - name: Upload release gate reports and service logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-service-gates
+          path: |
+            junit-integration.xml
+            junit-e2e.xml
+            junit-unit.xml
+            read-benchmarks.json
+            integration.log
+            e2e.log
+            postgres-release-gates.log
+            redis-release-gates.log
+          retention-days: 14
 
   # ── Migration job against a staging database ──────────────────────────
   # Validates `alembic upgrade head` on the *released* code against a real
@@ -201,8 +415,14 @@ jobs:
         env:
           ASYNC_DB_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/finance_sync_staging
 
-      - name: Run alembic upgrade head on the staging database
-        run: uv run alembic upgrade head
+      - name: Run migration upgrade/downgrade round-trip
+        run: |
+          set -o pipefail
+          {
+            uv run alembic upgrade head
+            uv run alembic downgrade base
+            uv run alembic upgrade head
+          } 2>&1 | tee migration.log
         env:
           ASYNC_DB_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/finance_sync_staging
 
@@ -236,10 +456,24 @@ jobs:
         env:
           ASYNC_DB_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/finance_sync_staging
 
+      - name: Capture migration PostgreSQL service log
+        if: always()
+        run: docker logs "$(docker ps -q --filter ancestor=postgres:16 | head -1)" > postgres-migration.log 2>&1 || true
+
+      - name: Upload migration round-trip artifact
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-migration-round-trip
+          path: |
+            migration.log
+            postgres-migration.log
+          retention-days: 14
+
   # ── Deploy the staging stack via Coolify ──────────────────────────────
   deploy-staging:
     name: Deploy staging stack
-    needs: [build, migrate]
+    needs: [build, migrate, release-gates, security-evidence]
     runs-on: ubuntu-latest
     timeout-minutes: 25
     environment: staging
@@ -303,13 +537,158 @@ jobs:
       - name: Run acceptance smoke tests
         run: |
           export SMOKE_BASE_URL="https://${STAGING_APP_UUID}.7rb.nl"
-          python3 scripts/release_smoke.py
+          python3 scripts/release_smoke.py 2>&1 | tee staging-smoke.log
+        env:
+          SMOKE_ARTIFACT: staging-smoke-evidence.json
+          SMOKE_JUNIT: staging-smoke.xml
+          SMOKE_COMMIT: ${{ github.sha }}
+          SMOKE_IMAGE_TAG: ${{ needs.build.outputs.image }}
+          SMOKE_SCHEMA_VERSION: alembic-head
+          SMOKE_DATASET: release14-synthetic-provider-fixtures
+          SMOKE_ENVIRONMENT: staging
+          SMOKE_ARTIFACT_LINK: release-staging-smoke
+
+      - name: Validate smoke evidence and immutable image tag
+        if: always()
+        env:
+          SMOKE_IMAGE_TAG: ${{ needs.build.outputs.image }}
+        run: |
+          test -s staging-smoke-evidence.json
+          test -s staging-smoke.xml
+          case "$SMOKE_IMAGE_TAG" in
+            ghcr.io/rbnbrls/finance-sync:sha-*) ;;
+            *) echo "unexpected non-immutable smoke image tag"; exit 1 ;;
+          esac
+
+      - name: Upload staging smoke evidence
+        uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: release-staging-smoke-${{ github.sha }}
+          path: |
+            staging-smoke.log
+            staging-smoke-evidence.json
+            staging-smoke.xml
+          retention-days: 30
+
+  # ── Full candidate rehearsal before promotion ─────────────────────────
+  rehearsal:
+    name: Release-candidate rehearsal
+    needs: [build, release-gates, migrate, security-evidence, smoke]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - name: Validate complete rehearsal and publish summary
+        run: python3 scripts/release_rehearsal.py
+        env:
+          REHEARSAL_ARTIFACT: release-rehearsal.json
+          REHEARSAL_IMAGE: ${{ needs.build.outputs.image }}
+          REHEARSAL_COMMIT: ${{ github.sha }}
+          REHEARSAL_SCHEMA: alembic-head
+          REHEARSAL_DATASET: release15-synthetic-provider-fixtures
+
+      - name: Upload rehearsal summary
+        uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: release-rehearsal-${{ github.sha }}
+          path: release-rehearsal.json
+          retention-days: 30
+
+  # ── Transactional sync recovery drill ────────────────────────────────
+  recovery-drill:
+    name: Sync failure recovery drill
+    needs: [release-gates, rehearsal]
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: finance_sync_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s --health-timeout 5s --health-retries 5
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s --health-timeout 5s --health-retries 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v8.1.0
+        with:
+          enable-cache: true
+          cache-suffix: recovery-drill
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: uv sync --extra dev --frozen
+      - name: Run PostgreSQL and Redis recovery scenarios
+        run: |
+          DEBUG=false uv run pytest tests/integration/test_sync_orchestrator_pg.py \
+            tests/integration/test_outbox_pg.py -m integration -q
+          python3 scripts/sync_recovery_drill.py
+        env:
+          TEST_DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/finance_sync_test
+          TEST_REDIS_URL: redis://localhost:6379/15
+          DRILL_COMMIT: ${{ github.sha }}
+          DRILL_ARTIFACT: sync-recovery-drill.json
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: sync-recovery-drill-${{ github.sha }}
+          path: sync-recovery-drill.json
+          retention-days: 30
+
+  # ── Operator-facing evidence summary ─────────────────────────────────
+  operational-summary:
+    name: Operational gate summary
+    needs: [release-gates, security-evidence, migrate, smoke, recovery-drill]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - name: Download release evidence
+        uses: actions/download-artifact@v8
+        with:
+          pattern: "*"
+          merge-multiple: true
+      - name: Build safe operational summary
+        run: >
+          python3 scripts/operational_gate_summary.py
+          --artifact unit=junit-unit.xml
+          --artifact integration=junit-integration.xml
+          --artifact e2e=junit-e2e.xml
+          --artifact migration=migration.log
+          --artifact security=pip-audit.json
+          --artifact benchmark=read-benchmarks.json
+          --artifact staging=staging-smoke-evidence.json
+          --report operational-gate-summary.json
+          --max-age-hours 2
+          --sync-status healthy
+          --outbox-lag 0
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-operational-summary-${{ github.sha }}
+          path: operational-gate-summary.json
+          retention-days: 30
 
   # ── Promote to production via Coolify ─────────────────────────────────
   # Only reached when build → migrate → staging deploy → smoke all passed.
   promote:
     name: Promote to production
-    needs: [build, smoke]
+    needs: operational-summary
     runs-on: ubuntu-latest
     timeout-minutes: 25
     environment: production

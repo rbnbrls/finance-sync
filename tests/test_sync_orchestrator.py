@@ -40,6 +40,13 @@ from finance_sync.sync.orchestrator import (
     SyncOrchestrator,
     SyncResult,
 )
+from finance_sync.sync.persistence import (
+    AccountPersistence,
+    CardsPersistence,
+    HoldingPersistence,
+    SecurityPersistence,
+    TransactionPersistence,
+)
 
 # ── Test model for SyncRun (SQLite-compatible) ────────────────────
 
@@ -870,12 +877,8 @@ class TestUpsertAccount:
     """Test _upsert_account logic in isolation."""
 
     @pytest.fixture
-    def orchestrator(self) -> SyncOrchestrator:
-        return SyncOrchestrator(
-            session_factory=MagicMock(),
-            registry=MagicMock(),
-            tenant_id="tenant_1",
-        )
+    def orchestrator(self) -> AccountPersistence:
+        return AccountPersistence("tenant_1")
 
     async def test_upsert_creates_new_account(
         self, orchestrator, sample_account_data
@@ -885,7 +888,7 @@ class TestUpsertAccount:
         uow.session = AsyncMock()  # Use AsyncMock for session
         uow.accounts.get_by_external_id = AsyncMock(return_value=None)
 
-        result = await orchestrator._upsert_account(uow, sample_account_data)
+        result = await orchestrator.persist_account(uow, sample_account_data)
 
         assert result is not None
         assert result.provider_key == "mock_provider"
@@ -911,7 +914,7 @@ class TestUpsertAccount:
         uow.session = AsyncMock()  # Use AsyncMock for session
         uow.accounts.get_by_external_id = AsyncMock(return_value=existing)
 
-        result = await orchestrator._upsert_account(uow, sample_account_data)
+        result = await orchestrator.persist_account(uow, sample_account_data)
 
         assert result is not None
         assert result.name == "Test Checking"
@@ -921,12 +924,8 @@ class TestUpsertTransaction:
     """Test _upsert_transaction logic in isolation."""
 
     @pytest.fixture
-    def orchestrator(self) -> SyncOrchestrator:
-        return SyncOrchestrator(
-            session_factory=MagicMock(),
-            registry=MagicMock(),
-            tenant_id="tenant_1",
-        )
+    def orchestrator(self) -> TransactionPersistence:
+        return TransactionPersistence("tenant_1")
 
     async def test_upsert_creates_new_transaction(
         self, orchestrator, sample_transaction_data
@@ -936,7 +935,7 @@ class TestUpsertTransaction:
         uow.session = AsyncMock()  # Use AsyncMock for session
         uow.transactions.get_by_external_id = AsyncMock(return_value=None)
 
-        result = await orchestrator._upsert_transaction(
+        result = await orchestrator.persist_transaction(
             uow, sample_transaction_data, "account_id_1"
         )
 
@@ -957,7 +956,7 @@ class TestUpsertTransaction:
         sample_transaction_data.base_currency_code = "EUR"
         sample_transaction_data.fx_rate = Decimal("0.92")
 
-        result = await orchestrator._upsert_transaction(
+        result = await orchestrator.persist_transaction(
             uow,
             sample_transaction_data,
             "account_id_1",
@@ -972,12 +971,8 @@ class TestUpsertTransaction:
 
 class TestHoldingsAndSecurityResolution:
     @pytest.fixture
-    def orchestrator(self) -> SyncOrchestrator:
-        return SyncOrchestrator(
-            session_factory=MagicMock(),
-            registry=MagicMock(),
-            tenant_id="tenant_1",
-        )
+    def orchestrator(self) -> SecurityPersistence:
+        return SecurityPersistence("tenant_1")
 
     async def test_isin_resolution_links_existing_security(
         self, orchestrator
@@ -988,7 +983,7 @@ class TestHoldingsAndSecurityResolution:
         uow.unresolved_securities.list = AsyncMock(return_value=[])
         uow.securities.list = AsyncMock(return_value=[security])
 
-        result, unresolved = await orchestrator._resolve_security_reference(
+        result, unresolved = await orchestrator.resolve_security_reference(
             uow,
             "broker",
             SecurityReference(isin="US0378331005", ticker="AAPL"),
@@ -1007,7 +1002,7 @@ class TestHoldingsAndSecurityResolution:
         uow.unresolved_securities.list = AsyncMock(side_effect=[[], []])
         uow.securities.list = AsyncMock(return_value=[first, second])
 
-        result, unresolved = await orchestrator._resolve_security_reference(
+        result, unresolved = await orchestrator.resolve_security_reference(
             uow,
             "broker",
             SecurityReference(
@@ -1047,7 +1042,7 @@ class TestHoldingsAndSecurityResolution:
             currency_code="EUR",
         )
 
-        result = await orchestrator._upsert_holding(
+        result = await HoldingPersistence("tenant_1").persist_holding(
             uow, holding, "account_1", "security_1"
         )
 
@@ -1071,12 +1066,8 @@ class TestUpsertScheduledPayment:
     """Test _upsert_scheduled_payment logic in isolation."""
 
     @pytest.fixture
-    def orchestrator(self) -> SyncOrchestrator:
-        return SyncOrchestrator(
-            session_factory=MagicMock(),
-            registry=MagicMock(),
-            tenant_id="tenant_1",
-        )
+    def orchestrator(self) -> CardsPersistence:
+        return CardsPersistence("tenant_1")
 
     @pytest.fixture
     def sample_schedule_data(self) -> CanonicalScheduledPaymentData:
@@ -1103,7 +1094,7 @@ class TestUpsertScheduledPayment:
         uow.session = AsyncMock()
         uow.scheduled_payments.get_by_external_id = AsyncMock(return_value=None)
 
-        result = await orchestrator._upsert_scheduled_payment(
+        result = await orchestrator.persist_scheduled_payment(
             uow, sample_schedule_data, "acct_uuid_1"
         )
 
@@ -1138,7 +1129,7 @@ class TestUpsertScheduledPayment:
             return_value=existing
         )
 
-        result = await orchestrator._upsert_scheduled_payment(
+        result = await orchestrator.persist_scheduled_payment(
             uow, sample_schedule_data, "acct_uuid_1"
         )
 
@@ -1153,12 +1144,8 @@ class TestUpsertCardTransaction:
     """Test _upsert_card_transaction logic in isolation."""
 
     @pytest.fixture
-    def orchestrator(self) -> SyncOrchestrator:
-        return SyncOrchestrator(
-            session_factory=MagicMock(),
-            registry=MagicMock(),
-            tenant_id="tenant_1",
-        )
+    def orchestrator(self) -> CardsPersistence:
+        return CardsPersistence("tenant_1")
 
     @pytest.fixture
     def sample_card_data(self) -> CanonicalCardTransactionData:
@@ -1188,7 +1175,7 @@ class TestUpsertCardTransaction:
         # external_account_id is a card id — no account matches
         uow.accounts.get_by_external_id = AsyncMock(return_value=None)
 
-        result = await orchestrator._upsert_card_transaction(
+        result = await orchestrator.persist_card_transaction(
             uow, sample_card_data
         )
 
@@ -1211,7 +1198,7 @@ class TestUpsertCardTransaction:
         acct.id = "acct_uuid_1"
         uow.accounts.get_by_external_id = AsyncMock(return_value=acct)
 
-        result = await orchestrator._upsert_card_transaction(
+        result = await orchestrator.persist_card_transaction(
             uow, sample_card_data
         )
 
@@ -1244,7 +1231,7 @@ class TestUpsertCardTransaction:
             return_value=existing
         )
 
-        result = await orchestrator._upsert_card_transaction(
+        result = await orchestrator.persist_card_transaction(
             uow, sample_card_data
         )
 
@@ -1365,8 +1352,8 @@ class TestBunqCardsSync:
 
         return uow
 
-    @patch("finance_sync.sync.orchestrator.start_sync_run")
-    @patch("finance_sync.sync.orchestrator.complete_sync_run")
+    @patch("finance_sync.sync.cards_pipeline.start_sync_run")
+    @patch("finance_sync.sync.cards_pipeline.complete_sync_run")
     async def test_cards_pipeline_ingests(
         self,
         mock_complete_run,
@@ -1401,8 +1388,8 @@ class TestBunqCardsSync:
         processed = mock_complete_run.call_args.kwargs.get("items_processed")
         assert processed == 2
 
-    @patch("finance_sync.sync.orchestrator.start_sync_run")
-    @patch("finance_sync.sync.orchestrator.complete_sync_run")
+    @patch("finance_sync.sync.cards_pipeline.start_sync_run")
+    @patch("finance_sync.sync.cards_pipeline.complete_sync_run")
     async def test_cards_pipeline_idempotent_rerun(
         self,
         mock_complete_run,
@@ -1476,9 +1463,9 @@ class TestBunqCardsSync:
             for e in added_entities
         )
 
-    @patch("finance_sync.sync.orchestrator.start_sync_run")
-    @patch("finance_sync.sync.orchestrator.upsert_sync_cursor")
-    @patch("finance_sync.sync.orchestrator.complete_sync_run")
+    @patch("finance_sync.sync.cards_pipeline.start_sync_run")
+    @patch("finance_sync.sync.cards_pipeline.upsert_sync_cursor")
+    @patch("finance_sync.sync.cards_pipeline.complete_sync_run")
     async def test_cards_pipeline_persists_cursor_on_success(
         self,
         mock_complete_run,
@@ -1510,7 +1497,7 @@ class TestBunqCardsSync:
         complete_kwargs = mock_complete_run.await_args.kwargs
         assert complete_kwargs["cursor"] is not None
 
-    @patch("finance_sync.sync.orchestrator.get_cursor")
+    @patch("finance_sync.sync.cards_pipeline.get_cursor")
     @patch(
         "finance_sync.sync.orchestrator.SyncOrchestrator._record_sync_metrics"
     )
@@ -1550,7 +1537,7 @@ class TestBunqCardsSync:
         # Pipeline received the stored cursor as its since window
         assert mock_pipeline.await_args.args[2] == stored
 
-    @patch("finance_sync.sync.orchestrator.get_cursor")
+    @patch("finance_sync.sync.cards_pipeline.get_cursor")
     @patch(
         "finance_sync.sync.orchestrator.SyncOrchestrator._record_sync_metrics"
     )
@@ -1589,7 +1576,7 @@ class TestBunqCardsSync:
         assert since_arg >= floor
         assert since_arg <= datetime.now(UTC)
 
-    @patch("finance_sync.sync.orchestrator.get_cursor")
+    @patch("finance_sync.sync.cards_pipeline.get_cursor")
     @patch(
         "finance_sync.sync.orchestrator.SyncOrchestrator._record_sync_metrics"
     )
@@ -1628,7 +1615,7 @@ class TestBunqCardsSync:
         mock_get_cursor.assert_not_awaited()
         assert mock_pipeline.await_args.args[2] == explicit
 
-    @patch("finance_sync.sync.orchestrator.start_sync_run")
+    @patch("finance_sync.sync.cards_pipeline.start_sync_run")
     async def test_cards_pipeline_permanent_error(
         self,
         mock_start_run,
@@ -1656,8 +1643,8 @@ class TestBunqCardsSync:
         assert result.status == SyncRunStatus.FAILED
         assert "Bad credentials" in (result.error_message or "")
 
-    @patch("finance_sync.sync.orchestrator.start_sync_run")
-    @patch("finance_sync.sync.orchestrator.complete_sync_run")
+    @patch("finance_sync.sync.cards_pipeline.start_sync_run")
+    @patch("finance_sync.sync.cards_pipeline.complete_sync_run")
     async def test_cards_pipeline_skips_schedule_without_account(
         self,
         mock_complete_run,

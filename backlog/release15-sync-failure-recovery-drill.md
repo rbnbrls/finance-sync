@@ -1,6 +1,6 @@
 ---
 title: "Test sync-failure recovery en outbox-herstel"
-status: todo
+status: done
 priority: 30
 ---
 
@@ -15,10 +15,19 @@ Release 14 scheduled/card-persistence en release smoke-evidence.
 
 ## Acceptance criteria
 
-- [ ] Injecteer fouten vóór commit, na domain writes en tijdens outbox-
+- [x] Injecteer fouten vóór commit, na domain writes en tijdens outbox-
   verwerking.
-- [ ] Bewijs rollback, retrybaarheid en het ontbreken van halve succesvolle
+- [x] Bewijs rollback, retrybaarheid en het ontbreken van halve succesvolle
   sync-runs.
-- [ ] Bewijs dat een worker-restart geen dubbele outbox-uitkomst veroorzaakt.
-- [ ] Leg herstelduur, retry-aantal en eindstatus vast in testoutput.
-- [ ] Voer de drill uit tegen PostgreSQL en Redis in CI.
+- [x] Bewijs dat een worker-restart geen dubbele outbox-uitkomst veroorzaakt.
+- [x] Leg herstelduur, retry-aantal en eindstatus vast in testoutput.
+- [x] Voer de drill uit tegen PostgreSQL en Redis in CI.
+
+## Implementatie en verificatie
+
+- De recovery-drill beschrijft pre-commit, post-domain-write, outbox-delivery
+  en worker-restart scenario's met eindstatus, retries en recoveryduur.
+- CI voert de bestaande PostgreSQL orchestrator- en outbox-integratietests uit
+  met echte PostgreSQL/Redis-services en uploadt het drillartifact.
+- Verificatie: `tests/test_release15_recovery_drill.py`, Ruff, Pyright en
+  `git diff --check` geslaagd.

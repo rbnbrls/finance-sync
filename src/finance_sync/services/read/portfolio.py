@@ -13,6 +13,13 @@ from finance_sync.models.security import Security
 from finance_sync.schemas.freshness import CollectionMeta, freshness_for
 from finance_sync.services.read.pagination import expression
 from finance_sync.services.read.prices import fetch_latest_daily_prices
+from finance_sync.services.read.schemas import (
+    AccountPortfolioBreakdown,
+    HoldingBreakdown,
+    HoldingItemResponse,
+    HoldingsListResponse,
+    PortfolioResponse,
+)
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -46,12 +53,6 @@ class PortfolioReadService:
 
     async def get_portfolio(self, tenant_id: str) -> Any:
         """Compute current portfolio value and per-account breakdown."""
-        from finance_sync.services.read_api import (
-            AccountPortfolioBreakdown,
-            HoldingBreakdown,
-            PortfolioResponse,
-        )
-
         latest_holding_subq = (
             select(
                 Holding.account_id,
@@ -192,11 +193,6 @@ class PortfolioReadService:
         offset: int = 0,
     ) -> Any:
         """Return the latest holding snapshot per account and security."""
-        from finance_sync.services.read_api import (
-            HoldingItemResponse,
-            HoldingsListResponse,
-        )
-
         subq_conditions: list[Any] = [
             Holding.tenant_id == tenant_id,
             self._derived_condition(Holding),

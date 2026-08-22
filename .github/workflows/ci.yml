@@ -313,7 +313,12 @@ jobs:
         run: uv sync --extra dev --frozen
 
       - name: Run integration tests (real PostgreSQL + Redis)
-        run: uv run pytest -m integration -v --junitxml=junit-integration.xml
+        run: |
+          set -o pipefail
+          uv run pytest -m integration -v --junitxml=junit-integration.xml \
+            2>&1 | tee integration.log
+          uv run pytest tests/integration/test_read_query_benchmarks_pg.py -m integration -q
+          uv run python scripts/check_junit_no_skips.py junit-integration.xml
         env:
           TEST_DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/finance_sync_test
           TEST_REDIS_URL: redis://localhost:6379/15
@@ -407,7 +412,11 @@ jobs:
         run: uv sync --extra dev --frozen
 
       - name: Run e2e tests (API → worker exactly-once, real PG + Redis)
-        run: uv run pytest -m e2e -v --junitxml=junit-e2e.xml
+        run: |
+          set -o pipefail
+          uv run pytest -m e2e -v --junitxml=junit-e2e.xml 2>&1 \
+            | tee e2e.log
+          uv run python scripts/check_junit_no_skips.py junit-e2e.xml
         env:
           TEST_DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/finance_sync_test
           TEST_REDIS_URL: redis://localhost:6379/15
@@ -477,22 +486,53 @@ jobs:
       - name: Install security & SBOM tooling
         run: uv pip install pip-audit cyclonedx-bom
 
+      - name: Export locked release requirements
+        run: >-
+          uv export --format requirements-txt --no-dev --locked
+          --no-emit-project --output-file release-requirements.txt
+
       - name: Scan dependencies for vulnerabilities
-        run: uv run pip-audit --progress-spinner=off --skip-editable --ignore-vuln PYSEC-2026-1325 --ignore-vuln GHSA-wj6h-64fc-37mp
+        run: >-
+          uv run pip-audit --requirement release-requirements.txt
+          --progress-spinner=off
+          --ignore-vuln PYSEC-2026-1325
+          --ignore-vuln GHSA-wj6h-64fc-37mp
 
       - name: Generate CycloneDX SBOM
-        run: |
-          uv run pip freeze --all \
-            | uv run cyclonedx-py requirements - \
-              --pyproject pyproject.toml \
-              -o sbom.cyclonedx.json
+        run: >-
+          uv run cyclonedx-py requirements release-requirements.txt
+          --pyproject pyproject.toml -o sbom.cyclonedx.json
+
+      - name: Validate Trivy accepted-risk expiry policy
+        run: uv run python scripts/check_trivyignore.py .trivyignore
+
+      - name: Generate security exception lifecycle report
+        run: >-
+          uv run python scripts/security_exception_report.py
+          .trivyignore security-exceptions.json
+
+      - name: Validate data retention and privacy policy
+        run: uv run python scripts/check_data_retention_policy.py config/data-retention-policy.json
+
+      - name: Validate SLO and alert policy
+        run: uv run python scripts/check_slo_alerts.py config/slo-alerts.json
+
+      - name: Validate audit trail completeness
+        run: >
+          uv run python scripts/audit_trail_completeness.py
+          --policy config/audit-trail-policy.json
+          --example config/incident-audit-example.json
 
       - name: Upload SBOM
         uses: actions/upload-artifact@v7
         if: always()
         with:
-          name: sbom
-          path: sbom.cyclonedx.json
+          name: sbom-${{ github.sha }}
+          path: |
+            sbom.cyclonedx.json
+            release-requirements.txt
+            security-exceptions.json
+            config/data-retention-policy.json
           retention-days: 30
 
   # ── OpenAPI public-surface diff (PRs only) ─────────────────────────
@@ -548,6 +588,7 @@ jobs:
           --base openapi-base.json
           --head openapi-head.json
           --allowlist scripts/openapi_diff_allowlist.json
+          --report openapi-diff.json
 
       - name: Upload OpenAPI documents
         uses: actions/upload-artifact@v7
@@ -557,6 +598,7 @@ jobs:
           path: |
             openapi-head.json
             openapi-base.json
+            openapi-diff.json
           retention-days: 14
 
   # ── Docker build, image scan & push ─────────────────────────────────
@@ -615,7 +657,42 @@ jobs:
           exit-code: 1
           ignore-unfixed: false
           trivyignores: .trivyignore
+          format: json
+          output: trivy-results.json
           version: v0.70.0
+
+      - name: Write image scan provenance
+        if: always()
+        env:
+          COMMIT_SHA: ${{ github.sha }}
+          IMAGE_TAG: finance-sync:scan
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          Path("trivy-provenance.json").write_text(
+              json.dumps(
+                  {
+                      "commit": os.environ["COMMIT_SHA"],
+                      "image": os.environ["IMAGE_TAG"],
+                  },
+                  indent=2,
+              )
+              + "\n",
+              encoding="utf-8",
+          )
+
+      - name: Upload image scan results
+        uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: trivy-${{ github.sha }}
+          path: |
+            trivy-results.json
+            trivy-provenance.json
+          retention-days: 30
 
       - name: Push Docker image
         if: github.ref == 'refs/heads/main'

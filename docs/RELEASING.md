@@ -22,6 +22,10 @@ v1.2.3 tag push
 │ push to ghcr.io/rbnbrls/finance-sync                               │
 └──────┬─────────────────────────────────────────────────────────────┘
        ▼
+┌─ security-evidence ────────────────────────────────────────────────┐
+│ pip-audit · CycloneDX · Trivy evidence, policy and secret checks    │
+└──────┬─────────────────────────────────────────────────────────────┘
+       ▼
 ┌─ migrate ───────────────────────────────────────────────────────────┐
 │ alembic upgrade head against an ephemeral PostgreSQL               │
 │ ("staging DB") — validates the released migration chain            │
@@ -34,7 +38,8 @@ v1.2.3 tag push
 └──────┬─────────────────────────────────────────────────────────────┘
        ▼
 ┌─ smoke  ⚠ GATE ─────────────────────────────────────────────────────┐
-│ /health/live · /health/ready · auth login · GET /transactions      │
+│ /health/live · /health/ready · synthetic sync/outbox · exporter   │
+│ readback · GET /transactions                                     │
 │ failure ⇒ pipeline stops — production is never touched             │
 └──────┬─────────────────────────────────────────────────────────────┘
        ▼
@@ -76,6 +81,30 @@ staging smoke tests (`scripts/release_smoke.py`) all pass:
 
 Any failure (or a failing migration job, or a failing Trivy scan) stops the
 pipeline before production is touched.
+
+The smoke run uses only the static staging-provider fixtures. It writes
+`staging-smoke-evidence.json` with the commit SHA, immutable image tag,
+environment, timestamp, check statuses and artifact link. It deliberately
+omits access tokens, passwords, provider payloads and financial values.
+
+### Release evidence checklist
+
+Complete this checklist in the release ticket after the tagged workflow
+finishes. Links must point to artifacts from that exact run.
+
+| Field | Value |
+|---|---|
+| Commit SHA | `<40-character SHA>` |
+| Immutable image tag | `ghcr.io/rbnbrls/finance-sync:<sha>` |
+| Security evidence artifact | `<GitHub Actions artifact link>` |
+| Service-gates artifact | `<GitHub Actions artifact link>` |
+| Migration artifact | `<GitHub Actions artifact link>` |
+| Staging smoke artifact | `<GitHub Actions artifact link>` |
+| Owner | `<name or team>` |
+| Verification date (UTC) | `<YYYY-MM-DD>` |
+
+Release 13 closeout requires this checklist and complete staging smoke/
+rollback evidence before promotion.
 
 ## Staging environment
 
@@ -198,6 +227,34 @@ incident; the git-commit rollback above is the default path.
 - The app never creates or alters schema at runtime.
 
 ## Workflow reference
+
+## Operator evidence
+
+Every release candidate publishes a machine-readable operational summary as
+`release-operational-summary-<commit>`. It contains unit, integration, E2E,
+migration, security, benchmark and staging gate status, plus sync-health and
+outbox-lag status. The summary deliberately contains no financial values,
+credentials or provider payloads. Missing or stale evidence fails the
+operational-summary job before production promotion.
+
+The same workflow artifacts contain service logs (`integration.log`, `e2e.log`
+and PostgreSQL/Redis logs), JUnit files (`junit-*.xml`), migration and staging
+smoke evidence, security scan reports (`pip-audit.json`, CycloneDX and Trivy),
+and the read benchmark/comparison reports. These are the first locations to
+inspect in the GitHub Actions run for a release.
+
+The `backup-restore` CI job runs a synthetic PostgreSQL round-trip into a
+separate empty database. It reports row counts, tenant isolation, constraints,
+the migration head and redaction status. The operating assumptions are RPO 15
+minutes and RTO 30 minutes; the restore command is `pg_restore --clean
+--if-exists --no-owner --dbname <target> <backup>`. Never use production
+credentials or financial exports in this drill.
+
+Dependency maintenance is weekly through Dependabot and the scheduled
+`Dependency cadence` workflow. That workflow checks `uv.lock`, unit,
+integration, E2E, pip-audit and CycloneDX. A dependency exception must remain
+in the Trivy policy with an owner, rationale and expiry; rollback is the same
+immutable-image rollback described above.
 
 | Trigger | What happens |
 |---|---|

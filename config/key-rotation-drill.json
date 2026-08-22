@@ -1,0 +1,7 @@
+{
+  "states": ["current", "previous", "retired"],
+  "dataset": "synthetic-credential-fixture",
+  "plaintext_export": false,
+  "operator_audit_event": "encryption_key.rotated",
+  "rollback_boundary": "before-retirement-only"
+}

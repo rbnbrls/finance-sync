@@ -1,5 +1,23 @@
 # Observability — metrics & alerting
 
+## Release 16 SLOs
+
+The canonical SLO and alert contract is `config/slo-alerts.json`. It covers
+sync-success rate (99% over 24 hours), sync-duration p95 (under 15 minutes),
+outbox lag (under 50 messages for 10 minutes) and worker-failure rate (under
+1% per hour). Metrics use only operational labels such as provider, queue,
+job and status; tenant IDs, account identifiers, credentials and financial
+values are prohibited.
+
+Alerts carry `warning` or `critical` severity, a runbook link and the
+`maintenance-window` suppression. The synthetic alert test validates every
+threshold and confirms that planned maintenance suppresses notifications.
+
+Ownership is `finance-platform-oncall`; escalation starts with the on-call
+operator, then the platform owner for infrastructure failures and the
+connector owner for provider-specific failures. Dashboards are provisioned
+under the `sync-health` dashboard.
+
 finance-sync ships Prometheus + Grafana in the compose stack
 (`docker-compose.yml`) with provisioned dashboards **and** alert rules.
 This document is the reference for the alert inventory, notification
