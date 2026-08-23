@@ -681,7 +681,7 @@ async def _cmd_compare(args: Namespace) -> None:
             f"Comparing connectors …\n"
             f"  Connector A:  {args.connector_a}\n"
             f"  Connector B:  {args.connector_b}\n"
-            f"  Tenant:       {tenant_id[:16]}…\n"
+            f"  Tenant:       {str(tenant_id)[:16]}…\n"
             f"  Date range:   {date_from.date()} → {date_to.date()}\n"
             f"  Threshold:    {args.threshold_hours}h\n"
         )
@@ -786,6 +786,7 @@ async def _cmd_ghostfolio(args: Namespace) -> None:
             verify_ssl=settings.ghostfolio_verify_ssl,
             data_source=settings.ghostfolio_data_source,
             include_pending=settings.ghostfolio_include_pending,
+            sync_transactions=settings.ghostfolio_sync_transactions,
         )
         account_ids = (
             [x.strip() for x in args.account_ids.split(",") if x.strip()]
@@ -939,7 +940,7 @@ async def _cmd_wealthfolio_export(
 
     print("Wealthfolio CSV export starting …")
     print(f"  Output dir:   {output_dir}")
-    print(f"  Tenant:       {tenant_id[:16]}…")
+    print(f"  Tenant:       {str(tenant_id)[:16]}…")
     print(f"  Days back:    {args.days_back}")
 
     since = datetime.now(UTC) - timedelta(days=args.days_back)
@@ -1011,7 +1012,7 @@ async def _cmd_wealthfolio_push(
 
     print("Wealthfolio push starting …")
     print(f"  Server URL:   {server_url}")
-    print(f"  Tenant:       {tenant_id[:16]}…")
+    print(f"  Tenant:       {str(tenant_id)[:16]}…")
     print(f"  Days back:    {args.days_back}")
 
     exporter = WealthfolioExporter(
@@ -1247,6 +1248,11 @@ async def _cmd_securo(args: Namespace) -> None:
             f"{result.transactions_imported}/{result.transactions_attempted} "
             f"(skipped: {result.transactions_skipped})"
         )
+        print(
+            "Holdings: "
+            f"{result.holdings_imported}/{result.holdings_attempted} "
+            f"(updated: {result.holdings_skipped})"
+        )
         for path in result.files:
             print(f"CSV: {path}")
         if result.error_message:
@@ -1285,7 +1291,7 @@ async def _cmd_actual_budget_export(
     print("Actual Budget export starting …")
     print(f"  Server URL:   {ab_config.server_url}")
     print(f"  Output dir:   {output_dir}")
-    print(f"  Tenant:       {tenant_id[:16]}…")
+    print(f"  Tenant:       {str(tenant_id)[:16]}…")
     print(f"  Days back:    {args.days_back}")
 
     exporter = ActualBudgetExporter(
@@ -1356,7 +1362,7 @@ async def _cmd_actual_budget_push(
 
     print("Actual Budget push starting …")
     print(f"  Server URL:   {server_url}")
-    print(f"  Tenant:       {tenant_id[:16]}…")
+    print(f"  Tenant:       {str(tenant_id)[:16]}…")
     print(f"  Days back:    {args.days_back}")
 
     exporter = ActualBudgetExporter(

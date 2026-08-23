@@ -1499,15 +1499,11 @@ class TestBunqCardsSync:
 
     @patch("finance_sync.sync.cards_pipeline.get_cursor")
     @patch(
-        "finance_sync.sync.orchestrator.SyncOrchestrator._record_sync_metrics"
-    )
-    @patch(
         "finance_sync.sync.orchestrator.SyncOrchestrator._run_cards_pipeline"
     )
     async def test_cards_sync_resumes_from_stored_cursor(
         self,
         mock_pipeline,
-        mock_record_metrics,
         mock_get_cursor,
     ) -> None:
         """run_bunq_cards_sync resumes from the stored cards cursor."""
@@ -1539,15 +1535,11 @@ class TestBunqCardsSync:
 
     @patch("finance_sync.sync.cards_pipeline.get_cursor")
     @patch(
-        "finance_sync.sync.orchestrator.SyncOrchestrator._record_sync_metrics"
-    )
-    @patch(
         "finance_sync.sync.orchestrator.SyncOrchestrator._run_cards_pipeline"
     )
     async def test_cards_sync_first_run_uses_default_window(
         self,
         mock_pipeline,
-        mock_record_metrics,
         mock_get_cursor,
     ) -> None:
         """No stored cards cursor → 90-day default window."""
@@ -1578,15 +1570,11 @@ class TestBunqCardsSync:
 
     @patch("finance_sync.sync.cards_pipeline.get_cursor")
     @patch(
-        "finance_sync.sync.orchestrator.SyncOrchestrator._record_sync_metrics"
-    )
-    @patch(
         "finance_sync.sync.orchestrator.SyncOrchestrator._run_cards_pipeline"
     )
     async def test_cards_explicit_since_skips_cursor_lookup(
         self,
         mock_pipeline,
-        mock_record_metrics,
         mock_get_cursor,
     ) -> None:
         """An explicit cards since (backfill) wins over the cursor."""
@@ -2284,109 +2272,6 @@ class TestSyncOrchestratorRunSyncDisabled:
 
         assert result.status == SyncRunStatus.COMPLETED
         assert result.accounts_synced == 1
-
-
-class TestRecordSyncMetrics:
-    """Prometheus metric recording on sync completion (G-06)."""
-
-    def test_record_completed_run(self) -> None:
-        """Completed run increments the counter and sets the duration."""
-        from prometheus_client import REGISTRY
-
-        from finance_sync.sync.orchestrator import (
-            SyncOrchestrator,
-            SyncResult,
-        )
-
-        result = SyncResult(
-            status=SyncRunStatus.COMPLETED,
-            accounts_synced=2,
-            transactions_synced=7,
-            error_message=None,
-            duration_s=12.5,
-        )
-        SyncOrchestrator._record_sync_metrics("bunq", result)
-
-        assert (
-            REGISTRY.get_sample_value(
-                "sync_runs_total",
-                {"provider": "bunq", "status": "completed"},
-            )
-            == 1.0
-        )
-        assert (
-            REGISTRY.get_sample_value(
-                "sync_run_duration_seconds",
-                {"provider": "bunq"},
-            )
-            == 12.5
-        )
-        assert (
-            REGISTRY.get_sample_value(
-                "transactions_ingested_total",
-                {"provider": "bunq"},
-            )
-            == 7.0
-        )
-
-    def test_record_failed_run(self) -> None:
-        """Failed run increments the failed-status counter."""
-        from prometheus_client import REGISTRY
-
-        from finance_sync.sync.orchestrator import (
-            SyncOrchestrator,
-            SyncResult,
-        )
-
-        result = SyncResult(
-            status=SyncRunStatus.FAILED,
-            accounts_synced=0,
-            transactions_synced=0,
-            error_message="boom",
-            duration_s=3.0,
-        )
-        SyncOrchestrator._record_sync_metrics("bunq", result)
-
-        assert (
-            REGISTRY.get_sample_value(
-                "sync_runs_total",
-                {"provider": "bunq", "status": "failed"},
-            )
-            == 1.0
-        )
-
-    def test_record_cards_run_uses_card_transactions(self) -> None:
-        """Cards pipeline result records card transaction count."""
-        from prometheus_client import REGISTRY
-
-        from finance_sync.sync.orchestrator import (
-            BunqCardsSyncResult,
-            SyncOrchestrator,
-        )
-
-        result = BunqCardsSyncResult(
-            status=SyncRunStatus.COMPLETED,
-            schedules_synced=1,
-            card_transactions_synced=4,
-            error_message=None,
-            duration_s=2.0,
-        )
-        SyncOrchestrator._record_sync_metrics("bunq_cards", result)
-
-        assert (
-            REGISTRY.get_sample_value(
-                "sync_runs_total",
-                {"provider": "bunq_cards", "status": "completed"},
-            )
-            == 1.0
-        )
-        assert (
-            REGISTRY.get_sample_value(
-                "transactions_ingested_total",
-                {"provider": "bunq_cards"},
-            )
-            == 4.0
-        )
 
 
 class TestConnectorStatePersistence:

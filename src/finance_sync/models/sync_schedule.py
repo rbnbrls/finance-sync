@@ -59,6 +59,7 @@ EXPORT_SCHEDULABLE_EXPORTERS = {
     "firefly",
     "ghostfolio",
     "investbrain",
+    "securo",
 }
 
 # ── Default schedule ──────────────────────────────────────────────────

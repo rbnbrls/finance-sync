@@ -35,4 +35,9 @@ finance-sync securo push --server-url http://localhost:3001 \
   --email you@example.com --password 'local-password'
 ```
 
-Per finance-sync-account wordt een CSV-bestand geschreven. De push importeert elk bestand in het gelijknamige Securo-account en rapporteert imported/skipped aantallen.
+Per finance-sync-account wordt een CSV-bestand geschreven. De push importeert
+elk bestand in het gelijknamige Securo-account en synchroniseert daarnaast de
+laatste holdingsnapshot van ieder account via Securo's `/api/assets`-API. Een
+bestaande positie wordt op ISIN (of ticker en naam als fallback) bijgewerkt;
+een herhaalde push maakt dus geen dubbele holdings aan. De CLI rapporteert
+zowel transactions als holdings.

@@ -227,6 +227,7 @@ class TestEmptyInstallNoDestinationsRequired:
             "firefly",
             "ghostfolio",
             "investbrain",
+            "securo",
         }
 
         empty = await client.get(

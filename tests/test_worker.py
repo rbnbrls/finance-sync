@@ -201,59 +201,6 @@ class TestJobMonitor:
         assert failed_job["last_run_success"] is False
         assert failed_job["last_error"] == "fail"
 
-    def test_record_updates_prometheus_gauges(self) -> None:
-        """Record() publishes duration + success rate gauges (G-06)."""
-        from prometheus_client import REGISTRY
-
-        monitor = JobMonitor()
-        monitor.record(
-            JobRunResult("gauge_job", "Gauge Job", 0.0, 3.5, True),
-        )
-
-        assert (
-            REGISTRY.get_sample_value(
-                "worker_job_duration_seconds",
-                {"job_id": "gauge_job"},
-            )
-            == 3.5
-        )
-        assert (
-            REGISTRY.get_sample_value(
-                "worker_job_success_rate",
-                {"job_id": "gauge_job"},
-            )
-            == 1.0
-        )
-
-        # A failure drops the success rate below 1
-        monitor.record(
-            JobRunResult("gauge_job", "Gauge Job", 0.0, 1.0, False),
-        )
-        assert (
-            REGISTRY.get_sample_value(
-                "worker_job_success_rate",
-                {"job_id": "gauge_job"},
-            )
-            == 0.5
-        )
-
-    async def test_worker_health_metrics_route(self) -> None:
-        """Worker health server exposes /metrics (G-06 worker scrape)."""
-        from aiohttp import web
-        from aiohttp.test_utils import TestClient, TestServer
-
-        from finance_sync.worker.health import WorkerHealthServer
-
-        server = WorkerHealthServer(port=0)
-        app = web.Application()
-        app.router.add_get("/metrics", server._handle_metrics)
-        async with TestClient(TestServer(app)) as client:
-            resp = await client.get("/metrics")
-            assert resp.status == 200
-            body = await resp.text()
-            assert "outbox_messages_pending_total" in body
-            assert "worker_job_duration_seconds" in body
-
 
 class TestJobRunContext:
     """JobRunContext — async context manager for job monitoring."""

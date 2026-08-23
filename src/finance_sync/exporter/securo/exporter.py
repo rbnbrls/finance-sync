@@ -11,7 +11,7 @@ from sqlalchemy import select
 
 from finance_sync.exporter.securo.client import SecuroClient
 from finance_sync.exporter.securo.config import SecuroConfig
-from finance_sync.models import Account, Transaction
+from finance_sync.models import Account, Holding, Security, Transaction
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -26,6 +26,9 @@ class SecuroExportResult:
         attempted: int,
         imported: int = 0,
         skipped: int = 0,
+        holdings_attempted: int = 0,
+        holdings_imported: int = 0,
+        holdings_skipped: int = 0,
         error: str | None = None,
     ) -> None:
         self.status, self.files, self.transactions_attempted = (
@@ -38,6 +41,9 @@ class SecuroExportResult:
             self.transactions_skipped,
             self.error_message,
         ) = imported, skipped, error
+        self.holdings_attempted = holdings_attempted
+        self.holdings_imported = holdings_imported
+        self.holdings_skipped = holdings_skipped
 
 
 class SecuroExporter:
@@ -81,6 +87,100 @@ class SecuroExporter:
             .order_by(Transaction.occurred_at, Transaction.id)
         )
         return list((await session.execute(stmt)).scalars().all())
+
+    async def _holdings(
+        self, session: AsyncSession, account_id: str, since: datetime
+    ) -> list[tuple[Holding, Security]]:
+        """Load the latest position for every security in an account."""
+        stmt = (
+            select(Holding, Security)
+            .join(Security, Security.id == Holding.security_id)
+            .where(
+                Holding.tenant_id == self.tenant_id,
+                Holding.account_id == account_id,
+                Holding.observed_at >= since,
+            )
+            .order_by(Holding.security_id, Holding.observed_at.desc())
+        )
+        rows = list((await session.execute(stmt)).all())
+        latest: dict[str, tuple[Holding, Security]] = {}
+        for holding, security in rows:
+            latest.setdefault(str(holding.security_id), (holding, security))
+        return list(latest.values())
+
+    async def _push_holdings(
+        self,
+        client: SecuroClient,
+        positions: list[tuple[Holding, Security]],
+        remote_assets: list[dict[str, Any]],
+    ) -> tuple[int, int]:
+        created = updated = 0
+        for holding, security in positions:
+            payload = self._asset_payload(holding, security)
+            remote = next(
+                (
+                    item
+                    for item in remote_assets
+                    if (security.isin and item.get("isin") == security.isin)
+                    or (
+                        not security.isin
+                        and item.get("ticker") == security.ticker
+                    )
+                    or item.get("name") == security.name
+                ),
+                None,
+            )
+            if remote is None:
+                remote = await client.create_asset(payload)
+                remote_assets.append(remote)
+                created += 1
+                continue
+            asset_id = str(remote["id"])
+            await client.update_asset(
+                asset_id,
+                {
+                    key: payload[key]
+                    for key in ("name", "units", "purchase_price", "ticker")
+                },
+            )
+            if holding.market_value is not None:
+                await client.add_asset_value(
+                    asset_id,
+                    amount=str(holding.market_value),
+                    price=(
+                        str(holding.price)
+                        if holding.price is not None
+                        else None
+                    ),
+                    observed_at=holding.observed_at.date().isoformat(),
+                )
+            updated += 1
+        return created, updated
+
+    @staticmethod
+    def _asset_payload(holding: Holding, security: Security) -> dict[str, Any]:
+        return {
+            "name": security.name,
+            "type": "investment",
+            "currency": holding.currency_code,
+            "units": str(holding.quantity),
+            "valuation_method": "manual",
+            "purchase_price": (
+                str(holding.cost_basis)
+                if holding.cost_basis is not None
+                else None
+            ),
+            "current_value": (
+                str(holding.market_value)
+                if holding.market_value is not None
+                else None
+            ),
+            "ticker": security.ticker,
+            "ticker_exchange": None,
+            "isin": security.isin,
+            "external_id": security.isin or security.ticker or str(security.id),
+            "source": "finance-sync",
+        }
 
     @staticmethod
     def csv_bytes(transactions: list[Transaction]) -> bytes:
@@ -132,6 +232,7 @@ class SecuroExporter:
         await asyncio.to_thread(destination.mkdir, parents=True, exist_ok=True)
         files: list[Path] = []
         attempted = imported = skipped = 0
+        holdings_attempted = holdings_imported = holdings_skipped = 0
         try:
             async with self.session_factory() as session:
                 client: SecuroClient | _NullClient = (
@@ -140,25 +241,34 @@ class SecuroExporter:
                 async with client:
                     push_client = cast(SecuroClient, client)
                     remote_accounts: list[dict[str, Any]] = []
+                    remote_assets: list[dict[str, Any]] = []
                     if push:
                         await push_client.login()
                         remote_accounts = await push_client.accounts()
+                        remote_assets = await push_client.assets()
                     for account in accounts:
                         txns = await self._transactions(
                             session, account.id, since
                         )
                         attempted += len(txns)
-                        if not txns:
-                            continue
-                        content = self.csv_bytes(txns)
-                        filename = (
-                            f"securo_{account.id}_"
-                            f"{since.date().isoformat()}.csv"
+                        positions = await self._holdings(
+                            session, account.id, since
                         )
-                        path = destination / filename
-                        await asyncio.to_thread(path.write_bytes, content)
-                        files.append(path)
-                        if push:
+                        holdings_attempted += len(positions)
+                        content: bytes | None = None
+                        path: Path | None = None
+                        if txns:
+                            content = self.csv_bytes(txns)
+                            filename = (
+                                f"securo_{account.id}_"
+                                f"{since.date().isoformat()}.csv"
+                            )
+                            path = destination / filename
+                            await asyncio.to_thread(path.write_bytes, content)
+                            files.append(path)
+                        if push and txns:
+                            assert content is not None
+                            assert path is not None
                             name = self.config.account_name_overrides.get(
                                 account.id, account.name
                             )
@@ -207,12 +317,21 @@ class SecuroExporter:
                             summary = result["import"]
                             imported += int(summary.get("imported", 0))
                             skipped += int(summary.get("skipped", 0))
+                        if push and positions:
+                            created, updated = await self._push_holdings(
+                                push_client, positions, remote_assets
+                            )
+                            holdings_imported += created
+                            holdings_skipped += updated
             return SecuroExportResult(
                 status="completed",
                 files=files,
                 attempted=attempted,
                 imported=imported,
                 skipped=skipped,
+                holdings_attempted=holdings_attempted,
+                holdings_imported=holdings_imported,
+                holdings_skipped=holdings_skipped,
             )
         except Exception as exc:
             return SecuroExportResult(
@@ -221,6 +340,9 @@ class SecuroExporter:
                 attempted=attempted,
                 imported=imported,
                 skipped=skipped,
+                holdings_attempted=holdings_attempted,
+                holdings_imported=holdings_imported,
+                holdings_skipped=holdings_skipped,
                 error=str(exc),
             )
 

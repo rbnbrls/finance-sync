@@ -16,6 +16,7 @@ class GhostfolioConfig(BaseModel):
     verify_ssl: bool = True
     data_source: str = "YAHOO"
     include_pending: bool = False
+    sync_transactions: bool = True
 
     model_config = {"extra": "forbid"}
 

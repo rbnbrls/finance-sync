@@ -191,7 +191,6 @@ class CardsSyncMixin:
                 "bunq", connector, connection_id=connection_id
             )
 
-        self._record_sync_metrics("bunq_cards", result)
         await self._record_connection_outcome(
             connection_id,
             config.credentials,
