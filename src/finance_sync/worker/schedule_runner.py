@@ -36,6 +36,7 @@ from __future__ import annotations
 import json
 import traceback
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import structlog
@@ -488,6 +489,32 @@ async def run_export(
                 else None
             ),
         }
+
+    if exporter_key == "securo":
+        from finance_sync.exporter.securo.config import SecuroConfig
+        from finance_sync.exporter.securo.exporter import SecuroExporter
+
+        config = SecuroConfig(
+            server_url=str(target.configuration["server_url"]),
+            email=str(target.configuration.get("email") or ""),
+            password=str(target_secret.get("password") or ""),
+            output_dir=Path(
+                target.configuration.get("output_dir")
+                or "/tmp/finance_sync_securo_exports"
+            ),
+            auto_create_accounts=bool(
+                target.configuration.get("auto_create_accounts", True)
+            ),
+        )
+        result = await SecuroExporter(
+            container.session_factory,
+            config,
+            str(schedule.tenant_id),
+        ).run_export(
+            account_ids=target.selected_account_ids or None,
+            push=True,
+        )
+        return {"status": result.status, "error": result.error_message}
 
     return {"status": "skipped", "reason": "unknown_exporter"}
 

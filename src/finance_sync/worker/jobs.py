@@ -30,7 +30,6 @@ from finance_sync.models.credential import (
     Credential,
 )
 from finance_sync.models.import_run import ImportRun
-from finance_sync.observability.metrics import enrichment_last_success_timestamp
 from finance_sync.services.degiro_import import (
     batch_hash,
     build_preview,
@@ -839,9 +838,6 @@ async def enrich_prices_job(container: Container) -> dict[str, Any]:
                 )
 
         await session.commit()
-
-    # Track enrichment freshness for the staleness alert (>24h).
-    enrichment_last_success_timestamp.set(time.time())
 
     log.info(
         "enrich_prices_job_complete",

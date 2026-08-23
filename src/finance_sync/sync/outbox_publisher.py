@@ -96,9 +96,7 @@ class OutboxPublisher:
 
         Returns the number of messages processed in this tick.
         """
-        # Track the true backlog (not just this batch) for alerting.
         outbox_messages_pending_total.set(await self._count_pending())
-
         messages = await self._fetch_pending()
 
         if not messages:

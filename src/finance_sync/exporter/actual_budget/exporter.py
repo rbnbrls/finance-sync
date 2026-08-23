@@ -62,6 +62,32 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger("finance_sync.exporter.actual_budget")
 
+# Actual Budget is the bank/cash destination.  Investment accounts are
+# intentionally excluded even when a caller explicitly supplies their IDs.
+_ACTUAL_BUDGET_ACCOUNT_TYPES = frozenset({"checking", "savings", "cash"})
+_BROKER_PROVIDER_KEYS = frozenset(
+    {
+        "saxoinvestor",
+        "saxo",
+        "trading212",
+        "degiro",
+        "interactive_brokers",
+        "ibkr",
+        "etoro",
+        "lynx",
+    }
+)
+
+
+def is_actual_budget_eligible_account(account: Account) -> bool:
+    """Return whether *account* is a bank/cash account for Actual Budget."""
+    account_type = str(account.account_type).lower()
+    provider_key = str(account.provider_key).lower().replace("-", "_")
+    return (
+        account_type in _ACTUAL_BUDGET_ACCOUNT_TYPES
+        and provider_key not in _BROKER_PROVIDER_KEYS
+    )
+
 
 # ═══════════════════════════════════════════════════════════════════════
 # Result type
@@ -138,13 +164,10 @@ class ActualBudgetExporter:
     # ── Public API ───────────────────────────────────────────────────
 
     @staticmethod
-    def _record_export_metrics(
-        result: ExportResult,
-    ) -> None:
+    def _record_export_metrics(result: ExportResult) -> None:
         """Record the export run outcome as a Prometheus counter."""
         export_runs_total.labels(
-            exporter="actual_budget",
-            status=result.status,
+            exporter="actual_budget", status=result.status
         ).inc()
 
     async def run_export(
@@ -310,7 +333,7 @@ class ActualBudgetExporter:
                     txns_failed=txns_failed,
                     duration_s=(end_ts - start_ts).total_seconds(),
                 )
-                result = ExportResult(
+                return ExportResult(
                     status="completed",
                     accounts_mapped=accts_mapped,
                     transactions_attempted=txns_attempted,
@@ -319,8 +342,6 @@ class ActualBudgetExporter:
                     duration_s=(end_ts - start_ts).total_seconds(),
                     run_id=str(run.id),
                 )
-                self._record_export_metrics(result)
-                return result
 
             except ActualBudgetConnectionError as exc:
                 await session.rollback()
@@ -333,7 +354,7 @@ class ActualBudgetExporter:
                 run.transactions_failed = txns_failed
                 await session.commit()
                 self._log.error("export_connection_failed", error=str(exc))
-                result = ExportResult(
+                return ExportResult(
                     status="failed",
                     accounts_mapped=accts_mapped,
                     transactions_attempted=txns_attempted,
@@ -343,8 +364,6 @@ class ActualBudgetExporter:
                     duration_s=(end_ts - start_ts).total_seconds(),
                     run_id=str(run.id),
                 )
-                self._record_export_metrics(result)
-                return result
             except Exception:
                 await session.rollback()
                 end_ts = datetime.now(UTC)
@@ -357,7 +376,7 @@ class ActualBudgetExporter:
                 run.transactions_failed = txns_failed
                 await session.commit()
                 self._log.error("export_failed", traceback=tb)
-                result = ExportResult(
+                return ExportResult(
                     status="failed",
                     accounts_mapped=accts_mapped,
                     transactions_attempted=txns_attempted,
@@ -367,8 +386,6 @@ class ActualBudgetExporter:
                     duration_s=(end_ts - start_ts).total_seconds(),
                     run_id=str(run.id),
                 )
-                self._record_export_metrics(result)
-                return result
 
     # ── Account resolution ──────────────────────────────────────────
 
@@ -456,7 +473,12 @@ class ActualBudgetExporter:
                 )
             stmt = stmt.order_by(Account.name)  # type: ignore[attr-defined]
             result = await session.execute(stmt)
-            return list(result.scalars().all())
+            accounts = list(result.scalars().all())
+            return [
+                account
+                for account in accounts
+                if is_actual_budget_eligible_account(account)
+            ]
 
     async def _fetch_pending_transactions(
         self,

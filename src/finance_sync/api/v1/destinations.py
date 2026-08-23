@@ -25,6 +25,7 @@ from finance_sync.models.export_target import (
     TARGET_INVESTBRAIN,
     TARGET_JUPYTER,
     TARGET_PAUSED,
+    TARGET_SECURO,
     TARGET_TYPES,
     ExportTarget,
 )
@@ -58,7 +59,7 @@ class TargetCreate(BaseModel):
     target_type: str = Field(
         description=(
             "wealthfolio, actual-budget, firefly, ghostfolio, "
-            "investbrain or jupyter"
+            "investbrain, securo or jupyter"
         )
     )
     display_name: str = Field(min_length=1, max_length=128)
@@ -194,7 +195,10 @@ def _safe_url(value: object) -> str:
                 or ipaddress.ip_address(host).is_loopback
             )
         except ValueError:
-            private = host == "localhost" or host.endswith(".local")
+            private = host in {
+                "localhost",
+                "host.docker.internal",
+            } or host.endswith(".local")
         if not private:
             raise HTTPException(
                 status_code=422,
@@ -365,6 +369,13 @@ async def list_types(_auth: AuthContext = _Admin) -> list[dict[str, object]]:
             "needs_server": True,
             "secret_label": "Access token",
             "datasets": ["transactions", "holdings"],
+        },
+        {
+            "key": TARGET_SECURO,
+            "name": "Securo",
+            "needs_server": True,
+            "secret_label": "Securo-wachtwoord",
+            "datasets": ["accounts", "transactions", "holdings"],
         },
     ]
 
@@ -726,6 +737,18 @@ async def test_target(
                     )
                 ) as client:
                     await client.health()
+            elif row.target_type == TARGET_SECURO:
+                from finance_sync.exporter.securo.client import SecuroClient
+                from finance_sync.exporter.securo.config import SecuroConfig
+
+                secret = json.loads(plaintext)
+                config = SecuroConfig(
+                    server_url=server_url,
+                    email=str((row.configuration or {}).get("email") or ""),
+                    password=str(secret.get("password") or ""),
+                )
+                async with SecuroClient(config) as client:
+                    await client.login()
         row.last_health_status, row.last_health_error = "ready", None
         row.last_checked_at = datetime.now(UTC)
         await db.flush()

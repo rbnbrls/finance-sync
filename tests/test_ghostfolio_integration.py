@@ -8,6 +8,7 @@ import pytest
 from finance_sync.exporter.ghostfolio.client import GhostfolioClient
 from finance_sync.exporter.ghostfolio.config import GhostfolioConfig
 from finance_sync.exporter.ghostfolio.transaction_mapper import (
+    map_holding_to_ghostfolio,
     map_transaction_to_ghostfolio,
 )
 
@@ -30,6 +31,16 @@ class Security:
     isin = "IE00BK5BQT80"
 
 
+class Holding:
+    account_id = "account-1"
+    id = "holding-1"
+    observed_at = datetime(2026, 8, 23, tzinfo=UTC)
+    quantity = Decimal(10)
+    price = Decimal("123.45")
+    market_value = Decimal("1234.50")
+    currency_code = "EUR"
+
+
 def test_mapper_matches_ghostfolio_import_contract() -> None:
     activity = map_transaction_to_ghostfolio(Txn(), security=Security())
     assert activity == {
@@ -43,6 +54,22 @@ def test_mapper_matches_ghostfolio_import_contract() -> None:
         "unitPrice": 61.725,
         "comment": "finance-sync:txn-1:broker-1",
     }
+
+
+def test_holding_mapper_preserves_broker_exchange_symbol() -> None:
+    security = Security()
+    security.ticker = "BESI:XAMS"
+    activity = map_holding_to_ghostfolio(
+        Holding(),
+        security=security,
+        data_source="MANUAL",
+        ghostfolio_account_id="account-1",
+    )
+    assert activity["symbol"] == "BESI:XAMS"
+    assert activity["quantity"] == 10.0
+    assert activity["unitPrice"] == 123.45
+    assert activity["type"] == "BUY"
+    assert activity["accountId"] == "account-1"
 
 
 @pytest.mark.asyncio

@@ -6,6 +6,7 @@ from decimal import Decimal
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from finance_sync.models.holding import Holding
     from finance_sync.models.security import Security
     from finance_sync.models.transaction import Transaction
 
@@ -34,6 +35,17 @@ def map_transaction_to_ghostfolio(
         message = f"Ghostfolio does not support transaction type {txn_type!r}"
         raise ValueError(message)
     symbol = (security.ticker or security.isin) if security else None
+    # Broker tickers commonly contain an exchange suffix (for example
+    # ``BESI:XAMS``), while Ghostfolio's Yahoo data source expects the
+    # provider ticker itself (``BESI``).  Keep ISINs and manual symbols intact.
+    if (
+        symbol
+        and security
+        and security.ticker
+        and ":" in security.ticker
+        and data_source.upper() == "YAHOO"
+    ):
+        symbol = security.ticker.split(":", 1)[0]
     if not symbol:
         symbol = (
             txn.description or f"FINANCE-SYNC-{txn.external_transaction_id}"
@@ -65,3 +77,51 @@ def map_transaction_to_ghostfolio(
         "unitPrice": float(unit_price),
         "comment": f"finance-sync:{txn.id}:{txn.external_transaction_id}",
     }
+
+
+def map_holding_to_ghostfolio(
+    holding: Holding,
+    *,
+    security: Security | None = None,
+    data_source: str = "MANUAL",
+    ghostfolio_account_id: str | None = None,
+) -> dict[str, Any]:
+    """Map a current finance-sync position to a Ghostfolio BUY activity.
+
+    Ghostfolio represents a current position as the net result of activities.
+    A snapshot is therefore imported as a dated BUY using the observed
+    quantity and market price.  Manual symbols preserve broker exchange
+    suffixes (for example ``BESI:XAMS``), which are not Yahoo symbols.
+    """
+    symbol = (security.ticker or security.isin) if security else None
+    if not symbol:
+        message = "Ghostfolio holdings require a security symbol"
+        raise ValueError(message)
+    quantity = abs(Decimal(holding.quantity))
+    if quantity == 0:
+        message = "Ghostfolio holdings require a non-zero quantity"
+        raise ValueError(message)
+    # Market value is already converted to the holding currency by the
+    # source connector; prefer it over the broker's native unit price.
+    unit_price = None
+    if holding.market_value is not None:
+        unit_price = Decimal(holding.market_value) / quantity
+    elif holding.price is not None:
+        unit_price = holding.price
+    if unit_price is None:
+        message = "Ghostfolio holdings require a market price"
+        raise ValueError(message)
+    activity = {
+        "currency": holding.currency_code,
+        "dataSource": data_source,
+        "date": holding.observed_at.isoformat(),
+        "fee": 0.0,
+        "quantity": float(quantity),
+        "symbol": str(symbol),
+        "type": "BUY",
+        "unitPrice": float(abs(Decimal(unit_price))),
+        "comment": f"finance-sync:holding:{holding.id}",
+    }
+    if ghostfolio_account_id:
+        activity["accountId"] = ghostfolio_account_id
+    return activity

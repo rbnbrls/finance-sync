@@ -8,10 +8,11 @@ from typing import TYPE_CHECKING, Any
 from sqlalchemy import select
 
 from finance_sync.exporter.ghostfolio.transaction_mapper import (
+    map_holding_to_ghostfolio,
     map_transaction_to_ghostfolio,
 )
 from finance_sync.exporter.models import ExportRun
-from finance_sync.models import Security, Transaction
+from finance_sync.models import Holding, Security, Transaction
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -68,29 +69,80 @@ class GhostfolioExporter:
                 .scalars()
                 .all()
             }
-        activities = [
-            map_transaction_to_ghostfolio(
-                t,
-                security=securities.get(t.security_id),
-                data_source=self._config.data_source,
+            holding_stmt = select(Holding).where(
+                Holding.tenant_id == self._tenant_id
             )
-            for t in txns
-        ]
+            if account_ids:
+                holding_stmt = holding_stmt.where(
+                    Holding.account_id.in_(account_ids)
+                )
+            holding_stmt = holding_stmt.order_by(
+                Holding.security_id, Holding.observed_at.desc()
+            )
+            all_holdings = list(
+                (await session.execute(holding_stmt)).scalars().all()
+            )
+            holdings: list[Holding] = []
+            seen_security_ids: set[str] = set()
+            for holding in all_holdings:
+                if holding.security_id not in seen_security_ids:
+                    seen_security_ids.add(holding.security_id)
+                    holdings.append(holding)
+        activities = (
+            [
+                map_transaction_to_ghostfolio(
+                    t,
+                    security=securities.get(t.security_id),
+                    data_source=self._config.data_source,
+                )
+                for t in txns
+            ]
+            if self._config.sync_transactions
+            else []
+        )
         result = await client.import_activities(activities)
-        status = "completed" if not result["failed"] else "failed"
+        holding_activities = [
+            map_holding_to_ghostfolio(
+                holding,
+                security=securities.get(holding.security_id),
+                data_source="MANUAL",
+                ghostfolio_account_id=str(holding.account_id),
+            )
+            for holding in holdings
+        ]
+        holding_result = await client.import_activities(holding_activities)
+        status = (
+            "completed"
+            if not result["failed"] and not holding_result["failed"]
+            else "failed"
+        )
         async with self._session_factory() as session:
             run = ExportRun(
                 exporter_type="ghostfolio",
                 status=status,
                 started_at=datetime.now(UTC),
                 completed_at=datetime.now(UTC),
-                transactions_attempted=len(txns),
-                transactions_exported=result["imported"],
-                transactions_failed=result["failed"],
+                transactions_attempted=len(txns) + len(holdings),
+                transactions_exported=(
+                    result["imported"] + holding_result["imported"]
+                ),
+                transactions_failed=(
+                    result["failed"] + holding_result["failed"]
+                ),
                 error_message=(
-                    str(result["failures"][:1]) if result["failures"] else None
+                    str((result["failures"] + holding_result["failures"])[:1])
+                    if result["failures"] or holding_result["failures"]
+                    else None
                 ),
             )
             session.add(run)
             await session.commit()
-        return {"status": status, "transactions_attempted": len(txns), **result}
+        return {
+            "status": status,
+            "transactions_attempted": len(txns),
+            "holdings_attempted": len(holdings),
+            "holdings_imported": holding_result["imported"],
+            "holdings_skipped": holding_result["skipped"],
+            "holdings_failed": holding_result["failed"],
+            **result,
+        }

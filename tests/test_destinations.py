@@ -30,6 +30,10 @@ from finance_sync.services.visibility import ReadScope
 def test_private_http_and_https_are_accepted() -> None:
     assert _safe_url("http://192.168.1.8:5006/") == "http://192.168.1.8:5006"
     assert (
+        _safe_url("http://host.docker.internal:8001/")
+        == "http://host.docker.internal:8001"
+    )
+    assert (
         _safe_url("https://budget.example.test")
         == "https://budget.example.test"
     )

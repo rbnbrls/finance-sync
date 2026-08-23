@@ -22,18 +22,13 @@ from finance_sync.models.enums import (
     ReconciliationRunStatus,
     SyncRunStatus,
 )
-from finance_sync.observability.metrics import (
-    holdings_ingested_total,
-    sync_run_duration_seconds,
-    sync_runs_total,
-    transactions_ingested_total,
-    unresolved_securities_total,
-)
 from finance_sync.sync.cards_pipeline import (
     BunqCardsSyncResult,
     CardsSyncMixin,
     StatefulConnector,
 )
+
+__all__ = ["BunqCardsSyncResult", "SyncOrchestrator"]
 from finance_sync.sync.context import SyncContext
 from finance_sync.sync.errors import (
     classify_sync_error,
@@ -197,42 +192,6 @@ class SyncOrchestrator(CardsSyncMixin):
                 error=traceback.format_exc()[:200],
             )
 
-    # ── Public API ───────────────────────────────────────────────────
-
-    @staticmethod
-    def _record_sync_metrics(
-        provider: str,
-        result: SyncResult | BunqCardsSyncResult,
-    ) -> None:
-        """Record Prometheus metrics for a completed sync run.
-
-        Increments ``sync_runs_total`` with the run status and records
-        the run duration plus ingested transaction count.  Both
-        ``SyncResult`` and ``BunqCardsSyncResult`` expose ``status``,
-        ``duration_s`` and ``transactions_synced``/``card_transactions_synced``.
-        """
-        status = (
-            result.status.value
-            if hasattr(result.status, "value")
-            else str(result.status)
-        )
-        sync_runs_total.labels(provider=provider, status=status).inc()
-        sync_run_duration_seconds.labels(provider=provider).set(
-            result.duration_s
-        )
-        ingested = getattr(
-            result,
-            "transactions_synced",
-            getattr(result, "card_transactions_synced", 0),
-        )
-        transactions_ingested_total.labels(provider=provider).inc(ingested or 0)
-        holdings_ingested_total.labels(provider=provider).inc(
-            getattr(result, "holdings_synced", 0) or 0
-        )
-        unresolved_securities_total.labels(provider=provider).inc(
-            getattr(result, "unresolved_securities", 0) or 0
-        )
-
     async def run_sync(
         self,
         provider_type: str,
@@ -324,7 +283,6 @@ class SyncOrchestrator(CardsSyncMixin):
                 provider_type, connector, connection_id=connection_id
             )
 
-        self._record_sync_metrics(provider_type, result)
         await self._record_connection_outcome(
             connection_id,
             config.credentials,

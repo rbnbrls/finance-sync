@@ -56,6 +56,59 @@ class SecuroClient:
         response.raise_for_status()
         return response.json()
 
+    async def assets(self) -> list[dict[str, Any]]:
+        """Return the user's investment holdings from Securo."""
+        response = await self._client.get(
+            "/api/assets", headers=self._auth_headers()
+        )
+        response.raise_for_status()
+        return response.json()
+
+    async def create_asset(self, payload: dict[str, Any]) -> dict[str, Any]:
+        response = await self._client.post(
+            "/api/assets",
+            headers={
+                **self._auth_headers(),
+                "Content-Type": "application/json",
+            },
+            json=payload,
+        )
+        response.raise_for_status()
+        return response.json()
+
+    async def update_asset(
+        self, asset_id: str, payload: dict[str, Any]
+    ) -> dict[str, Any]:
+        response = await self._client.patch(
+            f"/api/assets/{asset_id}",
+            headers={
+                **self._auth_headers(),
+                "Content-Type": "application/json",
+            },
+            json=payload,
+        )
+        response.raise_for_status()
+        return response.json()
+
+    async def add_asset_value(
+        self,
+        asset_id: str,
+        *,
+        amount: str,
+        price: str | None,
+        observed_at: str,
+    ) -> dict[str, Any]:
+        response = await self._client.post(
+            f"/api/assets/{asset_id}/values",
+            headers={
+                **self._auth_headers(),
+                "Content-Type": "application/json",
+            },
+            json={"amount": amount, "price": price, "date": observed_at},
+        )
+        response.raise_for_status()
+        return response.json()
+
     async def create_account(
         self, *, name: str, currency: str, account_type: str
     ) -> dict[str, Any]:
