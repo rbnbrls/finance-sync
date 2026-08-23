@@ -55,7 +55,7 @@ class Settings(BaseSettings):
 
     # ── Application ──────────────────────────────────────────────────
     app_name: str = Field(default="finance-sync", validation_alias="APP_NAME")
-    app_version: str = Field(default="0.1.0", validation_alias="APP_VERSION")
+    app_version: str = Field(default="0.5.0", validation_alias="APP_VERSION")
     debug: bool = Field(default=False, validation_alias="DEBUG")
     staging_connector_base_url: str = Field(
         default="http://127.0.0.1:8000/api/v1/staging-providers",
@@ -257,6 +257,25 @@ class Settings(BaseSettings):
         description="Max transactions per export batch.",
     )
 
+    # ── Securo exporter ─────────────────────────────────────────────
+    exporter_securo_enabled: bool = Field(
+        default=True, validation_alias="EXPORTER_SECURO_ENABLED"
+    )
+    securo_server_url: str = Field(
+        default="http://localhost:3001", validation_alias="SECURO_SERVER_URL"
+    )
+    securo_email: str = Field(default="", validation_alias="SECURO_EMAIL")
+    securo_password: SecretStr = Field(
+        default=SecretStr(""), validation_alias="SECURO_PASSWORD"
+    )
+    securo_output_dir: str = Field(
+        default="/tmp/finance_sync_securo_exports",
+        validation_alias="SECURO_OUTPUT_DIR",
+    )
+    securo_auto_create_accounts: bool = Field(
+        default=True, validation_alias="SECURO_AUTO_CREATE_ACCOUNTS"
+    )
+
     # ── Wealthfolio exporter ─────────────────────────────────────────
     # Feature flag (dr.3): defaults to enabled to match the historical
     # unconditional behaviour. Set to false to disable the exporter's
@@ -338,6 +357,92 @@ class Settings(BaseSettings):
         default=SecretStr(""),
         validation_alias="WEALTHFOLIO_PASSWORD",
         description="Password for Wealthfolio self-hosted authentication.",
+    )
+
+    # ── Firefly III exporter ─────────────────────────────────────────
+    exporter_firefly_enabled: bool = Field(
+        default=True,
+        validation_alias="EXPORTER_FIREFLY_ENABLED",
+        description="Enable the Firefly III exporter API surface.",
+    )
+    firefly_server_url: str = Field(
+        default="http://localhost:8082",
+        validation_alias="FIREFLY_SERVER_URL",
+        description="Firefly III URL (local default: http://localhost:8082).",
+    )
+    firefly_access_token: SecretStr = Field(
+        default=SecretStr(""),
+        validation_alias="FIREFLY_ACCESS_TOKEN",
+        description="Firefly III personal access token.",
+    )
+    firefly_verify_ssl: bool = Field(
+        default=True, validation_alias="FIREFLY_VERIFY_SSL"
+    )
+    firefly_request_timeout: float = Field(
+        default=60.0, validation_alias="FIREFLY_REQUEST_TIMEOUT"
+    )
+    firefly_default_currency: str = Field(
+        default="EUR", validation_alias="FIREFLY_DEFAULT_CURRENCY"
+    )
+    firefly_import_tag: str = Field(
+        default="finance-sync", validation_alias="FIREFLY_IMPORT_TAG"
+    )
+    firefly_account_name_overrides: dict[str, str] = Field(
+        default_factory=dict,
+        validation_alias="FIREFLY_ACCOUNT_NAME_OVERRIDES",
+    )
+
+    # ── Ghostfolio exporter ──────────────────────────────────────────
+    exporter_ghostfolio_enabled: bool = Field(
+        default=True,
+        validation_alias="EXPORTER_GHOSTFOLIO_ENABLED",
+        description="Enable the Ghostfolio destination integration.",
+    )
+    ghostfolio_server_url: str = Field(
+        default="http://localhost:3333",
+        validation_alias="GHOSTFOLIO_SERVER_URL",
+    )
+    ghostfolio_access_token: SecretStr = Field(
+        default=SecretStr(""),
+        validation_alias="GHOSTFOLIO_ACCESS_TOKEN",
+        description="Ghostfolio security token exchanged for a bearer token.",
+    )
+    ghostfolio_verify_ssl: bool = Field(
+        default=True, validation_alias="GHOSTFOLIO_VERIFY_SSL"
+    )
+    ghostfolio_request_timeout: float = Field(
+        default=60.0, validation_alias="GHOSTFOLIO_REQUEST_TIMEOUT"
+    )
+    ghostfolio_data_source: str = Field(
+        default="YAHOO", validation_alias="GHOSTFOLIO_DATA_SOURCE"
+    )
+    ghostfolio_include_pending: bool = Field(
+        default=False, validation_alias="GHOSTFOLIO_INCLUDE_PENDING"
+    )
+
+    # ── InvestBrain exporter ────────────────────────────────────────
+    exporter_investbrain_enabled: bool = Field(
+        default=True, validation_alias="EXPORTER_INVESTBRAIN_ENABLED"
+    )
+    investbrain_server_url: str = Field(
+        default="http://localhost:8000",
+        validation_alias="INVESTBRAIN_SERVER_URL",
+    )
+    investbrain_access_token: SecretStr = Field(
+        default=SecretStr(""), validation_alias="INVESTBRAIN_ACCESS_TOKEN"
+    )
+    investbrain_verify_ssl: bool = Field(
+        default=True, validation_alias="INVESTBRAIN_VERIFY_SSL"
+    )
+    investbrain_request_timeout: float = Field(
+        default=60.0, validation_alias="INVESTBRAIN_REQUEST_TIMEOUT"
+    )
+    investbrain_include_pending: bool = Field(
+        default=False, validation_alias="INVESTBRAIN_INCLUDE_PENDING"
+    )
+    investbrain_portfolio_name_prefix: str = Field(
+        default="finance-sync",
+        validation_alias="INVESTBRAIN_PORTFOLIO_NAME_PREFIX",
     )
 
     # ── Worker: Wealthfolio delivery sweep job ───────────────────────

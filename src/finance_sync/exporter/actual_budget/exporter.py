@@ -415,14 +415,20 @@ class ActualBudgetExporter:
         )
 
         # 4. Persist the mapping
-        new_mapping = ActualBudgetAccountMapping(
-            tenant_id=self._tenant_id,
-            target_id=self._target_id,
-            account_id=fs_acct.id,
-            ab_account_id=ab_acct["id"],
-            ab_account_name=ab_acct["name"],
-        )
-        session.add(new_mapping)
+        if mapping is None:
+            mapping = ActualBudgetAccountMapping(
+                tenant_id=self._tenant_id,
+                target_id=self._target_id,
+                account_id=fs_acct.id,
+                ab_account_id=ab_acct["id"],
+                ab_account_name=ab_acct["name"],
+            )
+            session.add(mapping)
+        else:
+            # The account may have been deleted and recreated in Actual.
+            # Refresh the existing row instead of violating its unique key.
+            mapping.ab_account_id = ab_acct["id"]
+            mapping.ab_account_name = ab_acct["name"]
         await session.flush()
 
         return ab_acct

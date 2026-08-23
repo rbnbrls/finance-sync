@@ -8,7 +8,7 @@ Mapping rules
 -------------
 * Amount signs: finance-sync uses positive = inflow, negative = outflow.
   Wealthfolio uses the same convention, so the sign is preserved.
-* ``symbol`` is derived from the associated Security's ticker or ISIN.
+* ``symbol`` prefers the associated Security's ticker, with ISIN as fallback.
 * ``activityType`` maps from canonical TransactionType to Wealthfolio's
   closed set of 14 activity types.
 * Multi-currency transactions include ``currency`` and ``fxRate``.
@@ -326,9 +326,12 @@ def _resolve_security_info(
 
     # Activities that require an asset (BUY, SELL, DIVIDEND)
     if security is not None:
-        # ISIN is venue-independent and therefore safer than a coincidentally
-        # matching ticker. Wealthfolio can resolve ISIN during import.
-        symbol = security.isin or security.ticker or ""
+        # Wealthfolio uses symbol for market-data lookup. Prefer the
+        # exchange-qualified ticker when available; sending an ISIN as the
+        # symbol makes providers such as Yahoo unable to resolve a quote for
+        # otherwise valid holdings. Keep ISIN as a fallback for securities
+        # without a ticker.
+        symbol = security.ticker or security.isin or ""
         if not symbol:
             message = "Security heeft geen opgeloste ISIN of ticker."
             raise UnresolvedSecurityExportError(message)
@@ -478,11 +481,11 @@ def _resolve_holding_symbol(
 ) -> str:
     """Resolve symbol for a holding row.
 
-    Uses the resolved security ISIN (preferred) or ticker. Cash is represented
+    Uses the resolved security ticker (preferred) or ISIN. Cash is represented
     separately in the holdings snapshot payload, not as an unresolved holding.
     """
     if security is not None:
-        symbol = security.isin or security.ticker
+        symbol = security.ticker or security.isin
         if symbol:
             return symbol
     message = "Holding wacht op security-resolutie."

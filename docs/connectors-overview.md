@@ -9,6 +9,7 @@ via the ``finance_sync.connectors`` entry point group in ``pyproject.toml``.
 | bunq | ``bunq`` | Bunq banking API (v1) | API key |
 | Trading212 | ``trading212`` | Trading212 equity API (v0) | API key |
 | DEGIRO Pensioen | ``degiro_pension`` | Official pension-account export import | None (file-based) |
+| SaxoInvestor Excel | ``saxo_investor`` | SaxoInvestor XLSX positions and transactions | None (file-based) |
 | YNAB | ``ynab`` | You Need A Budget API (v1) | Personal access token |
 | CSV Import | ``csv_import`` | Import transactions from CSV files | None (file-based) |
 | Manual Expense | ``manual_expense`` | Manual expense tracking via JSON | None (file-based) |
@@ -134,6 +135,33 @@ a browser, manage cookies, or call private endpoints. Imports are snapshots:
 users must periodically create and supply new exports. PDF, pending orders and
 live prices are not supported. Malformed rows fail the complete atomic sync and
 are exposed through the connector's validation report.
+
+## SaxoInvestor Excel
+
+- **Module:** ``finance_sync.connectors.saxo_investor``
+- **Auth:** None; the connector reads a user-supplied XLSX export
+- **Capabilities:** ``accounts``, ``holdings``, ``transactions``
+- **Input:** the SaxoInvestor **Posities** export, the **Transactions** export,
+  or both files together. The importer detects the file type from its Dutch
+  headers and accepts the non-standard style XML produced by Saxo's download flow.
+- **Identity:** ISIN is the primary security identifier; Saxo's symbol and
+  venue are retained as provider metadata.
+- **Snapshot:** ``snapshot_at`` overrides the timestamp. Otherwise a date in
+  a filename such as ``Posities_23-aug-2026.xlsx`` is used, falling back to
+  the file modification time.
+- **Options:** ``account_key`` (stable default ``default``), ``account_name``
+  (default ``SaxoInvestor``), and optional ``snapshot_at``. In the dashboard
+  files are uploaded for each import and removed after processing; self-hosted
+  integrations may still provide ``export_path`` or ``export_paths``.
+
+In the dashboard the user selects one or both files with one upload action.
+The import creates or updates the single brokerage account and writes the
+available holdings and transaction rows atomically. A positions-only upload
+does not invent transaction history; a transactions-only upload leaves the
+current account balance unchanged. Saxo's ``Huidige waarde (EUR)`` is treated as the market-value currency;
+the instrument currency from ``Valuta`` is retained separately for price and
+cost-basis fields. The supplied sample contains nine positions with a total
+reported market value of EUR 37,007.97.
 
 ## CSV Import
 

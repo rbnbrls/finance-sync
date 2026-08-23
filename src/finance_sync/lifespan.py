@@ -135,10 +135,13 @@ async def _init_database(container: Container) -> None:
                                 "(id, tenant_id, provider_key, "
                                 "encrypted_payload, nonce, description, "
                                 "created_at, updated_at) "
-                                "VALUES (gen_random_uuid(), :tid, :provider, "
-                                ":encrypted, :nonce, :description, :now, :now) "
-                                "ON CONFLICT (tenant_id, provider_key) "
-                                "WHERE tenant_id IS NOT NULL DO NOTHING"
+                                "SELECT gen_random_uuid(), :tid, :provider, "
+                                ":encrypted, :nonce, :description, :now, :now "
+                                "WHERE NOT EXISTS ("
+                                "SELECT 1 FROM credentials "
+                                "WHERE tenant_id = :tid "
+                                "AND provider_key = CAST(:provider AS varchar)"
+                                ")"
                             ),
                             {
                                 "tid": tid,

@@ -60,7 +60,7 @@ class TestHealthEndpoint:
         assert "version" in data
         assert "uptime" in data
         assert "components" in data
-        assert data["version"] == "0.1.0"
+        assert data["version"] == "0.5.0"
 
     def test_health_components_report_not_configured_when_no_db(
         self, client: TestClient

@@ -175,6 +175,11 @@ def _build_parser() -> ArgumentParser:
 
     # ── actual-budget ────────────────────────────────────────────────
     _build_actual_budget_subparser(sub)
+    _build_securo_subparser(sub)
+
+    # ── ghostfolio ───────────────────────────────────────────────────
+    _build_ghostfolio_subparser(sub)
+    _build_investbrain_subparser(sub)
 
     return parser
 
@@ -383,6 +388,71 @@ def _build_actual_budget_subparser(sub: Any) -> ArgumentParser:
     )
 
     return ab
+
+
+def _build_securo_subparser(sub: Any) -> ArgumentParser:
+    """Build the Securo CSV/API exporter parser."""
+    securo = sub.add_parser(
+        "securo", help="Export or push finance-sync transactions to Securo"
+    )
+    securo_sub = securo.add_subparsers(dest="securo_command", required=True)
+    for command, help_text in (
+        ("export", "Write Securo-compatible CSV files"),
+        ("push", "Preview and import CSV files through Securo's API"),
+    ):
+        cmd = securo_sub.add_parser(command, help=help_text)
+        cmd.add_argument("--server-url", default=None)
+        cmd.add_argument("--email", default=None)
+        cmd.add_argument("--password", default=None)
+        cmd.add_argument("--output-dir", default=None)
+        cmd.add_argument("--account-ids", default=None)
+        cmd.add_argument("--days-back", type=int, default=90)
+    return securo
+
+
+def _build_ghostfolio_subparser(sub: Any) -> ArgumentParser:
+    """Build the ``ghostfolio`` push parser."""
+    gf = sub.add_parser(
+        "ghostfolio",
+        help="Push finance-sync transactions to Ghostfolio",
+        description=(
+            "Import booked finance-sync transactions into a self-hosted "
+            "Ghostfolio through its JSON API. Requires "
+            "GHOSTFOLIO_ACCESS_TOKEN."
+        ),
+    )
+    push = gf.add_subparsers(dest="gf_command", required=True).add_parser(
+        "push", help="Push transactions to Ghostfolio"
+    )
+    push.add_argument("--server-url", default=None)
+    push.add_argument("--access-token", default=None)
+    push.add_argument("--account-ids", default=None)
+    push.add_argument("--days-back", type=int, default=90)
+    push.add_argument("--max-transactions", type=int, default=None)
+    push.add_argument("--dry-run", action="store_true", default=False)
+    return gf
+
+
+def _build_investbrain_subparser(sub: Any) -> ArgumentParser:
+    """Build the ``investbrain`` push parser."""
+    ib = sub.add_parser(
+        "investbrain",
+        help="Push finance-sync investment transactions to InvestBrain",
+        description=(
+            "Upsert investment accounts as InvestBrain portfolios and push "
+            "booked purchase/sale transactions through its Sanctum API."
+        ),
+    )
+    push = ib.add_subparsers(dest="ib_command", required=True).add_parser(
+        "push", help="Push transactions to InvestBrain"
+    )
+    push.add_argument("--server-url", default=None)
+    push.add_argument("--access-token", default=None)
+    push.add_argument("--account-ids", default=None)
+    push.add_argument("--days-back", type=int, default=90)
+    push.add_argument("--max-transactions", type=int, default=None)
+    push.add_argument("--dry-run", action="store_true", default=False)
+    return ib
 
 
 def _run_async(coro: Coroutine[Any, Any, Any]) -> None:
@@ -671,6 +741,137 @@ async def _cmd_compare(args: Namespace) -> None:
 
         except Exception as exc:
             print(f"FAILED: {exc}", file=sys.stderr)
+            sys.exit(2)
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Ghostfolio commands
+# ═══════════════════════════════════════════════════════════════════════
+
+
+async def _cmd_ghostfolio(args: Namespace) -> None:
+    """Push canonical booked transactions to Ghostfolio."""
+    settings = Settings()
+    if not settings.exporter_ghostfolio_enabled:
+        print("ERROR: Ghostfolio exporter is disabled.", file=sys.stderr)
+        sys.exit(2)
+    container = Container.from_settings(settings)
+    async with container.dispose():
+        async with container.session_factory() as session:
+            tenants = await UnitOfWork(session).tenants.list(limit=1)
+            if not tenants:
+                print(
+                    "ERROR: No tenants found in the database.", file=sys.stderr
+                )
+                sys.exit(2)
+            tenant_id = tenants[0].id
+        from finance_sync.exporter.ghostfolio.client import GhostfolioClient
+        from finance_sync.exporter.ghostfolio.config import GhostfolioConfig
+        from finance_sync.exporter.ghostfolio.exporter import GhostfolioExporter
+
+        token = args.access_token or secret_value(
+            settings.ghostfolio_access_token
+        )
+        if not token:
+            print(
+                "ERROR: Set GHOSTFOLIO_ACCESS_TOKEN or pass --access-token.",
+                file=sys.stderr,
+            )
+            sys.exit(2)
+
+        config = GhostfolioConfig(
+            server_url=args.server_url or settings.ghostfolio_server_url,
+            access_token=token,
+            request_timeout=settings.ghostfolio_request_timeout,
+            verify_ssl=settings.ghostfolio_verify_ssl,
+            data_source=settings.ghostfolio_data_source,
+            include_pending=settings.ghostfolio_include_pending,
+        )
+        account_ids = (
+            [x.strip() for x in args.account_ids.split(",") if x.strip()]
+            if args.account_ids
+            else None
+        )
+        since = datetime.now(UTC) - timedelta(days=args.days_back)
+        exporter = GhostfolioExporter(
+            container.session_factory, config, tenant_id
+        )
+        async with GhostfolioClient(config) as client:
+            await client.health()
+            if args.dry_run:
+                print("Ghostfolio is healthy; dry-run does not import data.")
+                return
+            result = await exporter.run_export(
+                client,
+                since=since,
+                account_ids=account_ids,
+                max_transactions=args.max_transactions,
+            )
+        print(result)
+        if result["status"] != "completed":
+            sys.exit(2)
+
+
+async def _cmd_investbrain(args: Namespace) -> None:
+    """Push canonical investment transactions to InvestBrain."""
+    settings = Settings()
+    if not settings.exporter_investbrain_enabled:
+        print("ERROR: InvestBrain exporter is disabled.", file=sys.stderr)
+        sys.exit(2)
+    container = Container.from_settings(settings)
+    async with container.dispose():
+        async with container.session_factory() as session:
+            tenants = await UnitOfWork(session).tenants.list(limit=1)
+            if not tenants:
+                print(
+                    "ERROR: No tenants found in the database.", file=sys.stderr
+                )
+                sys.exit(2)
+            tenant_id = tenants[0].id
+        from finance_sync.exporter.investbrain.client import InvestBrainClient
+        from finance_sync.exporter.investbrain.config import InvestBrainConfig
+        from finance_sync.exporter.investbrain.exporter import (
+            InvestBrainExporter,
+        )
+
+        token = args.access_token or secret_value(
+            settings.investbrain_access_token
+        )
+        if not token:
+            print(
+                "ERROR: Set INVESTBRAIN_ACCESS_TOKEN or pass --access-token.",
+                file=sys.stderr,
+            )
+            sys.exit(2)
+        config = InvestBrainConfig(
+            server_url=args.server_url or settings.investbrain_server_url,
+            access_token=token,
+            request_timeout=settings.investbrain_request_timeout,
+            verify_ssl=settings.investbrain_verify_ssl,
+            include_pending=settings.investbrain_include_pending,
+            portfolio_name_prefix=settings.investbrain_portfolio_name_prefix,
+        )
+        account_ids = (
+            [x.strip() for x in args.account_ids.split(",") if x.strip()]
+            if args.account_ids
+            else None
+        )
+        exporter = InvestBrainExporter(
+            container.session_factory, config, tenant_id
+        )
+        async with InvestBrainClient(config) as client:
+            await client.health()
+            if args.dry_run:
+                print("InvestBrain is healthy; dry-run does not import data.")
+                return
+            result = await exporter.run_export(
+                client,
+                since=datetime.now(UTC) - timedelta(days=args.days_back),
+                account_ids=account_ids,
+                max_transactions=args.max_transactions,
+            )
+        print(result)
+        if result["status"] != "completed":
             sys.exit(2)
 
 
@@ -1001,6 +1202,58 @@ async def _cmd_actual_budget(args: Namespace) -> None:
             sys.exit(2)
 
 
+async def _cmd_securo(args: Namespace) -> None:
+    """Run the Securo CSV/API export cycle."""
+    settings = Settings()
+    if not settings.exporter_securo_enabled:
+        print("ERROR: Securo exporter is disabled.", file=sys.stderr)
+        sys.exit(2)
+    from finance_sync.exporter.securo.config import SecuroConfig
+    from finance_sync.exporter.securo.exporter import SecuroExporter
+
+    container = Container.from_settings(settings)
+    async with container.dispose():
+        async with container.session_factory() as session:
+            tenants = await UnitOfWork(session).tenants.list(limit=1)
+            if not tenants:
+                print(
+                    "ERROR: No tenants found in the database.", file=sys.stderr
+                )
+                sys.exit(2)
+            tenant_id = tenants[0].id
+        account_ids = (
+            [v.strip() for v in args.account_ids.split(",") if v.strip()]
+            if args.account_ids
+            else None
+        )
+        config = SecuroConfig(
+            server_url=args.server_url or settings.securo_server_url,
+            email=args.email or settings.securo_email,
+            password=args.password or secret_value(settings.securo_password),
+            output_dir=args.output_dir or settings.securo_output_dir,
+            auto_create_accounts=settings.securo_auto_create_accounts,
+        )
+        result = await SecuroExporter(
+            container.session_factory, config, tenant_id
+        ).run_export(
+            since=datetime.now(UTC) - timedelta(days=args.days_back),
+            account_ids=account_ids,
+            output_dir=args.output_dir,
+            push=args.securo_command == "push",
+        )
+        print(f"Status: {result.status}")
+        print(
+            "Transactions: "
+            f"{result.transactions_imported}/{result.transactions_attempted} "
+            f"(skipped: {result.transactions_skipped})"
+        )
+        for path in result.files:
+            print(f"CSV: {path}")
+        if result.error_message:
+            print(f"ERROR: {result.error_message}", file=sys.stderr)
+            sys.exit(2)
+
+
 async def _cmd_actual_budget_export(
     args: Namespace,
     container: Container,
@@ -1182,6 +1435,12 @@ def main(argv: list[str] | None = None) -> None:
         _run_async(_cmd_wealthfolio(args))
     elif args.command == "actual-budget":
         _run_async(_cmd_actual_budget(args))
+    elif args.command == "securo":
+        _run_async(_cmd_securo(args))
+    elif args.command == "ghostfolio":
+        _run_async(_cmd_ghostfolio(args))
+    elif args.command == "investbrain":
+        _run_async(_cmd_investbrain(args))
     else:
         parser.print_help()
         sys.exit(2)
