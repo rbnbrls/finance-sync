@@ -1,0 +1,17 @@
+# Local-only Actual Budget playground for finance-sync integration tests.
+# Data is persisted in ./var/actual-data and can be removed independently.
+services:
+  actual-budget:
+    image: docker.io/actualbudget/actual-server:latest
+    container_name: finance-sync-actual-budget
+    ports:
+      - "5006:5006"
+    volumes:
+      - ./var/actual-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "node src/scripts/health-check.js"]
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 20s
+    restart: unless-stopped

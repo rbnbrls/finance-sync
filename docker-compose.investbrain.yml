@@ -1,0 +1,60 @@
+# Local InvestBrain test stack for finance-sync.
+name: finance-sync-investbrain
+
+services:
+  investbrain:
+    image: investbrainapp/investbrain:latest
+    container_name: investbrain-app
+    restart: unless-stopped
+    ports:
+      - "18001:80"
+    environment:
+      APP_URL: http://localhost:18001
+      DB_CONNECTION: pgsql
+      DB_HOST: investbrain-pgsql
+      DB_PORT: 5432
+      DB_DATABASE: investbrain
+      DB_USERNAME: investbrain
+      DB_PASSWORD: investbrain-local-only
+      SESSION_DRIVER: redis
+      QUEUE_CONNECTION: redis
+      CACHE_STORE: redis
+      REDIS_HOST: investbrain-redis
+      MARKET_DATA_PROVIDER: yahoo
+      APP_TIMEZONE: Europe/Amsterdam
+      REGISTRATION_ENABLED: "true"
+    volumes:
+      - investbrain_storage:/var/app/storage
+    depends_on:
+      pgsql:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+  redis:
+    image: redis:7-alpine
+    container_name: investbrain-redis
+    restart: unless-stopped
+    volumes:
+      - investbrain_redis:/data
+
+  pgsql:
+    image: postgres:15-alpine
+    container_name: investbrain-pgsql
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: investbrain
+      POSTGRES_USER: investbrain
+      POSTGRES_PASSWORD: investbrain-local-only
+    volumes:
+      - investbrain_pgsql:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U investbrain -d investbrain"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  investbrain_storage:
+  investbrain_redis:
+  investbrain_pgsql:

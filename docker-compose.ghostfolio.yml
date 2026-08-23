@@ -1,0 +1,66 @@
+# Local Ghostfolio test stack.  The app is deliberately isolated from the
+# finance-sync compose project; finance-sync reaches it via localhost:3333.
+#
+#   docker compose -f docker-compose.ghostfolio.yml up -d --wait
+#   open http://localhost:3333
+#
+# Create the first Ghostfolio user, then create a security token in
+# My Ghostfolio -> Access and set GHOSTFOLIO_ACCESS_TOKEN in .env.
+name: finance-sync-ghostfolio
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ghostfolio
+      POSTGRES_USER: ghostfolio
+      POSTGRES_PASSWORD: ghostfolio-local-only
+    volumes:
+      - ghostfolio_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ghostfolio -d ghostfolio"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - ghostfolio_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  ghostfolio:
+    image: ghostfolio/ghostfolio:3.36.0
+    ports:
+      - "3333:3333"
+    environment:
+      ACCESS_TOKEN_SALT: local-only-access-token-salt-change-me
+      JWT_SECRET_KEY: local-only-jwt-secret-change-me
+      DATABASE_URL: postgresql://ghostfolio:ghostfolio-local-only@postgres:5432/ghostfolio
+      POSTGRES_DB: ghostfolio
+      POSTGRES_USER: ghostfolio
+      POSTGRES_PASSWORD: ghostfolio-local-only
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ""
+      ROOT_URL: http://localhost:3333
+      ENABLE_FEATURE_AUTH_TOKEN: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3333/api/v1/health').then(r => { if (!r.ok) process.exit(1) }).catch(() => process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+volumes:
+  ghostfolio_postgres_data:
+  ghostfolio_redis_data:
