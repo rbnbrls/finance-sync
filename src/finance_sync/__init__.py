@@ -5,4 +5,4 @@ from provider APIs, normalising into a common ledger/portfolio model,
 enriching securities via OpenBB, and exposing data via a FastAPI-based REST API.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.6.0"
