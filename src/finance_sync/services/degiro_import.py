@@ -127,7 +127,25 @@ def _check_formula_injection(path: Path) -> None:
     elif suffix == ".xlsx":
         from openpyxl import load_workbook
 
-        workbook = load_workbook(path, read_only=True, data_only=False)
+        try:
+            workbook = load_workbook(path, read_only=True, data_only=False)
+        except Exception:
+            # Some Saxo exports contain a style node that openpyxl cannot
+            # deserialize. The worksheet is still valid and can be parsed by
+            # the Saxo connector, so inspect the XML for formula elements.
+            with zipfile.ZipFile(path) as archive:
+                if any(
+                    b"<f" in archive.read(name)
+                    for name in archive.namelist()
+                    if name.startswith("xl/worksheets/")
+                    and name.endswith(".xml")
+                ):
+                    message = (
+                        "Het bestand bevat formules; upload een ongewijzigde "
+                        "export."
+                    )
+                    raise ImportValidationError(message) from None
+            return
         try:
             sheet = workbook.active
             rows = [] if sheet is None else sheet.iter_rows(values_only=True)
@@ -175,6 +193,7 @@ async def stage_uploads(
     settings: Settings,
     tenant_id: str,
     run_id: str,
+    check_formulas: bool = True,
 ) -> tuple[list[Path], list[str], list[str]]:
     """Stream uploads into a private tenant/run directory with hard limits."""
     if not files or len(files) > settings.degiro_import_max_files:
@@ -222,7 +241,8 @@ async def stage_uploads(
             ] != bytes.fromhex("D0CF11E0A1B11AE1"):
                 message = f"{display} is geen geldig XLS-bestand."
                 raise ImportValidationError(message)
-            _check_formula_injection(destination)
+            if check_formulas:
+                _check_formula_injection(destination)
             paths.append(destination)
             display_names.append(display)
             hashes.append(digest.hexdigest())

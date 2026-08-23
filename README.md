@@ -175,6 +175,9 @@ local development:
   supporting that access pattern;
 * DeGiro imports enforce both a per-file limit and a combined upload-batch
   limit (`DEGIRO_IMPORT_MAX_BATCH_BYTES`, default 100 MiB) while streaming;
+
+* Securo export/push and lokale Docker-testinstallatie: zie
+  [`docs/securo.md`](docs/securo.md).
 * webhook delivery uses Redis-backed per-webhook minute buckets when Redis is
   configured, so throttling is shared across API and worker replicas.
 
@@ -269,6 +272,8 @@ Built images are published to GitHub Container Registry:
 - [Releases & rollback](docs/RELEASING.md)
 - [Implementation roadmap](docs/ROADMAP.md)
 - [Wealthfolio multi-device access](docs/wealthfolio-multi-device-access.md)
+- [Ghostfolio-koppeling](docs/ghostfolio.md)
+- [InvestBrain-koppeling](docs/investbrain.md)
 
 ## Health monitoring
 

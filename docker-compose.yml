@@ -62,10 +62,10 @@ services:
       REFRESH_TOKEN_EXPIRE_DAYS: ${REFRESH_TOKEN_EXPIRE_DAYS:-7}
       JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
       MASTER_ENCRYPTION_KEY: ${MASTER_ENCRYPTION_KEY:-}
-      CORS_ORIGINS: ${CORS_ORIGINS:-[*]}
+      CORS_ORIGINS: ${CORS_ORIGINS:-["http://localhost:8000"]}
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
       GITHUB_REPO: ${GITHUB_REPO:-rbnbrls/finance-sync}
-      DEGIRO_IMPORT_STAGING_DIRECTORY: /var/lib/finance-sync/import-staging
+      DEGIRO_IMPORT_STAGING_DIRECTORY: /tmp/finance-sync/import-staging
     volumes:
       - encryption_keys:/app/keys  # Mount for encryption key files if needed
       - degiro_import_staging:/var/lib/finance-sync/import-staging
@@ -94,6 +94,7 @@ services:
     environment:
       APP_ENVIRONMENT: ${APP_ENVIRONMENT:-prod}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      CORS_ORIGINS: ${CORS_ORIGINS:-["http://localhost:8000"]}
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-finance_sync}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-finance_sync}
       DATABASE_POOL_MIN_SIZE: 1
       DATABASE_POOL_MAX_SIZE: 2
@@ -102,6 +103,7 @@ services:
       MASTER_ENCRYPTION_KEY: ${MASTER_ENCRYPTION_KEY:-}
       WORKER_HEALTH_PORT: 9090
       WORKER_JOB_DEGIRO_WATCH_ENABLED: ${WORKER_JOB_DEGIRO_WATCH_ENABLED:-true}
+      DEGIRO_IMPORT_STAGING_DIRECTORY: /tmp/finance-sync/import-staging
     volumes:
       - encryption_keys:/app/keys:ro
       - ${DEGIRO_WATCH_HOST_PATH:-./imports/degiro}:/imports/degiro

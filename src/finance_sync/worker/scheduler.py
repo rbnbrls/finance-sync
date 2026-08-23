@@ -5,6 +5,10 @@ same PostgreSQL database as the application, so scheduled jobs survive
 worker restarts.
 """
 
+# APScheduler does not publish type stubs; keep its third-party imports from
+# consuming the project's strict Pyright warning budget.
+# pyright: reportMissingTypeStubs=false
+
 from __future__ import annotations
 
 import asyncio

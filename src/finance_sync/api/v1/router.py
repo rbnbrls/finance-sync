@@ -21,6 +21,7 @@ from finance_sync.api.v1.destinations import router as destinations_router
 from finance_sync.api.v1.dividends import router as dividends_router
 from finance_sync.api.v1.enrichment import router as enrichment_router
 from finance_sync.api.v1.feedback import router as feedback_router
+from finance_sync.api.v1.file_uploads import router as file_uploads_router
 from finance_sync.api.v1.ha_integration import router as ha_integration_router
 from finance_sync.api.v1.holding_relevance import (
     router as holding_relevance_router,
@@ -32,6 +33,7 @@ from finance_sync.api.v1.intel_credentials import (
 from finance_sync.api.v1.legacy_exporters import (
     router as legacy_exporters_router,
 )
+from finance_sync.api.v1.market_data import router as market_data_router
 from finance_sync.api.v1.market_intelligence import (
     router as market_intelligence_router,
 )
@@ -41,6 +43,7 @@ from finance_sync.api.v1.portfolio import router as portfolio_router
 from finance_sync.api.v1.prices import router as prices_router
 from finance_sync.api.v1.reconciliation import router as reconciliation_router
 from finance_sync.api.v1.root import router as root_router
+from finance_sync.api.v1.saxo_imports import router as saxo_imports_router
 from finance_sync.api.v1.scheduled_payments import (
     router as scheduled_payments_router,
 )
@@ -63,11 +66,13 @@ router.include_router(ai_summary_router)
 router.include_router(cashflow_router)
 router.include_router(connectors_config_router)
 router.include_router(degiro_imports_router)
+router.include_router(saxo_imports_router)
 router.include_router(destinations_router)
 router.include_router(datamarts_router)
 router.include_router(enrichment_router)
 router.include_router(legacy_exporters_router)
 router.include_router(feedback_router)
+router.include_router(file_uploads_router)
 router.include_router(securities_router)
 router.include_router(accounts_router)
 router.include_router(allocation_router)
@@ -90,5 +95,6 @@ router.include_router(market_intelligence_router)
 router.include_router(intel_credentials_router)
 router.include_router(dividends_router)
 router.include_router(prices_router)
+router.include_router(market_data_router)
 router.include_router(sync_router)
 router.include_router(staging_providers_router)

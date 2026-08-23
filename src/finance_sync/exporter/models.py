@@ -34,7 +34,10 @@ class ExportRun(Base):
     exporter_type: Mapped[str | None] = mapped_column(
         String(32),
         nullable=True,
-        comment="Exporter key ('wealthfolio', 'actual-budget') that ran this",
+        comment=(
+            "Exporter key ('wealthfolio', 'actual-budget', 'firefly') "
+            "that ran this"
+        ),
     )
     status: Mapped[str] = mapped_column(
         String(16),

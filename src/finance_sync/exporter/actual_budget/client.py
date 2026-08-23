@@ -397,6 +397,10 @@ def _init_sync(
         # via the ``file`` kwarg.
         pass
 
+    # actualpy creates the local SQLAlchemy session and downloads the selected
+    # budget in its context manager.  The wrapper owns that lifecycle, so
+    # enter it here and let ``cleanup`` close it in ``_shutdown``.
+    actual.__enter__()
     return actual
 
 

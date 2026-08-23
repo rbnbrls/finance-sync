@@ -22,6 +22,11 @@ from finance_sync.api.deps.auth import AuthContext, get_auth_context
 from finance_sync.dependencies import get_container, get_db
 from finance_sync.exporter.actual_budget.config import ActualBudgetConfig
 from finance_sync.exporter.actual_budget.exporter import ActualBudgetExporter
+from finance_sync.exporter.firefly.config import FireflyConfig
+from finance_sync.exporter.firefly.exporter import (
+    FireflyExporter,
+    FireflyExportResult,
+)
 from finance_sync.exporter.models import ExportRun
 from finance_sync.exporter.wealthfolio.config import WealthfolioConfig
 from finance_sync.exporter.wealthfolio.exporter import (
@@ -275,7 +280,94 @@ async def list_exporter_types(request: Request) -> list[ExporterTypeInfo]:
             )
         )
 
+    if settings.exporter_firefly_enabled:
+        types.append(
+            ExporterTypeInfo(
+                name="firefly",
+                display_name="Firefly III",
+                description=(
+                    "Push accounts and transactions to a local or remote "
+                    "Firefly III instance through its v1 API."
+                ),
+                config_fields=[
+                    {
+                        "key": "server_url",
+                        "label": "Server URL",
+                        "type": "url",
+                        "default": "http://localhost:8082",
+                    },
+                    {
+                        "key": "access_token",
+                        "label": "Personal access token",
+                        "type": "secret",
+                    },
+                    {
+                        "key": "default_currency",
+                        "label": "Default currency",
+                        "type": "text",
+                        "default": "EUR",
+                    },
+                ],
+            )
+        )
+
     return types
+
+
+def _require_firefly_enabled(request: Request) -> None:
+    if not get_container(request).settings.exporter_firefly_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Firefly exporter is disabled. Set EXPORTER_FIREFLY_ENABLED=true.",
+        )
+
+
+@router.get("/firefly/config")
+async def get_firefly_config(
+    request: Request,
+    _flag: None = Depends(_require_firefly_enabled),
+    _auth: AuthContext = Depends(get_auth_context),
+) -> dict[str, object]:
+    """Return non-secret Firefly exporter configuration."""
+    config = FireflyConfig.from_settings(get_container(request).settings)
+    return {
+        "exporter_type": "firefly",
+        "server_url": config.server_url,
+        "default_currency": config.default_currency,
+        "import_tag": config.import_tag,
+        "configured": bool(config.access_token),
+    }
+
+
+@router.post(
+    "/firefly/export",
+    response_model=TriggerExportResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def trigger_firefly_export(
+    request: Request,
+    _flag: None = Depends(_require_firefly_enabled),
+    auth: AuthContext = Depends(get_auth_context),
+) -> TriggerExportResponse:
+    """Run an idempotent finance-sync → Firefly III export."""
+    container = get_container(request)
+    outcome: FireflyExportResult = await FireflyExporter(
+        session_factory=container.session_factory,
+        firefly_config=FireflyConfig.from_settings(container.settings),
+        tenant_id=auth.tenant_id,
+    ).run_export()
+    return TriggerExportResponse(
+        status=outcome.status,
+        accounts_mapped=outcome.accounts_mapped,
+        transactions_attempted=outcome.transactions_attempted,
+        transactions_exported=outcome.transactions_exported,
+        transactions_failed=outcome.transactions_failed,
+        transactions_skipped=0,
+        holdings_exported=0,
+        csv_files=[],
+        duration_s=outcome.duration_s,
+        error_message=outcome.error_message,
+    )
 
 
 @router.get("/config", response_model=ExporterConfigResponse)
@@ -487,6 +579,12 @@ async def retry_export_run(
                     " Set EXPORTER_ACTUAL_BUDGET_ENABLED=true to enable."
                 ),
             )
+    elif exporter_type == "firefly":
+        if not settings.exporter_firefly_enabled:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Firefly exporter is disabled.",
+            )
     else:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -530,7 +628,7 @@ async def retry_export_run(
             tenant_id=_auth.tenant_id,
         )
         outcome: Any = await exporter.run_export()
-    else:
+    elif exporter_type == "actual-budget":
         ab_config = ActualBudgetConfig.from_settings(settings)
         exporter = ActualBudgetExporter(
             session_factory=container.session_factory,
@@ -538,6 +636,12 @@ async def retry_export_run(
             tenant_id=_auth.tenant_id,
         )
         outcome = await exporter.run_export()
+    else:
+        outcome = await FireflyExporter(
+            session_factory=container.session_factory,
+            firefly_config=FireflyConfig.from_settings(settings),
+            tenant_id=_auth.tenant_id,
+        ).run_export()
 
     # The retry created a fresh ExportRun — report it from the result
     # (both exporter result types carry ``run_id``) instead of guessing

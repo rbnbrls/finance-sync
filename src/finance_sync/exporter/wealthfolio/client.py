@@ -19,6 +19,8 @@ Usage::
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import UTC, datetime
+from decimal import Decimal
 from typing import TYPE_CHECKING, Any
 
 import httpx
@@ -209,25 +211,63 @@ class WealthfolioClient:
         name: str,
         currency: str,
         provider_account_id: str,
+        account_type: str = "SECURITIES",
+        tracking_mode: str = "HOLDINGS",
     ) -> dict[str, Any]:
-        """Create a transaction-tracked securities account."""
+        """Create a Wealthfolio account with the requested tracking mode."""
         self._ensure_authenticated()
+        normalized_type = account_type.upper()
+        if normalized_type not in {"CASH", "SECURITIES"}:
+            message = f"Unsupported Wealthfolio account type: {account_type}"
+            raise ValueError(message)
+        normalized_tracking_mode = tracking_mode.upper()
+        if normalized_tracking_mode not in {"TRANSACTIONS", "HOLDINGS"}:
+            message = f"Unsupported tracking mode: {tracking_mode}"
+            raise ValueError(message)
         response = await self._client.post(
             f"{self.API_PREFIX}/accounts",
             json={
                 "name": name,
-                "accountType": "SECURITIES",
-                "group": "Investments",
+                "accountType": normalized_type,
+                "group": (
+                    "Cash" if normalized_type == "CASH" else "Investments"
+                ),
                 "currency": currency,
                 "isDefault": False,
                 "isActive": True,
                 "isArchived": False,
-                "trackingMode": "TRANSACTIONS",
+                "trackingMode": normalized_tracking_mode,
                 "platformId": None,
                 "accountNumber": None,
                 "meta": '{"managedBy":"finance-sync"}',
                 "provider": "FINANCE_SYNC",
                 "providerAccountId": provider_account_id,
+            },
+        )
+        response.raise_for_status()
+        return response.json()
+
+    async def update_account_tracking_mode(
+        self, account: dict[str, Any], tracking_mode: str
+    ) -> dict[str, Any]:
+        """Change an existing account to the mode required by its export."""
+        self._ensure_authenticated()
+        normalized = tracking_mode.upper()
+        response = await self._client.put(
+            f"{self.API_PREFIX}/accounts/{account['id']}",
+            json={
+                "id": account["id"],
+                "name": account["name"],
+                "accountType": account["accountType"],
+                "currency": account["currency"],
+                "isDefault": account.get("isDefault", False),
+                "isActive": account.get("isActive", True),
+                "isArchived": account.get("isArchived", False),
+                "trackingMode": normalized,
+                "group": account.get("group"),
+                "provider": account.get("provider"),
+                "providerAccountId": account.get("providerAccountId"),
+                "meta": account.get("meta"),
             },
         )
         response.raise_for_status()
@@ -239,6 +279,8 @@ class WealthfolioClient:
         name: str,
         currency: str,
         provider_account_id: str,
+        account_type: str = "SECURITIES",
+        tracking_mode: str = "HOLDINGS",
     ) -> dict[str, Any]:
         """Return the stable finance-sync account mapping, creating it once."""
         accounts = await self.get_accounts()
@@ -252,6 +294,8 @@ class WealthfolioClient:
             name=name,
             currency=currency,
             provider_account_id=provider_account_id,
+            account_type=account_type,
+            tracking_mode=tracking_mode,
         )
 
     # ── Public API: Activities ──────────────────────────────────────
@@ -363,6 +407,115 @@ class WealthfolioClient:
                 "snapshots": holdings,
             },
         )
+        response.raise_for_status()
+        return response.json()
+
+    async def save_manual_holdings(
+        self,
+        holdings: list[dict[str, Any]],
+        account_id: str,
+        *,
+        cash_balances: dict[str, str] | None = None,
+        snapshot_date: str,
+    ) -> dict[str, Any]:
+        """Save a current manual holdings snapshot.
+
+        Wealthfolio's CSV snapshot importer stores historical positions but
+        does not use the supplied price as the current quote.  The account
+        holdings form uses ``POST /snapshots`` and manual quotes, which is
+        the contract needed for connector-owned current valuations.
+        """
+        self._ensure_authenticated()
+        payload = {
+            "accountId": account_id,
+            "holdings": holdings,
+            "cashBalances": cash_balances or {},
+            "snapshotDate": snapshot_date,
+        }
+        response = await self._client.post(
+            f"{self.API_PREFIX}/snapshots", json=payload
+        )
+        response.raise_for_status()
+
+        # The manual snapshot records quantities; current prices come from
+        # Wealthfolio's manual quote table.  Resolve the assets after the
+        # snapshot so symbols newly created by this request are included.
+        assets = await self.get_assets()
+        by_symbol = {
+            str(asset.get("displayCode") or asset.get("symbol")): asset
+            for asset in assets
+            if asset.get("id")
+        }
+        for holding in holdings:
+            price = holding.get("unitPrice")
+            symbol = str(holding.get("symbol") or "")
+            asset = by_symbol.get(symbol)
+            if price is None or asset is None:
+                continue
+            source_value = holding.get("sourceValue")
+            if source_value is not None:
+                quantity = Decimal(str(holding["quantity"]))
+                stored_quantity = quantity.quantize(Decimal("0.01"))
+                if stored_quantity:
+                    price = str(Decimal(str(source_value)) / stored_quantity)
+            existing_quotes = await self.get_quote_history(str(asset["id"]))
+            for existing in existing_quotes:
+                if (
+                    existing.get("dataSource") == "MANUAL"
+                    and str(existing.get("timestamp", ""))[:10] == snapshot_date
+                ):
+                    await self.delete_quote(str(existing["id"]))
+            quote = {
+                "id": f"{asset['id']}_{datetime.now(UTC).timestamp()}_MANUAL",
+                "createdAt": datetime.now(UTC).isoformat(),
+                "dataSource": "MANUAL",
+                "timestamp": datetime.now(UTC).isoformat(),
+                "assetId": asset["id"],
+                "open": price,
+                "high": price,
+                "low": price,
+                "volume": 0,
+                "close": price,
+                "adjclose": price,
+                "currency": holding.get("currency") or "EUR",
+            }
+            quote_response = await self._client.put(
+                f"{self.API_PREFIX}/market-data/quotes/{asset['id']}",
+                json=quote,
+            )
+            quote_response.raise_for_status()
+
+        # Re-save after quotes are present so the live account valuation is
+        # recalculated immediately, including on a first-time asset import.
+        if holdings:
+            response = await self._client.post(
+                f"{self.API_PREFIX}/snapshots", json=payload
+            )
+            response.raise_for_status()
+        return response.json() if response.content else {}
+
+    async def get_quote_history(self, asset_id: str) -> list[dict[str, Any]]:
+        """Fetch stored quotes for an asset."""
+        self._ensure_authenticated()
+        response = await self._client.get(
+            f"{self.API_PREFIX}/market-data/quotes/history",
+            params={"symbol": asset_id},
+        )
+        response.raise_for_status()
+        return response.json()
+
+    async def delete_quote(self, quote_id: str) -> None:
+        """Delete one quote owned by the connector."""
+        self._ensure_authenticated()
+        response = await self._client.delete(
+            f"{self.API_PREFIX}/market-data/quotes/id/{quote_id}"
+        )
+        response.raise_for_status()
+
+    async def get_assets(self) -> list[dict[str, Any]]:
+        """Fetch Wealthfolio assets used to attach manual quotes."""
+        self._ensure_authenticated()
+        response = await self._client.get(f"{self.API_PREFIX}/assets")
         response.raise_for_status()
         return response.json()
 

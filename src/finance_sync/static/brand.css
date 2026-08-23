@@ -1,0 +1,40 @@
+/* finance-sync UI Design System v1.0 — Finance_Sync_Huisstijl_Gids.pdf */
+:root {
+    --bg: #0F172A !important;
+    --surface: #1E293B !important;
+    --surface-2: #334155 !important;
+    --border: #334155 !important;
+    --text: #F8FAFC !important;
+    --text-muted: #94A3B8 !important;
+    --accent: #10B981 !important;
+    --accent-hover: #059669 !important;
+    --accent-secondary: #06B6D4 !important;
+    --green: #10B981 !important;
+    --red: #F87171 !important;
+    --yellow: #FBBF24 !important;
+    --radius: 12px !important;
+    --font: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
+    --font-mono: "JetBrains Mono", "Fira Code", ui-monospace, SFMono-Regular, Menlo, monospace !important;
+}
+
+html[data-theme="light"] {
+    --bg: #F8FAFC !important;
+    --surface: #FFFFFF !important;
+    --surface-2: #E2E8F0 !important;
+    --border: #CBD5E1 !important;
+    --text: #0F172A !important;
+    --text-muted: #64748B !important;
+    --accent: #0D9488 !important;
+    --accent-hover: #0F766E !important;
+    --accent-secondary: #0284C7 !important;
+    --green: #0D9488 !important;
+}
+
+body { font-family: var(--font); }
+code, pre, textarea, .data-value, .metric-value { font-family: var(--font-mono); }
+.mdi { line-height: 1; vertical-align: -0.1em; }
+.icon, .type-icon, .check, .cap, .upload-dropzone-icon { font-family: "Material Design Icons"; }
+.sidebar-nav .icon { font-size: 1.15rem; color: var(--accent-secondary); }
+.btn-primary, .btn-success { box-shadow: 0 4px 14px rgba(16, 185, 129, .18); }
+.btn-primary:hover, .btn-success:hover { background: var(--accent-hover); }
+.card, .connector-card, .login-box, .auth-box { box-shadow: 0 8px 24px rgba(15, 23, 42, .18); }

@@ -1,6 +1,6 @@
 [project]
 name = "finance-sync"
-version = "0.1.0"
+version = "0.5.0"
 description = "Self-hosted, API-first financial data platform"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -66,6 +66,7 @@ manual_expense = "finance_sync.connectors.manual_expense:ManualExpenseConnector"
 plaid_like = "finance_sync.connectors.plaid_like:PlaidLikeConnector"
 ynab = "finance_sync.connectors.ynab:YnabConnector"
 degiro_pension = "finance_sync.connectors.degiro_pension:DegiroPensionConnector"
+saxo_investor = "finance_sync.connectors.saxo_investor:SaxoInvestorConnector"
 
 [project.scripts]
 finance-sync = "finance_sync.cli:main"

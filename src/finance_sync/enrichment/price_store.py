@@ -213,7 +213,10 @@ class PriceStore:
     def _to_observation(row: SecurityPrice) -> PriceObservation:
         """Convert a SecurityPrice ORM row to a PriceObservation DTO."""
         return PriceObservation(
-            security_id=row.security_id,
+            # PostgreSQL UUID columns are returned as UUID objects by
+            # asyncpg while the public enrichment DTO intentionally uses a
+            # provider-agnostic string identifier.
+            security_id=str(row.security_id),
             timestamp=row.timestamp,
             price_open=_to_decimal(row.price_open),
             price_high=_to_decimal(row.price_high),
