@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from finance_sync.api.deps.auth import AuthContext, require_permission
 from finance_sync.dependencies import get_db
 from finance_sync.enrichment.models import EnrichmentStatusSummary
 from finance_sync.models.enrichment_freshness import EnrichmentFreshness
@@ -18,6 +19,7 @@ router = APIRouter(tags=["enrichment"])
 
 @router.get("/enrichment/status")
 async def get_enrichment_status(
+    _auth: AuthContext = Depends(require_permission("enrichment", "read")),
     session: AsyncSession = Depends(get_db),
 ) -> EnrichmentStatusSummary:
     """Return enrichment coverage and freshness statistics.

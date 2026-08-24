@@ -52,7 +52,7 @@ class TestRootEndpoint:
         assert response.status_code == 200
         data: dict[str, Any] = response.json()
         assert data["status"] == "ok"
-        assert data["version"] == "0.7.0"
+        assert data["version"] == "0.7.2"
 
     def test_root_content_type(self, client: TestClient) -> None:
         response: Response = client.get("/api/v1/")
@@ -116,4 +116,4 @@ class TestAppFactory:
         assert response.status_code == 200
         schema: dict[str, Any] = response.json()
         assert schema["info"]["title"] == "finance-sync"
-        assert schema["info"]["version"] == "0.7.0"
+        assert schema["info"]["version"] == "0.7.2"

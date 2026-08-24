@@ -924,6 +924,44 @@
         .chain-add { flex:0 0 42px; height:42px; border:1px dashed color-mix(in srgb, var(--accent) 65%, var(--border)); border-radius:13px; background:transparent; color:var(--accent); font-size:1.35rem; cursor:pointer; display:grid; place-items:center; margin-left:9px; transition:background .15s, border-color .15s; }
         .chain-add:hover { background:color-mix(in srgb, var(--accent) 10%, transparent); border-color:var(--accent); }
         .overview-empty { color:var(--text-muted); font-size:.84rem; padding:14px 0 4px; }
+        .control-status { display:flex; justify-content:space-between; align-items:center; gap:16px; padding:18px 20px; margin-bottom:16px; border:1px solid var(--border); border-radius:14px; background:var(--surface); }
+        .control-status h2 { font-size:1.1rem; margin-bottom:5px; }
+        .control-status p { color:var(--text-muted); font-size:.82rem; }
+        .control-status[data-status="sync_failed"] { border-color:color-mix(in srgb, var(--red) 55%, var(--border)); }
+        .control-status[data-status="attention_required"], .control-status[data-status="partial"] { border-color:color-mix(in srgb, var(--yellow) 55%, var(--border)); }
+        .control-status-label { display:inline-flex; align-items:center; gap:8px; font-weight:700; }
+        .control-status-label::before { content:""; width:10px; height:10px; border-radius:50%; background:var(--green); }
+        .control-status[data-status="sync_failed"] .control-status-label::before { background:var(--red); }
+        .control-status[data-status="attention_required"] .control-status-label::before, .control-status[data-status="partial"] .control-status-label::before { background:var(--yellow); }
+        .control-section { margin-top:16px; }
+        .control-section .card-header { margin-bottom:14px; }
+        .issue-list, .control-list { display:grid; gap:10px; }
+        .issue-card { display:flex; justify-content:space-between; align-items:flex-start; gap:16px; padding:15px; background:var(--surface-2); border:1px solid var(--border); border-radius:10px; }
+        .issue-card h3 { font-size:.92rem; margin:6px 0 4px; }
+        .issue-card p { color:var(--text-muted); font-size:.8rem; line-height:1.45; }
+        .issue-card .btn { flex:0 0 auto; }
+        .control-actions { display:flex; flex-wrap:wrap; gap:6px; }
+        .action-result { min-height:1.2em; margin-top:6px; color:var(--text-muted); font-size:.78rem; }
+        .action-result.success { color:var(--green); }
+        .action-result.error { color:var(--red); }
+        .disabled-reason { display:block; color:var(--text-muted); font-size:.72rem; margin-top:4px; }
+        .control-table-wrap { overflow-x:auto; }
+        .severity { display:inline-block; border-radius:20px; padding:3px 8px; font-size:.68rem; font-weight:700; text-transform:uppercase; letter-spacing:.04em; }
+        .severity-error { color:var(--red); background:rgba(248,113,113,.14); }
+        .severity-warning { color:var(--yellow); background:rgba(251,191,36,.14); }
+        .severity-info { color:var(--accent); background:rgba(108,99,255,.14); }
+        .control-table-wrap { overflow-x:auto; }
+        .control-table td { font-size:.8rem; }
+        .control-table .muted { color:var(--text-muted); }
+        .control-actions { display:flex; gap:6px; flex-wrap:wrap; }
+        .action-result { margin-top:8px; font-size:.78rem; color:var(--text-muted); }
+        .action-result.success { color:var(--green); }
+        .action-result.error { color:var(--red); }
+        .quality-grid { display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); gap:10px; }
+        .quality-stat { background:var(--bg); border:1px solid var(--border); border-radius:10px; padding:13px; }
+        .quality-stat strong { display:block; font-size:1.25rem; margin-bottom:4px; }
+        .quality-stat span { color:var(--text-muted); font-size:.75rem; }
+        @media (max-width: 760px) { .control-status, .issue-card { flex-direction:column; align-items:stretch; } .quality-grid { grid-template-columns:repeat(2, minmax(0, 1fr)); } }
         @media (max-width: 760px) { .overview-grid { grid-template-columns:1fr; } .overview-runs { grid-column:auto; } .run-summary { grid-template-columns:repeat(2,1fr); } .overview-header { align-items:flex-start; flex-direction:column; gap:8px; } .chain { padding-bottom:14px; } }
         @media (max-width: 420px) { .run-summary { grid-template-columns:1fr 1fr; gap:8px; } .run-stat { padding:11px; } .overview-value { font-size:1.85rem; } }
     </style>
@@ -938,7 +976,7 @@
     <aside class="sidebar" id="sidebar" aria-label="Main navigation">
         <div class="sidebar-header">
             <h1>finance<span>-sync</span></h1>
-            <div class="version">v0.7.0 &middot; Control Panel</div>
+            <div class="version">v0.7.2 &middot; Control Panel</div>
         </div>
         <nav class="sidebar-nav" aria-label="Sections">
             <a href="#" class="active" data-section="overview" aria-current="page" onclick="switchSection('overview')">
@@ -979,6 +1017,7 @@
                 <div><div class="overview-kicker">Finance-sync control center</div><h1 class="page-title" id="overview-title">Goedemorgen, welkom terug</h1><p class="page-subtitle" style="margin-bottom:0;">Een helder overzicht van je financiële dataketen.</p></div>
                 <button type="button" class="btn btn-secondary btn-sm" onclick="loadOverview()"><span class="mdi mdi-refresh"></span> Vernieuwen</button>
             </div>
+            <div id="control-status" class="control-status" data-status="loading" aria-live="polite" aria-busy="true"><div><h2 class="control-status-label">Control plane laden…</h2><p>De laatste controle wordt opgehaald.</p></div><span class="spinner" aria-hidden="true"></span></div>
             <div class="overview-grid" id="overview-status-grid" aria-live="polite" aria-busy="true">
                 <div class="overview-card"><div class="overview-card-top"><span class="overview-card-label">Importers</span><span class="overview-icon mdi mdi-download-outline"></span></div><div class="overview-value">—</div><p class="overview-detail">Status wordt geladen…</p></div>
                 <div class="overview-card database"><div class="overview-card-top"><span class="overview-card-label">Centrale database</span><span class="overview-icon mdi mdi-database-outline"></span></div><div class="overview-value">—</div><p class="overview-detail">Status wordt geladen…</p></div>
@@ -986,6 +1025,11 @@
                 <div class="overview-card overview-runs"><div class="overview-card-top"><div><span class="overview-card-label">Sync Runs</span><p class="chain-subtitle">De laatste synchronisaties in één oogopslag.</p></div><span class="overview-status">Systeem actief</span></div><div class="run-summary"><div class="run-stat success"><strong>—</strong><span>Voltooid</span></div><div class="run-stat active"><strong>—</strong><span>Bezig</span></div><div class="run-stat failure"><strong>—</strong><span>Mislukt</span></div><div class="run-stat"><strong>—</strong><span>Totaal bekeken</span></div></div></div>
             </div>
             <div class="card chain-card"><div class="card-header"><div><h2>Jouw dataketen</h2><p class="chain-subtitle">Van bron naar centrale database en door naar je actieve bestemmingen.</p></div><span class="badge connected">Live</span></div><div id="overview-chain" class="chain" aria-live="polite"><div class="overview-empty"><span class="spinner"></span> Keten wordt geladen…</div></div></div>
+            <div class="card control-section"><div class="card-header"><div><h2>Actiecentrum</h2><p class="chain-subtitle">Problemen met een concrete vervolgstap.</p></div></div><div id="control-issues" class="issue-list" aria-live="polite" aria-busy="true"><div class="overview-empty"><span class="spinner"></span> Issues laden…</div></div></div>
+            <div class="card control-section"><div class="card-header"><h2>Verbindingen</h2><button type="button" class="btn btn-secondary btn-sm" onclick="switchSection('connectors')">Beheren</button></div><div id="control-connections" class="control-list" aria-live="polite" aria-busy="true"><div class="overview-empty">Verbindingen laden…</div></div></div>
+            <div class="card control-section"><div class="card-header"><h2>Synchronisaties</h2><button type="button" class="btn btn-secondary btn-sm" onclick="switchSection('sync')">Alle runs</button></div><div id="control-syncs" class="control-list" aria-live="polite" aria-busy="true"><div class="overview-empty">Synchronisaties laden…</div></div></div>
+            <div class="card control-section"><div class="card-header"><h2>Datakwaliteit</h2><span id="control-quality-status" class="badge pending">Laden…</span></div><div id="control-quality" aria-live="polite" aria-busy="true"><div class="overview-empty">Datakwaliteit laden…</div></div></div>
+            <div class="card control-section"><div class="card-header"><h2>Bestemmingen</h2><button type="button" class="btn btn-secondary btn-sm" onclick="switchSection('exporters')">Beheren</button></div><div id="control-destinations" class="control-list" aria-live="polite" aria-busy="true"><div class="overview-empty">Bestemmingen laden…</div></div></div>
         </div>
         <div id="section-connectors" class="hidden" role="region" aria-labelledby="connectors-title">
             <h1 class="page-title" id="connectors-title">Importers</h1>
@@ -1164,50 +1208,153 @@
         // ── Startpagina ────────────────────────────────────────────────
         async function loadOverview() {
             const grid = document.getElementById('overview-status-grid');
-            const chain = document.getElementById('overview-chain');
             if (grid) grid.setAttribute('aria-busy', 'true');
-            const results = await Promise.allSettled([
-                api('GET', '/connectors/configs'),
-                api('GET', '/destinations'),
-                api('GET', '/sync-runs?limit=1'),
-                api('GET', '/accounts?limit=1'),
-                api('GET', '/holdings?limit=1'),
-                api('GET', '/transactions?limit=1'),
-            ]);
-            const value = i => results[i].status === 'fulfilled' ? results[i].value : null;
-            const importers = (value(0) || []).filter(c => c.provider_type !== 'degiro_pension');
-            const exporters = value(1) || [];
-            const runs = value(2) || {};
-            const runCounts = {};
-            (runs.status_counts || []).forEach(c => { runCounts[c.status] = (runCounts[c.status] || 0) + Number(c.count || 0); });
-            const totalRuns = Object.values(runCounts).reduce((a, b) => a + b, 0) || Number(runs.total || 0);
-            const dbItems = [value(3), value(4), value(5)].filter(Boolean).reduce((sum, r) => sum + Number(r.total ?? (r.items || []).length ?? 0), 0);
-            const activeImporters = importers.filter(c => c.status !== 'paused');
-            const activeExporters = exporters.filter(d => d.status === 'active');
+            ['control-status', 'control-issues', 'control-connections', 'control-syncs', 'control-quality', 'control-destinations'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.setAttribute('aria-busy', 'true');
+            });
+            try {
+                const [overviewResult, qualityResult] = await Promise.allSettled([
+                    api('GET', '/control-plane/overview'),
+                    api('GET', '/control-plane/data-quality'),
+                ]);
+                if (overviewResult.status === 'rejected') throw overviewResult.reason;
+                renderControlPlane(overviewResult.value, qualityResult.status === 'fulfilled' ? qualityResult.value : null);
+                if (qualityResult.status === 'rejected') {
+                    renderInlineError('control-quality', 'Datakwaliteit kon niet worden geladen.', qualityResult.reason?.message, loadOverview);
+                }
+            } catch (error) {
+                renderInlineError('control-issues', 'Control plane kon niet worden geladen.', error?.message, loadOverview);
+                ['control-connections', 'control-syncs', 'control-quality', 'control-destinations'].forEach(id => {
+                    const el = document.getElementById(id);
+                    if (el) { el.setAttribute('aria-busy', 'false'); el.innerHTML = '<div class="overview-empty">Niet beschikbaar zolang de control plane niet geladen is.</div>'; }
+                });
+            } finally {
+                if (grid) grid.setAttribute('aria-busy', 'false');
+            }
+        }
+
+        const controlStatusLabels = {
+            healthy: 'Alles in orde', attention_required: 'Aandacht vereist',
+            sync_failed: 'Synchronisatie mislukt', partial: 'Data gedeeltelijk beschikbaar',
+        };
+
+        function formatControlDate(value) {
+            if (!value) return '—';
+            const date = new Date(value);
+            return Number.isNaN(date.getTime()) ? '—' : date.toLocaleString('nl-NL', { dateStyle: 'medium', timeStyle: 'short' });
+        }
+
+        function readableStatus(value) {
+            return ({ healthy: 'Gezond', active: 'Actief', pending: 'In afwachting', paused: 'Gepauzeerd', error: 'Fout', failed: 'Mislukt', running: 'Bezig', completed: 'Voltooid', partial: 'Gedeeltelijk', skipped: 'Overgeslagen', cancelled: 'Geannuleerd', stale: 'Verouderd', unavailable: 'Niet beschikbaar', fresh: 'Actueel' })[value] || value || 'Onbekend';
+        }
+
+        function controlBadge(value) {
+            const tone = ['healthy', 'active', 'completed', 'fresh'].includes(value) ? 'connected' : ['failed', 'error'].includes(value) ? 'disconnected' : 'pending';
+            return `<span class="badge ${tone}">${escapeHtml(readableStatus(value))}</span>`;
+        }
+
+        function renderControlPlane(data, quality = null) {
+            const status = data.status || 'partial';
+            const statusEl = document.getElementById('control-status');
+            if (statusEl) {
+                statusEl.dataset.status = status;
+                statusEl.setAttribute('aria-busy', 'false');
+                statusEl.innerHTML = `<div><h2 class="control-status-label">${escapeHtml(controlStatusLabels[status] || readableStatus(status))}</h2><p>Laatste controle: ${escapeHtml(formatControlDate(data.generated_at))}</p></div><span class="badge ${status === 'healthy' ? 'connected' : status === 'sync_failed' ? 'disconnected' : 'pending'}">${escapeHtml(data.summary?.issues_open ? `${data.summary.issues_open} open issues` : 'Geen open issues')}</span>`;
+            }
+            const summary = data.summary || {};
+            const connections = data.connections || [];
+            const destinations = data.destinations || [];
+            const syncs = data.syncs || [];
+            const healthyConnections = summary.connections_healthy ?? connections.filter(c => c.status === 'healthy').length;
             const card = (selector, number, detail, status = 'connected', label = 'Actief') => {
                 const el = document.querySelector(selector);
                 if (!el) return;
                 el.querySelector('.overview-value').textContent = number;
                 el.querySelector('.overview-detail').innerHTML = `<span class="overview-status ${status === 'connected' ? '' : status === 'pending' ? 'warn' : 'off'}">${escapeHtml(label)}</span> · ${escapeHtml(detail)}`;
             };
-            card('.overview-card:not(.database):not(.export):not(.overview-runs)', activeImporters.length, `${importers.length} gekoppeld`, activeImporters.length ? 'connected' : 'off', activeImporters.length ? 'Alle systemen werken' : 'Nog geen koppeling');
-            card('.overview-card.database', dbItems.toLocaleString('nl-NL'), 'records gecontroleerd', 'connected', 'Beschikbaar');
-            card('.overview-card.export', activeExporters.length, `${exporters.length} geconfigureerd`, activeExporters.length ? 'connected' : 'off', activeExporters.length ? 'Actief' : 'Geen actieve exporter');
+            card('.overview-card:not(.database):not(.export):not(.overview-runs)', connections.length, `${healthyConnections} gezond`, healthyConnections === connections.length ? 'connected' : 'pending', healthyConnections === connections.length ? 'Alle systemen werken' : 'Controle nodig');
+            card('.overview-card.database', Number(summary.connections_total || 0).toLocaleString('nl-NL'), 'verbindingen gecontroleerd', 'connected', 'Beschikbaar');
+            card('.overview-card.export', destinations.length, `${summary.destinations_failed || 0} met fout`, summary.destinations_failed ? 'pending' : 'connected', summary.destinations_failed ? 'Controle nodig' : 'Actief');
             const runStats = document.querySelectorAll('.run-stat strong');
-            if (runStats.length) { runStats[0].textContent = runCounts.completed || 0; runStats[1].textContent = runCounts.running || 0; runStats[2].textContent = runCounts.failed || 0; runStats[3].textContent = totalRuns; }
-            renderOverviewChain(activeImporters, activeExporters);
-            if (grid) grid.setAttribute('aria-busy', 'false');
+            if (runStats.length) { runStats[0].textContent = syncs.filter(r => r.status === 'completed').length; runStats[1].textContent = syncs.filter(r => r.status === 'running').length; runStats[2].textContent = summary.syncs_failed || syncs.filter(r => r.status === 'failed').length; runStats[3].textContent = syncs.length; }
+            renderOverviewChain(connections, destinations);
+            renderControlIssues(data.issues || []);
+            renderControlConnections(connections);
+            renderControlSyncs(syncs);
+            renderControlQuality(data.freshness || {}, data.coverage || {}, quality);
+            renderControlDestinations(destinations);
         }
 
         function renderOverviewChain(importers, exporters) {
             const container = document.getElementById('overview-chain');
             if (!container) return;
-            const importerNodes = importers.slice(0, 3).map(c => `<div class="chain-node"><span class="chain-circle mdi mdi-bank-outline"></span><div><div class="chain-label">${escapeHtml(c.display_name || c.provider_type || 'Importer')}</div><div class="chain-meta">Actief</div></div></div>`).join('<span class="chain-line"></span>');
-            const exporterNodes = exporters.slice(0, 3).map(d => `<span class="chain-line"></span><div class="chain-node"><span class="chain-circle exporter mdi mdi-export-variant"></span><div><div class="chain-label">${escapeHtml(d.display_name || d.target_type || 'Exporter')}</div><div class="chain-meta">Actief</div></div></div>`).join('');
+            const importerNodes = importers.slice(0, 3).map(c => `<div class="chain-node"><span class="chain-circle mdi mdi-bank-outline"></span><div><div class="chain-label">${escapeHtml(c.name || c.provider || 'Bron')}</div><div class="chain-meta">${escapeHtml(readableStatus(c.status))}</div></div></div>`).join('<span class="chain-line"></span>');
+            const exporterNodes = exporters.slice(0, 3).map(d => `<span class="chain-line"></span><div class="chain-node"><span class="chain-circle exporter mdi mdi-export-variant"></span><div><div class="chain-label">${escapeHtml(d.name || d.type || 'Bestemming')}</div><div class="chain-meta">${escapeHtml(readableStatus(d.status))}</div></div></div>`).join('');
             const moreImporters = importers.length > 3 ? `<span class="chain-meta" style="margin:0 5px;">+${importers.length - 3}</span>` : '';
             const moreExporters = exporters.length > 3 ? `<span class="chain-meta" style="margin:0 5px;">+${exporters.length - 3}</span>` : '';
             container.innerHTML = `${importerNodes || '<div class="overview-empty">Nog geen actieve importer</div>'}${moreImporters}<span class="chain-line"></span><div class="chain-node"><span class="chain-circle center mdi mdi-database-outline"></span><div><div class="chain-label">Centrale database</div><div class="chain-meta">Bron van waarheid</div></div></div>${exporterNodes}${moreExporters}<button class="chain-add" type="button" title="Nieuwe koppeling toevoegen" aria-label="Nieuwe koppeling toevoegen" onclick="openOverviewCreateWizard();"><span class="mdi mdi-plus"></span></button>`;
         }
+
+        function renderControlIssues(issues) {
+            const el = document.getElementById('control-issues'); if (!el) return;
+            el.setAttribute('aria-busy', 'false');
+            el.innerHTML = issues.length ? issues.map(issue => `<article class="issue-card"><div><span class="severity severity-${escapeHtml(issue.severity)}">${escapeHtml(issue.severity)}</span><h3>${escapeHtml(issue.title)}</h3><p>${escapeHtml(issue.description)}</p>${issue.provider ? `<span class="muted">Bron: ${escapeHtml(issue.provider)}</span>` : ''}${issue.impact_count ? `<span class="muted"> · Impact: ${escapeHtml(issue.impact_count)}</span>` : ''}<div class="action-result" id="issue-result-${escapeHtml(issue.id)}" aria-live="polite" tabindex="-1"></div></div><div class="control-actions">${renderControlActions([issue.action], `issue-result-${issue.id}`)}</div></article>`).join('') : '<div class="overview-empty">Geen open problemen. De datastroom werkt zoals verwacht.</div>';
+        }
+
+        function renderControlActions(actions, resultId = '') {
+            return (actions || []).map((item) => {
+                const action = item || {};
+                const reason = action.disabled_reason ? `<span class="disabled-reason">${escapeHtml(action.disabled_reason)}</span>` : '';
+                return `<div><button type="button" class="btn ${action.destructive ? 'btn-danger' : 'btn-secondary'} btn-sm" data-action-key="${escapeHtml(action.key)}" data-method="${escapeHtml(action.method || 'GET')}" data-path="${escapeHtml(action.path || '')}" data-result-id="${escapeHtml(resultId)}" ${action.enabled === false ? 'disabled' : ''} onclick="runControlAction(this)">${escapeHtml(action.label || 'Actie')}</button>${reason}</div>`;
+            }).join('');
+        }
+
+        function renderControlConnections(items) {
+            const el = document.getElementById('control-connections'); if (!el) return; el.setAttribute('aria-busy', 'false');
+            el.innerHTML = items.length ? `<div class="control-table-wrap"><table class="data-table control-table"><thead><tr><th>Verbinding</th><th>Status</th><th>Laatste sync</th><th>Volgende run</th><th>Actie</th></tr></thead><tbody>${items.map(c => `<tr><td><strong>${escapeHtml(c.name)}</strong><br><span class="muted">${escapeHtml(c.provider)}</span></td><td>${controlBadge(c.status)}</td><td class="muted">${escapeHtml(formatControlDate(c.last_success_at || c.last_attempt_at))}</td><td class="muted">${escapeHtml(formatControlDate(c.next_scheduled_at))}</td><td class="control-actions"><button type="button" class="btn btn-secondary btn-sm" onclick="switchSection('connectors')">Details</button>${renderControlActions(c.actions)}</td></tr>`).join('')}</tbody></table></div>` : '<div class="overview-empty">Nog geen verbindingen. Voeg een verbinding toe om te beginnen.</div>';
+        }
+
+        function renderControlSyncs(items) {
+            const el = document.getElementById('control-syncs'); if (!el) return; el.setAttribute('aria-busy', 'false');
+            el.innerHTML = items.length ? `<div class="control-table-wrap"><table class="data-table control-table"><thead><tr><th>Connector</th><th>Status</th><th>Gestart</th><th>Aantallen</th><th>Actie</th></tr></thead><tbody>${items.slice(0, 10).map(r => `<tr><td>${escapeHtml(r.connector)}</td><td>${controlBadge(r.status)}${r.error_category ? `<br><span class="muted">${escapeHtml(r.error_category)}</span>` : ''}</td><td class="muted">${escapeHtml(formatControlDate(r.started_at))}</td><td class="muted">${escapeHtml(r.items_processed ?? '—')}</td><td class="control-actions">${renderControlActions(r.actions)}</td></tr>`).join('')}</tbody></table></div>` : '<div class="overview-empty">Nog geen synchronisaties uitgevoerd.</div>';
+        }
+
+        function renderControlQuality(freshness, coverage, quality = null) {
+            const el = document.getElementById('control-quality'); const badge = document.getElementById('control-quality-status'); if (!el) return; el.setAttribute('aria-busy', 'false');
+            if (badge) { badge.className = `badge ${freshness.status === 'fresh' ? 'connected' : 'pending'}`; badge.textContent = readableStatus(freshness.status); }
+            const findings = quality?.findings_total ?? 0;
+            const qualityDetail = quality ? ` · ${findings} reconciliatiebevindingen · laatste run ${escapeHtml(formatControlDate(quality.latest_run_at))}` : '';
+            el.innerHTML = `<div class="quality-grid"><div class="quality-stat"><strong>${escapeHtml(freshness.securities_fresh ?? 0)}</strong><span>Actuele koersen</span></div><div class="quality-stat"><strong>${escapeHtml(freshness.securities_stale ?? 0)}</strong><span>Verouderde koersen</span></div><div class="quality-stat"><strong>${escapeHtml(freshness.securities_without_quote ?? 0)}</strong><span>Zonder koers</span></div><div class="quality-stat"><strong>${escapeHtml(freshness.holdings_without_valuation ?? 0)}</strong><span>Holdings zonder waardering</span></div><div class="quality-stat"><strong>${escapeHtml(coverage.connections_with_data ?? 0)} / ${escapeHtml(coverage.connections_total ?? 0)}</strong><span>Bronnen met data</span></div></div><p class="action-result">Laatste enrichment: ${escapeHtml(formatControlDate(freshness.last_enrichment_at))}${qualityDetail}</p>${quality?.issues?.length ? `<div class="issue-list">${quality.issues.slice(0, 5).map(issue => `<div class="issue-card"><div><strong>${escapeHtml(issue.title)}</strong><p>${escapeHtml(issue.description)}</p></div>${renderControlActions([issue.action])}</div>`).join('')}</div>` : '<p class="overview-empty">Geen reconciliatiebevindingen.</p>'}`;
+        }
+
+        function renderControlDestinations(items) {
+            const el = document.getElementById('control-destinations'); if (!el) return; el.setAttribute('aria-busy', 'false');
+            el.innerHTML = items.length ? `<div class="control-table-wrap"><table class="data-table control-table"><thead><tr><th>Bestemming</th><th>Status</th><th>Laatste export</th><th>Health check</th><th>Volgende run</th><th>Actie</th></tr></thead><tbody>${items.map(d => `<tr><td><strong>${escapeHtml(d.name)}</strong><br><span class="muted">${escapeHtml(d.type)}</span></td><td>${controlBadge(d.status)}${d.failed_export_count ? `<br><span class="muted">${escapeHtml(d.failed_export_count)} exportfouten</span>` : ''}</td><td>${controlBadge(d.last_export_status || 'pending')}<br><span class="muted">${escapeHtml(formatControlDate(d.last_export_at))}</span></td><td>${controlBadge(d.health_status || 'pending')}<br><span class="muted">${escapeHtml(formatControlDate(d.last_checked_at))}</span></td><td class="muted">${escapeHtml(formatControlDate(d.next_scheduled_at))}</td><td class="control-actions"><button type="button" class="btn btn-secondary btn-sm" onclick="switchSection('exporters')">Beheren</button>${renderControlActions(d.actions)}</td></tr>`).join('')}</tbody></table></div>` : '<div class="overview-empty">Nog geen bestemmingen geconfigureerd.</div>';
+        }
+
+        async function runControlAction(button) {
+            const method = button.dataset.method || 'GET'; const path = button.dataset.path || ''; const result = document.getElementById(button.dataset.resultId || '');
+            if (!path) return;
+            if (button.dataset.actionKey === 'map_security') { switchSection('connectors'); toast('Open de security-mappingflow vanuit de connectorgegevens.', 'info'); return; }
+            if (method === 'GET') { if (path.includes('/securities/unresolved')) switchSection('connectors'); else if (path.includes('/sync-runs')) switchSection('sync'); else if (path.includes('/destinations')) switchSection('exporters'); else window.location.href = path; return; }
+            if (button.dataset.busy === 'true') return;
+            button.dataset.busy = 'true'; button.disabled = true; button.setAttribute('aria-busy', 'true');
+            const original = button.textContent; button.textContent = 'Bezig…';
+            if (result) { result.className = 'action-result'; result.textContent = 'Actie wordt uitgevoerd…'; }
+            try { await api(method, path); if (result) { result.className = 'action-result success'; result.textContent = 'Uitgevoerd. Overzicht wordt vernieuwd.'; result.focus?.(); } await loadOverview(); }
+            catch (error) { if (result) { result.className = 'action-result error'; result.textContent = error?.message || 'Actie mislukt.'; } }
+            finally { button.dataset.busy = 'false'; button.disabled = false; button.removeAttribute('aria-busy'); button.textContent = original; }
+        }
+
+        async function retrySyncRun(runId, button) {
+            button.disabled = true;
+            try { await api('POST', `/sync-runs/${encodeURIComponent(runId)}/retry`); toast('Synchronisatie opnieuw gestart.', 'success'); await loadOverview(); }
+            catch (error) { toast(error?.message || 'Synchronisatie opnieuw proberen is mislukt.', 'error'); }
+            finally { button.disabled = false; }
+        }
+
+        function viewSyncRun(runId) { switchSection('sync'); setTimeout(() => { if (typeof loadSyncRunDetail === 'function') loadSyncRunDetail(runId); }, 0); }
 
         async function openOverviewCreateWizard() {
             if (!connectorCatalog.length) await loadConnectors();
@@ -1426,7 +1573,8 @@
         async function api(method, path, body = null) {
             const opts = { method, headers: authHeaders() };
             if (body !== null) opts.body = JSON.stringify(body);
-            const response = await fetch(`${API_BASE}${path}`, opts);
+            const normalizedPath = path.startsWith(API_BASE) ? path.slice(API_BASE.length) : path;
+            const response = await fetch(`${API_BASE}${normalizedPath}`, opts);
             if (response.status === 401) { redirectToLogin(); return null; }
             if (response.status === 204) return {};
             const data = await response.json();

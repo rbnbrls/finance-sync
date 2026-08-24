@@ -31,6 +31,7 @@ from finance_sync.sync.cards_pipeline import (
 __all__ = ["BunqCardsSyncResult", "SyncOrchestrator"]
 from finance_sync.sync.context import SyncContext
 from finance_sync.sync.errors import (
+    categorize_sync_error,
     classify_sync_error,
     safe_sync_error_message,
 )
@@ -177,12 +178,18 @@ class SyncOrchestrator(CardsSyncMixin):
                 if status == SyncRunStatus.COMPLETED:
                     cred.last_success_at = datetime.now(UTC)
                     cred.last_error = None
+                    cred.last_error_category = None
                 else:
                     from finance_sync.utils.redaction import sanitize_error
 
                     cred.last_error = sanitize_error(
                         str(error_message or "Unknown error"),
                         tuple((secrets or {}).values()),
+                    )
+                    from finance_sync.sync.errors import categorize_export_error
+
+                    cred.last_error_category = categorize_export_error(
+                        error_message
                     )
                 await session.commit()
         except Exception:
@@ -696,7 +703,12 @@ class SyncOrchestrator(CardsSyncMixin):
         except PermanentError as exc:
             end_ts = _dt.now(UTC)
             await self._mark_run_failed(
-                session, run, str(exc), log, connection_id=connection_id
+                session,
+                run,
+                str(exc),
+                log,
+                error_category=categorize_sync_error(exc),
+                connection_id=connection_id,
             )
             return SyncResult(
                 status=SyncRunStatus.FAILED,
@@ -710,7 +722,12 @@ class SyncOrchestrator(CardsSyncMixin):
         except (TransientError, ConnectorError) as exc:
             end_ts = _dt.now(UTC)
             await self._mark_run_failed(
-                session, run, str(exc), log, connection_id=connection_id
+                session,
+                run,
+                str(exc),
+                log,
+                error_category=categorize_sync_error(exc),
+                connection_id=connection_id,
             )
             return SyncResult(
                 status=SyncRunStatus.FAILED,
@@ -731,7 +748,12 @@ class SyncOrchestrator(CardsSyncMixin):
                 error=str(exc)[:500],
             )
             await self._mark_run_failed(
-                session, run, error_message, log, connection_id=connection_id
+                session,
+                run,
+                error_message,
+                log,
+                error_category=categorize_sync_error(exc),
+                connection_id=connection_id,
             )
             return SyncResult(
                 status=SyncRunStatus.FAILED,
@@ -757,6 +779,7 @@ class SyncOrchestrator(CardsSyncMixin):
         log: structlog.BoundLogger,
         *,
         connection_id: str | None = None,
+        error_category: str = "unknown",
     ) -> None:
         """Persist a failed SyncRun outside the main UoW (which rolled back).
 
@@ -789,6 +812,7 @@ class SyncOrchestrator(CardsSyncMixin):
                         reloaded,
                         status=SyncRunStatus.FAILED,
                         error_message=error_message[:2048],
+                        error_category=error_category,
                     )
                 else:
                     # The original row never made it to the DB — insert a
@@ -801,6 +825,7 @@ class SyncOrchestrator(CardsSyncMixin):
                             status=SyncRunStatus.FAILED,
                             completed_at=datetime.now(UTC),
                             error_message=error_message[:2048],
+                            error_category=error_category,
                         )
                     )
         except Exception as exc:

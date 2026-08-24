@@ -958,6 +958,17 @@ async def run_target(
     )
 
 
+@router.post("/{target_id}/retry", response_model=DestinationRunResponse)
+async def retry_target(
+    target_id: str,
+    request: Request,
+    auth: AuthContext = _Admin,
+    db: AsyncSession = Depends(get_db),
+) -> DestinationRunResponse:
+    """Retry a failed destination through its persisted target contract."""
+    return await run_target(target_id, request, auth, db)
+
+
 def _jupyter_notebook() -> str:
     """Return a starter notebook body; the caller supplies the one-time key."""
     return """# finance-sync personal datalake starter — consumer contract v1

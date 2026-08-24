@@ -15,4 +15,4 @@ def test_main_app_is_callable() -> None:
     from finance_sync.main import app
 
     assert app.title == "finance-sync"
-    assert app.version == "0.7.0"
+    assert app.version == "0.7.2"

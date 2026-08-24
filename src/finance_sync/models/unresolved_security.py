@@ -32,6 +32,7 @@ class UnresolvedSecurity(TimestampMixin, Base):
     __tablename__ = "unresolved_securities"
     __table_args__: ClassVar = (
         UniqueConstraint(
+            "tenant_id",
             "provider_key",
             "external_security_id",
             name="uq_unresolved_provider_ext_id",
@@ -39,6 +40,9 @@ class UnresolvedSecurity(TimestampMixin, Base):
     )
 
     id: Mapped[str] = pk_uuid()
+    tenant_id: Mapped[str] = mapped_column(
+        ForeignKey("tenants.id"), nullable=False, index=True
+    )
 
     # ── Connector provenance ────────────────────────────────────────────
     provider_key: Mapped[str] = mapped_column(

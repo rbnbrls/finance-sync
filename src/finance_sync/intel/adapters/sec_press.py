@@ -66,7 +66,7 @@ logger = structlog.get_logger(__name__)
 _PRESS_RSS_URL = "https://www.sec.gov/news/pressreleases.rss"
 
 #: SEC fair-access: max 10 req/s and a descriptive UA are required.
-_USER_AGENT = "finance-sync/0.7.0 contact@example.com"
+_USER_AGENT = "finance-sync/0.7.2 contact@example.com"
 
 
 class SecPressReleaseProvider(IntelProvider):

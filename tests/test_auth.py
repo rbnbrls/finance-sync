@@ -212,7 +212,10 @@ class TestCredentialEncryption:
         assert decrypted == plaintext
 
     def test_missing_key_raises(self) -> None:
-        no_key_settings = Settings(secret_key=_TEST_SECRET)  # type: ignore[call-arg]
+        no_key_settings = Settings(  # type: ignore[call-arg]
+            secret_key=_TEST_SECRET,
+            _env_file=None,
+        )
         with pytest.raises(RuntimeError, match="not configured"):
             encrypt_credential("hello", no_key_settings)
 

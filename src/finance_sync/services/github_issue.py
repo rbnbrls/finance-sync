@@ -170,7 +170,7 @@ class GitHubIssueService:
     """
 
     BASE_URL = "https://api.github.com"
-    USER_AGENT = "finance-sync/0.7.0"
+    USER_AGENT = "finance-sync/0.7.2"
     DEFAULT_TIMEOUT = 15.0
 
     def __init__(

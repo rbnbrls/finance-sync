@@ -964,6 +964,10 @@ async def test_connector_connection(
             )
             cred.last_attempt_at = now
             cred.last_error = failure
+            cred.last_error_category = "authentication"
+            cred.last_test_at = now
+            cred.last_test_status = "failed"
+            cred.last_test_error = failure
             cred.updated_at = now
             await db.flush()
             await log_connection_event(
@@ -1031,15 +1035,22 @@ async def test_connector_connection(
                 pass
 
         cred.last_attempt_at = now
+        cred.last_test_at = now
         cred.updated_at = now
         if health.healthy:
             cred.last_success_at = now
             cred.last_error = None
+            cred.last_error_category = None
+            cred.last_test_status = "passed"
+            cred.last_test_error = None
             message = health.message or "Connection successful"
         else:
             cred.last_error = sanitize_error(
                 health.message or "Connection test failed", secrets
             )
+            cred.last_error_category = "provider_unavailable"
+            cred.last_test_status = "failed"
+            cred.last_test_error = cred.last_error
             message = cred.last_error or "Connection test failed"
         await db.flush()
         await log_connection_event(
@@ -1062,6 +1073,10 @@ async def test_connector_connection(
         failure = sanitize_error(str(exc), secrets)
         cred.last_attempt_at = now
         cred.last_error = failure
+        cred.last_error_category = "unknown"
+        cred.last_test_at = now
+        cred.last_test_status = "failed"
+        cred.last_test_error = failure
         cred.updated_at = now
         await db.flush()
         await log_connection_event(

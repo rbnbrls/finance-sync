@@ -47,6 +47,7 @@ from finance_sync.exporter.wealthfolio.transaction_mapper import (
     map_transactions_to_csv,
 )
 from finance_sync.models import Account, Holding, Security, Transaction
+from finance_sync.sync.errors import categorize_export_error
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -193,9 +194,11 @@ class WealthfolioExporter:
         # ── Create ExportRun ──────────────────────────────────────
         async with self._session_factory() as session:
             run = ExportRun(
+                tenant_id=self._tenant_id,
                 status="running",
                 started_at=start_ts,
                 exporter_type="wealthfolio",
+                target_id=self._target_id,
             )
             session.add(run)
             await session.flush()
@@ -742,6 +745,7 @@ class WealthfolioExporter:
             run.transactions_failed = failed
             if error_message is not None:
                 run.error_message = error_message
+                run.error_category = categorize_export_error(error_message)
             await session.flush()
             await session.commit()
 
@@ -799,9 +803,11 @@ class WealthfolioExporter:
         # ── Create ExportRun ──────────────────────────────────────
         async with self._session_factory() as session:
             run = ExportRun(
+                tenant_id=self._tenant_id,
                 status="running",
                 started_at=start_ts,
                 exporter_type="wealthfolio",
+                target_id=self._target_id,
             )
             session.add(run)
             await session.flush()

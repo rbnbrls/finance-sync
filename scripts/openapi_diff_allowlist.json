@@ -1,1 +1,8 @@
-{}
+{
+  "added_security_requirement:/api/v1/enrichment/status GET": "Intentional security hardening: the existing enrichment status route is now protected by the standard API-key/JWT dependency.",
+  "added_security_requirement:/api/v1/securities/audit-log GET": "Intentional security hardening: the existing securities audit-log route is now protected by the standard API-key/JWT dependency.",
+  "added_security_requirement:/api/v1/securities/map PUT": "Intentional security hardening: the existing securities mapping route is now protected by the standard API-key/JWT dependency.",
+  "added_security_requirement:/api/v1/securities/resolve POST": "Intentional security hardening: the existing securities resolve route is now protected by the standard API-key/JWT dependency.",
+  "added_security_requirement:/api/v1/securities/unresolved GET": "Intentional security hardening: the existing unresolved-securities route is now protected by the standard API-key/JWT dependency.",
+  "added_security_requirement:/api/v1/securities/unresolved/all GET": "Intentional security hardening: the existing all-unresolved-securities route is now protected by the standard API-key/JWT dependency."
+}
