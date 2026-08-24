@@ -1,6 +1,6 @@
 [project]
 name = "finance-sync"
-version = "0.6.0"
+version = "0.7.0"
 description = "Self-hosted, API-first financial data platform"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -27,7 +27,7 @@ dependencies = [
     "bcrypt>=4.0",
     "python-multipart>=0.0.18",
     "structlog>=25.1",
-    "prometheus-client>=0.21",
+    "sentry-sdk>=2.0",
     "actualpy>=0.22",
     "apscheduler>=3.10",
     "aiohttp>=3.9",

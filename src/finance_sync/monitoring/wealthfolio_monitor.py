@@ -11,16 +11,13 @@ Checks, for the self-hosted Wealthfolio instance (backlog story
   ``wealthfolio_deliveries`` cursor (finance-sync PostgreSQL).  Stale
   exports fail the check.
 
-Metrics are exported in Prometheus text format with **no financial values
-and no secrets in labels** — labels are limited to the fixed check names.
-
 Run standalone (no Hermes)::
 
     finance-sync-wealthfolio-monitor --public-url https://wealthfolio.7rb.nl \
         --database-url "$DATABASE_URL" --max-stale-hours 24
 
-Exit code 1 on any critical failure, 2 on config errors.  Prometheus
-output on stdout, JSON status on stderr when ``--json`` is given.
+Exit code 1 on any critical failure, 2 on config errors. JSON status is
+written to stdout.
 """
 
 from __future__ import annotations
@@ -268,34 +265,6 @@ def check_export_freshness(
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# Prometheus rendering (no financial values / secrets in labels)
-# ═══════════════════════════════════════════════════════════════════════
-
-
-def render_prometheus(results: list[CheckResult]) -> str:
-    """Render checks as Prometheus text format.
-
-    Labels are limited to the fixed ``check`` name — no financial values,
-    no secrets, no user-controlled strings.
-    """
-    lines = [
-        "# HELP wealthfolio_check_status 1 if the check passes, 0 otherwise.",
-        "# TYPE wealthfolio_check_status gauge",
-    ]
-    for result in results:
-        lines.append(
-            f'wealthfolio_check_status{{check="{result.name}"}} '
-            f"{1 if result.ok else 0}"
-        )
-        if result.value is not None:
-            lines.append(
-                f'wealthfolio_check_value{{check="{result.name}"}} '
-                f"{result.value}"
-            )
-    return "\n".join(lines) + "\n"
-
-
-# ═══════════════════════════════════════════════════════════════════════
 # Orchestration
 # ═══════════════════════════════════════════════════════════════════════
 
@@ -356,19 +325,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--max-stale-hours", type=float, default=DEFAULT_MAX_STALE_HOURS
     )
-    parser.add_argument(
-        "--json", action="store_true", help="also print JSON status to stderr"
-    )
     args = parser.parse_args(argv)
 
     results = run_all_checks(
         args.public_url, args.max_stale_hours, args.database_url
     )
-    sys.stdout.write(render_prometheus(results))
-    if args.json:
-        sys.stderr.write(
-            json.dumps([r.to_dict() for r in results], indent=2) + "\n"
-        )
+    output = json.dumps([r.to_dict() for r in results], indent=2)
+    sys.stdout.write(output + "\n")
     return 0 if all(r.ok for r in results) else 1
 
 

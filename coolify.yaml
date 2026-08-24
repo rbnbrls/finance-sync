@@ -26,6 +26,9 @@
 #    ├──────────────────────────────────┼──────────┼──────────────────────────────┤
 #    │ APP_ENVIRONMENT                  │ No       │ Default: prod                │
 #    │ LOG_LEVEL                        │ No       │ Default: INFO                │
+#    │ GLITCHTIP_ENABLED                │ No       │ Default: false               │
+#    │ GLITCHTIP_DSN                    │ No       │ Secret project DSN           │
+#    │ GLITCHTIP_TRACES_SAMPLE_RATE     │ No       │ Default: 0.01                │
 #    │ POSTGRES_DB                      │ No       │ Default: finance_sync        │
 #    │ POSTGRES_USER                    │ No       │ Default: finance_sync        │
 #    │ POSTGRES_PASSWORD                │ YES ⚠️   │ Secret — use Coolify's       │
@@ -35,6 +38,10 @@
 #    │ REDIS_PASSWORD                   │ No       │ Empty = no password          │
 #    │ REDIS_URL                        │ Alt      │ Overrides host derivation    │
 #    │ SECRET_KEY                       │ YES ⚠️   │ ≥16 chars. Secret variable.  │
+#    │ ADMIN_KEY                        │ YES ⚠️   │ Exactly 32 chars; generate   │
+#    │                                  │          │ with scripts/generate-admin- │
+#    │                                  │          │ key.sh; first-run admin auth │
+#    │                                  │          │ does not use email/password. │
 #    │ ACCESS_TOKEN_EXPIRE_MINUTES      │ No       │ Default: 30                  │
 #    │ REFRESH_TOKEN_EXPIRE_DAYS        │ No       │ Default: 7                   │
 #    │ JWT_ALGORITHM                    │ No       │ Default: HS256               │

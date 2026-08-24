@@ -4,6 +4,7 @@ NOTE: ``from __future__ import annotations`` is intentionally omitted
 because FastAPI needs runtime type introspection for OpenAPI generation.
 """
 
+import secrets
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -75,6 +76,10 @@ class RegisterResponse(BaseModel):
 class LoginRequest(BaseModel):
     email: str = Field(..., max_length=320)
     password: str = Field(..., min_length=1)
+
+
+class AdminKeyLoginRequest(BaseModel):
+    admin_key: str = Field(..., min_length=32, max_length=32)
 
 
 class LoginResponse(BaseModel):
@@ -275,6 +280,66 @@ async def login(
     refresh_token = create_refresh_token(token_data, settings)
     _persist_refresh_token(db, refresh_token, settings)
 
+    return LoginResponse(
+        access_token=access_token,
+        refresh_token=refresh_token,
+        user=UserResponse(
+            id=str(user.id),
+            email=user.email,
+            display_name=user.display_name,
+            role=user.role,
+            is_active=user.is_active,
+            tenant_id=str(user.tenant_id),
+        ),
+    )
+
+
+@router.post("/admin-key", response_model=LoginResponse)
+async def admin_key_login(
+    body: AdminKeyLoginRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> LoginResponse:
+    """Bootstrap/login the administrator using the deployment secret.
+
+    This is the first-run authentication path.  ``ADMIN_KEY`` is compared
+    with the bcrypt hash provisioned during database startup; the plaintext
+    key is never persisted.
+    """
+    container = get_container(request)
+    settings = container.settings
+    configured_key = settings.admin_key
+    if configured_key is None or not secrets.compare_digest(
+        body.admin_key, configured_key.get_secret_value()
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid admin key",
+        )
+
+    user = await db.scalar(
+        select(UserModel).where(
+            UserModel.email == "admin@finance-sync.local",
+            UserModel.role == "admin",
+            UserModel.is_active.is_(True),
+        )
+    )
+    if user is None or not verify_password(
+        body.admin_key, user.hashed_password
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Admin user is not provisioned; restart after migrations",
+        )
+
+    token_data = {
+        "sub": str(user.id),
+        "tenant_id": str(user.tenant_id),
+        "role": user.role,
+    }
+    access_token = create_access_token(token_data, settings)
+    refresh_token = create_refresh_token(token_data, settings)
+    _persist_refresh_token(db, refresh_token, settings)
     return LoginResponse(
         access_token=access_token,
         refresh_token=refresh_token,

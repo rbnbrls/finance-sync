@@ -8,11 +8,11 @@ Every milestone ships migrations, typed configuration, structured logs, health s
 
 | Phase | Outcome | Prioritized issues / acceptance criteria |
 |---|---|---|
-| 1. Foundation | Deployable, secure skeleton | P0: pyproject/lint/type/test tooling; P0: FastAPI app/settings; P0: Postgres/Redis/Docker/Coolify; P0: Alembic core schema; P0: JWT/API keys/RBAC; P0: health/metrics/logging; P1: CI. A fresh deployment migrates, authenticates, and exposes readiness. |
+| 1. Foundation | Deployable, secure skeleton | P0: pyproject/lint/type/test tooling; P0: FastAPI app/settings; P0: Postgres/Redis/Docker/Coolify; P0: Alembic core schema; P0: JWT/API keys/RBAC; P0: health/logging/GlitchTip; P1: CI. A fresh deployment migrates, authenticates, and exposes readiness. |
 | 2. Ingestion | Reliable provider-neutral facts | P0: connector SDK/registry; P0: sync-run/cursor/outbox; P0: canonical accounts/transactions/portfolio schema; P0: bunq accounts/balances/transactions; P0: Trading212 portfolio/holdings/cash/orders/dividends; P1: scheduled payments/cards; P1: reconciliation. Re-running a sync produces no duplicate facts/events. |
 | 3. Enrichment | Market-data-backed security projections | P0: security/listing resolver; P0: OpenBB gateway and cache policy; P0: latest/historical prices; P1: fundamentals/ETF metadata; P1: FX valuation. Cached data honors TTL and records provenance/freshness. |
 | 4. Consumer API | Stable downstream contracts | P0: read REST endpoints/OpenAPI; P0: portfolio, allocation, cashflow/net-worth services; P0: Actual Budget exporter; P0: Wealthfolio exporter; P1: exporter contract suites. Consumer failure retries without source data loss. |
-| 5. Automation/insights | Operational integrations | P0: AI summary endpoints; P0: Home Assistant pull integration; P0: Grafana dashboard/alerts; P1: performance analytics; P1: subscription detection. Every aggregate declares as-of/freshness/coverage. |
+| 5. Automation/insights | Operational integrations | P0: AI summary endpoints; P0: Home Assistant pull integration; P0: GlitchTip monitoring; P1: performance analytics; P1: subscription detection. Every aggregate declares as-of/freshness/coverage. |
 || 6. Ecosystem | Extensible platform | ✅ P0: versioned plugin SDK and compatibility policy; P1: MCP server; P1: additional connectors; P1: tax lots/calculations. Third-party plugin can be installed/configured without core source edits. |
 
 ## GitHub labels and issue ordering

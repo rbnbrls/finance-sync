@@ -47,7 +47,6 @@ from finance_sync.exporter.wealthfolio.transaction_mapper import (
     map_transactions_to_csv,
 )
 from finance_sync.models import Account, Holding, Security, Transaction
-from finance_sync.observability.metrics import export_runs_total
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -152,13 +151,6 @@ class WealthfolioExporter:
         self._log = logger.bind(tenant_id=tenant_id)
 
     # ── Public API ───────────────────────────────────────────────────
-
-    @staticmethod
-    def _record_export_metrics(result: WealthfolioExportResult) -> None:
-        """Record the export run outcome as a Prometheus counter."""
-        export_runs_total.labels(
-            exporter="wealthfolio", status=result.status
-        ).inc()
 
     async def run_export(
         self,

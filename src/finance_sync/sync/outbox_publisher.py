@@ -34,7 +34,6 @@ import structlog
 
 from finance_sync.models import OutboxMessage
 from finance_sync.models.enums import OutboxMessageStatus
-from finance_sync.observability.metrics import outbox_messages_pending_total
 
 if TYPE_CHECKING:
     from sqlalchemy import Result
@@ -96,7 +95,6 @@ class OutboxPublisher:
 
         Returns the number of messages processed in this tick.
         """
-        outbox_messages_pending_total.set(await self._count_pending())
         messages = await self._fetch_pending()
 
         if not messages:

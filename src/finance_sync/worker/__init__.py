@@ -22,6 +22,7 @@ import structlog
 
 from finance_sync.config.settings import Settings
 from finance_sync.container import Container
+from finance_sync.observability.glitchtip import configure_glitchtip
 from finance_sync.observability.logging import configure_logging
 from finance_sync.worker.health import WorkerHealthServer
 from finance_sync.worker.monitoring import JobMonitor
@@ -164,6 +165,7 @@ def run_worker(settings: Settings | None = None) -> None:
         json_output=settings.is_production,
         log_level=settings.log_level,
     )
+    configure_glitchtip(settings)
 
     worker = WorkerProcess(settings)
     try:

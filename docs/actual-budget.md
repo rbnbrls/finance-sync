@@ -1,25 +1,8 @@
 # Actual Budget-koppeling
 
-## Lokale testserver
-
-De lokale testserver gebruikt de officiële `actualbudget/actual-server`-image en
-luistert op <http://localhost:5006>. Budgetbestanden worden persistent bewaard
-in `var/actual-data`.
-
-```sh
-docker compose -f docker-compose.actual.yml up -d
-```
-
-Open daarna <http://localhost:5006>, stel het lokale serverwachtwoord in en
-maak een budget aan. Voor de huidige lokale testomgeving is het wachtwoord
-`finance-sync-local` en de budgetnaam `Finance Sync Local` aangemaakt. Gebruik
-voor echte omgevingen een ander wachtwoord.
-
-Stoppen zonder data te verwijderen:
-
-```sh
-docker compose -f docker-compose.actual.yml stop
-```
+Lokale downstream-testapplicaties zijn niet onderdeel van deze repository. De
+exporter gebruikt een extern geconfigureerde Actual Budget-server; contract- en
+unit-tests gebruiken fixtures en mocks.
 
 ## Welke importer-data Actual nodig heeft
 
@@ -73,4 +56,3 @@ ACTUAL_BUDGET_BUDGET_NAME=Finance Sync Local
 
 `export` voert de normale cyclus uit en schrijft tevens een CSV-samenvatting;
 `push` is de expliciete directe serveractie.
-
