@@ -160,11 +160,7 @@ class FxService:
         """Build HTTP headers for FX API requests."""
         headers: dict[str, str] = {
             "Accept": "application/json",
-<<<<<<< HEAD
             "User-Agent": "finance-sync/0.7.2",
-=======
-            "User-Agent": "finance-sync/0.7.0",
->>>>>>> origin/main
         }
         if self._settings.openbb_api_key:
             api_key = self._settings.openbb_api_key.get_secret_value()
