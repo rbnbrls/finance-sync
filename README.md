@@ -309,7 +309,9 @@ Required environment (no `~/.hermes` fallbacks):
 | `STATE_FILE` | State JSON path (default `/var/lib/finance-sync/finance-sync-monitor-state.json`, dir auto-created) |
 
 Optional overrides: `COOLIFY_API_URL` (default `http://192.168.3.110:8000/api/v1`),
-`COOLIFY_APP_UUID` (default `obcopz3142hxzs1zlie78amh`),
+`COOLIFY_APP_UUID` (default `mdeal4aqq9ycnozn3mg83zix` — finance-sync-staging;
+the former production app `obcopz3142hxzs1zlie78amh` no longer exists on
+dev.7rb.nl),
 `MONITOR_HEALTH_BASE_URL` (default `https://<app-uuid>.7rb.nl`).
 
 ## Project principles

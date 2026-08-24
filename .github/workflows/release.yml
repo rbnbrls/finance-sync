@@ -55,8 +55,11 @@ env:
   # Staging stack (see scripts/provision-staging.sh and docs/RELEASING.md).
   # finance-sync project -> development environment.
   STAGING_APP_UUID: mdeal4aqq9ycnozn3mg83zix
-  # Production application (same resource ci.yml's Deploy job triggers).
-  PROD_APP_UUID: obcopz3142hxzs1zlie78amh
+  # The former production application (obcopz3142hxzs1zlie78amh) no longer
+  # exists on dev.7rb.nl — finance-sync-staging is the only finance-sync app
+  # deployed there. Keep PROD_APP_UUID pointing at staging until a production
+  # application is (re)created in Coolify and this value is updated.
+  PROD_APP_UUID: mdeal4aqq9ycnozn3mg83zix
 
 jobs:
   # ── Build, scan, sign & push the immutable image ──────────────────────
