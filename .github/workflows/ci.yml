@@ -1017,7 +1017,7 @@ jobs:
     needs: [build]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 25
     steps:
       - name: Trigger Coolify deployment
         id: deploy
@@ -1044,3 +1044,27 @@ jobs:
             echo "❌ Deploy failed (HTTP ${HTTP_CODE})"
             exit 1
           fi
+
+      - name: Wait for Coolify deployment to finish
+        env:
+          COOLIFY_TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}
+          COOLIFY_BASE_URL: https://dev.7rb.nl
+          DEPLOYMENT_UUID: ${{ steps.deploy.outputs.deployment_uuid }}
+        run: |
+          if [ -z "${DEPLOYMENT_UUID}" ] || [ "${DEPLOYMENT_UUID}" = "unknown" ]; then
+            echo "❌ No deployment UUID to poll"
+            exit 1
+          fi
+          for i in $(seq 1 90); do
+            STATUS=$(curl -s -H "Authorization: Bearer ${COOLIFY_TOKEN}" \
+              "${COOLIFY_BASE_URL}/api/v1/deployments/${DEPLOYMENT_UUID}" \
+              | python3 -c "import sys,json; print(json.load(sys.stdin).get('status','?'))" 2>/dev/null || true)
+            echo "[$i] deployment status: ${STATUS}"
+            case "${STATUS}" in
+              finished) echo "✅ Coolify deployment finished"; exit 0 ;;
+              failed|error|cancelled) echo "❌ Coolify deployment ${STATUS}"; exit 1 ;;
+            esac
+            sleep 15
+          done
+          echo "❌ Timed out waiting for Coolify deployment"
+          exit 1
