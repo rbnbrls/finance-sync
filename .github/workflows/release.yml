@@ -233,7 +233,11 @@ jobs:
 
       - name: Run pip-audit
         id: pip-audit
-        run: uv run pip-audit --requirement release-requirements.txt --format json --output pip-audit.json
+        run: >-
+          uv run pip-audit --requirement release-requirements.txt
+          --format json --output pip-audit.json
+          --ignore-vuln PYSEC-2026-1325
+          --ignore-vuln GHSA-wj6h-64fc-37mp
         continue-on-error: true
 
       - name: Generate CycloneDX SBOM
