@@ -415,6 +415,9 @@ class SyncRunResponse(BaseModel):
     cursor: datetime | None = None
     items_processed: int | None = None
     error_message: str | None = None
+    error_category: str | None = None
+    warnings: list[str] = Field(default_factory=list)
+    duration_seconds: float | None = None
     created_at: datetime | None = None
 
 

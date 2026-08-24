@@ -72,6 +72,61 @@ def test_dashboard_is_served(client: TestClient) -> None:
     assert "Importers" in html
 
 
+def test_dashboard_exposes_control_plane_overview(client: TestClient) -> None:
+    """Phase 3: the landing page is an operational control plane."""
+    html = _dashboard_html(client)
+    assert "control-plane/overview" in html
+    for element_id in (
+        "control-status",
+        "control-issues",
+        "control-connections",
+        "control-syncs",
+        "control-quality",
+        "control-destinations",
+    ):
+        assert f'id="{element_id}"' in html
+    assert "function renderControlPlane" in html
+    assert "function runControlAction" in html
+
+
+def test_dashboard_control_plane_has_safe_recovery_paths(
+    client: TestClient,
+) -> None:
+    """Issue and sync recovery actions use existing API contracts safely."""
+    html = _dashboard_html(client)
+    assert "sync-runs/${encodeURIComponent(runId)}/retry" in html
+    assert "escapeHtml(issue.description)" in html
+    assert 'aria-live="polite"' in html
+    assert "Data gedeeltelijk beschikbaar" in html
+
+
+def test_dashboard_control_plane_renders_operational_action_catalog(
+    client: TestClient,
+) -> None:
+    """Phase 5: cards expose backend-approved actions and safe states."""
+    html = _dashboard_html(client)
+    assert "function renderControlActions" in html
+    assert "renderControlActions(c.actions)" in html
+    assert "renderControlActions(d.actions)" in html
+    assert (
+        "data-disabled-reason" not in html
+    )  # reasons are rendered as text, not executable markup
+    assert "disabled-reason" in html
+    assert "button.dataset.busy = 'true'" in html
+    assert "setAttribute('aria-busy', 'true')" in html
+    assert "control-plane/data-quality" in html
+    assert "findings_total" in html
+
+
+def test_dashboard_control_plane_normalizes_api_action_paths(
+    client: TestClient,
+) -> None:
+    """Action paths may be absolute API paths from the backend contract."""
+    html = _dashboard_html(client)
+    assert "path.startsWith(API_BASE)" in html
+    assert "Open de security-mappingflow" in html
+
+
 def test_dashboard_ships_connector_list_surface(client: TestClient) -> None:
     """The page has a container the wizard renders into, plus an initial
     loading state so the user never sees a blank body."""

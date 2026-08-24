@@ -12,6 +12,7 @@ from sqlalchemy import desc, func, select
 
 from finance_sync.models.balance import Balance
 from finance_sync.models.card_transaction import CardTransaction
+from finance_sync.models.credential import Credential
 from finance_sync.models.enums import TransactionType
 from finance_sync.models.holding import Holding
 from finance_sync.models.scheduled_payment import ScheduledPayment
@@ -745,6 +746,7 @@ class OperationalReadService:
     async def list_sync_runs(
         self,
         *,
+        tenant_id: str | None = None,
         limit: int = 50,
         offset: int = 0,
         connector: str | None = None,
@@ -755,20 +757,26 @@ class OperationalReadService:
         """List sync run history with status counts per connector."""
         conditions: list[Any] = []
 
+        if tenant_id is not None:
+            conditions.append(Credential.tenant_id == tenant_id)
+
         if connector is not None:
             conditions.append(SyncRun.connector == connector)  # type: ignore[attr-defined]
         if status is not None:
             conditions.append(SyncRun.status == status)  # type: ignore[attr-defined]
 
         # Status counts per connector
-        count_by_q = (
-            select(
-                SyncRun.connector,
-                SyncRun.status,
-                func.count().label("cnt"),
+        count_by_q = select(
+            SyncRun.connector,
+            SyncRun.status,
+            func.count().label("cnt"),
+        ).select_from(SyncRun)
+        if tenant_id is not None:
+            count_by_q = count_by_q.join(
+                Credential, Credential.id == SyncRun.connection_id
             )
-            .where(_expr(*conditions))
-            .group_by(SyncRun.connector, SyncRun.status)
+        count_by_q = count_by_q.where(_expr(*conditions)).group_by(
+            SyncRun.connector, SyncRun.status
         )
         count_result = await self._session.execute(count_by_q)
         status_counts = [
@@ -781,17 +789,22 @@ class OperationalReadService:
         ]
 
         # Total items matching filters
-        total_query = (
-            select(func.count()).select_from(SyncRun).where(_expr(*conditions))
-        )
+        total_query = select(func.count()).select_from(SyncRun)
+        if tenant_id is not None:
+            total_query = total_query.join(
+                Credential, Credential.id == SyncRun.connection_id
+            )
+        total_query = total_query.where(_expr(*conditions))
         total_result = await self._session.execute(total_query)
         total: int = total_result.scalar() or 0  # type: ignore[assignment]
 
         # Fetch items
         order = _sort_field(_SORTABLE_SYNC_RUN_FIELDS, sort_by, sort_order)
+        stmt = select(SyncRun)
+        if tenant_id is not None:
+            stmt = stmt.join(Credential, Credential.id == SyncRun.connection_id)
         stmt = (
-            select(SyncRun)
-            .where(_expr(*conditions))
+            stmt.where(_expr(*conditions))
             .order_by(order)
             .offset(offset)
             .limit(limit)
@@ -810,6 +823,13 @@ class OperationalReadService:
                     cursor=sr.cursor,
                     items_processed=sr.items_processed,
                     error_message=sr.error_message,
+                    error_category=sr.error_category,
+                    warnings=list(sr.warnings or []),
+                    duration_seconds=(
+                        (sr.completed_at - sr.started_at).total_seconds()
+                        if sr.completed_at
+                        else None
+                    ),
                     created_at=sr.created_at,
                 )
                 for sr in rows

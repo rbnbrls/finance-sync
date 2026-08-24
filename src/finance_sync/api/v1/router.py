@@ -7,6 +7,7 @@ from fastapi import APIRouter
 from finance_sync.api.v1.accounts import router as accounts_router
 from finance_sync.api.v1.ai_summary import router as ai_summary_router
 from finance_sync.api.v1.allocation import router as allocation_router
+from finance_sync.api.v1.analytics import router as analytics_router
 from finance_sync.api.v1.auth import router as auth_router
 from finance_sync.api.v1.card_transactions import (
     router as card_transactions_router,
@@ -15,6 +16,7 @@ from finance_sync.api.v1.cashflow import router as cashflow_router
 from finance_sync.api.v1.connectors_config import (
     router as connectors_config_router,
 )
+from finance_sync.api.v1.control_plane import router as control_plane_router
 from finance_sync.api.v1.datamarts import router as datamarts_router
 from finance_sync.api.v1.degiro_imports import router as degiro_imports_router
 from finance_sync.api.v1.destinations import router as destinations_router
@@ -63,8 +65,10 @@ router = APIRouter()
 router.include_router(root_router)
 router.include_router(auth_router)
 router.include_router(ai_summary_router)
+router.include_router(analytics_router)
 router.include_router(cashflow_router)
 router.include_router(connectors_config_router)
+router.include_router(control_plane_router)
 router.include_router(degiro_imports_router)
 router.include_router(saxo_imports_router)
 router.include_router(destinations_router)

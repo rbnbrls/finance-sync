@@ -159,6 +159,7 @@ class IdentityResolutionService:
         provider_key: str,
         instruments: list[dict[str, Any]],
         *,
+        tenant_id: str | None = None,
         resolver_principal: str = "system",
     ) -> ResolutionPipelineResult:
         """Run the full 4-stage resolution pipeline on incoming instruments.
@@ -183,7 +184,12 @@ class IdentityResolutionService:
             # Stage 1: Exact ISIN match
             result = await self._stage_1_exact_isin(cleansed)
             if result is not None:
-                await self._audit(result, "auto_isin", resolver_principal)
+                await self._audit(
+                    result,
+                    "auto_isin",
+                    resolver_principal,
+                    tenant_id=tenant_id,
+                )
                 audit_entries += 1
                 resolved_auto += 1
                 continue
@@ -191,7 +197,12 @@ class IdentityResolutionService:
             # Stage 2: FIGI / Symbol match via OpenBB
             result = await self._stage_2_figi_ticker(cleansed, provider_key)
             if result is not None:
-                await self._audit(result, "auto_figi", resolver_principal)
+                await self._audit(
+                    result,
+                    "auto_figi",
+                    resolver_principal,
+                    tenant_id=tenant_id,
+                )
                 audit_entries += 1
                 resolved_auto += 1
                 continue
@@ -199,13 +210,20 @@ class IdentityResolutionService:
             # Stage 3: Fuzzy name match
             result = await self._stage_3_fuzzy_name(cleansed)
             if result is not None:
-                await self._audit(result, "fuzzy_name", resolver_principal)
+                await self._audit(
+                    result,
+                    "fuzzy_name",
+                    resolver_principal,
+                    tenant_id=tenant_id,
+                )
                 audit_entries += 1
                 resolved_fuzzy += 1
                 continue
 
             # Stage 4: Manual queue
-            await self._stage_4_enqueue(provider_key, cleansed)
+            await self._stage_4_enqueue(
+                provider_key, cleansed, tenant_id=tenant_id
+            )
             unresolved_count += 1
 
         return ResolutionPipelineResult(
@@ -372,6 +390,8 @@ class IdentityResolutionService:
         self,
         provider_key: str,
         cleansed: dict[str, Any],
+        *,
+        tenant_id: str | None = None,
     ) -> UnresolvedSecurity:
         """Stage 4: Store as unresolved for the manual review queue."""
         ext_id = (
@@ -386,6 +406,11 @@ class IdentityResolutionService:
             ext_id = "unknown"
 
         existing = await self._uow.unresolved_securities.list(
+            *(
+                [UnresolvedSecurity.tenant_id == tenant_id]
+                if tenant_id is not None
+                else []
+            ),
             UnresolvedSecurity.provider_key == provider_key,  # type: ignore[attr-defined]
             UnresolvedSecurity.external_security_id == ext_id,  # type: ignore[attr-defined]
             limit=1,
@@ -412,6 +437,7 @@ class IdentityResolutionService:
             return record
 
         record = UnresolvedSecurity(
+            tenant_id=tenant_id,
             provider_key=provider_key,
             external_security_id=ext_id,
             raw_isin=cleansed.get("isin"),
@@ -431,12 +457,25 @@ class IdentityResolutionService:
         unresolved_id: str,
         target_security_id: str,
         *,
+        tenant_id: str | None = None,
         resolver_principal: str = "system",
         resolution_notes: str | None = None,
     ) -> ResolutionAuditLog | None:
         """Manually link an unresolved security to a canonical record."""
         # Fetch the unresolved record
-        unresolved = await self._uow.unresolved_securities.get(unresolved_id)
+        if tenant_id is None:
+            # Preserve the service's unit-test and internal-call contract;
+            # authenticated API routes always provide tenant_id below.
+            unresolved = await self._uow.unresolved_securities.get(
+                unresolved_id
+            )
+        else:
+            unresolved_rows = await self._uow.unresolved_securities.list(
+                UnresolvedSecurity.id == unresolved_id,  # type: ignore[attr-defined]
+                UnresolvedSecurity.tenant_id == tenant_id,  # type: ignore[attr-defined]
+                limit=1,
+            )
+            unresolved = unresolved_rows[0] if unresolved_rows else None
         if unresolved is None:
             return None
 
@@ -453,6 +492,7 @@ class IdentityResolutionService:
 
         # Create audit log entry
         audit = ResolutionAuditLog(
+            tenant_id=tenant_id or unresolved.tenant_id,
             unresolved_security_id=unresolved.id,
             source_security_id=(
                 unresolved.raw_isin
@@ -481,6 +521,7 @@ class IdentityResolutionService:
         external_security_id: str,
         target_security_id: str,
         *,
+        tenant_id: str | None = None,
         resolver_principal: str = "system",
         resolution_notes: str | None = None,
     ) -> ResolutionAuditLog | None:
@@ -491,6 +532,11 @@ class IdentityResolutionService:
         """
         # Find or create an unresolved record
         existing = await self._uow.unresolved_securities.list(
+            *(
+                [UnresolvedSecurity.tenant_id == tenant_id]
+                if tenant_id is not None
+                else []
+            ),
             UnresolvedSecurity.provider_key == provider_key,  # type: ignore[attr-defined]
             UnresolvedSecurity.external_security_id == external_security_id,  # type: ignore[attr-defined]
             limit=1,
@@ -500,6 +546,7 @@ class IdentityResolutionService:
             unresolved = existing[0]
         else:
             unresolved = UnresolvedSecurity(
+                tenant_id=tenant_id,
                 provider_key=provider_key,
                 external_security_id=external_security_id,
             )
@@ -517,6 +564,7 @@ class IdentityResolutionService:
 
         # Create audit log
         audit = ResolutionAuditLog(
+            tenant_id=tenant_id or unresolved.tenant_id,
             unresolved_security_id=unresolved.id,
             source_security_id=external_security_id,
             target_security_id=target_security_id,
@@ -579,9 +627,12 @@ class IdentityResolutionService:
         result: ResolvedSecurity,
         method: str,
         resolver_principal: str,
+        *,
+        tenant_id: str | None = None,
     ) -> None:
         """Record a resolution decision in the audit log."""
         audit = ResolutionAuditLog(
+            tenant_id=tenant_id,
             target_security_id=result.security_id,
             resolution_method=method,
             confidence=result.confidence,
@@ -600,6 +651,7 @@ class IdentityResolutionService:
     async def get_unresolved(
         self,
         *,
+        tenant_id: str | None = None,
         only_unmapped: bool = True,
         provider_key: str | None = None,
         limit: int = 100,
@@ -607,6 +659,8 @@ class IdentityResolutionService:
     ) -> Sequence[UnresolvedSecurity]:
         """List unresolved securities, optionally filtered."""
         filters: list[Any] = []
+        if tenant_id is not None:
+            filters.append(UnresolvedSecurity.tenant_id == tenant_id)  # type: ignore[attr-defined]
         if only_unmapped:
             filters.append(
                 UnresolvedSecurity.resolved_security_id.is_(None)  # type: ignore[attr-defined]
@@ -628,11 +682,14 @@ class IdentityResolutionService:
     async def get_audit_log(
         self,
         *,
+        tenant_id: str | None = None,
         target_security_id: str | None = None,
         limit: int = 100,
     ) -> Sequence[ResolutionAuditLog]:
         """List resolution audit log entries."""
         filters: list[Any] = []
+        if tenant_id is not None:
+            filters.append(ResolutionAuditLog.tenant_id == tenant_id)  # type: ignore[attr-defined]
         if target_security_id:
             filters.append(
                 ResolutionAuditLog.target_security_id == target_security_id  # type: ignore[attr-defined]

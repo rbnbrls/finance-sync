@@ -21,6 +21,9 @@ class ResolutionAuditLog(TimestampMixin, Base):
     __tablename__ = "resolution_audit_log"
 
     id: Mapped[str] = pk_uuid()
+    tenant_id: Mapped[str | None] = mapped_column(
+        ForeignKey("tenants.id"), nullable=True, index=True
+    )
 
     # ── Context ─────────────────────────────────────────────────────────
     unresolved_security_id: Mapped[str | None] = mapped_column(

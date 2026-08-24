@@ -16,6 +16,7 @@ from finance_sync.exporter.firefly.client import (
 from finance_sync.exporter.firefly.transaction_mapper import map_transaction
 from finance_sync.exporter.models import ExportRun
 from finance_sync.models import Account, Transaction
+from finance_sync.sync.errors import categorize_export_error
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -86,7 +87,10 @@ class FireflyExporter:
     ) -> FireflyExportResult:
         started = datetime.now(UTC)
         run = ExportRun(
-            status="running", started_at=started, exporter_type="firefly"
+            tenant_id=self._tenant_id,
+            status="running",
+            started_at=started,
+            exporter_type="firefly",
         )
         async with self._session_factory() as session:
             session.add(run)
@@ -223,4 +227,5 @@ class FireflyExporter:
             stored.transactions_exported = exported
             stored.transactions_failed = failed
             stored.error_message = error
+            stored.error_category = categorize_export_error(error)
             await session.commit()

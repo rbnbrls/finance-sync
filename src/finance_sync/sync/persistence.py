@@ -591,6 +591,7 @@ class SecurityPersistence:
         external_id = reference.provider_identifier()
         if external_id:
             queued = await uow.unresolved_securities.list(
+                UnresolvedSecurity.tenant_id == self._tenant_id,
                 UnresolvedSecurity.provider_key == provider_key,
                 UnresolvedSecurity.external_security_id == external_id,
                 limit=1,
@@ -722,6 +723,7 @@ class SecurityPersistence:
             # an unresolvable duplicate stream. It is still counted by type.
             return "missing-provider-identifier"
         rows = await uow.unresolved_securities.list(
+            UnresolvedSecurity.tenant_id == self._tenant_id,
             UnresolvedSecurity.provider_key == provider_key,
             UnresolvedSecurity.external_security_id == external_id,
             limit=1,
@@ -749,6 +751,7 @@ class SecurityPersistence:
             uow.session.add(
                 UnresolvedSecurity(
                     id=uuid4(),
+                    tenant_id=self._tenant_id,
                     provider_key=provider_key,
                     external_security_id=external_id,
                     raw_isin=reference.isin,

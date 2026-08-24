@@ -62,6 +62,7 @@ class MapResponse(BaseModel):
 @router.get("/unresolved", response_model=UnresolvedListResponse)
 async def list_unresolved(
     request: Request,
+    auth: AuthContext = Depends(require_permission("securities", "read")),
     provider_key: str | None = None,
     limit: int = 100,
     offset: int = 0,
@@ -76,6 +77,7 @@ async def list_unresolved(
     service = container.identity_resolution_service
 
     unresolved = await service.get_unresolved(
+        tenant_id=auth.tenant_id,
         only_unmapped=True,
         provider_key=provider_key,
         limit=limit,
@@ -109,6 +111,7 @@ async def list_unresolved(
 @router.get("/unresolved/all", response_model=UnresolvedListResponse)
 async def list_all_unresolved(
     request: Request,
+    auth: AuthContext = Depends(require_permission("securities", "read")),
     provider_key: str | None = None,
     limit: int = 100,
     offset: int = 0,
@@ -120,6 +123,7 @@ async def list_all_unresolved(
     service = container.identity_resolution_service
 
     unresolved = await service.get_unresolved(
+        tenant_id=auth.tenant_id,
         only_unmapped=False,
         provider_key=provider_key,
         limit=limit,
@@ -154,6 +158,7 @@ async def list_all_unresolved(
 async def resolve_security(
     body: ResolveRequest,
     request: Request,
+    auth: AuthContext = Depends(require_permission("securities", "write")),
 ) -> ManualResolveResponse:
     """Manually resolve an unresolved security by linking it to
     a canonical Security record.
@@ -165,6 +170,7 @@ async def resolve_security(
     service = container.identity_resolution_service
 
     result = await service.manually_resolve(
+        tenant_id=auth.tenant_id,
         unresolved_id=body.unresolved_security_id,
         target_security_id=body.target_security_id,
         resolver_principal="api:user",
@@ -190,6 +196,7 @@ async def resolve_security(
 async def map_security(
     body: MapRequest,
     request: Request,
+    auth: AuthContext = Depends(require_permission("securities", "write")),
 ) -> MapResponse:
     """Map a specific incoming security (by provider key + external ID)
     to a canonical security record.
@@ -201,6 +208,7 @@ async def map_security(
     service = container.identity_resolution_service
 
     result = await service.map_and_resolve(
+        tenant_id=auth.tenant_id,
         provider_key=body.provider_key,
         external_security_id=body.external_security_id,
         target_security_id=body.target_security_id,
@@ -225,6 +233,7 @@ async def map_security(
 @router.get("/audit-log", response_model=AuditLogListResponse)
 async def list_audit_log(
     request: Request,
+    auth: AuthContext = Depends(require_permission("securities", "read")),
     target_security_id: str | None = None,
     limit: int = 100,
 ) -> AuditLogListResponse:
@@ -235,6 +244,7 @@ async def list_audit_log(
     service = container.identity_resolution_service
 
     entries = await service.get_audit_log(
+        tenant_id=auth.tenant_id,
         target_security_id=target_security_id,
         limit=limit,
     )

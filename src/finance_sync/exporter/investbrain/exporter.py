@@ -128,6 +128,7 @@ class InvestBrainExporter:
         async with self._session_factory() as session:
             session.add(
                 ExportRun(
+                    tenant_id=self._tenant_id,
                     exporter_type="investbrain",
                     status=status,
                     started_at=datetime.now(UTC),

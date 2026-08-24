@@ -47,6 +47,7 @@ from finance_sync.exporter.actual_budget.transaction_mapper import (
 )
 from finance_sync.exporter.models import ExportRun
 from finance_sync.models import Account, Transaction
+from finance_sync.sync.errors import categorize_export_error
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import (
@@ -215,9 +216,11 @@ class ActualBudgetExporter:
         # test's TRUNCATE CASCADE on the same tables.
         async with self._session_factory() as session:
             run = ExportRun(
+                tenant_id=self._tenant_id,
                 status="running",
                 started_at=start_ts,
                 exporter_type="actual-budget",
+                target_id=self._target_id,
             )
             session.add(run)
             await session.flush()
@@ -339,6 +342,7 @@ class ActualBudgetExporter:
                 run.status = "failed"
                 run.completed_at = end_ts
                 run.error_message = str(exc)
+                run.error_category = categorize_export_error(str(exc))
                 run.transactions_attempted = txns_attempted
                 run.transactions_exported = txns_exported
                 run.transactions_failed = txns_failed
@@ -361,6 +365,7 @@ class ActualBudgetExporter:
                 run.status = "failed"
                 run.completed_at = end_ts
                 run.error_message = tb[:2048]
+                run.error_category = categorize_export_error(tb)
                 run.transactions_attempted = txns_attempted
                 run.transactions_exported = txns_exported
                 run.transactions_failed = txns_failed
@@ -699,6 +704,7 @@ class ActualBudgetExporter:
             run.transactions_failed = failed
             if error_message is not None:
                 run.error_message = error_message
+                run.error_category = categorize_export_error(error_message)
             await session.flush()
 
 

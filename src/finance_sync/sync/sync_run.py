@@ -46,6 +46,7 @@ async def complete_sync_run(
     status: SyncRunStatus = SyncRunStatus.COMPLETED,
     items_processed: int | None = None,
     error_message: str | None = None,
+    error_category: str | None = None,
     cursor: datetime | None = None,
 ) -> SyncRun:
     """Mark a ``SyncRun`` as completed / failed.
@@ -63,6 +64,8 @@ async def complete_sync_run(
         run.items_processed = items_processed
     if error_message is not None:
         run.error_message = error_message
+    if error_category is not None:
+        run.error_category = error_category
     if cursor is not None:
         run.cursor = cursor
     await uow.session.flush()  # type: ignore[union-attr]
