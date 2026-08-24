@@ -213,6 +213,11 @@ jobs:
           uv sync --extra dev --frozen
           uv pip install pip-audit cyclonedx-bom
 
+      - name: Export locked release requirements
+        run: >-
+          uv export --format requirements-txt --no-dev --locked
+          --no-emit-project --output-file release-requirements.txt
+
       - name: Download image scan evidence
         uses: actions/download-artifact@v8
         with:
