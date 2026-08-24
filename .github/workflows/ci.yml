@@ -1024,7 +1024,7 @@ jobs:
         env:
           COOLIFY_TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}
           COOLIFY_BASE_URL: https://dev.7rb.nl
-          APP_UUID: obcopz3142hxzs1zlie78amh
+          APP_UUID: mdeal4aqq9ycnozn3mg83zix
         run: |
           echo "📦 Deploying finance-sync (${{ needs.build.outputs.image_tag }}) to Coolify..."
           RESPONSE=$(curl -s -w "\n%{http_code}" \

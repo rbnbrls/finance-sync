@@ -142,7 +142,7 @@
 #   curl -X POST "${COOLIFY_BASE_URL}/api/v1/deploy" \
 #     -H "Authorization: Bearer ${COOLIFY_API_TOKEN}" \
 #     -H "Content-Type: application/json" \
-#     -d '{"uuid": "obcopz3142hxzs1zlie78amh", "force": false}'
+#     -d '{"uuid": "mdeal4aqq9ycnozn3mg83zix", "force": false}'
 #
 # Required GitHub secret: COOLIFY_API_TOKEN (deploy permission)
 

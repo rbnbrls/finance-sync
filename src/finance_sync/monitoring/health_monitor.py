@@ -43,7 +43,7 @@ MEM_CRIT_THRESHOLD = 90.0  # percent
 # Coolify API base URL and the application UUID to monitor.  Both are
 # overridable via COOLIFY_API_URL / COOLIFY_APP_UUID.
 DEFAULT_COOLIFY_URL = "http://192.168.3.110:8000/api/v1"
-DEFAULT_APP_UUID = "obcopz3142hxzs1zlie78amh"
+DEFAULT_APP_UUID = "mdeal4aqq9ycnozn3mg83zix"
 
 # State file location, overridable via STATE_FILE.  The parent directory
 # is created on first save.
