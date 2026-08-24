@@ -16,7 +16,6 @@ from finance_sync.exporter.firefly.client import (
 from finance_sync.exporter.firefly.transaction_mapper import map_transaction
 from finance_sync.exporter.models import ExportRun
 from finance_sync.models import Account, Transaction
-from finance_sync.observability.metrics import export_runs_total
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -157,7 +156,7 @@ class FireflyExporter:
             if client is not None:
                 await client.close()
         await self._finish_run(run, status, attempted, exported, failed, error)
-        result = FireflyExportResult(
+        return FireflyExportResult(
             status=status,
             accounts_mapped=mapped,
             transactions_attempted=attempted,
@@ -167,8 +166,6 @@ class FireflyExporter:
             duration_s=(datetime.now(UTC) - started).total_seconds(),
             run_id=str(run.id),
         )
-        export_runs_total.labels(exporter="firefly", status=status).inc()
-        return result
 
     async def _load_accounts(
         self, account_ids: list[str] | None, since: datetime

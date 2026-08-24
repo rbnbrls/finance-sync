@@ -318,17 +318,13 @@
         <div class="error hidden" id="login-error"></div>
         <form id="login-form" onsubmit="handleLogin(event)">
             <div class="form-group">
-                <label for="email">Email</label>
-                <input type="email" id="email" placeholder="admin@finance-sync.local" value="admin@finance-sync.local" required autocomplete="email">
+                <label for="admin-key">Admin key</label>
+                <input type="password" id="admin-key" placeholder="Enter the ADMIN_KEY from your environment" required minlength="32" maxlength="32" autocomplete="off">
             </div>
-            <div class="form-group">
-                <label for="password">Password</label>
-                <input type="password" id="password" placeholder="Enter your password" required autocomplete="current-password">
-            </div>
-            <button type="submit" class="btn" id="login-btn">Sign In</button>
+            <button type="submit" class="btn" id="login-btn">Sign in with admin key</button>
         </form>
         <div style="text-align: center; margin-top: 20px; font-size: 0.85rem; color: var(--text-muted);">
-            Don't have an account? <a href="/register" style="color: var(--accent); text-decoration: none;">Create one</a>
+            The first login uses the deployment's <code>ADMIN_KEY</code>. Email/password registration is disabled.
         </div>
     </div>
 
@@ -365,12 +361,11 @@
             errorEl.classList.add('hidden');
 
             try {
-                const resp = await fetch(`${API_BASE}/auth/login`, {
+                const resp = await fetch(`${API_BASE}/auth/admin-key`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        email: document.getElementById('email').value,
-                        password: document.getElementById('password').value,
+                        admin_key: document.getElementById('admin-key').value,
                     }),
                 });
                 const data = await resp.json();
@@ -385,7 +380,7 @@
                 errorEl.textContent = e.message;
                 errorEl.classList.remove('hidden');
                 btn.disabled = false;
-                btn.textContent = 'Sign In';
+                btn.textContent = 'Sign in with admin key';
             }
         }
 

@@ -23,7 +23,7 @@ or workflow) that does **not** depend on Hermes cron jobs or the Hermes runtime.
 | CLI | reconcile / compare / wealthfolio | ✅ `python -m finance_sync` | ❌ none |
 | GitHub Actions workflows | 4 | ✅ GitHub-native | ❌ none (`schedule:` unused) |
 | Hermes cron jobs serving finance-sync | 2 | ❌ script-in-`~/.hermes` only | ✅ **yes — see F** |
-| Passive infra (Prometheus, Grafana, worker health server, Redis) | — | ✅ | ❌ none |
+| Passive infra (GlitchTip, worker health server, Redis) | — | ✅ | ❌ none |
 
 **Non-compliant items (need remediation):**
 1. **Actual Budget exporter has no trigger at all** — library code only.
@@ -64,8 +64,8 @@ container in `docker-compose.yml` / `docker-compose.coolify.yml`
 | `export_wealthfolio` | IntervalTrigger | every 5 min | none |
 
 Implementation: `src/finance_sync/worker/jobs.py` (per-job async functions,
-retry-with-backoff, monitoring via `JobMonitor`; Prometheus-observable health
-endpoint on `WORKER_HEALTH_PORT` 9090).
+retry-with-backoff, monitoring via `JobMonitor`; health endpoint on
+`WORKER_HEALTH_PORT` 9090).
 
 ## B. Exporters
 

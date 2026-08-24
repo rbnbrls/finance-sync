@@ -3,14 +3,10 @@
 Finance-sync kan beleggingsrekeningen als InvestBrain-portfolios publiceren en
 `purchase`/`sale` transacties via de officiële Sanctum REST API upserten.
 
-## Lokale testversie
+## Configuratie
 
-```bash
-docker compose -f docker-compose.investbrain.yml up -d --wait
-```
-
-Open <http://localhost:8001/register>, maak een gebruiker en daarna onder
-**User → API Tokens** een token. Zet dat token in `.env`:
+Gebruik een extern beheerde InvestBrain-installatie. Maak onder
+**User → API Tokens** een token en zet dat token in `.env`:
 
 ```dotenv
 INVESTBRAIN_SERVER_URL=http://localhost:18001

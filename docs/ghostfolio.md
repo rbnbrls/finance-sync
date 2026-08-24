@@ -12,13 +12,9 @@ Voor een directe koppeling gebruikt finance-sync de gedocumenteerde JSON API:
 
 Elke activity bevat `currency`, `dataSource`, ISO-8601 `date`, numerieke `fee`, `quantity`, `symbol`, `type` en `unitPrice`; `accountId` en `comment` zijn optioneel. Ondersteunde activity types zijn `BUY`, `SELL`, `DIVIDEND`, `FEE`, `INTEREST` en `LIABILITY`. finance-sync gebruikt `YAHOO` voor opgeloste securities en `MANUAL` voor cash/ongeïdentificeerde instrumenten.
 
-## Lokaal starten
+## Configuratie
 
-```bash
-docker compose -f docker-compose.ghostfolio.yml up -d --wait
-```
-
-Open `http://localhost:3333`, maak de eerste gebruiker aan en maak onder `My Ghostfolio -> Access` een security token aan. Zet daarna de bearer token in `.env`:
+Gebruik een extern beheerde Ghostfolio-installatie. Maak onder `My Ghostfolio -> Access` een security token aan en zet daarna de bearer token in `.env`:
 
 ```dotenv
 GHOSTFOLIO_SERVER_URL=http://localhost:3333
@@ -44,4 +40,4 @@ async with GhostfolioClient(config) as client:
     )
 ```
 
-De Ghostfolio database en Redis zijn aparte named volumes. Stoppen verwijdert geen data; resetten kan met `docker compose -f docker-compose.ghostfolio.yml down -v`.
+De Ghostfolio-database en Redis worden door de externe installatie beheerd.

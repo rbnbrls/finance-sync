@@ -49,10 +49,10 @@ for direct Kanban task creation.
 |---|---|---|---|
 | ms.1.f.1 | pyproject/lint/type/test tooling | **DONE** | `pyproject.toml` (ruff select incl. B/SIM/PERF, pyright, pytest-asyncio, pytest-cov, xdist), `.pre-commit` config, CI lint/types/test jobs. |
 | ms.1.f.2 | FastAPI app/settings | **DONE** | `app.py` (create_app factory), `config/settings.py` (typed pydantic-settings, SecretStr, env aliases), `config/environments.py`. |
-| ms.1.f.3 | Postgres/Redis/Docker/Coolify | **DONE** | `docker-compose.yml` (postgres:16, redis:7, app, worker, prometheus, grafana), `Dockerfile` (multi-stage, non-root), `coolify.yaml` (compose stack + env reference). |
+| ms.1.f.3 | Postgres/Redis/Docker/Coolify | **DONE** | `docker-compose.yml` (postgres:16, redis:7, app, worker), `Dockerfile` (multi-stage, non-root), `coolify.yaml` (compose stack + env reference). |
 | ms.1.f.4 | Alembic core schema | **PARTIAL** | `migrations/versions/` 7 files, `migrations/env.py`, `alembic.ini`. Broken chain + unmigrated export tables (see dr.1). Schema actually applied via `create_all` in `lifespan.py`. → G-01 |
 | ms.1.f.5 | JWT/API keys/RBAC | **DONE** | `services/auth.py` (JWT encode/decode, bcrypt, API-key create/verify, envelope encryption), `models/api_key.py`, `models/user.py` (`role`), `api/deps/auth.py` (`require_permission(resource, action)`, `require_role`, `get_auth_context`), auth API (`api/v1/auth.py`: register/login/refresh/me/api-keys). |
-| ms.1.f.6 | health/metrics/logging | **DONE** | `observability/health.py` (`/health`, `/health/ready`, `/health/live`), `observability/metrics.py` (Prometheus + `/metrics`), `observability/logging.py` (structlog + RequestLogMiddleware), `worker/health.py` (aiohttp on :9090). |
+| ms.1.f.6 | health/logging/GlitchTip | **DONE** | `observability/health.py` (`/health`, `/health/ready`, `/health/live`), `observability/glitchtip.py` (privacy-filtered errors and traces), `observability/logging.py` (structlog + RequestLogMiddleware), `worker/health.py` (aiohttp on :9090). |
 | ms.1.f.7 | CI | **DONE** | `.github/workflows/ci.yml` (lint, types, test, security, build & push, deploy), `ci-failure.yml` (issue on failure), `deploy.yml`. |
 | ms.1.ac.1 | A fresh deployment migrates, authenticates, exposes readiness | **PARTIAL** | Works in practice via `create_all` + seed tenant/admin (`lifespan.py:33-110`), auth + health endpoints present. But `alembic upgrade head` cannot be the schema path (broken chain). → G-01 |
 
@@ -97,7 +97,7 @@ for direct Kanban task creation.
 |---|---|---|---|
 | ms.5.f.1 | AI summary endpoints | **DONE** | `api/v1/ai_summary.py` (`POST /ai/summary`, `POST /ai/summary/daily`), `services/ai_summary.py` (OpenAI/Anthropic prompt templates, 1h cache, rate limit), `api/middleware/ai_rate_limit.py`, gated by `ai_enabled`, covered in `tests/test_phase52.py`, MCP tool `tool_get_summary`/`tool_get_daily_briefing`. |
 | ms.5.f.2 | Home Assistant pull integration | **DONE** | `api/v1/ha_integration.py` (`GET /ha/sensors`, `GET /ha/config`), `services/ha_integration.py` (REST-sensor payloads: net worth, portfolio, last sync), gated by `ha_enabled`, covered in `tests/test_phase52.py`. |
-| ms.5.f.3 | Grafana dashboard/alerts | **DONE** | Dashboards ✓: `docker/grafana/dashboards/{portfolio,system,sync-health}.json` + provisioning + `docker/prometheus.yml`, compose service. Alert rules ✓ (G-06): file-provisioned via `docker/grafana/provisioning/alerting/` (`finance-sync.rules.yaml` + `alerting.yaml`), covering failed sync runs, stale enrichment (>24h), outbox backlog, export failures, worker/app down; channels documented in `docs/observability.md`; missing metrics instrumented (outbox gauge, enrichment staleness, export counters, worker `/metrics`). |
+| ms.5.f.3 | GlitchTip monitoring | **DONE** | Privacy-filtered exception tracking and tracing in `observability/glitchtip.py`, configured via environment variables and initialized in both app and worker. |
 | ms.5.f.4 | performance analytics | **DONE** | `api/v1/performance.py` (summary, TWR, MWR, benchmark, attribution), `services/performance.py` (IRR iteration, Brinson attribution), `tests/test_performance.py`. |
 | ms.5.f.5 | subscription detection | **DONE** | `services/subscription_detector/` (merchant classifier, pattern detector, service with HYBRID cross-validation), `api/v1/subscriptions.py` (detect/analyze/confirm/ignore), docs `docs/subscription-detection.md`, 8 test files (incl. deep-coverage + edge cases). |
 | ms.5.ac.1 | Every aggregate declares as-of/freshness/coverage | **DONE** | Portfolio/net-worth carry `as_of` (`services/read_api.py`); `/enrichment/status` reports coverage/staleness. Allocation, cashflow, performance, and subscriptions responses now declare the `meta` envelope (`schemas/freshness.py` `AggregateMeta`/`CoverageInfo`, wired in `services/allocation.py`, `services/read_api.py`, `services/performance.py`, `api/v1/subscriptions.py`), documented in `docs/API.md`. → G-07 (resolved) |
@@ -248,28 +248,12 @@ Actions, or system cron inside the deployment).
     `GET /prices`, `POST /sync` exist and return documented shapes; or
     API.md matches `/openapi.json` exactly.
 
-### G-06 — Add Grafana alert rules
-- **Roadmap IDs:** ms.5.f.3, ms.5.ac.1
-- **Status:** DONE (merged PR #207, 2026-08-14)
-- **What's missing:** Dashboards exist but no alerts (sync health, stale
-  enrichment, failed exports, outbox lag all unmonitored).
-- **Task outline:**
-  - Title: `Add Grafana alert rules for sync/enrichment/export health`
-  - Scope: add alert rules (provisioned via
-    `docker/grafana/provisioning/`) on existing metrics
-    (`sync_runs_total`, `transactions_ingested_total`, outbox lag, worker
-    health) for: failed sync runs, stale enrichment (>24h), outbox backlog,
-    export run failures; document alert channels.
-  - Acceptance: alerts defined in provisioning config, referenced by
-    dashboards, and documented; compose stack loads them.
-- **Resolution:** file-provisioned rules in
-  `docker/grafana/provisioning/alerting/finance-sync.rules.yaml` (6 rules)
-  + `alerting.yaml` (webhook/email contact points, policy, mute timing);
-  dashboard panels link to their rules; `docs/observability.md` documents
-  inventory/channels/silencing; instrumented the previously-missing
-  metrics (outbox gauge, enrichment staleness, export counters, worker
-  job gauges) and added the worker `/metrics` route; compose mounts the
-  alerting provisioning dir.
+### G-06 — Retired Prometheus/Grafana monitoring
+
+- **Status:** RETIRED
+- **Resolution:** Prometheus and Grafana were removed because they are not in
+  use. Health endpoints, structured logging, JobMonitor and privacy-filtered
+  GlitchTip error/tracing remain the supported operational observability.
 
 ### G-07 — Enforce cache TTL and per-aggregate freshness/coverage
 - **Roadmap IDs:** ms.3.ac.1, ms.5.ac.1, rk.4

@@ -27,12 +27,14 @@ _DB_RETRY_BACKOFF: float = 2.0
 
 
 async def _init_database(container: Container) -> None:
-    """Connect to the database and seed default tenant / admin user.
+    """Connect to the database and provision the default tenant / admin user.
 
     Schema is owned exclusively by Alembic — this function never creates
     tables.  It only ensures the ``pgcrypto`` extension exists (needed for
     ``gen_random_uuid()`` used by migrations and seed inserts) and seeds
-    the default tenant and admin user (idempotent).
+    the default tenant and admin user (idempotent).  The admin password is
+    never a default: ``ADMIN_KEY`` is required whenever a database is used
+    and only its bcrypt hash is persisted.
 
     Retries with exponential backoff on transient failures so that a
     momentarily-unavailable database does not crash the whole app container.
@@ -50,6 +52,14 @@ async def _init_database(container: Container) -> None:
                 from datetime import UTC, datetime
 
                 from finance_sync.services.auth import hash_password
+
+                admin_key = secret_value(container.settings.admin_key)
+                if len(admin_key) != 32:
+                    msg = (
+                        "ADMIN_KEY must be configured as exactly 32 characters "
+                        "before the database can be initialised"
+                    )
+                    raise RuntimeError(msg)
 
                 now = datetime.now(UTC)
 
@@ -73,15 +83,18 @@ async def _init_database(container: Container) -> None:
                 else:
                     tid = tenant[0]
 
-                # Create admin user if it doesn't exist
+                # Provision the admin user from ADMIN_KEY.  Updating the hash
+                # on startup also makes rotation deterministic and leaves no
+                # known/default password behind.
                 user_row = await conn.execute(
                     text(
-                        "SELECT id FROM users "
+                        "SELECT id, hashed_password FROM users "
                         "WHERE email = 'admin@finance-sync.local'"
                     )
                 )
-                if user_row.first() is None:
-                    pwd = hash_password("admin")
+                admin_user = user_row.first()
+                pwd = hash_password(admin_key)
+                if admin_user is None:
                     await conn.execute(
                         text(
                             "INSERT INTO users "
@@ -95,13 +108,21 @@ async def _init_database(container: Container) -> None:
                         {"tid": tid, "pwd": pwd, "now": now},
                     )
                     logger.info(
-                        "seeded_admin_user",
-                        email="admin@finance-sync.local",
+                        "provisioned_admin_user",
+                        auth_method="admin_key",
                     )
                 else:
+                    await conn.execute(
+                        text(
+                            "UPDATE users SET hashed_password = :pwd, "
+                            "role = 'admin', is_active = true, "
+                            "updated_at = :now WHERE id = :id"
+                        ),
+                        {"id": admin_user[0], "pwd": pwd, "now": now},
+                    )
                     logger.info(
-                        "admin_user_exists",
-                        email="admin@finance-sync.local",
+                        "admin_user_provisioned",
+                        auth_method="admin_key",
                     )
 
                 # Staging starts with safe static connector configs. Users

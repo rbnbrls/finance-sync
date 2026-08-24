@@ -97,11 +97,11 @@
             },
             {
               "id": "ms.1.f.6",
-              "title": "health/metrics/logging",
+              "title": "health/logging/GlitchTip",
               "status": null,
               "priority": "P0",
               "links": [],
-              "raw": "P0: health/metrics/logging"
+              "raw": "P0: health/logging/GlitchTip"
             },
             {
               "id": "ms.1.f.7",
@@ -345,11 +345,11 @@
             },
             {
               "id": "ms.5.f.3",
-              "title": "Grafana dashboard/alerts",
+              "title": "GlitchTip monitoring",
               "status": null,
               "priority": "P0",
               "links": [],
-              "raw": "P0: Grafana dashboard/alerts"
+              "raw": "P0: GlitchTip monitoring"
             },
             {
               "id": "ms.5.f.4",

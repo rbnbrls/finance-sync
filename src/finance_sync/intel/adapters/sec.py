@@ -59,7 +59,7 @@ logger = structlog.get_logger(__name__)
 _FILINGS_URL = "https://data.sec.gov/submissions/CIK{cik:010d}.json"
 
 #: SEC fair-access: max 10 req/s and a descriptive UA are required.
-_USER_AGENT = "finance-sync/0.6.0 contact@example.com"
+_USER_AGENT = "finance-sync/0.7.0 contact@example.com"
 
 #: 8-K items that constitute material corporate events (beyond the
 #: generic results announcement, Item 2.02).

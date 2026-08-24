@@ -98,7 +98,6 @@ Authentication is `Authorization: Bearer <JWT>` or `X-API-Key`. Mutations requir
 | `GET /destinations/{id}/jupyter-notebook` | `admin` | Download the versioned, credential-free starter notebook. |
 | `DELETE /destinations/{id}` | `admin` | Delete a destination (revokes Jupyter key, removes its schedule); canonical data is untouched. |
 | `GET /health` | public/internal | Liveness/readiness/dependency checks; redact details publicly. |
-| `GET /metrics` | internal | Prometheus exposition, network-restricted. |
 
 ## AI resources
 

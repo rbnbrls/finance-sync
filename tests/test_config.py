@@ -57,7 +57,7 @@ class TestSettings:
         """Without env vars, defaults are used."""
         settings = Settings(_env_file=None)
         assert settings.app_name == "finance-sync"
-        assert settings.app_version == "0.6.0"
+        assert settings.app_version == "0.7.0"
         assert settings.debug is False
         assert settings.environment == Environment.DEVELOPMENT
         assert settings.cors_origins == []

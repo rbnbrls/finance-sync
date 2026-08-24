@@ -1,14 +1,7 @@
 # Securo-koppeling
 
-## Lokale testinstallatie
-
-```sh
-./scripts/setup-securo-test.sh
-```
-
-De compose-stack gebruikt poort `3001` voor de frontend en `8001` voor de backend, zodat de standaard finance-sync-stack niet wordt overschreven. De Securo-code wordt onder `var/securo-test/` geplaatst en de database in een named volume.
-
-Open daarna <http://localhost:3001>, maak een gebruiker aan en gebruik diens e-mailadres en wachtwoord voor de push.
+De lokale Securo-testapplicatie is verwijderd. Gebruik een extern beheerde
+Securo-installatie en configureer de servergegevens voor de push.
 
 ## Datacontract van de importer
 
