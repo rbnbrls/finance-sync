@@ -20,12 +20,8 @@ from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 import structlog
-try:
-    # Try mcp 2.0.0+ structure
-    from mcp.server import FastMCP, Context
-except ImportError:
-    # Fall back to mcp 1.x structure
-    from mcp.server.fastmcp import Context, FastMCP
+from mcp.server import FastMCP
+from mcp.server.fastmcp import Context
 from mcp.server.session import ServerSession
 from pydantic import BaseModel, Field
 
