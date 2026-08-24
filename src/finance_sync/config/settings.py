@@ -55,7 +55,7 @@ class Settings(BaseSettings):
 
     # ── Application ──────────────────────────────────────────────────
     app_name: str = Field(default="finance-sync", validation_alias="APP_NAME")
-    app_version: str = Field(default="0.6.0", validation_alias="APP_VERSION")
+    app_version: str = Field(default="0.7.0", validation_alias="APP_VERSION")
     debug: bool = Field(default=False, validation_alias="DEBUG")
     staging_connector_base_url: str = Field(
         default="http://127.0.0.1:8000/api/v1/staging-providers",
@@ -71,6 +71,44 @@ class Settings(BaseSettings):
         default="INFO",
         validation_alias="LOG_LEVEL",
         description="Minimum log level (DEBUG, INFO, WARNING, ERROR).",
+    )
+
+    # ── GlitchTip / Sentry-compatible observability ─────────────────
+    glitchtip_enabled: bool = Field(
+        default=False,
+        validation_alias="GLITCHTIP_ENABLED",
+        description="Enable privacy-filtered GlitchTip error tracking.",
+    )
+    glitchtip_dsn: SecretStr | None = Field(
+        default=None,
+        validation_alias="GLITCHTIP_DSN",
+        description="GlitchTip project DSN; empty means disabled.",
+    )
+    glitchtip_sample_rate: float = Field(
+        default=1.0,
+        ge=0.0,
+        le=1.0,
+        validation_alias="GLITCHTIP_SAMPLE_RATE",
+        description="Fraction of error events to send.",
+    )
+    glitchtip_traces_sample_rate: float = Field(
+        default=0.01,
+        ge=0.0,
+        le=1.0,
+        validation_alias="GLITCHTIP_TRACES_SAMPLE_RATE",
+        description="Fraction of transactions to trace (keep low in prod).",
+    )
+    glitchtip_release: str | None = Field(
+        default=None,
+        validation_alias="GLITCHTIP_RELEASE",
+        description="Optional release identifier; defaults to APP_VERSION.",
+    )
+    glitchtip_max_breadcrumbs: int = Field(
+        default=20,
+        ge=0,
+        le=100,
+        validation_alias="GLITCHTIP_MAX_BREADCRUMBS",
+        description="Maximum breadcrumbs retained per event.",
     )
 
     # ── CORS ─────────────────────────────────────────────────────────
@@ -112,6 +150,15 @@ class Settings(BaseSettings):
     secret_key: SecretStr = Field(
         default=SecretStr("change-me-in-production"),
         validation_alias="SECRET_KEY",
+    )
+    admin_key: SecretStr | None = Field(
+        default=None,
+        validation_alias="ADMIN_KEY",
+        description=(
+            "Exactly 32 characters. Used only to bootstrap/authenticate the "
+            "initial administrator; generate with "
+            "scripts/generate-admin-key.sh."
+        ),
     )
     access_token_expire_minutes: int = Field(
         default=30,
@@ -922,6 +969,15 @@ class Settings(BaseSettings):
         """Ensure secret keys are at least 16 characters long."""
         if len(v.get_secret_value()) < 16:
             msg = "Secret key must be at least 16 characters long"
+            raise ValueError(msg)
+        return v
+
+    @field_validator("admin_key")
+    @classmethod
+    def _admin_key_length(cls, v: SecretStr | None) -> SecretStr | None:
+        """Require a fixed-length bootstrap key when it is configured."""
+        if v is not None and len(v.get_secret_value()) != 32:
+            msg = "ADMIN_KEY must be exactly 32 characters long"
             raise ValueError(msg)
         return v
 

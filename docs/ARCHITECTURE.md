@@ -22,7 +22,7 @@ flowchart LR
   DB --> A["FastAPI REST + AI API"]
   X --> AB["Actual Budget"]
   X --> WF["Wealthfolio"]
-  A --> HA["Home Assistant / Grafana / n8n / agents"]
+  A --> HA["Home Assistant / n8n / agents"]
 ```
 
 ## 2. Boundary and ownership
@@ -52,7 +52,7 @@ finance-sync/
     infrastructure/      # SQLAlchemy repositories, Redis, HTTP, outbox
     services/            # sync, portfolio, performance, net-worth, AI projections
     workers/             # APScheduler jobs, event consumers, retry dispatch
-    observability/       # structured logs, metrics, tracing, health checks
+    observability/       # structured logs, tracing, health checks, GlitchTip
     config/              # typed settings and dependency assembly
     main.py
   alembic/               # schema migrations only

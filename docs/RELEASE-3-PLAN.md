@@ -96,7 +96,7 @@ Acceptatie:
    `connection_id`, `provider`, `duration_ms` en `error_type` waar relevant.
 4. Redigeer URLs, credentials, raw provider payloads en financiële details
    vóór logging.
-5. Maak retry/backoff en terminale fouten zichtbaar in health/metrics zonder
+5. Maak retry/backoff en terminale fouten zichtbaar in health/status zonder
    exception-teksten naar clients door te geven.
 
 Acceptatie: voor iedere publieke fout is de HTTP-status en veilige foutcode
@@ -162,4 +162,3 @@ Release 3 is klaar wanneer:
 5. migratie `0037` en eventuele nieuwe migraties op een lege én bestaande
    database kunnen worden uitgerold;
 6. staging smoke tests, query-budgettests en rollback/runbook-review slagen.
-

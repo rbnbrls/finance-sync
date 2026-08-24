@@ -176,7 +176,7 @@ local development:
 * DeGiro imports enforce both a per-file limit and a combined upload-batch
   limit (`DEGIRO_IMPORT_MAX_BATCH_BYTES`, default 100 MiB) while streaming;
 
-* Securo export/push and lokale Docker-testinstallatie: zie
+* Securo export/push: zie
   [`docs/securo.md`](docs/securo.md).
 * webhook delivery uses Redis-backed per-webhook minute buckets when Redis is
   configured, so throttling is shared across API and worker replicas.

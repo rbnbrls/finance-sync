@@ -168,9 +168,8 @@ dezelfde versleutelde bundle.
 | `wealthfolio_health` | `/api/v1/auth/status` | niet 200 óf `requiresPassword=false` |
 | `export_freshness` | nieuwste `wealthfolio_deliveries.last_exported_at` | ouder dan `--max-stale-hours` (24) of geen data |
 
-Prometheus-output (stdout) gebruikt alleen vaste `check`-labels — **geen
-financiële waarden, account-ids of secrets in metriclabels**. Exitcode 1 bij
-elke kritieke fout. Schema via systemd op de Proxmox-host of een willekeurige
+De monitor schrijft JSON-status naar stdout en gebruikt exitcode 1 bij elke
+kritieke fout. Schema via systemd op de Proxmox-host of een willekeurige
 scheduler:
 
 ```bash

@@ -1,8 +1,7 @@
 """Tests for the Wealthfolio multi-device access monitor (backlog AC).
 
 Covers HTTPS reachability, certificate expiry, Wealthfolio health and the
-export freshness checks, plus the Prometheus rendering guarantee: no
-financial values or secrets ever appear in metric labels.
+export freshness checks.
 """
 
 from __future__ import annotations
@@ -20,7 +19,6 @@ from finance_sync.monitoring.wealthfolio_monitor import (
     check_https_reachable,
     check_wealthfolio_health,
     normalize_pg_url,
-    render_prometheus,
     run_all_checks,
 )
 
@@ -206,20 +204,6 @@ def test_export_freshness_fails_when_stale() -> None:
 def test_export_freshness_fails_when_no_data() -> None:
     result = check_export_freshness([], max_stale_hours=24)
     assert result.ok is False
-
-
-def test_prometheus_labels_contain_no_financial_values() -> None:
-    results = [
-        check_export_freshness(
-            [(datetime(2026, 8, 17, 12, 0, tzinfo=UTC), "acct-1")],
-            now=datetime(2026, 8, 17, 12, 30, tzinfo=UTC),
-        )
-    ]
-    text = render_prometheus(results)
-    assert 'check="export_freshness"' in text
-    # No account ids, no secrets, no amounts in the label set.
-    assert "acct-1" not in text
-    assert "secret" not in text.lower()
 
 
 def test_normalize_pg_url() -> None:

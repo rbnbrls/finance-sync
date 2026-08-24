@@ -1,19 +1,7 @@
-# Firefly III lokale testkoppeling
+# Firefly III-koppeling
 
-## Starten
-
-```bash
-mkdir -p var/firefly-import
-docker compose -f docker-compose.firefly.yml up -d
-```
-
-- Firefly III: <http://localhost:8082>
-- Data Importer: <http://localhost:8081>
-- MariaDB en uploads blijven in Docker volumes.
-
-Maak bij de eerste login een lokale gebruiker aan. Maak daarna in Firefly
-III een personal access token via `Options > Profile > Personal Access Tokens`.
-Zet dat token in de finance-sync omgeving:
+De lokale Firefly-teststack is verwijderd. Gebruik een extern beheerde Firefly
+III-installatie en zet het personal access token in de finance-sync omgeving:
 
 ```bash
 export FIREFLY_SERVER_URL=http://localhost:8082

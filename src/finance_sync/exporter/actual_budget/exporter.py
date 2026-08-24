@@ -37,11 +37,6 @@ from finance_sync.exporter.actual_budget.client import (
     ActualBudgetClient,
     ActualBudgetConnectionError,
 )
-from finance_sync.observability.metrics import export_runs_total
-
-if TYPE_CHECKING:
-    from finance_sync.exporter.actual_budget.config import ActualBudgetConfig
-
 from finance_sync.exporter.actual_budget.models import (
     ActualBudgetAccountMapping,
     ExportDelivery,
@@ -58,6 +53,8 @@ if TYPE_CHECKING:
         AsyncSession,
         async_sessionmaker,
     )
+
+    from finance_sync.exporter.actual_budget.config import ActualBudgetConfig
 
 
 logger = structlog.get_logger("finance_sync.exporter.actual_budget")
@@ -162,13 +159,6 @@ class ActualBudgetExporter:
         self._log = logger.bind(tenant_id=tenant_id)
 
     # ── Public API ───────────────────────────────────────────────────
-
-    @staticmethod
-    def _record_export_metrics(result: ExportResult) -> None:
-        """Record the export run outcome as a Prometheus counter."""
-        export_runs_total.labels(
-            exporter="actual_budget", status=result.status
-        ).inc()
 
     async def run_export(
         self,
