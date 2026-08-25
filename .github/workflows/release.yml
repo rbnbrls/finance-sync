@@ -73,7 +73,7 @@ jobs:
       id-token: write   # cosign keyless signing (GitHub OIDC)
     outputs:
       version: ${{ steps.meta.outputs.version }}
-      image: ${{ steps.image-tag.outputs.image }}
+      image: ${{ steps.image_tag.outputs.image }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -102,7 +102,7 @@ jobs:
             type=sha,format=short
 
       - name: Resolve immutable image tag
-        id: image-tag
+        id: image_tag
         env:
           IMAGE_TAGS: ${{ steps.meta.outputs.tags }}
         run: |
