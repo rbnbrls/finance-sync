@@ -414,6 +414,30 @@ async def list_targets(
     return [_response(row, schedules.get(str(row.schedule_id))) for row in rows]
 
 
+@router.get("/{target_id}", response_model=TargetResponse)
+async def get_target(
+    target_id: str,
+    auth: AuthContext = _Admin,
+    db: AsyncSession = Depends(get_db),
+) -> TargetResponse:
+    """Return one destination by id (tenant-scoped).
+
+    Read-only counterpart of the wizard's list view; used by the control
+    plane's ``configure_destination`` action (GET / destinations:read).
+    Credentials are never included.
+    """
+    row = await _target(db, auth.tenant_id, target_id)
+    schedule: SyncSchedule | None = None
+    if row.schedule_id:
+        schedule = await db.scalar(
+            select(SyncSchedule).where(
+                SyncSchedule.id == row.schedule_id,
+                SyncSchedule.tenant_id == auth.tenant_id,
+            )
+        )
+    return _response(row, schedule)
+
+
 @router.post(
     "", response_model=TargetResponse, status_code=status.HTTP_201_CREATED
 )
