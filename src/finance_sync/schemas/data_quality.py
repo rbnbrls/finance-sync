@@ -19,6 +19,7 @@ DataQualityKind = Literal[
 
 class DataQualityCoverage(BaseModel):
     provider: str
+    resource: str = "transactions"
     accounts: int = 0
     transactions: int = 0
     first_transaction_at: datetime | None = None

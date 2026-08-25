@@ -44,6 +44,7 @@ from finance_sync.schemas.control_plane import (
     InstallationStatus,
 )
 from finance_sync.services.control_plane_actions import action
+from finance_sync.utils.redaction import sanitize_error
 
 
 class ControlPlaneService:
@@ -88,6 +89,12 @@ class ControlPlaneService:
         issues.extend(await self._security_issues(credentials))
         issues.extend(await self._reconciliation_issues())
         freshness = await self._freshness()
+        freshness.ingestion_last_at = latest_timestamp(
+            [
+                *(row.last_success_at for row in connections),
+                *(row.last_attempt_at for row in connections),
+            ]
+        )
         destinations = await self._destinations()
         issues.extend(self._freshness_issues(freshness))
         issues.extend(self._destination_issues(destinations))
@@ -108,10 +115,15 @@ class ControlPlaneService:
         )
 
         timestamps = [
+            *(row.last_attempt_at for row in connections),
             *(row.last_success_at for row in connections),
+            *(row.started_at for row in syncs),
             *(row.completed_at for row in syncs),
             freshness.last_enrichment_at,
+            freshness.ingestion_last_at,
+            freshness.market_data_last_at,
             *(row.last_checked_at for row in destinations),
+            *(row.last_export_at for row in destinations),
             await self._latest_reconciliation_at(),
         ]
         as_of = latest_timestamp(timestamps)
@@ -208,7 +220,7 @@ class ControlPlaneService:
             status=status,
             last_attempt_at=row.last_attempt_at,
             last_success_at=row.last_success_at,
-            last_error=row.last_error,
+            last_error=sanitize_error(row.last_error or "") or None,
             last_error_category=getattr(row, "last_error_category", None),
             last_test_at=getattr(row, "last_test_at", None),
             last_test_status=getattr(row, "last_test_status", None),
@@ -230,6 +242,26 @@ class ControlPlaneService:
                         else None
                     ),
                 ),
+                action(
+                    "view_connection",
+                    f"/api/v1/connectors/configs/{row.id}",
+                    permissions=permissions,
+                ),
+                action(
+                    "edit_connection",
+                    f"/api/v1/connectors/configs/{row.id}",
+                    permissions=permissions,
+                ),
+                action(
+                    "pause_connection",
+                    f"/api/v1/connectors/configs/{row.id}/pause",
+                    permissions=permissions,
+                    disabled_reason=(
+                        "De verbinding is al gepauzeerd."
+                        if row.status == "paused"
+                        else None
+                    ),
+                ),
             ],
         )
 
@@ -245,7 +277,7 @@ class ControlPlaneService:
             started_at=row.started_at,
             completed_at=row.completed_at,
             items_processed=row.items_processed,
-            error_message=row.error_message,
+            error_message=sanitize_error(row.error_message or "") or None,
             error_category=row.error_category,
             cursor=row.cursor,
             actions=[
@@ -520,7 +552,8 @@ class ControlPlaneService:
                 category="export",
                 title="Export mislukt",
                 description=(
-                    f"{row.failed_export_count} export(s) voor {row.name} "
+                    row.last_export_error
+                    or f"{row.failed_export_count} export(s) voor {row.name} "
                     "zijn mislukt."
                 ),
                 action=next(
@@ -587,6 +620,7 @@ class ControlPlaneService:
         )
         latest = max((row.updated_at for row in rows), default=None)
         by_source: dict[str, dict[str, int]] = {}
+        by_category: dict[str, dict[str, int]] = {}
         for row in rows:
             source = str(row.data_source or "unknown")
             bucket = by_source.setdefault(
@@ -599,6 +633,29 @@ class ControlPlaneService:
                 bucket["fresh"] += 1
             else:
                 bucket["stale"] += 1
+            for category, timestamp in (
+                ("metadata", getattr(row, "last_metadata_fetch", None)),
+                ("quote", row.last_quote_fetch),
+                (
+                    "daily_price",
+                    getattr(row, "last_daily_price_fetch", None),
+                ),
+                (
+                    "intraday_price",
+                    getattr(row, "last_intraday_price_fetch", None),
+                ),
+            ):
+                category_bucket = by_category.setdefault(
+                    category,
+                    {"total": 0, "fresh": 0, "stale": 0, "unavailable": 0},
+                )
+                category_bucket["total"] += 1
+                if timestamp is None:
+                    category_bucket["unavailable"] += 1
+                elif timestamp >= cutoff:
+                    category_bucket["fresh"] += 1
+                else:
+                    category_bucket["stale"] += 1
         status = (
             "fresh"
             if total_count and fresh == total_count
@@ -616,6 +673,20 @@ class ControlPlaneService:
             securities_without_quote=without_quote,
             holdings_without_valuation=holdings_without_valuation,
             by_source=by_source,
+            by_category=by_category,
+            market_data_last_at=max(
+                (
+                    value
+                    for row in rows
+                    for value in (
+                        row.last_quote_fetch,
+                        getattr(row, "last_daily_price_fetch", None),
+                        getattr(row, "last_intraday_price_fetch", None),
+                    )
+                    if value is not None
+                ),
+                default=None,
+            ),
             last_enrichment_at=latest,
         )
 
@@ -709,7 +780,9 @@ class ControlPlaneService:
                     status=row.status,
                     health_status=row.last_health_status,
                     last_checked_at=row.last_checked_at,
-                    last_error=row.last_health_error,
+                    last_error=(
+                        sanitize_error(row.last_health_error or "") or None
+                    ),
                     next_scheduled_at=(
                         schedules[str(row.schedule_id)].next_run_at
                         if row.schedule_id and str(row.schedule_id) in schedules
@@ -722,7 +795,15 @@ class ControlPlaneService:
                         else None
                     ),
                     last_export_at=(
-                        latest_export.completed_at
+                        (latest_export.completed_at or latest_export.started_at)
+                        if latest_export is not None
+                        else None
+                    ),
+                    last_export_error=(
+                        sanitize_error(
+                            getattr(latest_export, "error_message", "") or ""
+                        )
+                        or None
                         if latest_export is not None
                         else None
                     ),

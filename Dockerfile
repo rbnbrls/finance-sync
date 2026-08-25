@@ -16,8 +16,8 @@ WORKDIR /app
 COPY pyproject.toml uv.lock ./
 COPY src/ ./src/
 
-# Alembic migration files (needed at runtime: the release pipeline runs
-# `alembic upgrade head` as a pre-deployment command in this image)
+# Alembic migration files (the Compose `migrate` service runs them before
+# the application and worker containers start)
 COPY alembic.ini ./
 COPY migrations/ ./migrations/
 COPY deploy/staging/fixtures/ ./deploy/staging/fixtures/

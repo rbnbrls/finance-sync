@@ -1,159 +1,81 @@
-# Database Migrations (Alembic)
+# Database migrations
 
-finance-sync uses [Alembic](https://alembic.sqlalchemy.org/) for all schema
-changes. **Alembic is the single owner of the schema** — the application
-never creates or alters tables at runtime (`Base.metadata.create_all` is not
-used in the app lifespan; the lifespan only seeds default data).
+finance-sync uses Alembic for every PostgreSQL schema change. The application
+does not create tables at runtime. Compose and the release pipeline run the
+migration job before the API and worker start.
 
-## How upgrades run
+## Current state
 
-Migrations run against PostgreSQL via the async engine configured in
-`migrations/env.py`. The env reads the connection URL from the
-`ASYNC_DB_URL` environment variable (falling back to `DATABASE_URL`), and
-rewrites `postgresql://` URLs to the `asyncpg` driver automatically.
-
-```bash
-# Apply all pending migrations (upgrade to the newest revision)
-ASYNC_DB_URL=postgresql+asyncpg://user:pass@host:5432/finance_sync alembic upgrade head
-
-# Inspect the chain
-ASYNC_DB_URL=postgresql+asyncpg://user:pass@host:5432/finance_sync alembic history
-```
-
-In production the release pipeline runs `alembic upgrade head` as a
-dedicated migration job **before** the new application version starts
-(see `docs/UPGRADE.md` for operator notes and rollback guidance).
-CI runs the same command against an empty PostgreSQL service container in
-the `migrations` job, so a broken chain fails the build.
-
-### Pre-deployment commands are *not* a guaranteed migration path
-
-Coolify's `pre_deployment_command` (`alembic upgrade head` on the staging
-and production apps) only runs while a **previous container is still
-running**. In a crash loop — e.g. the database is unreachable at startup
-and the app exits before becoming healthy (see issue #233) — there is no
-running container, Coolify logs *"No running containers found. Skipping."*,
-and the migration silently never runs. The app's lifespan deliberately
-does **not** create tables, so an unmigrated database fails the very next
-startup (`SELECT ... FROM tenants`), perpetuating the loop.
-
-The **guaranteed** paths are:
-
-1. The release pipeline's dedicated `migrate` job (validates the chain on
-   a scratch PostgreSQL before anything deploys), and
-2. An explicit, operator-driven run against the target database before
-   (re)deploying — e.g. Coolify's "Execute command" on the app container:
-
-   ```bash
-   cd /app && alembic upgrade head
-   ```
-
-   or a one-off container on the app's network:
-
-   ```bash
-   docker run --rm --network <net> \
-     -e DATABASE_URL="postgresql+asyncpg://finance_sync:<pw>@<pg-host>:5432/finance_sync" \
-     finance-sync:latest alembic upgrade head
-   ```
-
-Treat `pre_deployment_command` as best-effort convenience, never as the
-sole migration trigger.
-
-## The revision chain
-
-The migration history is a **single linear chain** — every revision has
-exactly one parent and there is exactly one head:
+The migration chain is linear and currently ends at:
 
 ```text
-<base> -> 0001 -> 0002 -> 0003 -> 0004 -> 0005 -> 0006 -> 0007 -> 0008 -> 0009 -> 0010 -> 0011 -> 0012 -> 0013 -> 0014 -> 0015 -> 0016 -> 0017 -> 0018 -> 0019 -> 0020 -> 0021 -> 0022 -> 0023 -> 0024 (head)
+0040_add_recovery_metadata -> 0041_add_connection_test_metadata (head)
 ```
 
-| Revision | Contents |
-|----------|----------|
-| 0001 | Initial canonical schema (tenants, users, accounts, securities, transactions, holdings, balances, outbox, sync_runs) |
-| 0002 | Auth tables (api_keys, credentials) |
-| 0003 | Webhook tables (webhooks, webhook_delivery_logs) |
-| 0004 | Phase 3 fundamentals (fundamental_observations, security_metadata_observations) |
-| 0005 | fx_rates |
-| 0006 | Phase 3 reconciliation / payments (reconciliation_runs, reconciliation_results, scheduled_payments, card_transactions) |
-| 0007 | tax_lots + `transactions.quantity` |
-| 0008 | Exporter tables (export_runs, ab_account_mappings, export_deliveries) |
-| 0009 | Sync schema to ORM: create_all-only tables (`enrichment_freshness`, `security_prices`, `unresolved_securities`, `detected_subscriptions`, `resolution_audit_log`), `outbox_messages.idempotency_key`, column type/comment/index and tenant FK alignment with the models |
-| 0010 | `card_transactions.account_id` relaxed to nullable (bunq card payments carry no settling monetary account id) |
-| 0011 | Per-account sync cursors |
-| 0012 | Wealthfolio delivery cursors and exporter type |
-| 0013 | Holding snapshot deduplication and idempotency constraint |
-| 0014 | `import_runs` table (connector file-based import runs, tenant + connection scoped) |
-| 0015 | Wealthfolio E2E fields (`wealthfolio_account_mappings` table; legacy `transactions.fee_*` / `unit_price` columns dropped) |
-| 0016 | `connector_state` table — per-tenant bunq installation material (RSA keypair + installation token) so syncs reuse one device |
-| 0017 | Multi-connection model: `credentials.status` (active/paused), `selected_accounts`, `last_attempt_at` / `last_success_at` / `last_error`; drop the `(tenant_id, provider_key)` unique index (multiple connections per provider); nullable `connection_id` on accounts / transactions / card_transactions / sync_cursor / sync_runs / connector_state with connection-scoped unique constraints; `connection_audit_log` table |
-| 0018 | Household sharing (owned/visibility columns, invitations, sharing audit) — **retired** in 0025; see `docs/destinations.md` |
-| 0019 | Governed datamarts: datamart consumer policies (see `docs/datamarts.md`) |
-| 0020 | Tenant-scoped sync schedules: `sync_schedules` table with unique `(tenant_id, scope, target_id)`; idempotent backfill of the default schedule (weekdays 07:00 in `Europe/Amsterdam`, `next_run_at` strictly in the future so no run fires on migration day) for active schedulable connections (`bunq`, `trading212`) and tenants with export evidence (`wealthfolio`, `actual-budget`). See `docs/sync-schedules.md`. |
-| 0021 | Persistent `export_targets`: optional Wealthfolio, Actual Budget and Jupyter destinations with non-secret configuration, envelope-encrypted secret fields, selected account/dataset scope, health state and linked schedule/key identifiers. |
-| 0022 | Adds `target_id` to Wealthfolio and Actual Budget account mappings and delivery cursors. Existing records are assigned `legacy`; all new cursors are unique per tenant, destination and account. |
-| 0023 | Adds an optimistic `version` field to `export_targets` for safe destination updates. |
-| 0024 | Adds nullable `api_keys.account_scope`. Jupyter consumer keys use it as an account-id allowlist; existing keys remain unrestricted (`NULL`). |
-| 0025 | Removes the retired household interface: drops `household_invitations`, `household_audit_log` and the `accounts.visibility` column. `owner_user_id` stays as provenance (user → connection → account). |
+The complete chain is in `migrations/versions/`. Always inspect Alembic's
+output rather than copying a revision list into another document:
 
-> **History note:** revisions 0004–0007 were originally four files that all
-> declared `revision="0004"` (duplicate heads), and the export tables
-> (0008) were created only via `create_all` at app startup. The chain was
-> renumbered into the linear sequence above; if you have a database that
-> was created with the old `create_all` path, see `docs/UPGRADE.md` for
-> reconciliation instructions.
+```bash
+ASYNC_DB_URL=postgresql+asyncpg://user:pass@host:5432/finance_sync \
+  alembic heads
+ASYNC_DB_URL=postgresql+asyncpg://user:pass@host:5432/finance_sync \
+  alembic history
+```
 
-## Adding a new revision
+## Apply migrations
 
-1. **Never renumber or edit an already-shipped revision.** Add a new
-   revision on top of the head.
+`migrations/env.py` reads `ASYNC_DB_URL`, falling back to `DATABASE_URL`, and
+normalizes PostgreSQL URLs to the asyncpg driver.
 
-2. Generate the revision file (optionally autogenerated from model
-   changes — make sure your model is imported by
-   `src/finance_sync/models/__init__.py`, or for exporter models is
-   registered via `ensure_exporter_models_loaded()`, which
-   `migrations/env.py` calls automatically):
+```bash
+ASYNC_DB_URL=postgresql+asyncpg://user:pass@host:5432/finance_sync \
+  alembic upgrade head
+```
+
+In Docker Compose, the `migrate` service runs this command automatically. The
+`app` and `worker` services depend on successful completion of that service.
+
+For a fresh-database verification:
+
+```bash
+alembic upgrade head
+alembic check
+alembic downgrade base
+```
+
+Use a disposable PostgreSQL database for `downgrade base`.
+
+## Add a migration
+
+1. Confirm the current head with `alembic heads`.
+2. Create one new revision with that head as `down_revision`:
 
    ```bash
    ASYNC_DB_URL=postgresql+asyncpg://user:pass@host:5432/finance_sync \
-       alembic revision --autogenerate -m "describe change"
+     alembic revision --autogenerate -m "describe the change"
    ```
 
-   A hand-written revision is created with:
+3. Review the generated SQL and edit it when the change needs an explicit
+   expand/contract sequence.
+4. Implement a symmetric `downgrade()` unless the change is explicitly
+   irreversible and documented in `UPGRADE.md`.
+5. Run `upgrade head`, `alembic check` and the relevant tests on PostgreSQL.
 
-   ```bash
-   alembic revision -m "describe change"
-   ```
+Never edit or renumber a shipped revision. Keep the chain linear: one head,
+one parent, and no merge revisions unless the release process explicitly
+approves one.
 
-3. Review the generated file in `migrations/versions/`. It must:
-   - use a unique `revision` id and set `down_revision` to the current head
-     (the chain must stay linear — no branches);
-   - keep the `upgrade()` **and** `downgrade()` symmetric (a `downgrade()`
-     that reverses every `upgrade()` step), since rollback depends on it;
-   - avoid destructive operations (drop column/table) unless the change is
-     documented as a breaking release in `docs/UPGRADE.md`.
+## Safety rules
 
-4. Verify locally against a scratch PostgreSQL:
+- Expand before contract so the previous image can still start during a
+  rollback.
+- Do not put secrets or financial payloads in migration logs or fixtures.
+- Keep data backfills bounded and resumable where possible.
+- Register new SQLAlchemy models in `src/finance_sync/models/__init__.py` so
+  Alembic autogenerate can see them. Exporter models are loaded by
+  `ensure_exporter_models_loaded()`.
+- Keep seed/data migrations separate from schema-only migrations; see
+  [SEED_MIGRATIONS.md](SEED_MIGRATIONS.md).
 
-   ```bash
-   createdb scratch_db
-   ASYNC_DB_URL=postgresql+asyncpg://user:pass@localhost:5432/scratch_db \
-       alembic upgrade head     # clean apply
-   ASYNC_DB_URL=postgresql+asyncpg://user:pass@localhost:5432/scratch_db \
-       alembic downgrade base   # full rollback works
-   ```
-
-5. Push a PR — the `migrations` CI job applies the full chain on an empty
-   PostgreSQL and fails if the chain is not linear or any revision errors.
-
-## Conventions
-
-- **Expand / contract.** Each revision is backward-compatible first
-  (expand), application code migrates and reads both, and a later release
-  contracts. This keeps rollback to the previous image safe.
-- **One chain, one head.** If `alembic history` shows more than one head,
-  the build is broken by design.
-- **No runtime schema changes.** The app lifespan seeds default data
-  (tenant + admin user) but never creates tables.
-- **Seed / data migrations** are separate from schema revisions — see
-  `docs/SEED_MIGRATIONS.md`.
+For deployment sequencing and rollback, see [UPGRADE.md](UPGRADE.md) and
+[RELEASING.md](RELEASING.md).

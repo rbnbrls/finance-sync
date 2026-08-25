@@ -55,7 +55,7 @@ class Settings(BaseSettings):
 
     # ── Application ──────────────────────────────────────────────────
     app_name: str = Field(default="finance-sync", validation_alias="APP_NAME")
-    app_version: str = Field(default="0.6.0", validation_alias="APP_VERSION")
+    app_version: str = Field(default="0.7.3", validation_alias="APP_VERSION")
     debug: bool = Field(default=False, validation_alias="DEBUG")
     staging_connector_base_url: str = Field(
         default="http://127.0.0.1:8000/api/v1/staging-providers",

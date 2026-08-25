@@ -45,6 +45,8 @@ All tables use UUID primary keys, `tenant_id`, `created_at`, and `updated_at` un
 - Release 13 publishes the PostgreSQL query benchmark dataset profile and
   database version as a CI artifact; query count is the hard gate and latency
   is diagnostic only.
+- Performance scripts and CI artifacts are operational evidence, not part of
+  the schema contract. Re-run them after query or infrastructure changes.
 
 ## Accounting semantics
 

@@ -174,8 +174,8 @@ relevant, grounded only in deterministic finance-sync facts (security
 name/ticker, event type/date, match reason, item IDs, source URL) —
 never financial values or position sizes.  With Hermes unavailable or
 disabled the field is simply omitted and the deterministic feed stays
-fully available.  See [docs/hermes-relevance.md](hermes-relevance.md)
-if present, or `src/finance_sync/services/hermes_relevance.py`.
+fully available. See `src/finance_sync/services/hermes_relevance.py` for the
+optional explanation adapter; there is no separate Hermes runtime dependency.
 
 ## Operations
 

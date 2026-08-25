@@ -112,6 +112,7 @@ class DataQualityService:
         return [
             DataQualityCoverage(
                 provider=str(row[0]),
+                resource="transactions",
                 accounts=int(row[1] or 0),
                 transactions=int(row[2] or 0),
                 first_transaction_at=row[3],

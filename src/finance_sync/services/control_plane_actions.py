@@ -24,6 +24,15 @@ ACTION_CATALOG: dict[str, ActionSpec] = {
     "sync_connection": ActionSpec(
         "sync_connection", "Nu synchroniseren", "POST", "sync:write"
     ),
+    "view_connection": ActionSpec(
+        "view_connection", "Details bekijken", "GET", "connectors:read"
+    ),
+    "edit_connection": ActionSpec(
+        "edit_connection", "Bewerken", "GET", "connectors:read"
+    ),
+    "pause_connection": ActionSpec(
+        "pause_connection", "Pauzeren", "POST", "connectors:write"
+    ),
     "view_sync_run": ActionSpec(
         "view_sync_run", "Sync-details bekijken", "GET", "sync:read"
     ),
@@ -45,8 +54,8 @@ ACTION_CATALOG: dict[str, ActionSpec] = {
     "configure_destination": ActionSpec(
         "configure_destination",
         "Bestemming configureren",
-        "PATCH",
-        "destinations:write",
+        "GET",
+        "destinations:read",
     ),
     "pause_destination": ActionSpec(
         "pause_destination", "Bestemming pauzeren", "POST", "destinations:write"

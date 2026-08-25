@@ -56,6 +56,14 @@ class MapResponse(BaseModel):
     detail: str
 
 
+class MapByTargetRequest(BaseModel):
+    """Mapping payload when the canonical target is part of the URL."""
+
+    provider_key: str
+    external_security_id: str
+    resolution_notes: str | None = None
+
+
 # ── Endpoints ─────────────────────────────────────────────────────────
 
 
@@ -222,6 +230,38 @@ async def map_security(
             detail="Target security not found",
         )
 
+    return MapResponse(
+        target_security_id=result.target_security_id,
+        provider_key=body.provider_key,
+        external_security_id=body.external_security_id,
+        detail="Security mapped successfully, background enrichment triggered",
+    )
+
+
+@router.put("/{security_id}/map", response_model=MapResponse)
+async def map_security_by_target_id(
+    security_id: str,
+    body: MapByTargetRequest,
+    request: Request,
+    auth: AuthContext = Depends(require_permission("securities", "write")),
+) -> MapResponse:
+    """Canonical contract alias with the target security in the URL.
+
+    The legacy ``PUT /securities/map`` contract remains available for clients
+    that submit ``target_security_id`` in the body.  Both paths use the same
+    tenant-scoped identity-resolution operation.
+    """
+    container = get_container(request)
+    result = await container.identity_resolution_service.map_and_resolve(
+        tenant_id=auth.tenant_id,
+        provider_key=body.provider_key,
+        external_security_id=body.external_security_id,
+        target_security_id=security_id,
+        resolver_principal="api:user",
+        resolution_notes=body.resolution_notes,
+    )
+    if result is None:
+        raise HTTPException(status_code=404, detail="Target security not found")
     return MapResponse(
         target_security_id=result.target_security_id,
         provider_key=body.provider_key,
