@@ -23,11 +23,17 @@ jobs:
           # Target the production application (5iov9i8w9mazc6vhismo3enx) on
           # finance-sync.7rb.nl — (re)created 2026-08-25 as part of the
           # production environment rollout (issue #428).
+          # force=true: rebuild + redeploy the current commit even when the
+          # Coolify deployment queue thinks the app is already up to date.
+          # Required after the 2026-08-25 app recreation (#430): the previous
+          # deploy (run #206) built the image but the container crashed at
+          # startup (env vars were provisioned ~12 min later), and no
+          # subsequent redeploy was triggered.
           RESPONSE=$(curl -s -w "\n%{http_code}" \
             -X POST "https://dev.7rb.nl/api/v1/deploy" \
             -H "Authorization: Bearer ${COOLIFY_API_TOKEN}" \
             -H "Content-Type: application/json" \
-            -d '{"uuid": "5iov9i8w9mazc6vhismo3enx", "force": false}')
+            -d '{"uuid": "5iov9i8w9mazc6vhismo3enx", "force": true}')
           HTTP_CODE=$(echo "$RESPONSE" | tail -1)
           BODY=$(echo "$RESPONSE" | sed '$d')
           echo "Status: ${HTTP_CODE}"
@@ -62,4 +68,26 @@ jobs:
             sleep 15
           done
           echo "❌ Timed out waiting for Coolify deployment"
+          exit 1
+
+      # Post-deploy health gate (issue #430). The deploy run #206 reported
+      # "finished" from Coolify's perspective while the container was actually
+      # crashed (SECRET_KEY missing -> pydantic ValidationError at startup ->
+      # healthcheck never passed -> 503). Coolify's deployment status alone is
+      # not proof the app serves traffic, so verify the real health endpoint
+      # before declaring the deploy successful.
+      - name: Verify app health
+        run: |
+          URL="https://finance-sync.7rb.nl/health/live"
+          echo "Polling ${URL} for HTTP 200..."
+          for i in $(seq 1 20); do
+            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 15 "${URL}" || true)
+            echo "[$i] health check: HTTP ${HTTP_CODE}"
+            if [ "${HTTP_CODE}" = "200" ]; then
+              echo "✅ App is healthy at ${URL}"
+              exit 0
+            fi
+            sleep 15
+          done
+          echo "❌ App did not become healthy (last HTTP ${HTTP_CODE})"
           exit 1
