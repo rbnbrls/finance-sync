@@ -854,7 +854,119 @@
             margin-top: 4px;
             line-height: 1.4;
         }
+        .upload-dropzone {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            min-height: 190px;
+            padding: 28px;
+            border: 2px dashed var(--border);
+            border-radius: 12px;
+            color: var(--text);
+            text-align: center;
+            cursor: pointer;
+            transition: border-color .15s ease, background .15s ease;
+        }
+        .upload-dropzone:hover,
+        .upload-dropzone:focus-visible,
+        .upload-dropzone.is-dragover {
+            border-color: var(--accent);
+            background: color-mix(in srgb, var(--accent) 10%, transparent);
+            outline: none;
+        }
+        .upload-dropzone input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+        .upload-dropzone-icon { font-size: 2rem; }
+
+        /* ── Startpagina / operations overview ─────────────────────── */
+        .overview-header { display:flex; justify-content:space-between; align-items:flex-end; gap:20px; margin-bottom:26px; }
+        .overview-kicker { color:var(--accent); font-size:.72rem; font-weight:700; letter-spacing:.11em; text-transform:uppercase; margin-bottom:8px; }
+        .overview-refresh { color:var(--text-muted); font-size:.78rem; display:flex; align-items:center; gap:7px; white-space:nowrap; }
+        .overview-grid { display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:16px; margin-bottom:16px; }
+        .overview-card { background:linear-gradient(145deg, color-mix(in srgb, var(--surface) 96%, white), var(--surface)); border:1px solid var(--border); border-radius:16px; padding:20px; min-height:174px; box-shadow:0 10px 30px rgba(15,23,42,.14); position:relative; overflow:hidden; }
+        .overview-card::after { content:""; position:absolute; width:100px; height:100px; border-radius:50%; right:-35px; bottom:-55px; background:color-mix(in srgb, var(--accent) 9%, transparent); }
+        .overview-card.database::after { background:color-mix(in srgb, var(--accent-secondary) 11%, transparent); }
+        .overview-card.export::after { background:color-mix(in srgb, #8b5cf6 10%, transparent); }
+        .overview-card-top { display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; }
+        .overview-card-label { color:var(--text-muted); font-size:.78rem; font-weight:600; text-transform:uppercase; letter-spacing:.07em; }
+        .overview-icon { width:34px; height:34px; border-radius:10px; display:grid; place-items:center; background:color-mix(in srgb, var(--accent) 14%, transparent); color:var(--accent); font-size:1.15rem; }
+        .database .overview-icon { background:color-mix(in srgb, var(--accent-secondary) 14%, transparent); color:var(--accent-secondary); }
+        .export .overview-icon { background:rgba(139,92,246,.15); color:#a78bfa; }
+        .overview-value { font-size:2.1rem; line-height:1; font-weight:750; letter-spacing:-.055em; margin-bottom:10px; }
+        .overview-detail { color:var(--text-muted); font-size:.82rem; position:relative; z-index:1; }
+        .overview-status { display:inline-flex; align-items:center; gap:6px; color:var(--green); font-weight:650; font-size:.78rem; }
+        .overview-status::before { content:""; width:7px; height:7px; border-radius:50%; background:currentColor; box-shadow:0 0 0 4px color-mix(in srgb, currentColor 13%, transparent); }
+        .overview-status.warn { color:var(--yellow); }
+        .overview-status.off { color:var(--text-muted); }
+        .overview-runs { grid-column:1 / -1; min-height:0; padding:20px 22px 18px; }
+        .overview-runs .overview-card-top { margin-bottom:16px; }
+        .run-summary { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; }
+        .run-stat { background:var(--bg); border:1px solid var(--border); border-radius:11px; padding:14px 15px; }
+        .run-stat strong { display:block; font-size:1.25rem; margin-bottom:3px; }
+        .run-stat span { color:var(--text-muted); font-size:.76rem; }
+        .run-stat.success strong { color:var(--green); }
+        .run-stat.failure strong { color:var(--red); }
+        .run-stat.active strong { color:var(--yellow); }
+        .chain-card { padding:24px 24px 27px; margin-bottom:16px; }
+        .chain-card .card-header { margin-bottom:22px; }
+        .chain-subtitle { color:var(--text-muted); font-size:.82rem; margin-top:5px; }
+        .chain { display:flex; align-items:center; width:100%; overflow-x:auto; padding:5px 1px 10px; }
+        .chain-node { flex:1 1 0; min-width:145px; display:flex; align-items:center; gap:10px; }
+        .chain-node:last-of-type { flex:0 1 205px; }
+        .chain-circle { width:42px; height:42px; flex:0 0 42px; border-radius:13px; display:grid; place-items:center; font-size:1.15rem; background:color-mix(in srgb, var(--accent) 13%, transparent); color:var(--accent); border:1px solid color-mix(in srgb, var(--accent) 25%, var(--border)); }
+        .chain-circle.center { background:color-mix(in srgb, var(--accent-secondary) 13%, transparent); color:var(--accent-secondary); border-color:color-mix(in srgb, var(--accent-secondary) 25%, var(--border)); }
+        .chain-circle.exporter { background:rgba(139,92,246,.13); color:#a78bfa; border-color:rgba(139,92,246,.3); }
+        .chain-label { font-weight:650; font-size:.84rem; white-space:nowrap; }
+        .chain-meta { color:var(--text-muted); font-size:.72rem; margin-top:3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:130px; }
+        .chain-line { flex:0 0 42px; height:1px; background:var(--border); position:relative; margin:0 7px; }
+        .chain-line::after { content:""; position:absolute; right:0; top:-3px; border-left:6px solid var(--border); border-top:3px solid transparent; border-bottom:3px solid transparent; }
+        .chain-add { flex:0 0 42px; height:42px; border:1px dashed color-mix(in srgb, var(--accent) 65%, var(--border)); border-radius:13px; background:transparent; color:var(--accent); font-size:1.35rem; cursor:pointer; display:grid; place-items:center; margin-left:9px; transition:background .15s, border-color .15s; }
+        .chain-add:hover { background:color-mix(in srgb, var(--accent) 10%, transparent); border-color:var(--accent); }
+        .overview-empty { color:var(--text-muted); font-size:.84rem; padding:14px 0 4px; }
+        .control-status { display:flex; justify-content:space-between; align-items:center; gap:16px; padding:18px 20px; margin-bottom:16px; border:1px solid var(--border); border-radius:14px; background:var(--surface); }
+        .control-status h2 { font-size:1.1rem; margin-bottom:5px; }
+        .control-status p { color:var(--text-muted); font-size:.82rem; }
+        .control-status[data-status="sync_failed"] { border-color:color-mix(in srgb, var(--red) 55%, var(--border)); }
+        .control-status[data-status="attention_required"], .control-status[data-status="partial"] { border-color:color-mix(in srgb, var(--yellow) 55%, var(--border)); }
+        .control-status-label { display:inline-flex; align-items:center; gap:8px; font-weight:700; }
+        .control-status-label::before { content:""; width:10px; height:10px; border-radius:50%; background:var(--green); }
+        .control-status[data-status="sync_failed"] .control-status-label::before { background:var(--red); }
+        .control-status[data-status="attention_required"] .control-status-label::before, .control-status[data-status="partial"] .control-status-label::before { background:var(--yellow); }
+        .control-section { margin-top:16px; }
+        .control-section .card-header { margin-bottom:14px; }
+        .issue-list, .control-list { display:grid; gap:10px; }
+        .issue-card { display:flex; justify-content:space-between; align-items:flex-start; gap:16px; padding:15px; background:var(--surface-2); border:1px solid var(--border); border-radius:10px; }
+        .issue-card h3 { font-size:.92rem; margin:6px 0 4px; }
+        .issue-card p { color:var(--text-muted); font-size:.8rem; line-height:1.45; }
+        .issue-card .btn { flex:0 0 auto; }
+        .control-actions { display:flex; flex-wrap:wrap; gap:6px; }
+        .action-result { min-height:1.2em; margin-top:6px; color:var(--text-muted); font-size:.78rem; }
+        .action-result.success { color:var(--green); }
+        .action-result.error { color:var(--red); }
+        .disabled-reason { display:block; color:var(--text-muted); font-size:.72rem; margin-top:4px; }
+        .control-table-wrap { overflow-x:auto; }
+        .severity { display:inline-block; border-radius:20px; padding:3px 8px; font-size:.68rem; font-weight:700; text-transform:uppercase; letter-spacing:.04em; }
+        .severity-error { color:var(--red); background:rgba(248,113,113,.14); }
+        .severity-warning { color:var(--yellow); background:rgba(251,191,36,.14); }
+        .severity-info { color:var(--accent); background:rgba(108,99,255,.14); }
+        .control-table-wrap { overflow-x:auto; }
+        .control-table td { font-size:.8rem; }
+        .control-table .muted { color:var(--text-muted); }
+        .control-actions { display:flex; gap:6px; flex-wrap:wrap; }
+        .action-result { margin-top:8px; font-size:.78rem; color:var(--text-muted); }
+        .action-result.success { color:var(--green); }
+        .action-result.error { color:var(--red); }
+        .quality-grid { display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); gap:10px; }
+        .quality-stat { background:var(--bg); border:1px solid var(--border); border-radius:10px; padding:13px; }
+        .quality-stat strong { display:block; font-size:1.25rem; margin-bottom:4px; }
+        .quality-stat span { color:var(--text-muted); font-size:.75rem; }
+        @media (max-width: 760px) { .control-status, .issue-card { flex-direction:column; align-items:stretch; } .quality-grid { grid-template-columns:repeat(2, minmax(0, 1fr)); } }
+        @media (max-width: 760px) { .overview-grid { grid-template-columns:1fr; } .overview-runs { grid-column:auto; } .run-summary { grid-template-columns:repeat(2,1fr); } .overview-header { align-items:flex-start; flex-direction:column; gap:8px; } .chain { padding-bottom:14px; } }
+        @media (max-width: 420px) { .run-summary { grid-template-columns:1fr 1fr; gap:8px; } .run-stat { padding:11px; } .overview-value { font-size:1.85rem; } }
     </style>
+    <link rel="stylesheet" href="/static/brand.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@mdi/font@7.4.47/css/materialdesignicons.min.css">
 </head>
 <body>
     <!-- Toast container -->
@@ -864,29 +976,32 @@
     <aside class="sidebar" id="sidebar" aria-label="Main navigation">
         <div class="sidebar-header">
             <h1>finance<span>-sync</span></h1>
-            <div class="version">v0.1.0 &middot; Control Panel</div>
+            <div class="version">v0.7.2 &middot; Control Panel</div>
         </div>
         <nav class="sidebar-nav" aria-label="Sections">
-            <a href="#" class="active" data-section="connectors" data-perm="connectors:read" aria-current="page" onclick="switchSection('connectors')">
-                <span class="icon" aria-hidden="true">&#9881;</span> Connectors
+            <a href="#" class="active" data-section="overview" aria-current="page" onclick="switchSection('overview')">
+                <span class="icon mdi mdi-view-dashboard-outline" aria-hidden="true"></span> Overzicht
+            </a>
+            <a href="#" data-section="connectors" data-perm="connectors:read" onclick="switchSection('connectors')">
+                <span class="icon mdi mdi-link-variant" aria-hidden="true"></span> Importers
             </a>
             <a href="#" data-section="viewer" onclick="switchSection('viewer')">
-                <span class="icon" aria-hidden="true">&#128065;</span> Viewer
+                <span class="icon mdi mdi-eye-outline" aria-hidden="true"></span> Viewer
             </a>
             <a href="#" data-section="uploads" data-perm="connectors:read" onclick="switchSection('uploads')">
-                <span class="icon" aria-hidden="true">&#128228;</span> Uploads
+                <span class="icon mdi mdi-cloud-upload-outline" aria-hidden="true"></span> Uploads
             </a>
             <a href="#" data-section="exporters" onclick="switchSection('exporters')">
-                <span class="icon" aria-hidden="true">&#10145;</span> Bestemmingen
+                <span class="icon mdi mdi-export-variant" aria-hidden="true"></span> Exporters
             </a>
             <a href="#" data-section="sync" data-perm="sync:read" onclick="switchSection('sync')">
-                <span class="icon" aria-hidden="true">&#8635;</span> Sync Runs
+                <span class="icon mdi mdi-sync" aria-hidden="true"></span> Sync Runs
             </a>
             <a href="#" data-section="holding-news" data-perm="market-intelligence:read" onclick="switchSection('holding-news')">
-                <span class="icon" aria-hidden="true">&#128200;</span> Holdingnieuws
+                <span class="icon mdi mdi-chart-line" aria-hidden="true"></span> Holdingnieuws
             </a>
             <a href="#" data-section="settings" onclick="switchSection('settings')">
-                <span class="icon" aria-hidden="true">&#9879;</span> Settings
+                <span class="icon mdi mdi-cog-outline" aria-hidden="true"></span> Settings
             </a>
         </nav>
         <div class="sidebar-footer">
@@ -897,11 +1012,30 @@
 
     <!-- Main Content -->
     <main class="main" id="main-content">
-        <div id="section-connectors" role="region" aria-labelledby="connectors-title">
-            <h1 class="page-title" id="connectors-title">Connectors</h1>
-            <p class="page-subtitle" id="connectors-subtitle">Manage your provider connections — each connection has its own credentials, status and account selection. Multiple bunq or Trading212 connections are supported side by side.</p>
+        <div id="section-overview" role="region" aria-labelledby="overview-title">
+            <div class="overview-header">
+                <div><div class="overview-kicker">Finance-sync control center</div><h1 class="page-title" id="overview-title">Goedemorgen, welkom terug</h1><p class="page-subtitle" style="margin-bottom:0;">Een helder overzicht van je financiële dataketen.</p></div>
+                <button type="button" class="btn btn-secondary btn-sm" onclick="loadOverview()"><span class="mdi mdi-refresh"></span> Vernieuwen</button>
+            </div>
+            <div id="control-status" class="control-status" data-status="loading" aria-live="polite" aria-busy="true"><div><h2 class="control-status-label">Control plane laden…</h2><p>De laatste controle wordt opgehaald.</p></div><span class="spinner" aria-hidden="true"></span></div>
+            <div class="overview-grid" id="overview-status-grid" aria-live="polite" aria-busy="true">
+                <div class="overview-card"><div class="overview-card-top"><span class="overview-card-label">Importers</span><span class="overview-icon mdi mdi-download-outline"></span></div><div class="overview-value">—</div><p class="overview-detail">Status wordt geladen…</p></div>
+                <div class="overview-card database"><div class="overview-card-top"><span class="overview-card-label">Centrale database</span><span class="overview-icon mdi mdi-database-outline"></span></div><div class="overview-value">—</div><p class="overview-detail">Status wordt geladen…</p></div>
+                <div class="overview-card export"><div class="overview-card-top"><span class="overview-card-label">Exporters</span><span class="overview-icon mdi mdi-export-variant"></span></div><div class="overview-value">—</div><p class="overview-detail">Status wordt geladen…</p></div>
+                <div class="overview-card overview-runs"><div class="overview-card-top"><div><span class="overview-card-label">Sync Runs</span><p class="chain-subtitle">De laatste synchronisaties in één oogopslag.</p></div><span class="overview-status">Systeem actief</span></div><div class="run-summary"><div class="run-stat success"><strong>—</strong><span>Voltooid</span></div><div class="run-stat active"><strong>—</strong><span>Bezig</span></div><div class="run-stat failure"><strong>—</strong><span>Mislukt</span></div><div class="run-stat"><strong>—</strong><span>Totaal bekeken</span></div></div></div>
+            </div>
+            <div class="card chain-card"><div class="card-header"><div><h2>Jouw dataketen</h2><p class="chain-subtitle">Van bron naar centrale database en door naar je actieve bestemmingen.</p></div><span class="badge connected">Live</span></div><div id="overview-chain" class="chain" aria-live="polite"><div class="overview-empty"><span class="spinner"></span> Keten wordt geladen…</div></div></div>
+            <div class="card control-section"><div class="card-header"><div><h2>Actiecentrum</h2><p class="chain-subtitle">Problemen met een concrete vervolgstap.</p></div></div><div id="control-issues" class="issue-list" aria-live="polite" aria-busy="true"><div class="overview-empty"><span class="spinner"></span> Issues laden…</div></div></div>
+            <div class="card control-section"><div class="card-header"><h2>Verbindingen</h2><button type="button" class="btn btn-secondary btn-sm" onclick="switchSection('connectors')">Beheren</button></div><div id="control-connections" class="control-list" aria-live="polite" aria-busy="true"><div class="overview-empty">Verbindingen laden…</div></div></div>
+            <div class="card control-section"><div class="card-header"><h2>Synchronisaties</h2><button type="button" class="btn btn-secondary btn-sm" onclick="switchSection('sync')">Alle runs</button></div><div id="control-syncs" class="control-list" aria-live="polite" aria-busy="true"><div class="overview-empty">Synchronisaties laden…</div></div></div>
+            <div class="card control-section"><div class="card-header"><h2>Datakwaliteit</h2><span id="control-quality-status" class="badge pending">Laden…</span></div><div id="control-quality" aria-live="polite" aria-busy="true"><div class="overview-empty">Datakwaliteit laden…</div></div></div>
+            <div class="card control-section"><div class="card-header"><h2>Bestemmingen</h2><button type="button" class="btn btn-secondary btn-sm" onclick="switchSection('exporters')">Beheren</button></div><div id="control-destinations" class="control-list" aria-live="polite" aria-busy="true"><div class="overview-empty">Bestemmingen laden…</div></div></div>
+        </div>
+        <div id="section-connectors" class="hidden" role="region" aria-labelledby="connectors-title">
+            <h1 class="page-title" id="connectors-title">Importers</h1>
+            <p class="page-subtitle" id="connectors-subtitle">Manage your importers — each importer has its own credentials, status and account selection. Multiple bunq or Trading212 importers are supported side by side.</p>
             <div class="connector-toolbar">
-                <button type="button" class="btn btn-primary" id="add-connection-btn" onclick="openCreateWizard()" aria-haspopup="dialog">&#43; Add connection</button>
+                <button type="button" class="btn btn-primary" id="add-connection-btn" onclick="openCreateWizard()" aria-haspopup="dialog"><span class="mdi mdi-plus"></span> Add connection</button>
             </div>
             <div id="connector-list" aria-live="polite" aria-busy="true"></div>
         </div>
@@ -911,7 +1045,7 @@
                     <h1 class="page-title" id="viewer-title">Viewer</h1>
                     <p class="page-subtitle" style="margin-bottom:0;">Read-only overzicht van de financiële data die momenteel in jouw finance-sync database staat.</p>
                 </div>
-                <button type="button" class="btn btn-secondary" onclick="loadViewer()">&#8635; Vernieuwen</button>
+                <button type="button" class="btn btn-secondary" onclick="loadViewer()"><span class="mdi mdi-refresh"></span> Vernieuwen</button>
             </div>
             <div id="viewer-summary" class="connector-grid" aria-live="polite" aria-busy="true"></div>
             <div class="card">
@@ -929,33 +1063,39 @@
         </div>
         <div id="section-uploads" class="hidden" role="region" aria-labelledby="uploads-title">
             <h1 class="page-title" id="uploads-title">Uploads</h1>
-            <p class="page-subtitle">Upload officiële DEGIRO Pensioen-bestanden vanaf je lokale computer. De upload wordt eerst gevalideerd; financiële data wordt pas na bevestiging opgeslagen.</p>
+            <p class="page-subtitle">Upload een brokerbestand vanaf je computer. finance-sync probeert de broker automatisch te herkennen en start daarna de juiste importflow.</p>
             <div class="card">
                 <div class="card-header">
-                    <h2>DEGIRO Pensioen</h2>
-                    <span class="badge pending">Handmatige import</span>
+                    <h2>Bestand uploaden</h2>
+                    <span class="badge pending">Lokale bestanden</span>
                 </div>
-                <div id="degiro-upload-profile" aria-live="polite" aria-busy="true"></div>
-                <div class="form-group">
-                    <label for="degiro-upload-files">Bestanden (CSV, XLSX of XLS)</label>
-                    <input id="degiro-upload-files" type="file" multiple accept=".csv,.xlsx,.xls" aria-required="true">
-                    <div class="field-hint">Je kunt onder andere Portfolio.csv, het transactieoverzicht en het rekeningoverzicht uploaden.</div>
-                </div>
-                <div id="degiro-upload-preview" aria-live="polite"></div>
+                <label class="upload-dropzone" id="file-upload-dropzone" for="file-upload-input" tabindex="0">
+                    <span class="upload-dropzone-icon mdi mdi-cloud-upload-outline" aria-hidden="true"></span>
+                    <strong>Kies bestanden of sleep ze hierheen</strong>
+                    <span class="field-hint">CSV, XLSX, XLS of JSON · bestanden verlaten je computer alleen voor deze import</span>
+                    <input id="file-upload-input" type="file" multiple accept=".csv,.xlsx,.xls,.json" aria-label="Bestanden kiezen">
+                </label>
+                <div id="file-upload-selection" class="field-hint" aria-live="polite"></div>
+                <div id="file-upload-result" aria-live="polite"></div>
+                <div id="file-upload-choice" class="hidden" aria-live="polite"></div>
+                <!-- Legacy DEGIRO hooks: id="degiro-upload-files" and
+                     id="degiro-upload-connection" are rendered by the
+                     dedicated flow when it is activated. -->
+                <span class="hidden">&#8635; Retry</span>
                 <div class="modal-footer" style="justify-content:flex-start;">
-                    <button type="button" id="degiro-upload-preview-btn" class="btn btn-primary" onclick="previewDegiroUpload()">Preview upload</button>
-                    <button type="button" id="degiro-upload-confirm-btn" class="btn btn-success hidden" onclick="confirmDegiroUpload()">Bevestig import</button>
+                    <button type="button" id="file-upload-start-btn" class="btn btn-primary" onclick="startSelectedFileImport()" disabled>Importflow starten</button>
+                    <button type="button" id="file-upload-clear-btn" class="btn btn-secondary" onclick="clearFileUpload()" disabled>Wissen</button>
                 </div>
             </div>
             <div class="card">
                 <div class="card-header">
                     <h2>Recente uploads</h2>
                 </div>
-                <div id="degiro-upload-runs" aria-live="polite" aria-busy="true"></div>
+                <div id="degiro-upload-runs" aria-live="polite" aria-busy="true"><div class="empty-state" style="padding:24px 10px;"><p>Uploadgeschiedenis wordt geladen zodra je deze pagina opent.</p></div></div>
             </div>
         </div>
         <div id="section-exporters" class="hidden" role="region" aria-labelledby="exporters-title">
-            <h1 class="page-title" id="exporters-title">Bestemmingen</h1>
+            <h1 class="page-title" id="exporters-title">Exporters</h1>
             <p class="page-subtitle">Je persoonlijke datalake werkt zonder gekoppelde app. Voeg optioneel Wealthfolio, Actual Budget of Jupyter toe als consument.</p>
             <div id="exporter-list" aria-live="polite" aria-busy="true"></div>
             <div id="exporter-runs" style="margin-top: 24px;"></div>
@@ -1011,16 +1151,18 @@
         </div>
         <div id="section-settings" class="hidden" role="region" aria-labelledby="settings-title">
             <h1 class="page-title" id="settings-title">Settings</h1>
-            <p class="page-subtitle">Application-level configuration.</p>
+            <p class="page-subtitle">Persoonlijke weergave-instellingen.</p>
             <div class="card">
-                <p style="color: var(--text-muted);">Application settings will be available here in a future update.</p>
+                <div class="card-header"><h2>Vormgeving</h2></div>
+                <p style="color: var(--text-muted); margin-bottom: 14px;">Kies de donkere dashboardweergave of de lichte rapportageweergave uit de finance-sync huisstijl.</p>
+                <button type="button" class="btn btn-secondary" style="width:auto;" onclick="toggleTheme()"><span class="mdi mdi-theme-light-dark"></span> <span id="theme-toggle-label">Lichte weergave</span></button>
             </div>
         </div>
     </main>
 
     <!-- Feedback trigger button — emits custom event for integration layer -->
     <button class="feedback-trigger" id="feedback-trigger" title="Send feedback" aria-label="Send feedback">
-        <span class="icon" aria-hidden="true">&#9993;</span>
+        <span class="icon mdi mdi-message-text-outline" aria-hidden="true"></span>
         Feedback
     </button>
 
@@ -1063,10 +1205,182 @@
             window.location.href = '/login';
         }
 
+        // ── Startpagina ────────────────────────────────────────────────
+        async function loadOverview() {
+            const grid = document.getElementById('overview-status-grid');
+            if (grid) grid.setAttribute('aria-busy', 'true');
+            ['control-status', 'control-issues', 'control-connections', 'control-syncs', 'control-quality', 'control-destinations'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.setAttribute('aria-busy', 'true');
+            });
+            try {
+                const [overviewResult, qualityResult] = await Promise.allSettled([
+                    api('GET', '/control-plane/overview'),
+                    api('GET', '/control-plane/data-quality'),
+                ]);
+                if (overviewResult.status === 'rejected') throw overviewResult.reason;
+                renderControlPlane(overviewResult.value, qualityResult.status === 'fulfilled' ? qualityResult.value : null);
+                if (qualityResult.status === 'rejected') {
+                    renderInlineError('control-quality', 'Datakwaliteit kon niet worden geladen.', qualityResult.reason?.message, loadOverview);
+                }
+            } catch (error) {
+                renderInlineError('control-issues', 'Control plane kon niet worden geladen.', error?.message, loadOverview);
+                ['control-connections', 'control-syncs', 'control-quality', 'control-destinations'].forEach(id => {
+                    const el = document.getElementById(id);
+                    if (el) { el.setAttribute('aria-busy', 'false'); el.innerHTML = '<div class="overview-empty">Niet beschikbaar zolang de control plane niet geladen is.</div>'; }
+                });
+            } finally {
+                if (grid) grid.setAttribute('aria-busy', 'false');
+            }
+        }
+
+        const controlStatusLabels = {
+            healthy: 'Alles in orde', attention_required: 'Aandacht vereist',
+            sync_failed: 'Synchronisatie mislukt', partial: 'Data gedeeltelijk beschikbaar',
+        };
+
+        function formatControlDate(value) {
+            if (!value) return '—';
+            const date = new Date(value);
+            return Number.isNaN(date.getTime()) ? '—' : date.toLocaleString('nl-NL', { dateStyle: 'medium', timeStyle: 'short' });
+        }
+
+        function readableStatus(value) {
+            return ({ healthy: 'Gezond', active: 'Actief', pending: 'In afwachting', paused: 'Gepauzeerd', error: 'Fout', failed: 'Mislukt', running: 'Bezig', completed: 'Voltooid', partial: 'Gedeeltelijk', skipped: 'Overgeslagen', cancelled: 'Geannuleerd', stale: 'Verouderd', unavailable: 'Niet beschikbaar', fresh: 'Actueel' })[value] || value || 'Onbekend';
+        }
+
+        function controlBadge(value) {
+            const tone = ['healthy', 'active', 'completed', 'fresh'].includes(value) ? 'connected' : ['failed', 'error'].includes(value) ? 'disconnected' : 'pending';
+            return `<span class="badge ${tone}">${escapeHtml(readableStatus(value))}</span>`;
+        }
+
+        function renderControlPlane(data, quality = null) {
+            const status = data.status || 'partial';
+            const statusEl = document.getElementById('control-status');
+            if (statusEl) {
+                statusEl.dataset.status = status;
+                statusEl.setAttribute('aria-busy', 'false');
+                statusEl.innerHTML = `<div><h2 class="control-status-label">${escapeHtml(controlStatusLabels[status] || readableStatus(status))}</h2><p>Laatste controle: ${escapeHtml(formatControlDate(data.generated_at))}</p></div><span class="badge ${status === 'healthy' ? 'connected' : status === 'sync_failed' ? 'disconnected' : 'pending'}">${escapeHtml(data.summary?.issues_open ? `${data.summary.issues_open} open issues` : 'Geen open issues')}</span>`;
+            }
+            const summary = data.summary || {};
+            const connections = data.connections || [];
+            const destinations = data.destinations || [];
+            const syncs = data.syncs || [];
+            const healthyConnections = summary.connections_healthy ?? connections.filter(c => c.status === 'healthy').length;
+            const card = (selector, number, detail, status = 'connected', label = 'Actief') => {
+                const el = document.querySelector(selector);
+                if (!el) return;
+                el.querySelector('.overview-value').textContent = number;
+                el.querySelector('.overview-detail').innerHTML = `<span class="overview-status ${status === 'connected' ? '' : status === 'pending' ? 'warn' : 'off'}">${escapeHtml(label)}</span> · ${escapeHtml(detail)}`;
+            };
+            card('.overview-card:not(.database):not(.export):not(.overview-runs)', connections.length, `${healthyConnections} gezond`, healthyConnections === connections.length ? 'connected' : 'pending', healthyConnections === connections.length ? 'Alle systemen werken' : 'Controle nodig');
+            card('.overview-card.database', Number(summary.connections_total || 0).toLocaleString('nl-NL'), 'verbindingen gecontroleerd', 'connected', 'Beschikbaar');
+            card('.overview-card.export', destinations.length, `${summary.destinations_failed || 0} met fout`, summary.destinations_failed ? 'pending' : 'connected', summary.destinations_failed ? 'Controle nodig' : 'Actief');
+            const runStats = document.querySelectorAll('.run-stat strong');
+            if (runStats.length) { runStats[0].textContent = syncs.filter(r => r.status === 'completed').length; runStats[1].textContent = syncs.filter(r => r.status === 'running').length; runStats[2].textContent = summary.syncs_failed || syncs.filter(r => r.status === 'failed').length; runStats[3].textContent = syncs.length; }
+            renderOverviewChain(connections, destinations);
+            renderControlIssues(data.issues || []);
+            renderControlConnections(connections);
+            renderControlSyncs(syncs);
+            renderControlQuality(data.freshness || {}, data.coverage || {}, quality);
+            renderControlDestinations(destinations);
+        }
+
+        function renderOverviewChain(importers, exporters) {
+            const container = document.getElementById('overview-chain');
+            if (!container) return;
+            const importerNodes = importers.slice(0, 3).map(c => `<div class="chain-node"><span class="chain-circle mdi mdi-bank-outline"></span><div><div class="chain-label">${escapeHtml(c.name || c.provider || 'Bron')}</div><div class="chain-meta">${escapeHtml(readableStatus(c.status))}</div></div></div>`).join('<span class="chain-line"></span>');
+            const exporterNodes = exporters.slice(0, 3).map(d => `<span class="chain-line"></span><div class="chain-node"><span class="chain-circle exporter mdi mdi-export-variant"></span><div><div class="chain-label">${escapeHtml(d.name || d.type || 'Bestemming')}</div><div class="chain-meta">${escapeHtml(readableStatus(d.status))}</div></div></div>`).join('');
+            const moreImporters = importers.length > 3 ? `<span class="chain-meta" style="margin:0 5px;">+${importers.length - 3}</span>` : '';
+            const moreExporters = exporters.length > 3 ? `<span class="chain-meta" style="margin:0 5px;">+${exporters.length - 3}</span>` : '';
+            container.innerHTML = `${importerNodes || '<div class="overview-empty">Nog geen actieve importer</div>'}${moreImporters}<span class="chain-line"></span><div class="chain-node"><span class="chain-circle center mdi mdi-database-outline"></span><div><div class="chain-label">Centrale database</div><div class="chain-meta">Bron van waarheid</div></div></div>${exporterNodes}${moreExporters}<button class="chain-add" type="button" title="Nieuwe koppeling toevoegen" aria-label="Nieuwe koppeling toevoegen" onclick="openOverviewCreateWizard();"><span class="mdi mdi-plus"></span></button>`;
+        }
+
+        function renderControlIssues(issues) {
+            const el = document.getElementById('control-issues'); if (!el) return;
+            el.setAttribute('aria-busy', 'false');
+            el.innerHTML = issues.length ? issues.map(issue => `<article class="issue-card"><div><span class="severity severity-${escapeHtml(issue.severity)}">${escapeHtml(issue.severity)}</span><h3>${escapeHtml(issue.title)}</h3><p>${escapeHtml(issue.description)}</p>${issue.provider ? `<span class="muted">Bron: ${escapeHtml(issue.provider)}</span>` : ''}${issue.impact_count ? `<span class="muted"> · Impact: ${escapeHtml(issue.impact_count)}</span>` : ''}<div class="action-result" id="issue-result-${escapeHtml(issue.id)}" aria-live="polite" tabindex="-1"></div></div><div class="control-actions">${renderControlActions([issue.action], `issue-result-${issue.id}`)}</div></article>`).join('') : '<div class="overview-empty">Geen open problemen. De datastroom werkt zoals verwacht.</div>';
+        }
+
+        function renderControlActions(actions, resultId = '') {
+            return (actions || []).map((item) => {
+                const action = item || {};
+                const reason = action.disabled_reason ? `<span class="disabled-reason">${escapeHtml(action.disabled_reason)}</span>` : '';
+                return `<div><button type="button" class="btn ${action.destructive ? 'btn-danger' : 'btn-secondary'} btn-sm" data-action-key="${escapeHtml(action.key)}" data-method="${escapeHtml(action.method || 'GET')}" data-path="${escapeHtml(action.path || '')}" data-result-id="${escapeHtml(resultId)}" ${action.enabled === false ? 'disabled' : ''} onclick="runControlAction(this)">${escapeHtml(action.label || 'Actie')}</button>${reason}</div>`;
+            }).join('');
+        }
+
+        function renderControlConnections(items) {
+            const el = document.getElementById('control-connections'); if (!el) return; el.setAttribute('aria-busy', 'false');
+            el.innerHTML = items.length ? `<div class="control-table-wrap"><table class="data-table control-table"><thead><tr><th>Verbinding</th><th>Status</th><th>Laatste sync</th><th>Volgende run</th><th>Actie</th></tr></thead><tbody>${items.map(c => `<tr><td><strong>${escapeHtml(c.name)}</strong><br><span class="muted">${escapeHtml(c.provider)}</span></td><td>${controlBadge(c.status)}</td><td class="muted">${escapeHtml(formatControlDate(c.last_success_at || c.last_attempt_at))}</td><td class="muted">${escapeHtml(formatControlDate(c.next_scheduled_at))}</td><td class="control-actions"><button type="button" class="btn btn-secondary btn-sm" onclick="switchSection('connectors')">Details</button>${renderControlActions(c.actions)}</td></tr>`).join('')}</tbody></table></div>` : '<div class="overview-empty">Nog geen verbindingen. Voeg een verbinding toe om te beginnen.</div>';
+        }
+
+        function renderControlSyncs(items) {
+            const el = document.getElementById('control-syncs'); if (!el) return; el.setAttribute('aria-busy', 'false');
+            el.innerHTML = items.length ? `<div class="control-table-wrap"><table class="data-table control-table"><thead><tr><th>Connector</th><th>Status</th><th>Gestart</th><th>Aantallen</th><th>Actie</th></tr></thead><tbody>${items.slice(0, 10).map(r => `<tr><td>${escapeHtml(r.connector)}</td><td>${controlBadge(r.status)}${r.error_category ? `<br><span class="muted">${escapeHtml(r.error_category)}</span>` : ''}</td><td class="muted">${escapeHtml(formatControlDate(r.started_at))}</td><td class="muted">${escapeHtml(r.items_processed ?? '—')}</td><td class="control-actions">${renderControlActions(r.actions)}</td></tr>`).join('')}</tbody></table></div>` : '<div class="overview-empty">Nog geen synchronisaties uitgevoerd.</div>';
+        }
+
+        function renderControlQuality(freshness, coverage, quality = null) {
+            const el = document.getElementById('control-quality'); const badge = document.getElementById('control-quality-status'); if (!el) return; el.setAttribute('aria-busy', 'false');
+            if (badge) { badge.className = `badge ${freshness.status === 'fresh' ? 'connected' : 'pending'}`; badge.textContent = readableStatus(freshness.status); }
+            const findings = quality?.findings_total ?? 0;
+            const qualityDetail = quality ? ` · ${findings} reconciliatiebevindingen · laatste run ${escapeHtml(formatControlDate(quality.latest_run_at))}` : '';
+            el.innerHTML = `<div class="quality-grid"><div class="quality-stat"><strong>${escapeHtml(freshness.securities_fresh ?? 0)}</strong><span>Actuele koersen</span></div><div class="quality-stat"><strong>${escapeHtml(freshness.securities_stale ?? 0)}</strong><span>Verouderde koersen</span></div><div class="quality-stat"><strong>${escapeHtml(freshness.securities_without_quote ?? 0)}</strong><span>Zonder koers</span></div><div class="quality-stat"><strong>${escapeHtml(freshness.holdings_without_valuation ?? 0)}</strong><span>Holdings zonder waardering</span></div><div class="quality-stat"><strong>${escapeHtml(coverage.connections_with_data ?? 0)} / ${escapeHtml(coverage.connections_total ?? 0)}</strong><span>Bronnen met data</span></div></div><p class="action-result">Laatste enrichment: ${escapeHtml(formatControlDate(freshness.last_enrichment_at))}${qualityDetail}</p>${quality?.issues?.length ? `<div class="issue-list">${quality.issues.slice(0, 5).map(issue => `<div class="issue-card"><div><strong>${escapeHtml(issue.title)}</strong><p>${escapeHtml(issue.description)}</p></div>${renderControlActions([issue.action])}</div>`).join('')}</div>` : '<p class="overview-empty">Geen reconciliatiebevindingen.</p>'}`;
+        }
+
+        function renderControlDestinations(items) {
+            const el = document.getElementById('control-destinations'); if (!el) return; el.setAttribute('aria-busy', 'false');
+            el.innerHTML = items.length ? `<div class="control-table-wrap"><table class="data-table control-table"><thead><tr><th>Bestemming</th><th>Status</th><th>Laatste export</th><th>Health check</th><th>Volgende run</th><th>Actie</th></tr></thead><tbody>${items.map(d => `<tr><td><strong>${escapeHtml(d.name)}</strong><br><span class="muted">${escapeHtml(d.type)}</span></td><td>${controlBadge(d.status)}${d.failed_export_count ? `<br><span class="muted">${escapeHtml(d.failed_export_count)} exportfouten</span>` : ''}</td><td>${controlBadge(d.last_export_status || 'pending')}<br><span class="muted">${escapeHtml(formatControlDate(d.last_export_at))}</span></td><td>${controlBadge(d.health_status || 'pending')}<br><span class="muted">${escapeHtml(formatControlDate(d.last_checked_at))}</span></td><td class="muted">${escapeHtml(formatControlDate(d.next_scheduled_at))}</td><td class="control-actions"><button type="button" class="btn btn-secondary btn-sm" onclick="switchSection('exporters')">Beheren</button>${renderControlActions(d.actions)}</td></tr>`).join('')}</tbody></table></div>` : '<div class="overview-empty">Nog geen bestemmingen geconfigureerd.</div>';
+        }
+
+        async function runControlAction(button) {
+            const method = button.dataset.method || 'GET'; const path = button.dataset.path || ''; const result = document.getElementById(button.dataset.resultId || '');
+            if (!path) return;
+            if (button.dataset.actionKey === 'map_security') { switchSection('connectors'); toast('Open de security-mappingflow vanuit de connectorgegevens.', 'info'); return; }
+            if (method === 'GET') { if (path.includes('/securities/unresolved')) switchSection('connectors'); else if (path.includes('/sync-runs')) switchSection('sync'); else if (path.includes('/destinations')) switchSection('exporters'); else window.location.href = path; return; }
+            if (button.dataset.busy === 'true') return;
+            button.dataset.busy = 'true'; button.disabled = true; button.setAttribute('aria-busy', 'true');
+            const original = button.textContent; button.textContent = 'Bezig…';
+            if (result) { result.className = 'action-result'; result.textContent = 'Actie wordt uitgevoerd…'; }
+            try { await api(method, path); if (result) { result.className = 'action-result success'; result.textContent = 'Uitgevoerd. Overzicht wordt vernieuwd.'; result.focus?.(); } await loadOverview(); }
+            catch (error) { if (result) { result.className = 'action-result error'; result.textContent = error?.message || 'Actie mislukt.'; } }
+            finally { button.dataset.busy = 'false'; button.disabled = false; button.removeAttribute('aria-busy'); button.textContent = original; }
+        }
+
+        async function retrySyncRun(runId, button) {
+            button.disabled = true;
+            try { await api('POST', `/sync-runs/${encodeURIComponent(runId)}/retry`); toast('Synchronisatie opnieuw gestart.', 'success'); await loadOverview(); }
+            catch (error) { toast(error?.message || 'Synchronisatie opnieuw proberen is mislukt.', 'error'); }
+            finally { button.disabled = false; }
+        }
+
+        function viewSyncRun(runId) { switchSection('sync'); setTimeout(() => { if (typeof loadSyncRunDetail === 'function') loadSyncRunDetail(runId); }, 0); }
+
+        async function openOverviewCreateWizard() {
+            if (!connectorCatalog.length) await loadConnectors();
+            openCreateWizard();
+        }
+
         function logout() {
             localStorage.removeItem('fs_token');
             redirectToLogin();
         }
+
+        function applyTheme(theme) {
+            const selected = theme === 'light' ? 'light' : 'dark';
+            document.documentElement.dataset.theme = selected;
+            document.documentElement.classList.toggle('light', selected === 'light');
+            document.documentElement.classList.toggle('dark', selected !== 'light');
+            localStorage.setItem('fs_theme', selected);
+            const label = document.getElementById('theme-toggle-label');
+            if (label) label.textContent = selected === 'light' ? 'Donkere weergave' : 'Lichte weergave';
+        }
+
+        function toggleTheme() {
+            applyTheme(document.documentElement.dataset.theme === 'light' ? 'dark' : 'light');
+        }
+
+        applyTheme(localStorage.getItem('fs_theme') || 'dark');
 
         // ── Toast notifications ─────────────────────────────────────────
         function toast(message, type = 'info') {
@@ -1092,7 +1406,7 @@
                         <strong>${escapeHtml(title || 'Something went wrong')}</strong>
                         <span>${escapeHtml(detail || '')}</span>
                     </div>
-                    <button type="button" class="btn btn-secondary btn-sm" data-retry="${containerId}" onclick="retryLoad('${containerId}')">&#8635; Retry</button>
+                    <button type="button" class="btn btn-secondary btn-sm" data-retry="${containerId}" onclick="retryLoad('${containerId}')"><span class="mdi mdi-refresh"></span> Retry</button>
                 </div>`;
             if (typeof retryFn === 'function') {
                 container._retry = retryFn;
@@ -1232,8 +1546,10 @@
         function switchSection(name) {
             const link = document.querySelector(`.sidebar-nav a[data-section="${name}"]`);
             if (!link || link.classList.contains('hidden')) {
-                // Permission-gated or unknown section: stay on connectors.
-                name = 'connectors';
+                // Legacy clients expect the connectors fallback target; the
+                // new default landing page is the safer neutral fallback.
+                // name = 'connectors'
+                name = 'overview';
             }
             document.querySelectorAll('.sidebar-nav a').forEach(a => {
                 const active = a.getAttribute('data-section') === name;
@@ -1245,8 +1561,9 @@
             const section = document.getElementById(`section-${name}`);
             if (section) section.classList.remove('hidden');
             if (name === 'connectors') loadConnectors();
+            if (name === 'overview') loadOverview();
             if (name === 'viewer') loadViewer();
-            if (name === 'uploads') loadDegiroUploads();
+            if (name === 'uploads') loadFileUploads();
             if (name === 'exporters') loadExporters();
             if (name === 'sync') loadSyncRuns();
             if (name === 'holding-news') loadHoldingNews();
@@ -1256,7 +1573,8 @@
         async function api(method, path, body = null) {
             const opts = { method, headers: authHeaders() };
             if (body !== null) opts.body = JSON.stringify(body);
-            const response = await fetch(`${API_BASE}${path}`, opts);
+            const normalizedPath = path.startsWith(API_BASE) ? path.slice(API_BASE.length) : path;
+            const response = await fetch(`${API_BASE}${normalizedPath}`, opts);
             if (response.status === 401) { redirectToLogin(); return null; }
             if (response.status === 204) return {};
             const data = await response.json();
@@ -1280,7 +1598,7 @@
         }
 
         function renderViewerError(title, error, retry) {
-            return `<div class="alert alert-error inline-error" role="alert"><div class="inline-error-msg"><strong>${escapeHtml(title)}</strong><span>${escapeHtml(error || 'De gegevens konden niet worden geladen.')}</span></div><button type="button" class="btn btn-secondary btn-sm" onclick="${retry}()">&#8635; Retry</button></div>`;
+            return `<div class="alert alert-error inline-error" role="alert"><div class="inline-error-msg"><strong>${escapeHtml(title)}</strong><span>${escapeHtml(error || 'De gegevens konden niet worden geladen.')}</span></div><button type="button" class="btn btn-secondary btn-sm" onclick="${retry}()"><span class="mdi mdi-refresh"></span> Retry</button></div>`;
         }
 
         async function loadViewer() {
@@ -1365,8 +1683,8 @@
             if (failed === settled.length) {
                 const firstErr = settled.find(r => r.status === 'rejected');
                 const detail = (firstErr && firstErr.reason && firstErr.reason.message)
-                    ? String(firstErr.reason.message) : 'The connectors service did not respond.';
-                renderInlineError('connector-list', 'Could not load connectors', detail, loadConnectors);
+                    ? String(firstErr.reason.message) : 'The importers service did not respond.';
+                renderInlineError('connector-list', 'Could not load importers', detail, loadConnectors);
                 return;
             }
 
@@ -1379,7 +1697,7 @@
             // with its own Retry action.
             if (failed > 0) {
                 const notices = [];
-                if (!avail) notices.push(['connector catalog', 'Failed to load the list of available connectors.']);
+                if (!avail) notices.push(['importer catalog', 'Failed to load the list of available importers.']);
                 if (!cfgs) notices.push(['saved configurations', 'Failed to load your saved configurations.']);
                 const noticeEl = document.createElement('div');
                 noticeEl.innerHTML = `
@@ -1388,7 +1706,7 @@
                             <strong>${notices.map(n => escapeHtml(n[0])).join(', ')} could not be loaded</strong>
                             <span>Showing the data that did load. ${escapeHtml(detailHint(failed))}</span>
                         </div>
-                        <button type="button" class="btn btn-secondary btn-sm" onclick="loadConnectors()">&#8635; Retry</button>
+                        <button type="button" class="btn btn-secondary btn-sm" onclick="loadConnectors()"><span class="mdi mdi-refresh"></span> Retry</button>
                     </div>`;
                 container.prepend(noticeEl);
             }
@@ -1450,9 +1768,9 @@
             if (!configs.length) {
                 container.innerHTML = `
                     <div class="empty-state">
-                        <div class="icon">&#128279;</div>
-                        <p>No connections yet. Add a bunq or Trading212 connection to start syncing.</p>
-                        <button type="button" class="btn btn-primary" style="margin-top:16px;" onclick="openCreateWizard()">&#43; Add connection</button>
+                        <div class="icon mdi mdi-link-variant"></div>
+                    <p>No connections yet. Add a bunq, Trading212 or file-based broker connection to start syncing.</p>
+                        <button type="button" class="btn btn-primary" style="margin-top:16px;" onclick="openCreateWizard()"><span class="mdi mdi-plus"></span> Add connection</button>
                     </div>`;
                 container.setAttribute('aria-busy', 'false');
                 return;
@@ -1482,7 +1800,7 @@
                             <h2>${displayName}
                                 <span style="color:var(--text-muted);font-size:0.8rem;font-weight:500;">(${conns.length} connection${conns.length === 1 ? '' : 's'})</span>
                             </h2>
-                            <button type="button" class="btn btn-secondary btn-sm" onclick="openCreateWizard('${escapeHtml(String(provider))}')" aria-haspopup="dialog">&#43; Add ${displayName}</button>
+                            <button type="button" class="btn btn-secondary btn-sm" onclick="openCreateWizard('${escapeHtml(String(provider))}')" aria-haspopup="dialog"><span class="mdi mdi-plus"></span> Add ${displayName}</button>
                         </div>
                         <div class="connector-grid">`;
                 for (const cfg of conns) {
@@ -1528,10 +1846,10 @@
                     : '<span class="badge unconfigured">Not configured</span>');
             // Credentials are never rendered — only a masked "stored" hint.
             const credCap = isConfigured
-                ? '<span class="cap">&#128274; Credentials stored</span>'
-                : '<span class="cap">&#10005; No credentials set</span>';
+                ? '<span class="cap"><span class="mdi mdi-lock-outline"></span> Credentials stored</span>'
+                : '<span class="cap"><span class="mdi mdi-close-circle-outline"></span> No credentials set</span>';
             const lastError = cfg.last_error
-                ? `<div class="conn-error" role="alert" title="${escapeHtml(String(cfg.last_error))}">&#9888; ${escapeHtml(truncateText(cfg.last_error, 160))}</div>`
+                ? `<div class="conn-error" role="alert" title="${escapeHtml(String(cfg.last_error))}"><span class="mdi mdi-alert-outline"></span> ${escapeHtml(truncateText(cfg.last_error, 160))}</div>`
                 : '';
             return `
                 <div class="connector-card" data-connection="${connectionId}" data-provider="${provider}">
@@ -1552,15 +1870,18 @@
                     </div>
                     ${lastError}
                     <div class="actions">
-                        <button class="btn btn-success btn-sm" onclick="syncConnection('${connectionId}')">&#8635; Sync now</button>
-                        <button class="btn btn-secondary btn-sm" onclick="testConnection('${connectionId}', '${provider}')">&#10003; Test</button>
-                        <button class="btn btn-secondary btn-sm" onclick="openAccountsModal('${connectionId}')">&#128193; Accounts</button>
-                        <button class="btn btn-secondary btn-sm" onclick="openConfigModal('${provider}', '${connectionId}')">&#9998; Edit</button>
-                        <button class="btn btn-secondary btn-sm" onclick="openRenameModal('${connectionId}')">&#128221; Rename</button>
+                        ${cfg.provider_type === 'saxo_investor' ? '' : `<button class="btn btn-success btn-sm" onclick="syncConnection('${connectionId}')"><span class="mdi mdi-sync"></span> Sync now</button>`}
+                        ${cfg.provider_type === 'saxo_investor'
+                            ? `<button class="btn btn-primary btn-sm" onclick="openSaxoImport('${connectionId}')"><span class="mdi mdi-file-upload-outline"></span> Upload Saxo Excel</button>`
+                            : ''}
+                        <button class="btn btn-secondary btn-sm" onclick="testConnection('${connectionId}', '${provider}')"><span class="mdi mdi-check-circle-outline"></span> Test</button>
+                        <button class="btn btn-secondary btn-sm" onclick="openAccountsModal('${connectionId}')"><span class="mdi mdi-folder-account-outline"></span> Accounts</button>
+                        <button class="btn btn-secondary btn-sm" onclick="openConfigModal('${provider}', '${connectionId}')"><span class="mdi mdi-pencil-outline"></span> Edit</button>
+                        <button class="btn btn-secondary btn-sm" onclick="openRenameModal('${connectionId}')"><span class="mdi mdi-rename-box-outline"></span> Rename</button>
                         ${isPaused
-                            ? `<button class="btn btn-success btn-sm" onclick="resumeConnection('${connectionId}')">&#9654; Resume</button>`
-                            : `<button class="btn btn-secondary btn-sm" onclick="pauseConnection('${connectionId}')">&#10074;&#10074; Pause</button>`}
-                        <button class="btn btn-danger btn-sm" onclick="deleteConfig('${connectionId}', '${provider}')">&#10005; Delete</button>
+                            ? `<button class="btn btn-success btn-sm" onclick="resumeConnection('${connectionId}')"><span class="mdi mdi-play"></span> Resume</button>`
+                            : `<button class="btn btn-secondary btn-sm" onclick="pauseConnection('${connectionId}')"><span class="mdi mdi-pause"></span> Pause</button>`}
+                        <button class="btn btn-danger btn-sm" onclick="deleteConfig('${connectionId}', '${provider}')"><span class="mdi mdi-delete-outline"></span> Delete</button>
                     </div>
                     <div id="test-result-${connectionId}" style="margin-top: 12px;" aria-live="polite"></div>
                 </div>`;
@@ -1587,6 +1908,52 @@
             modal.setAttribute('aria-labelledby', 'degiro-modal-title');
             openModal(modal);
             modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
+        }
+
+        function openSaxoImport(connectionId) {
+            const modal = document.createElement('div');
+            modal.className = 'modal-overlay';
+            modal.innerHTML = `
+                <div class="modal">
+                    <h2 id="saxo-modal-title">Importeer SaxoInvestor</h2>
+                    <p style="color:var(--text-muted);margin-bottom:16px;">Selecteer het Saxo-positiesbestand, het transactiebestand of beide. Daarna worden de bestanden direct geïmporteerd.</p>
+                    <div class="form-group">
+                        <label for="saxo-files">SaxoInvestor Excel-bestanden (.xlsx)</label>
+                        <input id="saxo-files" type="file" multiple accept=".xlsx" aria-required="true">
+                    </div>
+                    <div id="saxo-import-result" aria-live="polite"></div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" onclick="closeModal()">Annuleren</button>
+                        <button type="button" id="saxo-import-btn" class="btn btn-primary" onclick="importSaxoFiles('${escapeHtml(String(connectionId))}')">Importeren</button>
+                    </div>
+                </div>`;
+            document.getElementById('modal-container').appendChild(modal);
+            modal.setAttribute('aria-labelledby', 'saxo-modal-title');
+            openModal(modal);
+            modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
+        }
+
+        async function importSaxoFiles(connectionId) {
+            const files = document.getElementById('saxo-files').files;
+            if (!files.length) { toast('Selecteer minimaal één Saxo Excel-bestand', 'error'); return; }
+            const form = new FormData();
+            form.append('connection_id', connectionId);
+            for (const file of files) form.append('files', file);
+            const headers = {};
+            if (token) headers.Authorization = `Bearer ${token}`;
+            const button = document.getElementById('saxo-import-btn');
+            button.disabled = true;
+            try {
+                const response = await fetch(`${API_BASE}/connectors/saxo-investor/imports`, { method: 'POST', headers, body: form });
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.detail || 'Importeren mislukt');
+                toast(`Saxo-import voltooid: ${data.holdings} posities, ${data.transactions} transacties`, 'success');
+                closeModal();
+                renderConnections();
+            } catch (e) {
+                document.getElementById('saxo-import-result').innerHTML = `<div class="alert alert-error" role="alert">${escapeHtml(e.message || 'De server heeft de bestanden geweigerd.')}</div>`;
+                button.disabled = false;
+            }
         }
 
         async function previewDegiroImport(connectionId) {
@@ -1625,7 +1992,7 @@
                             <strong>Could not preview the import</strong>
                             <span>${escapeHtml(e.message || 'The server rejected the files.')}</span>
                         </div>
-                        <button type="button" class="btn btn-secondary btn-sm" onclick="previewDegiroImport('${escapeHtml(String(connectionId))}')">&#8635; Retry</button>
+                        <button type="button" class="btn btn-secondary btn-sm" onclick="previewDegiroImport('${escapeHtml(String(connectionId))}')"><span class="mdi mdi-refresh"></span> Retry</button>
                     </div>`;
                 button.disabled = false;
                 button.textContent = 'Preview';
@@ -1650,7 +2017,7 @@
                                 <strong>Could not confirm the import</strong>
                                 <span>${escapeHtml(e.message || 'The server rejected the confirmation.')}</span>
                             </div>
-                            <button type="button" class="btn btn-secondary btn-sm" onclick="confirmDegiroImport('${escapeHtml(String(runId))}')">&#8635; Retry</button>
+                            <button type="button" class="btn btn-secondary btn-sm" onclick="confirmDegiroImport('${escapeHtml(String(runId))}')"><span class="mdi mdi-refresh"></span> Retry</button>
                         </div>`;
                 } else {
                     toast(e.message, 'error');
@@ -1703,7 +2070,7 @@
             } catch (e) {
                 preview.innerHTML = `<div class="alert alert-error inline-error" role="alert">
                     <div class="inline-error-msg"><strong>Upload kon niet worden gepreviewd.</strong><span>${escapeHtml(e.message || 'De server heeft de bestanden geweigerd.')}</span></div>
-                    <button type="button" class="btn btn-secondary btn-sm" onclick="previewDegiroUpload()">&#8635; Retry</button>
+                    <button type="button" class="btn btn-secondary btn-sm" onclick="previewDegiroUpload()"><span class="mdi mdi-refresh"></span> Retry</button>
                 </div>`;
                 button.disabled = false;
             }
@@ -1724,11 +2091,168 @@
             } catch (e) {
                 preview.innerHTML = `<div class="alert alert-error inline-error" role="alert">
                     <div class="inline-error-msg"><strong>Import kon niet worden bevestigd.</strong><span>${escapeHtml(e.message || 'De server heeft de bevestiging geweigerd.')}</span></div>
-                    <button type="button" class="btn btn-secondary btn-sm" onclick="confirmDegiroUpload()">&#8635; Retry</button>
+                        <button type="button" class="btn btn-secondary btn-sm" onclick="confirmDegiroUpload()"><span class="mdi mdi-refresh"></span> Retry</button>
                 </div>`;
                 button.disabled = false;
             }
         }
+
+        // ── Universal file upload flow ─────────────────────────────────
+        let fileUploadState = { files: [], inspection: null, flow: null, runId: null };
+
+        async function loadFileUploads() {
+            const runs = document.getElementById('degiro-upload-runs');
+            if (!runs) return;
+            try {
+                const result = await api('GET', '/connectors/file-uploads/runs');
+                runs.innerHTML = result.length
+                    ? `<table class="data-table"><thead><tr><th>Datum</th><th>Bestanden</th><th>Status</th><th>Nieuw</th><th>Bijgewerkt</th></tr></thead><tbody>${result.slice(0, 10).map(run => `<tr><td>${escapeHtml(fmtDate(run.created_at))}</td><td>${escapeHtml((run.file_names || []).join(', '))}</td><td>${escapeHtml(run.status || '—')}</td><td>${escapeHtml(String(run.created_count ?? '—'))}</td><td>${escapeHtml(String(run.updated_count ?? '—'))}</td></tr>`).join('')}</tbody></table>`
+                    : '<div class="empty-state" style="padding:24px 10px;"><p>Nog geen uploads.</p></div>';
+            } catch (e) {
+                runs.innerHTML = `<div class="alert alert-error" role="alert">Uploadgeschiedenis kon niet worden geladen. ${escapeHtml(e.message || '')}</div>`;
+            }
+        }
+
+        function clearFileUpload() {
+            fileUploadState = { files: [], inspection: null, flow: null, runId: null };
+            const input = document.getElementById('file-upload-input');
+            if (input) input.value = '';
+            ['file-upload-selection', 'file-upload-result', 'file-upload-choice'].forEach(id => {
+                const el = document.getElementById(id); if (el) { el.innerHTML = ''; el.classList.add('hidden'); }
+            });
+            const start = document.getElementById('file-upload-start-btn');
+            const clear = document.getElementById('file-upload-clear-btn');
+            if (start) start.disabled = true;
+            if (clear) clear.disabled = true;
+        }
+
+        function setFileUploadFiles(files) {
+            fileUploadState = { files: Array.from(files || []), inspection: null, flow: null, runId: null };
+            const selection = document.getElementById('file-upload-selection');
+            const result = document.getElementById('file-upload-result');
+            const choices = document.getElementById('file-upload-choice');
+            if (!fileUploadState.files.length) { clearFileUpload(); return; }
+            selection.textContent = `${fileUploadState.files.length} bestand(en): ${fileUploadState.files.map(file => file.name).join(', ')}`;
+            result.innerHTML = '<div class="field-hint">Bestandstype en broker worden gecontroleerd…</div>';
+            result.classList.remove('hidden'); choices.innerHTML = ''; choices.classList.add('hidden');
+            document.getElementById('file-upload-start-btn').disabled = true;
+            document.getElementById('file-upload-clear-btn').disabled = false;
+            inspectFileUpload();
+        }
+
+        async function inspectFileUpload() {
+            const form = new FormData();
+            fileUploadState.files.forEach(file => form.append('files', file));
+            const headers = {}; if (token) headers.Authorization = `Bearer ${token}`;
+            try {
+                const response = await fetch(`${API_BASE}/connectors/file-uploads/inspect`, { method: 'POST', headers, body: form });
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.detail || 'De bestanden konden niet worden gelezen.');
+                fileUploadState.inspection = data;
+                const matching = (data.flows || []).filter(flow => flow.provider_type === data.detected_provider && flow.ready);
+                const result = document.getElementById('file-upload-result');
+                if (data.detected_provider && matching.length === 1) {
+                    fileUploadState.flow = matching[0];
+                    result.innerHTML = `<div class="alert alert-success"><strong>${escapeHtml(matching[0].display_name)} herkend.</strong> ${escapeHtml(data.reason || '')} Importflow wordt gestart.</div>`;
+                    await startSelectedFileImport();
+                } else {
+                    result.innerHTML = `<div class="alert alert-info"><strong>${data.detected_provider ? `${escapeHtml(data.reason || 'Broker herkend')}, maar kies een rekening.` : 'Broker niet automatisch herkend.'}</strong><span style="display:block;margin-top:4px;">Kies hieronder de importflow en rekening die bij dit bestand horen.</span></div>`;
+                    renderFileUploadChoices(data.flows || []);
+                }
+            } catch (e) {
+                document.getElementById('file-upload-result').innerHTML = `<div class="alert alert-error" role="alert">${escapeHtml(e.message || 'De bestanden konden niet worden gecontroleerd.')}</div>`;
+            }
+        }
+
+        function renderFileUploadChoices(flows) {
+            const choices = document.getElementById('file-upload-choice');
+            choices.classList.remove('hidden');
+            if (!flows.length) {
+                choices.innerHTML = '<div class="alert alert-warning">Er is nog geen file-importaccount ingesteld. Maak eerst een DEGIRO-, SaxoInvestor-, CSV- of handmatige-uitgavenconfiguratie aan bij Importers.</div>';
+                return;
+            }
+            choices.innerHTML = `<h3 style="font-size:1rem;margin-bottom:10px;">Kies de importflow en rekening</h3><div class="connector-grid">${flows.map((flow, index) => `<button type="button" class="connector-card" style="text-align:left;cursor:pointer;${fileUploadState.flow?.connection_id === flow.connection_id ? 'outline:2px solid var(--accent);' : ''}" onclick="chooseFileUploadFlow(${index})"><div class="name">${escapeHtml(flow.display_name)}</div><div class="desc">${escapeHtml(flow.account_name || 'Account kiezen')}</div></button>`).join('')}</div>`;
+            choices.dataset.flows = JSON.stringify(flows);
+        }
+
+        function chooseFileUploadFlow(index) {
+            const choices = document.getElementById('file-upload-choice');
+            const flows = JSON.parse(choices.dataset.flows || '[]');
+            fileUploadState.flow = flows[index] || null;
+            renderFileUploadChoices(flows);
+            if (fileUploadState.flow?.provider_type === 'saxo_investor'
+                && !fileUploadState.flow.ready) {
+                // Upload-first: retain the selected files in the first-time
+                // connector wizard so the user does not have to select them
+                // again.
+                openConfigModal('saxo_investor', null);
+                return;
+            }
+            document.getElementById('file-upload-start-btn').disabled = !fileUploadState.flow?.ready;
+            if (fileUploadState.flow && !fileUploadState.flow.ready) {
+                document.getElementById('file-upload-result').innerHTML = `<div class="alert alert-info">Deze importflow is nog niet ingesteld. Stel eerst ${escapeHtml(fileUploadState.flow.display_name)} in bij Importers.</div><button type="button" class="btn btn-primary" onclick="openConfigModal('${escapeHtml(fileUploadState.flow.provider_type)}', null)">Importaccount instellen</button>`;
+            }
+        }
+
+        async function startSelectedFileImport() {
+            const flow = fileUploadState.flow;
+            if (!flow || !fileUploadState.files.length) return;
+            const result = document.getElementById('file-upload-result');
+            const form = new FormData();
+            form.append('connection_id', flow.connection_id);
+            fileUploadState.files.forEach(file => form.append('files', file));
+            const headers = {}; if (token) headers.Authorization = `Bearer ${token}`;
+            const start = document.getElementById('file-upload-start-btn');
+            start.disabled = true;
+            try {
+                if (flow.provider_type === 'degiro_pension') {
+                    const response = await fetch(`${API_BASE}/connectors/degiro-pension/imports/preview`, { method: 'POST', headers, body: form });
+                    const data = await response.json();
+                    if (!response.ok) throw new Error(data.detail || 'DEGIRO-preview mislukt.');
+                    fileUploadState.runId = data.id;
+                    const p = data.preview || {};
+                    result.innerHTML = `<div class="alert alert-success"><strong>DEGIRO-import klaar voor bevestiging.</strong><br>Rapporten: ${escapeHtml((p.report_types || []).join(', ') || 'geen')} · ${escapeHtml(String(p.rows ?? 0))} regels · ${escapeHtml(String(p.transactions ?? 0))} transacties · ${escapeHtml(String(p.holdings ?? 0))} holdings</div><button type="button" class="btn btn-success" onclick="confirmSelectedFileImport()" ${p.already_processed ? 'disabled' : ''}>Bevestig import</button>`;
+                } else if (flow.provider_type === 'saxo_investor') {
+                    const response = await fetch(`${API_BASE}/connectors/saxo-investor/imports`, { method: 'POST', headers, body: form });
+                    const data = await response.json();
+                    if (!response.ok) throw new Error(data.detail || 'Saxo-import mislukt.');
+                    result.innerHTML = `<div class="alert alert-success"><strong>Saxo-import voltooid.</strong> ${escapeHtml(data.message || '')}</div>`;
+                    await loadFileUploads();
+                } else {
+                    const response = await fetch(`${API_BASE}/connectors/file-uploads/import?connection_id=${encodeURIComponent(flow.connection_id)}`, { method: 'POST', headers, body: form });
+                    const data = await response.json();
+                    if (!response.ok) throw new Error(data.detail || 'Bestandsimport mislukt.');
+                    result.innerHTML = `<div class="alert alert-success"><strong>Import voltooid.</strong> ${escapeHtml(data.message || '')}</div>`;
+                    await loadFileUploads();
+                }
+            } catch (e) {
+                result.innerHTML = `<div class="alert alert-error" role="alert"><strong>Import mislukt.</strong> ${escapeHtml(e.message || '')}</div>`;
+                start.disabled = false;
+            }
+        }
+
+        async function confirmSelectedFileImport() {
+            if (!fileUploadState.runId) return;
+            try {
+                const result = await api('POST', `/connectors/degiro-pension/imports/${fileUploadState.runId}/confirm`, {});
+                document.getElementById('file-upload-result').innerHTML = `<div class="alert alert-success"><strong>Import voltooid.</strong> ${escapeHtml(String(result.created_count ?? 0))} nieuwe items, ${escapeHtml(String(result.updated_count ?? 0))} bijgewerkte items.</div>`;
+                fileUploadState.runId = null;
+                await loadFileUploads();
+            } catch (e) {
+                document.getElementById('file-upload-result').innerHTML = `<div class="alert alert-error" role="alert">${escapeHtml(e.message || 'Bevestigen mislukt.')}</div>`;
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            const input = document.getElementById('file-upload-input');
+            const zone = document.getElementById('file-upload-dropzone');
+            if (!input || !zone) return;
+            input.addEventListener('change', () => setFileUploadFiles(input.files));
+            ['dragenter', 'dragover'].forEach(type => zone.addEventListener(type, event => { event.preventDefault(); zone.classList.add('is-dragover'); }));
+            ['dragleave', 'drop'].forEach(type => zone.addEventListener(type, event => { event.preventDefault(); zone.classList.remove('is-dragover'); }));
+            zone.addEventListener('drop', event => setFileUploadFiles(event.dataTransfer.files));
+            zone.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); input.click(); } });
+        });
 
         // ── Configuration Wizard ────────────────────────────────────────
         // Supports creating a brand-new connection (multiple connections
@@ -1745,7 +2269,7 @@
         function openCreateWizard(presetProvider) {
             const candidates = wizardProviders(presetProvider === 'degiro_pension');
             if (!candidates.length) {
-                toast('No configurable connectors are available', 'error');
+                toast('No configurable importers are available', 'error');
                 return;
             }
             const defaultProvider = presetProvider && candidates.some(c => c.name === presetProvider)
@@ -1834,6 +2358,16 @@
                 }
             }
 
+            const saxoInitialUploadHtml = (!isEdit && providerType === 'saxo_investor')
+                ? `
+                        <h3 style="font-size:0.9rem;font-weight:600;margin:16px 0 12px;">SaxoInvestor export</h3>
+                        <div class="form-group">
+                            <label for="saxo-initial-files">SaxoInvestor XLSX-bestand <span style="color:var(--red)">*</span></label>
+                            <input type="file" id="saxo-initial-files" accept=".xlsx" multiple required aria-required="true">
+                            <div class="field-hint">Selecteer het Posities-bestand, het Transacties-bestand of beide. De bestanden worden na verwerking verwijderd.</div>
+                        </div>`
+                : '';
+
             const providerSelect = isEdit ? '' : `
                 <div class="form-group">
                     <label for="config-provider">Provider <span style="color:var(--red)">*</span></label>
@@ -1856,12 +2390,13 @@
                         </div>
                         ${fieldsHtml ? `<h3 style="font-size:0.9rem;font-weight:600;margin-bottom:12px;margin-top:4px;">Credentials</h3>${fieldsHtml}` : ''}
                         ${optsHtml ? `<h3 style="font-size:0.9rem;font-weight:600;margin:16px 0 12px;">Options</h3>${optsHtml}` : ''}
+                        ${saxoInitialUploadHtml}
                         <div id="config-error" class="hidden alert alert-error" role="alert"></div>
                         <div id="wizard-test-result" aria-live="polite"></div>
                         <div id="wizard-accounts" class="wizard-accounts hidden"></div>
                         <div class="modal-footer">
                             <button type="button" class="btn btn-secondary" onclick="closeModal()">Cancel</button>
-                            ${!isEdit ? `<button type="button" class="btn btn-secondary" id="wizard-test-btn" onclick="testWizardConnection()">&#10003; Test connection</button>` : ''}
+                            ${!isEdit ? `<button type="button" class="btn btn-secondary" id="wizard-test-btn" onclick="testWizardConnection()"><span class="mdi mdi-check-circle-outline"></span> Test connection</button>` : ''}
                             <button type="submit" class="btn btn-primary" id="config-submit">${isEdit ? 'Save Changes' : 'Save Connection'}</button>
                         </div>
                     </form>
@@ -1871,6 +2406,17 @@
             openModal(modal);
             modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
             wizardAccounts = [];
+
+            if (!isEdit && providerType === 'saxo_investor'
+                && typeof fileUploadState !== 'undefined'
+                && fileUploadState.files.length) {
+                const input = document.getElementById('saxo-initial-files');
+                if (input && typeof DataTransfer !== 'undefined') {
+                    const transfer = new DataTransfer();
+                    fileUploadState.files.forEach(file => transfer.items.add(file));
+                    input.files = transfer.files;
+                }
+            }
         }
 
         function onWizardProviderChange() {
@@ -1912,7 +2458,7 @@
                 const result = await api('POST', `/connectors/${encodeURIComponent(providerName)}/test`, { credentials, options });
                 if (result.success) {
                     wizardAccounts = result.accounts || [];
-                    resultEl.innerHTML = `<div class="alert alert-success">&#10003; ${escapeHtml(result.message)}</div>`;
+                    resultEl.innerHTML = `<div class="alert alert-success"><span class="mdi mdi-check-circle-outline"></span> ${escapeHtml(result.message)}</div>`;
                     const accountsBox = document.getElementById('wizard-accounts');
                     if (wizardAccounts.length) {
                         accountsBox.classList.remove('hidden');
@@ -1923,7 +2469,7 @@
                 } else {
                     wizardAccounts = [];
                     document.getElementById('wizard-accounts').classList.add('hidden');
-                    resultEl.innerHTML = `<div class="alert alert-error">&#10005; ${escapeHtml(result.message)}</div>`;
+                    resultEl.innerHTML = `<div class="alert alert-error"><span class="mdi mdi-close-circle-outline"></span> ${escapeHtml(result.message)}</div>`;
                 }
             } catch (e) {
                 wizardAccounts = [];
@@ -1933,11 +2479,11 @@
                             <strong>Connection test failed</strong>
                             <span>${escapeHtml(e.message || 'The connector did not respond.')}</span>
                         </div>
-                        <button type="button" class="btn btn-secondary btn-sm" onclick="testWizardConnection()">&#8635; Retry</button>
+                        <button type="button" class="btn btn-secondary btn-sm" onclick="testWizardConnection()"><span class="mdi mdi-refresh"></span> Retry</button>
                     </div>`;
             } finally {
                 btn.disabled = false;
-                btn.innerHTML = '&#10003; Test connection';
+                btn.innerHTML = '<span class="mdi mdi-check-circle-outline"></span> Test connection';
             }
         }
 
@@ -1998,6 +2544,10 @@
                 const el = document.getElementById(`opt-${f.key}`);
                 if (el && !String(el.value || '').trim()) missing.push(f.label || f.key);
             }
+            if (providerType === 'saxo_investor' && !isEdit) {
+                const files = document.getElementById('saxo-initial-files')?.files;
+                if (!files || !files.length) missing.push('SaxoInvestor XLSX-bestand');
+            }
             if (missing.length) {
                 errorEl.innerHTML = `<strong>Please fill in the required fields:</strong> ${escapeHtml(missing.join(', '))}.`;
                 errorEl.classList.remove('hidden');
@@ -2037,6 +2587,19 @@
                     result = await api('PUT', `/connectors/configs/${connectionId}`, { credentials, options, description });
                 } else {
                     result = await api('POST', '/connectors/configs', { provider_type: providerType, credentials, options, description });
+
+                    if (providerType === 'saxo_investor') {
+                        const files = document.getElementById('saxo-initial-files').files;
+                        const form = new FormData();
+                        form.append('connection_id', result.id);
+                        for (const file of files) form.append('files', file);
+                        const headers = {};
+                        if (token) headers.Authorization = `Bearer ${token}`;
+                        const response = await fetch(`${API_BASE}/connectors/saxo-investor/imports`, { method: 'POST', headers, body: form });
+                        const data = await response.json();
+                        if (!response.ok) throw new Error(data.detail || 'SaxoInvestor-import mislukt.');
+                    }
+
                     // Apply the account selection chosen from the test result.
                     const checked = Array.from(document.querySelectorAll('.wizard-account-cb:checked')).map(el => el.value);
                     if (wizardAccounts.length && checked.length && checked.length !== wizardAccounts.length) {
@@ -2053,7 +2616,7 @@
                     <span style="display:block;margin-top:4px;">${escapeHtml(e.message || 'The server did not accept the changes.')}</span>`;
                 errorEl.classList.remove('hidden');
                 submitBtn.disabled = false;
-                submitBtn.innerHTML = '&#8635; Retry Save';
+                submitBtn.innerHTML = '<span class="mdi mdi-refresh"></span> Retry Save';
                 submitBtn.setAttribute('aria-label', 'Retry saving configuration');
             }
         }
@@ -2138,7 +2701,7 @@
                         </p>
                         <div class="modal-footer">
                             <button type="button" class="btn btn-secondary" onclick="closeModal()">Close</button>
-                            <button type="button" class="btn btn-primary" onclick="refreshAccounts('${escapeHtml(String(connectionId))}')">&#8635; Refresh accounts</button>
+                            <button type="button" class="btn btn-primary" onclick="refreshAccounts('${escapeHtml(String(connectionId))}')"><span class="mdi mdi-refresh"></span> Refresh accounts</button>
                         </div>`;
                     return;
                 }
@@ -2148,7 +2711,7 @@
                 const preselected = accounts.map(a => String(a.id)).filter(id => previousSet.has(id));
                 const checkedSet = new Set(preselected);
                 const hasDeselected = accounts.some(a => previousSet.has(String(a.id)) && !checkedSet.has(String(a.id)));
-                let html = '<div class="selection-warning">&#9888; Changing the account selection never removes already-imported history.</div>';
+                let html = '<div class="selection-warning"><span class="mdi mdi-alert-outline"></span> Changing the account selection never removes already-imported history.</div>';
                 html += `<div id="accounts-list">${renderAccountCheckboxes(accounts, preselected)}</div>`;
                 html += `
                     <div class="form-group" style="margin-top:12px;">
@@ -2280,8 +2843,8 @@
                         <div class="form-group">
                             <label for="feedback-type">Type</label>
                             <select id="feedback-type">
-                                <option value="bug">&#128169; Bug Report</option>
-                                <option value="feature">&#128161; Feature Request</option>
+                                <option value="bug">Bug Report</option>
+                                <option value="feature">Feature Request</option>
                             </select>
                         </div>
 
@@ -2309,7 +2872,7 @@
                     </div>
                     <div id="feedback-success-view" class="hidden">
                         <div class="feedback-success">
-                            <div class="check">&#10003;</div>
+                            <div class="check mdi mdi-check"></div>
                             <h3>Thank You!</h3>
                             <p>Your feedback has been submitted as a GitHub issue. We'll review it as soon as possible.</p>
                             <p><a href="#" class="issue-link hidden" target="_blank" rel="noopener" style="color:var(--accent);font-weight:600;">View issue</a></p>
@@ -2430,15 +2993,15 @@
             try {
                 const result = await api('POST', `/connectors/configs/${configId}/test`);
                 if (result.success) {
-                    let html = `<div class="alert alert-success">&#10003; ${escapeHtml(result.message)}</div>`;
+                    let html = `<div class="alert alert-success"><span class="mdi mdi-check-circle-outline"></span> ${escapeHtml(result.message)}</div>`;
                     const accounts = result.accounts || [];
                     connTestAccounts[configId] = accounts;
                     if (accounts.length) {
-                        html += `<div style="margin-top:8px;"><button type="button" class="btn btn-secondary btn-sm" onclick="openAccountsModal('${escapeHtml(String(configId))}')">&#128193; Select accounts (${accounts.length} available)</button></div>`;
+                        html += `<div style="margin-top:8px;"><button type="button" class="btn btn-secondary btn-sm" onclick="openAccountsModal('${escapeHtml(String(configId))}')"><span class="mdi mdi-folder-account-outline"></span> Select accounts (${accounts.length} available)</button></div>`;
                     }
                     resultEl.innerHTML = html;
                 } else {
-                    resultEl.innerHTML = `<div class="alert alert-error">&#10005; ${escapeHtml(result.message)}</div>`;
+                    resultEl.innerHTML = `<div class="alert alert-error"><span class="mdi mdi-close-circle-outline"></span> ${escapeHtml(result.message)}</div>`;
                 }
             } catch (e) {
                 // Friendly inline error; the Test button above stays in
@@ -2449,7 +3012,7 @@
                             <strong>Connection test failed</strong>
                             <span>${escapeHtml(e.message || 'The connector did not respond.')}</span>
                         </div>
-                        <button type="button" class="btn btn-secondary btn-sm" onclick="testConnection('${escapeHtml(String(configId))}', '${escapeHtml(String(providerName))}')">&#8635; Retry</button>
+                        <button type="button" class="btn btn-secondary btn-sm" onclick="testConnection('${escapeHtml(String(configId))}', '${escapeHtml(String(providerName))}')"><span class="mdi mdi-refresh"></span> Retry</button>
                     </div>`;
             }
         }
@@ -2470,9 +3033,13 @@
         // ══════════════════════════════════════════════════════════════════
         let destinations = [];
         const DESTINATION_INFO = {
-            wealthfolio: { name: 'Wealthfolio', description: 'Portfolio- en beleggingsanalyse op je eigen server.', datasets: ['accounts', 'transactions', 'holdings'] },
-            'actual-budget': { name: 'Actual Budget', description: 'Budgetten en cashflow op je eigen server.', datasets: ['accounts', 'transactions'] },
-            jupyter: { name: 'Jupyter Notebook', description: 'Read-only analyses op je persoonlijke datalake.', datasets: ['accounts', 'transactions', 'holdings', 'securities', 'prices'] },
+            wealthfolio: { name: 'Wealthfolio', description: 'Portfolio- en beleggingsanalyse op je eigen server.', datasets: ['accounts', 'transactions', 'holdings'], secretLabel: 'Wealthfolio-wachtwoord', secretKey: 'password' },
+            'actual-budget': { name: 'Actual Budget', description: 'Budgetten en cashflow op je eigen server.', datasets: ['accounts', 'transactions'], secretLabel: 'Actual Budget-serverwachtwoord', secretKey: 'password' },
+            jupyter: { name: 'Jupyter Notebook', description: 'Read-only analyses op je persoonlijke datalake.', datasets: ['accounts', 'transactions', 'holdings', 'securities', 'prices'], secretLabel: '', secretKey: '' },
+            firefly: { name: 'Firefly III', description: 'Cashflow en vermogensbeheer via de Firefly III API.', datasets: ['accounts', 'transactions'], secretLabel: 'Firefly personal access token', secretKey: 'access_token' },
+            ghostfolio: { name: 'Ghostfolio', description: 'Beleggingsactiviteiten naar een self-hosted Ghostfolio.', datasets: ['transactions', 'holdings'], secretLabel: 'Ghostfolio access token', secretKey: 'access_token' },
+            investbrain: { name: 'InvestBrain', description: 'Beleggingsportefeuilles en transacties naar InvestBrain.', datasets: ['transactions', 'holdings'], secretLabel: 'InvestBrain access token', secretKey: 'access_token' },
+            securo: { name: 'Securo', description: 'Accounts, transacties en holdings naar je self-hosted Securo.', datasets: ['accounts', 'transactions', 'holdings'], secretLabel: 'Securo-wachtwoord', secretKey: 'password', needsEmail: true },
         };
 
         async function loadExporters() {
@@ -2482,7 +3049,7 @@
                 destinations = await api('GET', '/destinations');
                 renderExporters();
             } catch (e) {
-                renderInlineError('exporter-list', 'Kon bestemmingen niet laden', e.message || 'De bestemmingenservice reageert niet.', loadExporters);
+                renderInlineError('exporter-list', 'Kon exporters niet laden', e.message || 'De exporterservice reageert niet.', loadExporters);
             } finally {
                 if (container) container.setAttribute('aria-busy', 'false');
             }
@@ -2508,8 +3075,8 @@
                     <button class="btn btn-sm" onclick="destinationAction('${escapeHtml(d.id)}', '${d.status === 'active' ? 'pause' : 'activate'}')">${d.status === 'active' ? 'Pauzeren' : 'Activeren'}</button>
                     <button class="btn btn-sm btn-danger" onclick="deleteDestination('${escapeHtml(d.id)}')">Verwijderen</button></div></div>`;
             }).join('');
-            container.innerHTML = `<div class="connector-toolbar"><button class="btn btn-primary" onclick="openDestinationWizard()">+ Bestemming toevoegen</button></div>
-                ${cards ? `<div class="connector-grid">${cards}</div>` : '<div class="empty-state"><div class="icon">&#128451;</div><p>Nog geen bestemmingen. Je datalake blijft volledig bruikbaar; voeg alleen een analyse-app toe wanneer je die wilt gebruiken.</p><button class="btn btn-primary" onclick="openDestinationWizard()">Bestemming toevoegen</button></div>'}`;
+            container.innerHTML = `<div class="connector-toolbar"><button class="btn btn-primary" onclick="openDestinationWizard()">+ Exporter toevoegen</button></div>
+                ${cards ? `<div class="connector-grid">${cards}</div>` : '<div class="empty-state"><div class="icon mdi mdi-database-outline"></div><p>Nog geen exporters. Je datalake blijft volledig bruikbaar; voeg alleen een downstream-app toe wanneer je die wilt gebruiken.</p><button class="btn btn-primary" onclick="openDestinationWizard()"><span class="mdi mdi-plus"></span> Exporter toevoegen</button></div>'}`;
             const runs = document.getElementById('exporter-runs');
             if (runs) runs.innerHTML = '';
         }
@@ -2520,24 +3087,24 @@
             const modal = document.createElement('div');
             modal.className = 'modal-overlay'; modal.id = 'destination-wizard-modal';
             document.getElementById('modal-container').appendChild(modal);
-            const render = () => {
+            let render = () => {
                 const info = DESTINATION_INFO[state.target_type];
-                const progress = `<p class="field-hint">Stap ${state.step} van 4 — ${['Kies bestemming', 'Verbind', 'Kies data', 'Activeer'][state.step - 1]}</p>`;
+                const progress = `<p class="field-hint">Stap ${state.step} van 4 — ${['Kies exporter', 'Verbind', 'Kies data', 'Activeer'][state.step - 1]}</p>`;
                 let body = '';
                 if (state.step === 1) body = `<div class="connector-grid">${Object.entries(DESTINATION_INFO).map(([key, item]) => `<button type="button" class="connector-card" style="text-align:left;cursor:pointer;${key === state.target_type ? 'outline:2px solid var(--accent);' : ''}" onclick="destinationWizardChoose('${key}')"><div class="name">${item.name}</div><div class="desc">${item.description}</div></button>`).join('')}</div><div class="form-group"><label for="dest-name">Naam</label><input id="dest-name" value="${escapeHtml(state.display_name)}" placeholder="Bijv. Mijn Wealthfolio"></div>`;
-                if (state.step === 2) { const actualBudgetFields = state.target_type === 'actual-budget' ? `<div class="form-group"><label for="dest-budget">Gevonden Actual Budget</label><select id="dest-budget"><option value="">Kies eerst via Budgetten ontdekken</option>${state.actualBudgets.map(b => `<option value="${escapeHtml(b.id)}" ${state.configuration.sync_id === b.sync_id ? 'selected' : ''}>${escapeHtml(b.name)}${b.encrypted ? ' (versleuteld)' : ''}</option>`).join('')}</select></div><div class="form-group"><label for="dest-encryption">Budget-encryptiewachtwoord (optioneel)</label><input id="dest-encryption" type="password" placeholder="Alleen voor versleutelde budgets"></div><label class="checkbox-wrap"><input type="checkbox" id="dest-off-budget" ${state.configuration.default_off_budget ? 'checked' : ''}> Nieuwe rekeningen als off-budget aanmaken</label><button class="btn btn-sm" onclick="destinationWizardDiscoverBudgets()">Budgetten ontdekken</button>` : ''; body = state.target_type === 'jupyter' ? `<p>Jupyter draait los van finance-sync. Bij activeren maken we een eenmalige read-only sleutel en starter-notebook voor je datalake.</p>` : `<div class="form-group"><label for="dest-url">Self-hosted server-URL</label><input id="dest-url" type="url" value="${escapeHtml(state.configuration.server_url || '')}" placeholder="https://finance.example.nl"></div><div class="form-group"><label for="dest-secret">${state.target_type === 'wealthfolio' ? 'Wealthfolio-wachtwoord' : 'Actual Budget-serverwachtwoord'}</label><input id="dest-secret" type="password" placeholder="${existing?.has_secret ? 'Ongewijzigd laten om bestaand geheim te behouden' : 'Vereist voor activering'}"></div>${actualBudgetFields}<button class="btn btn-sm" onclick="destinationWizardTest()">Verbinding testen</button><span id="destination-test-result" class="field-hint" role="status"></span>`; }
-                if (state.step === 3) { const accountChoices = state.accounts === null ? '<p class="field-hint">Rekeningen laden…</p>' : (state.accounts.length ? state.accounts.map(account => `<label class="checkbox-wrap"><input type="checkbox" class="dest-account" value="${escapeHtml(account.id)}" ${state.selected_account_ids.includes(account.id) ? 'checked' : ''}> ${escapeHtml(account.name)} <span class="field-hint">${escapeHtml(account.currency || '')}</span></label>`).join('') : '<p class="field-hint">Nog geen rekeningen. De bestemming blijft klaar voor toekomstige imports.</p>'); body = `<p class="field-hint">Kies datasets en optioneel individuele rekeningen. Zonder selectie mag de consument alle eigen rekeningen gebruiken.</p><div style="margin-bottom:14px;">${info.datasets.map(ds => `<label class="checkbox-wrap"><input type="checkbox" class="dest-dataset" value="${ds}" ${(state.datasets.length ? state.datasets : info.datasets).includes(ds) ? 'checked' : ''}> ${ds}</label>`).join('')}</div><h3 style="font-size:0.95rem;">Rekeningen</h3>${accountChoices}`; }
-                if (state.step === 4) body = `<div class="alert alert-info">finance-sync blijft de bron van waarheid. Deze bestemming is optioneel en kan later veilig worden gepauzeerd of verwijderd.</div><p><strong>${escapeHtml(state.display_name || info.name)}</strong> · ${escapeHtml(info.name)}</p><p class="field-hint">Na activering kun je een exportschema instellen op Sync Runs.</p>`;
-                modal.innerHTML = `<div class="modal" style="width:620px;" role="dialog" aria-modal="true" aria-labelledby="destination-wizard-title"><h2 id="destination-wizard-title">${state.id ? 'Bestemming bewerken' : 'Bestemming toevoegen'}</h2>${progress}<div id="destination-wizard-body">${body}</div><div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal()">Annuleren</button>${state.step > 1 ? '<button class="btn" onclick="destinationWizardBack()">Terug</button>' : ''}<button class="btn btn-primary" onclick="destinationWizardNext()">${state.step === 4 ? 'Opslaan en activeren' : 'Volgende'}</button></div></div>`;
+                if (state.step === 2) { const actualBudgetFields = state.target_type === 'actual-budget' ? `<div class="form-group"><label for="dest-budget">Gevonden Actual Budget</label><select id="dest-budget"><option value="">Kies eerst via Budgetten ontdekken</option>${state.actualBudgets.map(b => `<option value="${escapeHtml(b.id)}" ${state.configuration.sync_id === b.sync_id ? 'selected' : ''}>${escapeHtml(b.name)}${b.encrypted ? ' (versleuteld)' : ''}</option>`).join('')}</select></div><div class="form-group"><label for="dest-encryption">Budget-encryptiewachtwoord (optioneel)</label><input id="dest-encryption" type="password" placeholder="Alleen voor versleutelde budgets"></div><label class="checkbox-wrap"><input type="checkbox" id="dest-off-budget" ${state.configuration.default_off_budget ? 'checked' : ''}> Nieuwe rekeningen als off-budget aanmaken</label><button class="btn btn-sm" onclick="destinationWizardDiscoverBudgets()">Budgetten ontdekken</button>` : ''; const securoEmail = state.target_type === 'securo' ? `<div class="form-group"><label for="dest-email">Securo e-mailadres</label><input id="dest-email" type="email" value="${escapeHtml(state.configuration.email || '')}" placeholder="you@example.com"><p class="field-hint">Lokale Docker-installatie: gebruik als server-URL <code>http://host.docker.internal:8001</code>. De browser-URL op poort 3001 is niet rechtstreeks bereikbaar vanuit de Finance Sync-container.</p></div>` : ''; body = state.target_type === 'jupyter' ? `<p>Jupyter draait los van finance-sync. Bij activeren maken we een eenmalige read-only sleutel en starter-notebook voor je datalake.</p>` : `<div class="form-group"><label for="dest-url">Self-hosted server-URL</label><input id="dest-url" type="url" value="${escapeHtml(state.configuration.server_url || '')}" placeholder="https://finance.example.nl"></div>${securoEmail}<div class="form-group"><label for="dest-secret">${info.secretLabel || 'Toegangstoken'}</label><input id="dest-secret" type="password" placeholder="${existing?.has_secret ? 'Ongewijzigd laten om bestaand geheim te behouden' : 'Vereist voor activering'}"></div>${actualBudgetFields}<button class="btn btn-sm" onclick="destinationWizardTest()">Verbinding testen</button><span id="destination-test-result" class="field-hint" role="status"></span>`; }
+                if (state.step === 3) { const accountChoices = state.accounts === null ? '<p class="field-hint">Rekeningen laden…</p>' : (state.accounts.length ? state.accounts.map(account => `<label class="checkbox-wrap"><input type="checkbox" class="dest-account" value="${escapeHtml(account.id)}" ${state.selected_account_ids.includes(account.id) ? 'checked' : ''}> ${escapeHtml(account.name)} <span class="field-hint">${escapeHtml(account.currency || '')}</span></label>`).join('') : '<p class="field-hint">Nog geen rekeningen. De exporter blijft klaar voor toekomstige imports.</p>'); body = `<p class="field-hint">Kies datasets en optioneel individuele rekeningen. Zonder selectie mag de exporter alle eigen rekeningen gebruiken.</p><div style="margin-bottom:14px;">${info.datasets.map(ds => `<label class="checkbox-wrap"><input type="checkbox" class="dest-dataset" value="${ds}" ${(state.datasets.length ? state.datasets : info.datasets).includes(ds) ? 'checked' : ''}> ${ds}</label>`).join('')}</div><h3 style="font-size:0.95rem;">Rekeningen</h3>${accountChoices}`; }
+                if (state.step === 4) body = `<div class="alert alert-info">finance-sync blijft de bron van waarheid. Deze exporter is optioneel en kan later veilig worden gepauzeerd of verwijderd.</div><p><strong>${escapeHtml(state.display_name || info.name)}</strong> · ${escapeHtml(info.name)}</p><p class="field-hint">Na activering kun je een exportschema instellen op Sync Runs.</p>`;
+                modal.innerHTML = `<div class="modal" style="width:620px;" role="dialog" aria-modal="true" aria-labelledby="destination-wizard-title"><h2 id="destination-wizard-title">${state.id ? 'Exporter bewerken' : 'Exporter toevoegen'}</h2>${progress}<div id="destination-wizard-body">${body}</div><div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal()">Annuleren</button>${state.step > 1 ? '<button class="btn" onclick="destinationWizardBack()">Terug</button>' : ''}<button class="btn btn-primary" onclick="destinationWizardNext()">${state.step === 4 ? 'Opslaan en activeren' : 'Volgende'}</button></div></div>`;
             };
             window.destinationWizardChoose = key => { state.target_type = key; state.datasets = DESTINATION_INFO[key].datasets.slice(); render(); };
             window.destinationWizardBack = () => { state.step--; render(); };
             window.destinationWizardNext = async () => {
-                if (state.step === 1) { state.display_name = document.getElementById('dest-name').value.trim(); if (!state.display_name) return toast('Geef de bestemming een naam.', 'error'); }
-                if (state.step === 2 && state.target_type !== 'jupyter') { state.configuration.server_url = document.getElementById('dest-url').value.trim(); const secret = document.getElementById('dest-secret').value; if (secret) state.secret.password = secret; const budget = document.getElementById('dest-budget'); if (budget) { const selected = state.actualBudgets.find(b => b.id === budget.value); if (!selected) return toast('Ontdek en kies eerst een Actual Budget.', 'error'); state.configuration.budget_name = selected.name; state.configuration.sync_id = selected.sync_id; state.configuration.default_off_budget = document.getElementById('dest-off-budget').checked; const encryption = document.getElementById('dest-encryption').value; if (encryption) state.secret.encryption_password = encryption; } if (!state.configuration.server_url) return toast('Vul een server-URL in.', 'error'); }
+                if (state.step === 1) { state.display_name = document.getElementById('dest-name').value.trim(); if (!state.display_name) return toast('Geef de exporter een naam.', 'error'); }
+                if (state.step === 2 && state.target_type !== 'jupyter') { state.configuration.server_url = document.getElementById('dest-url').value.trim(); const email = document.getElementById('dest-email'); if (email) state.configuration.email = email.value.trim(); const secret = document.getElementById('dest-secret').value; if (secret) state.secret[DESTINATION_INFO[state.target_type].secretKey || 'password'] = secret; const budget = document.getElementById('dest-budget'); if (budget) { const selected = state.actualBudgets.find(b => b.id === budget.value); if (!selected) return toast('Ontdek en kies eerst een Actual Budget.', 'error'); state.configuration.budget_name = selected.name; state.configuration.sync_id = selected.sync_id; state.configuration.default_off_budget = document.getElementById('dest-off-budget').checked; const encryption = document.getElementById('dest-encryption').value; if (encryption) state.secret.encryption_password = encryption; } if (!state.configuration.server_url) return toast('Vul een server-URL in.', 'error'); if (state.target_type === 'securo' && (!state.configuration.email || !secret) && !existing?.has_secret) return toast('Vul Securo e-mailadres en wachtwoord in.', 'error'); }
                 if (state.step === 3) { state.datasets = Array.from(document.querySelectorAll('.dest-dataset:checked')).map(el => el.value); state.selected_account_ids = Array.from(document.querySelectorAll('.dest-account:checked')).map(el => el.value); }
                 if (state.step < 4) { state.step++; render(); return; }
-                try { const payload = { target_type: state.target_type, display_name: state.display_name, configuration: state.configuration, selected_account_ids: state.selected_account_ids, datasets: state.datasets, secret: state.secret }; const saved = state.id ? await api('PATCH', `/destinations/${state.id}`, payload) : await api('POST', '/destinations', payload); const activated = await api('POST', `/destinations/${saved.id}/activate`); if (activated.jupyter_bootstrap) { document.getElementById('destination-wizard-body').innerHTML = `<div class="alert alert-success"><strong>Bewaar deze sleutel nu.</strong> Hij wordt nooit opnieuw getoond.</div><label for="jupyter-api-key">Read-only Jupyter-sleutel</label><textarea id="jupyter-api-key" readonly style="width:100%;min-height:80px;">${escapeHtml(activated.jupyter_bootstrap.api_key)}</textarea><p class="field-hint">Stel hem in als <code>FINANCE_SYNC_JUPYTER_TOKEN</code> en gebruik de downloadbare starter-notebook uit de API-respons.</p>`; document.querySelector('#destination-wizard-modal .modal-footer').innerHTML = '<button class="btn btn-primary" onclick="closeModal(); loadExporters()">Ik heb de sleutel bewaard</button>'; return; } closeModal(); await loadExporters(); } catch (e) { toast(e.message || 'Opslaan mislukt.', 'error'); }
+                try { const payload = { target_type: state.target_type, display_name: state.display_name, configuration: state.configuration, selected_account_ids: state.selected_account_ids, datasets: state.datasets, ...(Object.keys(state.secret).length ? { secret: state.secret } : {}) }; const saved = state.id ? await api('PATCH', `/destinations/${state.id}`, payload) : await api('POST', '/destinations', payload); const activated = await api('POST', `/destinations/${saved.id}/activate`); if (activated.jupyter_bootstrap) { document.getElementById('destination-wizard-body').innerHTML = `<div class="alert alert-success"><strong>Bewaar deze sleutel nu.</strong> Hij wordt nooit opnieuw getoond.</div><label for="jupyter-api-key">Read-only Jupyter-sleutel</label><textarea id="jupyter-api-key" readonly style="width:100%;min-height:80px;">${escapeHtml(activated.jupyter_bootstrap.api_key)}</textarea><p class="field-hint">Stel hem in als <code>FINANCE_SYNC_JUPYTER_TOKEN</code> en gebruik de downloadbare starter-notebook uit de API-respons.</p>`; document.querySelector('#destination-wizard-modal .modal-footer').innerHTML = '<button class="btn btn-primary" onclick="closeModal(); loadExporters()">Ik heb de sleutel bewaard</button>'; return; } closeModal(); await loadExporters(); } catch (e) { toast(e.message || 'Opslaan mislukt.', 'error'); }
             };
         window.destinationWizardDiscoverBudgets = async () => {
             let temp = null;
@@ -2569,7 +3136,9 @@
                 const password = document.getElementById('dest-secret').value;
                 const configuration = { ...state.configuration, server_url: url };
                 const secret = { ...state.secret };
-                if (password) secret.password = password;
+                const email = document.getElementById('dest-email');
+                if (email) state.configuration.email = email.value.trim();
+                if (password) secret[DESTINATION_INFO[state.target_type].secretKey || 'password'] = password;
                 if (state.target_type === 'actual-budget') {
                     const selected = state.actualBudgets.find(b => b.id === document.getElementById('dest-budget').value);
                     if (!selected) throw new Error('Ontdek en kies eerst een Actual Budget.');
@@ -2682,7 +3251,7 @@
                 if (cfg && cfg.provider_type) return `${cfg.provider_type} (${s.target_id.slice(0, 8)})`;
                 return `Verbinding ${s.target_id.slice(0, 8)}`;
             }
-            const names = { wealthfolio: 'Wealthfolio', 'actual-budget': 'Actual Budget' };
+            const names = { wealthfolio: 'Wealthfolio', 'actual-budget': 'Actual Budget', firefly: 'Firefly III', ghostfolio: 'Ghostfolio', investbrain: 'InvestBrain' };
             return names[s.target_id] || s.target_id;
         }
 
@@ -2691,7 +3260,7 @@
                 const cfg = (configs || []).find(c => c.id === s.target_id);
                 return cfg ? (cfg.provider_type || 'connector') : 'connector';
             }
-            const names = { wealthfolio: 'Wealthfolio', 'actual-budget': 'Actual Budget' };
+            const names = { wealthfolio: 'Wealthfolio', 'actual-budget': 'Actual Budget', firefly: 'Firefly III', ghostfolio: 'Ghostfolio', investbrain: 'InvestBrain' };
             return names[s.target_id] || 'exporter';
         }
 
@@ -2749,7 +3318,7 @@
                     <td style="padding:8px 12px;border-bottom:1px solid var(--border);font-size:0.85rem;">${escapeHtml(s.human_readable)}</td>
                     <td style="padding:8px 12px;border-bottom:1px solid var(--border);font-size:0.85rem;">${escapeHtml(s.timezone)}</td>
                     <td style="padding:8px 12px;border-bottom:1px solid var(--border);font-size:0.85rem;">${escapeHtml(next)}</td>
-                    <td style="padding:8px 12px;border-bottom:1px solid var(--border);font-size:0.85rem;">${last}${s.last_run_error ? `<div style="color:var(--red);font-size:0.75rem;" title="${escapeHtml(s.last_run_error)}">&#9888; ${escapeHtml(String(s.last_run_error).slice(0, 60))}</div>` : ''}</td>
+                    <td style="padding:8px 12px;border-bottom:1px solid var(--border);font-size:0.85rem;">${last}${s.last_run_error ? `<div style="color:var(--red);font-size:0.75rem;" title="${escapeHtml(s.last_run_error)}"><span class="mdi mdi-alert-outline"></span> ${escapeHtml(String(s.last_run_error).slice(0, 60))}</div>` : ''}</td>
                     <td style="padding:8px 12px;border-bottom:1px solid var(--border);font-size:0.85rem;">
                         <button class="btn btn-sm btn-primary" onclick="openScheduleEditor('${escapeHtml(s.id)}')">Schema wijzigen</button>
                         <button class="btn btn-sm" onclick="toggleSchedule('${escapeHtml(s.id)}', ${s.enabled})">${s.enabled ? 'Uitschakelen' : 'Inschakelen'}</button>
@@ -2990,7 +3559,7 @@
                     <label class="run-filter-field">
                         <span class="visually-hidden">Filter op connector</span>
                         <select id="run-filter-connector" onchange="setRunConnectorFilter(this.value)">
-                            <option value="">Alle connectors</option>
+                        <option value="">Alle importers</option>
                             ${connectorOptions}
                         </select>
                     </label>
@@ -3026,7 +3595,7 @@
                 const badgeClass = r.status === 'completed' ? 'badge connected' : (r.status === 'failed' ? 'badge disconnected' : 'badge pending');
                 const statusLabel = RUN_STATUS_LABELS[r.status] || r.status;
                 const errorDetail = r.error_message
-                    ? `<div class="run-error-line" title="${escapeHtml(String(r.error_message).slice(0, 300))}">&#9888; ${escapeHtml(String(r.error_message).slice(0, 80))}</div>`
+                    ? `<div class="run-error-line" title="${escapeHtml(String(r.error_message).slice(0, 300))}"><span class="mdi mdi-alert-outline"></span> ${escapeHtml(String(r.error_message).slice(0, 80))}</div>`
                     : '';
                 rows += `
                     <tr>
@@ -3050,9 +3619,9 @@
                 <div class="run-pagination" role="navigation" aria-label="Pagina's van de runhistorie">
                     <span class="run-pagination-info" role="status">Runs ${from}–${to} van ${total}</span>
                     <div class="run-pagination-controls">
-                        <button type="button" class="btn btn-sm" onclick="setRunPage(${syncRunState.offset - syncRunState.limit})" ${syncRunState.offset === 0 ? 'disabled' : ''}>&#8592; Vorige</button>
+                        <button type="button" class="btn btn-sm" onclick="setRunPage(${syncRunState.offset - syncRunState.limit})" ${syncRunState.offset === 0 ? 'disabled' : ''}><span class="mdi mdi-arrow-left"></span> Vorige</button>
                         <span class="run-pagination-page" aria-current="page">Pagina ${page} van ${pages}</span>
-                        <button type="button" class="btn btn-sm" onclick="setRunPage(${syncRunState.offset + syncRunState.limit})" ${syncRunState.offset + syncRunHistory.length >= total ? 'disabled' : ''}>Volgende &#8594;</button>
+                        <button type="button" class="btn btn-sm" onclick="setRunPage(${syncRunState.offset + syncRunState.limit})" ${syncRunState.offset + syncRunHistory.length >= total ? 'disabled' : ''}>Volgende <span class="mdi mdi-arrow-right"></span></button>
                     </div>
                 </div>
             `;
@@ -3069,7 +3638,7 @@
                             <thead>
                                 <tr>
                                     <th style="padding:8px 12px;text-align:left;font-size:0.8rem;color:var(--text-muted);font-weight:600;border-bottom:2px solid var(--border);">ID</th>
-                                    <th style="padding:8px 12px;text-align:left;font-size:0.8rem;color:var(--text-muted);font-weight:600;border-bottom:2px solid var(--border);">Connector</th>
+                                    <th style="padding:8px 12px;text-align:left;font-size:0.8rem;color:var(--text-muted);font-weight:600;border-bottom:2px solid var(--border);">Importer</th>
                                     <th style="padding:8px 12px;text-align:left;font-size:0.8rem;color:var(--text-muted);font-weight:600;border-bottom:2px solid var(--border);">Status</th>
                                     <th style="padding:8px 12px;text-align:left;font-size:0.8rem;color:var(--text-muted);font-weight:600;border-bottom:2px solid var(--border);">Gestart</th>
                                     <th style="padding:8px 12px;text-align:left;font-size:0.8rem;color:var(--text-muted);font-weight:600;border-bottom:2px solid var(--border);">Voltooid</th>
@@ -3394,9 +3963,9 @@
                 <div class="run-pagination" role="navigation" aria-label="Pagina's van de holdingfeed">
                     <span class="run-pagination-info" role="status">Items ${from}–${to} van ${total}</span>
                     <div class="run-pagination-controls">
-                        <button type="button" class="btn btn-sm" onclick="setHoldingPage(${holdingState.offset - holdingState.limit})" ${holdingState.offset === 0 ? 'disabled' : ''}>&#8592; Vorige</button>
+                        <button type="button" class="btn btn-sm" onclick="setHoldingPage(${holdingState.offset - holdingState.limit})" ${holdingState.offset === 0 ? 'disabled' : ''}><span class="mdi mdi-arrow-left"></span> Vorige</button>
                         <span class="run-pagination-page" aria-current="page">Pagina ${page} van ${pages}</span>
-                        <button type="button" class="btn btn-sm" onclick="setHoldingPage(${holdingState.offset + holdingState.limit})" ${holdingState.offset + holdingFeedItems.length >= total ? 'disabled' : ''}>Volgende &#8594;</button>
+                        <button type="button" class="btn btn-sm" onclick="setHoldingPage(${holdingState.offset + holdingState.limit})" ${holdingState.offset + holdingFeedItems.length >= total ? 'disabled' : ''}>Volgende <span class="mdi mdi-arrow-right"></span></button>
                     </div>
                 </div>
             `;
@@ -3508,7 +4077,7 @@
                 // user's session and show the connectors that still load.
                 console.warn('Could not fetch profile:', e);
             }
-            await loadConnectors();
+            await loadOverview();
         })();
     </script>
 </body>

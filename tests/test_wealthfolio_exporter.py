@@ -24,6 +24,7 @@ from finance_sync.exporter.wealthfolio.config import WealthfolioConfig
 from finance_sync.exporter.wealthfolio.exporter import (
     WealthfolioExporter,
     WealthfolioExportResult,
+    _normalise_wealthfolio_symbol,
     _wf_row_to_api_activity,
 )
 from finance_sync.exporter.wealthfolio.transaction_mapper import (
@@ -191,6 +192,13 @@ class TestWealthfolioConfig:
 
 
 class TestTransactionMapper:
+    def test_normalise_exchange_qualified_tickers_for_reconciliation(
+        self,
+    ) -> None:
+        assert _normalise_wealthfolio_symbol("VWCE.DE") == "VWCE"
+        assert _normalise_wealthfolio_symbol("ASML.NL") == "ASML"
+        assert _normalise_wealthfolio_symbol("US0378331005") == "US0378331005"
+
     def test_map_purchase_with_security(self) -> None:
         sec = _make_mock_security()
         txn = _make_mock_transaction(
@@ -204,7 +212,7 @@ class TestTransactionMapper:
         )
         row = map_transaction_to_wf_row(txn, security=sec)
         assert row["activityType"] == WF_ACTIVITY_BUY
-        assert row["symbol"] == "US0378331005"
+        assert row["symbol"] == "AAPL"
         assert row["quantity"] == "10.00"
         assert row["unitPrice"] == "150.50"
         assert row["instrumentType"] == "EQUITY"
@@ -223,7 +231,7 @@ class TestTransactionMapper:
         )
         row = map_transaction_to_wf_row(txn, security=sec)
         assert row["activityType"] == WF_ACTIVITY_SELL
-        assert row["symbol"] == "US0378331005"
+        assert row["symbol"] == "MSFT"
         assert row["instrumentType"] == "EQUITY"
 
     def test_map_deposit(self) -> None:
@@ -262,7 +270,7 @@ class TestTransactionMapper:
         )
         row = map_transaction_to_wf_row(txn, security=sec)
         assert row["activityType"] == WF_ACTIVITY_DIVIDEND
-        assert row["symbol"] == "US0378331005"
+        assert row["symbol"] == "VOO"
         assert row["amount"] == "50.00"
 
     def test_map_interest(self) -> None:
@@ -377,7 +385,7 @@ class TestTransactionMapper:
         sec = _make_mock_security()
         holding = _make_mock_holding(security_id=sec.id)
         row = map_holding_to_wf_row(holding, security=sec)
-        assert row["symbol"] == "US0378331005"
+        assert row["symbol"] == "AAPL"
         assert row["date"] == "2025-06-30"
         assert float(row["quantity"]) == 50.0
         # avgCost = cost_basis / quantity = 8574 / 50
@@ -390,7 +398,7 @@ class TestTransactionMapper:
             cost_basis=None,
         )
         row = map_holding_to_wf_row(holding, security=sec)
-        assert row["symbol"] == "US0378331005"
+        assert row["symbol"] == "BTC"
         assert row["avgCost"] == ""
 
     def test_map_holding_cash(self) -> None:

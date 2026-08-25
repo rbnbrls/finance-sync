@@ -53,7 +53,14 @@ SCOPE_KINDS = {SCOPE_INGESTION, SCOPE_EXPORT}
 INGESTION_SCHEDULABLE_PROVIDERS = {"bunq", "trading212"}
 
 #: Exporter keys that receive a per-tenant schedule.
-EXPORT_SCHEDULABLE_EXPORTERS = {"wealthfolio", "actual-budget"}
+EXPORT_SCHEDULABLE_EXPORTERS = {
+    "wealthfolio",
+    "actual-budget",
+    "firefly",
+    "ghostfolio",
+    "investbrain",
+    "securo",
+}
 
 # ── Default schedule ──────────────────────────────────────────────────
 

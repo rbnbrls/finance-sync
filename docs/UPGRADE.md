@@ -158,7 +158,7 @@ Stable downstream contracts (Actual Budget / Wealthfolio exporters).
 
 ## Milestone 5 — Automation / insights (revision 0009, partial)
 
-AI summaries, Home Assistant integration, Grafana dashboards, performance
+AI summaries, Home Assistant integration, GlitchTip monitoring, performance
 analytics, subscription detection. No dedicated schema migrations were
 shipped with the original M5 features; the tables M5 needs
 (`detected_subscriptions`, plus enrichment/price/audit tables) arrived with
@@ -321,7 +321,6 @@ Upgrade order for a running deployment:
 | `MASTER_ENCRYPTION_KEY` | 0002 | **Required** for credential storage; changing it orphans stored credentials |
 | `ASYNC_DB_URL` | G-01 | Alembic connection string; DDL-only migration user recommended (`scripts/setup-migration-user.sql`) |
 | `EXPORTER_ACTUAL_BUDGET_ENABLED` / `EXPORTER_WEALTHFOLIO_ENABLED` | 0008 / PR #202 | Default `true`; set `false` to disable an exporter's API + CLI surface |
-| `GRAFANA_ALERT_WEBHOOK_URL` / `GRAFANA_ALERT_EMAILS` | PR #207 | Grafana alerting channels; default webhook is a no-op placeholder |
 | `COOLIFY_API_TOKEN`, `GITHUB_TOKEN`, `STATE_FILE` | PR #206 | For the in-repo `finance-sync-monitor` (env-only; scheduled via `deploy/systemd/`) |
 
 ---

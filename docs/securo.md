@@ -1,0 +1,36 @@
+# Securo-koppeling
+
+De lokale Securo-testapplicatie is verwijderd. Gebruik een extern beheerde
+Securo-installatie en configureer de servergegevens voor de push.
+
+## Datacontract van de importer
+
+Securo accepteert OFX, QIF, CAMT en CSV. De koppeling gebruikt CSV met deze kolommen:
+
+| Kolom | Verplicht | Betekenis |
+|---|---:|---|
+| `date` | ja | ISO-datum `YYYY-MM-DD` |
+| `description` | ja | omschrijving/payee |
+| `amount` | ja | positief bedrag; `type` bepaalt richting |
+| `type` | nee | `credit` of `debit` |
+| `currency` | nee | ISO-4217 |
+| `external_id` | nee, aanbevolen | stabiele finance-sync-ID voor deduplicatie |
+| `payee` | nee | ruwe payee |
+| `notes` | nee | provenance/notitie |
+
+De importer doet eerst preview en daarna confirm. De API-endpoints zijn `POST /api/transactions/import/preview` en `POST /api/transactions/import`; beide vereisen een bearer-sessie-token. De push gebruikt expliciete column mapping, duplicate detection en maakt ontbrekende Securo-accounts automatisch aan.
+
+## Gebruik
+
+```sh
+finance-sync securo export --days-back 90
+finance-sync securo push --server-url http://localhost:3001 \
+  --email you@example.com --password 'local-password'
+```
+
+Per finance-sync-account wordt een CSV-bestand geschreven. De push importeert
+elk bestand in het gelijknamige Securo-account en synchroniseert daarnaast de
+laatste holdingsnapshot van ieder account via Securo's `/api/assets`-API. Een
+bestaande positie wordt op ISIN (of ticker en naam als fallback) bijgewerkt;
+een herhaalde push maakt dus geen dubbele holdings aan. De CLI rapporteert
+zowel transactions als holdings.

@@ -75,7 +75,6 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         self._default_max = default_max_requests
         self._default_window = default_window_seconds
         self._exempt_paths = exempt_paths or {
-            "/metrics",
             "/health",
             "/openapi.json",
             "/docs",

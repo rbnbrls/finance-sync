@@ -94,10 +94,11 @@ class TestSettings:
         assert settings.is_debug is True
 
     def test_is_production_property(self) -> None:
-        settings_dev = Settings()
+        settings_dev = Settings(_env_file=None)
         assert settings_dev.is_production is False
 
         settings_prod = Settings(
+            _env_file=None,
             environment="prod",
             secret_key="test-production-secret-key-1234",
             master_encryption_key="00" * 32,
@@ -116,7 +117,7 @@ class TestSettings:
 
     def test_database_url(self) -> None:
         url = "postgresql+asyncpg://user:pass@localhost:5432/db"
-        settings = Settings(database_url=url)  # type: ignore[call-arg]
+        settings = Settings(database_url=url, _env_file=None)  # type: ignore[call-arg]
         assert settings.database_url is not None
         assert "localhost" in settings.database_url.unicode_string()
 
@@ -131,16 +132,19 @@ class TestSettings:
         with pytest.raises(
             ValueError, match="Secret key must be at least 16 characters"
         ):
-            Settings(secret_key="short")  # type: ignore[call-arg]
+            Settings(secret_key="short", _env_file=None)  # type: ignore[call-arg]
 
     def test_long_secret_key_accepted(self) -> None:
         """Keys >= 16 chars are accepted."""
-        settings = Settings(secret_key="this-is-32-chars-key-ok!!")  # type: ignore[call-arg]
+        settings = Settings(
+            secret_key="this-is-32-chars-key-ok!!", _env_file=None
+        )  # type: ignore[call-arg]
         assert settings.secret_key is not None
 
     def test_production_rejects_default_secret(self) -> None:
         with pytest.raises(ValueError, match="SECRET_KEY"):
             Settings(
+                _env_file=None,
                 environment="prod",
                 master_encryption_key="00" * 32,
                 cors_origins=["https://example.test"],
@@ -150,6 +154,7 @@ class TestSettings:
     def test_production_requires_secure_infrastructure(self) -> None:
         with pytest.raises(ValueError, match="MASTER_ENCRYPTION_KEY"):
             Settings(
+                _env_file=None,
                 environment="prod",
                 secret_key="test-production-secret-key-1234",
                 cors_origins=["https://example.test"],

@@ -255,7 +255,7 @@ class OpenBBFxProvider:
         """Build HTTP headers for OpenBB API requests."""
         headers: dict[str, str] = {
             "Accept": "application/json",
-            "User-Agent": "finance-sync/0.1.0",
+            "User-Agent": "finance-sync/0.7.2",
         }
         if self._api_key:
             headers["Authorization"] = f"Bearer {self._api_key}"

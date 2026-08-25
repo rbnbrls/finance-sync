@@ -124,7 +124,7 @@ class OpenBBIntelProvider(IntelProvider):
         if self._http_client is None or self._http_client.is_closed:
             headers: dict[str, str] = {
                 "Accept": "application/json",
-                "User-Agent": "finance-sync/0.1.0",
+                "User-Agent": "finance-sync/0.7.2",
             }
             if self._api_key:
                 headers["Authorization"] = f"Bearer {self._api_key}"

@@ -19,7 +19,19 @@ from finance_sync.db import Base, created_at_ts, pk_uuid, updated_at_ts
 TARGET_WEALTHFOLIO = "wealthfolio"
 TARGET_ACTUAL_BUDGET = "actual-budget"
 TARGET_JUPYTER = "jupyter"
-TARGET_TYPES = {TARGET_WEALTHFOLIO, TARGET_ACTUAL_BUDGET, TARGET_JUPYTER}
+TARGET_FIREFLY = "firefly"
+TARGET_GHOSTFOLIO = "ghostfolio"
+TARGET_INVESTBRAIN = "investbrain"
+TARGET_SECURO = "securo"
+TARGET_TYPES = {
+    TARGET_WEALTHFOLIO,
+    TARGET_ACTUAL_BUDGET,
+    TARGET_JUPYTER,
+    TARGET_FIREFLY,
+    TARGET_GHOSTFOLIO,
+    TARGET_INVESTBRAIN,
+    TARGET_SECURO,
+}
 
 TARGET_DRAFT = "draft"
 TARGET_ACTIVE = "active"

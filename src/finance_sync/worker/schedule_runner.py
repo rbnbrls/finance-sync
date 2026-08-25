@@ -36,6 +36,7 @@ from __future__ import annotations
 import json
 import traceback
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import structlog
@@ -265,8 +266,12 @@ async def run_export(
         )
 
     if exporter_key == "wealthfolio":
-        # Reuse the same gating + flow as the historical sweep job.
-        if not settings.worker_job_export_enabled:
+        # Reuse the historical sweep gate only for the legacy, environment-
+        # configured target. Destination rows have their own credentials and
+        # are already operationally gated by their active schedule; requiring
+        # the legacy global flag here makes every wizard-created destination
+        # silently skip when WEALTHFOLIO_SERVER_URL/PASSWORD are unset.
+        if not target and not settings.worker_job_export_enabled:
             return {"status": "skipped", "reason": "global_gate_disabled"}
         if not target and (
             not settings.wealthfolio_server_url
@@ -373,6 +378,143 @@ async def run_export(
             "status": getattr(result, "status", "completed") or "completed",
             "error": getattr(result, "error_message", None),
         }
+
+    # All remaining exporters are persisted, tenant-scoped targets.  The
+    # legacy environment-based schedules only exist for Wealthfolio and
+    # Actual Budget above.
+    if target is None:
+        return {"status": "skipped", "reason": "target_missing"}
+
+    if exporter_key == "firefly":
+        from finance_sync.exporter.firefly.config import FireflyConfig
+        from finance_sync.exporter.firefly.exporter import FireflyExporter
+
+        config = FireflyConfig(
+            server_url=str(target.configuration["server_url"]),
+            access_token=str(target_secret.get("access_token") or ""),
+            verify_ssl=bool(target.configuration.get("verify_ssl", True)),
+            request_timeout=float(
+                target.configuration.get("request_timeout", 60.0)
+            ),
+            default_currency=str(
+                target.configuration.get("default_currency", "EUR")
+            ),
+            import_tag=str(
+                target.configuration.get("import_tag", "finance-sync")
+            ),
+        )
+        result = await FireflyExporter(
+            session_factory=container.session_factory,
+            firefly_config=config,
+            tenant_id=str(schedule.tenant_id),
+        ).run_export(account_ids=target.selected_account_ids or None)
+        return {"status": result.status, "error": result.error_message}
+
+    if exporter_key in {"ghostfolio", "investbrain"}:
+        if exporter_key == "ghostfolio":
+            from finance_sync.exporter.ghostfolio.client import GhostfolioClient
+            from finance_sync.exporter.ghostfolio.config import GhostfolioConfig
+            from finance_sync.exporter.ghostfolio.exporter import (
+                GhostfolioExporter,
+            )
+
+            config = GhostfolioConfig(
+                server_url=str(target.configuration["server_url"]),
+                access_token=str(target_secret.get("access_token") or ""),
+                verify_ssl=bool(target.configuration.get("verify_ssl", True)),
+                request_timeout=float(
+                    target.configuration.get("request_timeout", 60.0)
+                ),
+                data_source=str(
+                    target.configuration.get("data_source", "YAHOO")
+                ),
+                include_pending=bool(
+                    target.configuration.get("include_pending", False)
+                ),
+            )
+            async with GhostfolioClient(config) as client:
+                result = await GhostfolioExporter(
+                    session_factory=container.session_factory,
+                    config=config,
+                    tenant_id=str(schedule.tenant_id),
+                ).run_export(
+                    client,
+                    account_ids=target.selected_account_ids or None,
+                )
+            return {
+                "status": str(result.get("status", "failed")),
+                "error": (
+                    str(result.get("failures", [None])[0])
+                    if result.get("failures")
+                    else None
+                ),
+            }
+
+        from finance_sync.exporter.investbrain.client import InvestBrainClient
+        from finance_sync.exporter.investbrain.config import InvestBrainConfig
+        from finance_sync.exporter.investbrain.exporter import (
+            InvestBrainExporter,
+        )
+
+        config = InvestBrainConfig(
+            server_url=str(target.configuration["server_url"]),
+            access_token=str(target_secret.get("access_token") or ""),
+            verify_ssl=bool(target.configuration.get("verify_ssl", True)),
+            request_timeout=float(
+                target.configuration.get("request_timeout", 60.0)
+            ),
+            include_pending=bool(
+                target.configuration.get("include_pending", False)
+            ),
+            portfolio_name_prefix=str(
+                target.configuration.get(
+                    "portfolio_name_prefix", "finance-sync"
+                )
+            ),
+        )
+        async with InvestBrainClient(config) as client:
+            result = await InvestBrainExporter(
+                session_factory=container.session_factory,
+                config=config,
+                tenant_id=str(schedule.tenant_id),
+            ).run_export(
+                client,
+                account_ids=target.selected_account_ids or None,
+            )
+        return {
+            "status": str(result.get("status", "failed")),
+            "error": (
+                str(result.get("failures", [None])[0])
+                if result.get("failures")
+                else None
+            ),
+        }
+
+    if exporter_key == "securo":
+        from finance_sync.exporter.securo.config import SecuroConfig
+        from finance_sync.exporter.securo.exporter import SecuroExporter
+
+        config = SecuroConfig(
+            server_url=str(target.configuration["server_url"]),
+            email=str(target.configuration.get("email") or ""),
+            password=str(target_secret.get("password") or ""),
+            output_dir=Path(
+                target.configuration.get("output_dir")
+                or "/tmp/finance_sync_securo_exports"
+            ),
+            auto_create_accounts=bool(
+                target.configuration.get("auto_create_accounts", True)
+            ),
+        )
+        result = await SecuroExporter(
+            container.session_factory,
+            config,
+            str(schedule.tenant_id),
+        ).run_export(
+            account_ids=target.selected_account_ids or None,
+            push=True,
+        )
+        return {"status": result.status, "error": result.error_message}
 
     return {"status": "skipped", "reason": "unknown_exporter"}
 

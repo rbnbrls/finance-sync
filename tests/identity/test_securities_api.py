@@ -8,6 +8,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
+from finance_sync.api.deps.auth import (
+    APIKeyAuthResult,
+    AuthContext,
+    get_auth_context,
+)
 from finance_sync.app import create_app
 from finance_sync.config.environments import Environment
 
@@ -61,6 +66,12 @@ def client(mock_container):
     with patch("finance_sync.app.lifespan", None):
         app = create_app()
     app.state.container = mock_container
+    app.dependency_overrides[get_auth_context] = lambda: AuthContext(
+        api_key_result=APIKeyAuthResult(
+            permissions="securities:read securities:write",
+            tenant_id="tenant-test",
+        )
+    )
     with TestClient(app) as c:
         yield c
 
@@ -121,6 +132,7 @@ class TestListUnresolved:
 
         # Verify the service was called with the right provider_key
         mock_container.identity_resolution_service.get_unresolved.assert_called_with(
+            tenant_id="tenant-test",
             only_unmapped=True,
             provider_key="trading212",
             limit=100,
@@ -140,6 +152,7 @@ class TestListAllUnresolved:
 
         # Verify only_unmapped=False
         mock_container.identity_resolution_service.get_unresolved.assert_called_with(
+            tenant_id="tenant-test",
             only_unmapped=False,
             provider_key=None,
             limit=100,
@@ -310,6 +323,7 @@ class TestAuditLog:
         )
         assert response.status_code == 200
         mock_container.identity_resolution_service.get_audit_log.assert_called_with(
+            tenant_id="tenant-test",
             target_security_id="sec_001",
             limit=100,
         )

@@ -53,19 +53,50 @@ services:
       APP_VERSION: ${APP_VERSION:-0.1.0}
       DEBUG: ${DEBUG:-false}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      GLITCHTIP_ENABLED: ${GLITCHTIP_ENABLED:-false}
+      GLITCHTIP_DSN: ${GLITCHTIP_DSN:-}
+      GLITCHTIP_SAMPLE_RATE: ${GLITCHTIP_SAMPLE_RATE:-1.0}
+      GLITCHTIP_TRACES_SAMPLE_RATE: ${GLITCHTIP_TRACES_SAMPLE_RATE:-0.01}
+      GLITCHTIP_RELEASE: ${GLITCHTIP_RELEASE:-}
+      GLITCHTIP_MAX_BREADCRUMBS: ${GLITCHTIP_MAX_BREADCRUMBS:-20}
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-finance_sync}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-finance_sync}
       DATABASE_POOL_MIN_SIZE: ${DATABASE_POOL_MIN_SIZE:-2}
       DATABASE_POOL_MAX_SIZE: ${DATABASE_POOL_MAX_SIZE:-10}
       REDIS_URL: redis://:${REDIS_PASSWORD:-}@redis:6379/0
       SECRET_KEY: ${SECRET_KEY:?SECRET_KEY is required}
+      ADMIN_KEY: ${ADMIN_KEY:?ADMIN_KEY is required; run scripts/generate-admin-key.sh}
       ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-30}
       REFRESH_TOKEN_EXPIRE_DAYS: ${REFRESH_TOKEN_EXPIRE_DAYS:-7}
       JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
       MASTER_ENCRYPTION_KEY: ${MASTER_ENCRYPTION_KEY:-}
-      CORS_ORIGINS: ${CORS_ORIGINS:-[*]}
+      EXPORTER_ACTUAL_BUDGET_ENABLED: ${EXPORTER_ACTUAL_BUDGET_ENABLED:-true}
+      ACTUAL_BUDGET_SERVER_URL: ${ACTUAL_BUDGET_SERVER_URL:-http://actual-budget:5006}
+      ACTUAL_BUDGET_PASSWORD: ${ACTUAL_BUDGET_PASSWORD:-}
+      ACTUAL_BUDGET_BUDGET_NAME: ${ACTUAL_BUDGET_BUDGET_NAME:-Finance Sync Local}
+      ACTUAL_BUDGET_SYNC_ID: ${ACTUAL_BUDGET_SYNC_ID:-}
+      ACTUAL_BUDGET_ENCRYPTION_PASSWORD: ${ACTUAL_BUDGET_ENCRYPTION_PASSWORD:-}
+      EXPORTER_FIREFLY_ENABLED: ${EXPORTER_FIREFLY_ENABLED:-true}
+      FIREFLY_SERVER_URL: ${FIREFLY_SERVER_URL:-http://firefly:8080}
+      FIREFLY_ACCESS_TOKEN: ${FIREFLY_ACCESS_TOKEN:-}
+      FIREFLY_DEFAULT_CURRENCY: ${FIREFLY_DEFAULT_CURRENCY:-EUR}
+      FIREFLY_IMPORT_TAG: ${FIREFLY_IMPORT_TAG:-finance-sync}
+      EXPORTER_INVESTBRAIN_ENABLED: ${EXPORTER_INVESTBRAIN_ENABLED:-true}
+      INVESTBRAIN_SERVER_URL: ${INVESTBRAIN_SERVER_URL:-http://investbrain-app:80}
+      INVESTBRAIN_ACCESS_TOKEN: ${INVESTBRAIN_ACCESS_TOKEN:-}
+      INVESTBRAIN_VERIFY_SSL: ${INVESTBRAIN_VERIFY_SSL:-true}
+      INVESTBRAIN_INCLUDE_PENDING: ${INVESTBRAIN_INCLUDE_PENDING:-false}
+      INVESTBRAIN_PORTFOLIO_NAME_PREFIX: ${INVESTBRAIN_PORTFOLIO_NAME_PREFIX:-finance-sync}
+      EXPORTER_GHOSTFOLIO_ENABLED: ${EXPORTER_GHOSTFOLIO_ENABLED:-true}
+      GHOSTFOLIO_SERVER_URL: ${GHOSTFOLIO_SERVER_URL:-http://host.docker.internal:3333}
+      GHOSTFOLIO_ACCESS_TOKEN: ${GHOSTFOLIO_ACCESS_TOKEN:-}
+      GHOSTFOLIO_VERIFY_SSL: ${GHOSTFOLIO_VERIFY_SSL:-true}
+      GHOSTFOLIO_DATA_SOURCE: ${GHOSTFOLIO_DATA_SOURCE:-MANUAL}
+      GHOSTFOLIO_INCLUDE_PENDING: ${GHOSTFOLIO_INCLUDE_PENDING:-false}
+      GHOSTFOLIO_SYNC_TRANSACTIONS: ${GHOSTFOLIO_SYNC_TRANSACTIONS:-true}
+      CORS_ORIGINS: ${CORS_ORIGINS:-["http://localhost:8000"]}
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
       GITHUB_REPO: ${GITHUB_REPO:-rbnbrls/finance-sync}
-      DEGIRO_IMPORT_STAGING_DIRECTORY: /var/lib/finance-sync/import-staging
+      DEGIRO_IMPORT_STAGING_DIRECTORY: /tmp/finance-sync/import-staging
     volumes:
       - encryption_keys:/app/keys  # Mount for encryption key files if needed
       - degiro_import_staging:/var/lib/finance-sync/import-staging
@@ -94,14 +125,47 @@ services:
     environment:
       APP_ENVIRONMENT: ${APP_ENVIRONMENT:-prod}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      GLITCHTIP_ENABLED: ${GLITCHTIP_ENABLED:-false}
+      GLITCHTIP_DSN: ${GLITCHTIP_DSN:-}
+      GLITCHTIP_SAMPLE_RATE: ${GLITCHTIP_SAMPLE_RATE:-1.0}
+      GLITCHTIP_TRACES_SAMPLE_RATE: ${GLITCHTIP_TRACES_SAMPLE_RATE:-0.01}
+      GLITCHTIP_RELEASE: ${GLITCHTIP_RELEASE:-}
+      GLITCHTIP_MAX_BREADCRUMBS: ${GLITCHTIP_MAX_BREADCRUMBS:-20}
+      CORS_ORIGINS: ${CORS_ORIGINS:-["http://localhost:8000"]}
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-finance_sync}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-finance_sync}
       DATABASE_POOL_MIN_SIZE: 1
       DATABASE_POOL_MAX_SIZE: 2
       REDIS_URL: redis://:${REDIS_PASSWORD:-}@redis:6379/0
       SECRET_KEY: ${SECRET_KEY:?SECRET_KEY is required}
+      ADMIN_KEY: ${ADMIN_KEY:?ADMIN_KEY is required; run scripts/generate-admin-key.sh}
       MASTER_ENCRYPTION_KEY: ${MASTER_ENCRYPTION_KEY:-}
+      EXPORTER_ACTUAL_BUDGET_ENABLED: ${EXPORTER_ACTUAL_BUDGET_ENABLED:-true}
+      ACTUAL_BUDGET_SERVER_URL: ${ACTUAL_BUDGET_SERVER_URL:-http://actual-budget:5006}
+      ACTUAL_BUDGET_PASSWORD: ${ACTUAL_BUDGET_PASSWORD:-}
+      ACTUAL_BUDGET_BUDGET_NAME: ${ACTUAL_BUDGET_BUDGET_NAME:-Finance Sync Local}
+      ACTUAL_BUDGET_SYNC_ID: ${ACTUAL_BUDGET_SYNC_ID:-}
+      ACTUAL_BUDGET_ENCRYPTION_PASSWORD: ${ACTUAL_BUDGET_ENCRYPTION_PASSWORD:-}
+      EXPORTER_FIREFLY_ENABLED: ${EXPORTER_FIREFLY_ENABLED:-true}
+      FIREFLY_SERVER_URL: ${FIREFLY_SERVER_URL:-http://firefly:8080}
+      FIREFLY_ACCESS_TOKEN: ${FIREFLY_ACCESS_TOKEN:-}
+      FIREFLY_DEFAULT_CURRENCY: ${FIREFLY_DEFAULT_CURRENCY:-EUR}
+      FIREFLY_IMPORT_TAG: ${FIREFLY_IMPORT_TAG:-finance-sync}
+      EXPORTER_INVESTBRAIN_ENABLED: ${EXPORTER_INVESTBRAIN_ENABLED:-true}
+      INVESTBRAIN_SERVER_URL: ${INVESTBRAIN_SERVER_URL:-http://investbrain-app:80}
+      INVESTBRAIN_ACCESS_TOKEN: ${INVESTBRAIN_ACCESS_TOKEN:-}
+      INVESTBRAIN_VERIFY_SSL: ${INVESTBRAIN_VERIFY_SSL:-true}
+      INVESTBRAIN_INCLUDE_PENDING: ${INVESTBRAIN_INCLUDE_PENDING:-false}
+      INVESTBRAIN_PORTFOLIO_NAME_PREFIX: ${INVESTBRAIN_PORTFOLIO_NAME_PREFIX:-finance-sync}
+      EXPORTER_GHOSTFOLIO_ENABLED: ${EXPORTER_GHOSTFOLIO_ENABLED:-true}
+      GHOSTFOLIO_SERVER_URL: ${GHOSTFOLIO_SERVER_URL:-http://host.docker.internal:3333}
+      GHOSTFOLIO_ACCESS_TOKEN: ${GHOSTFOLIO_ACCESS_TOKEN:-}
+      GHOSTFOLIO_VERIFY_SSL: ${GHOSTFOLIO_VERIFY_SSL:-true}
+      GHOSTFOLIO_DATA_SOURCE: ${GHOSTFOLIO_DATA_SOURCE:-MANUAL}
+      GHOSTFOLIO_INCLUDE_PENDING: ${GHOSTFOLIO_INCLUDE_PENDING:-false}
+      GHOSTFOLIO_SYNC_TRANSACTIONS: ${GHOSTFOLIO_SYNC_TRANSACTIONS:-true}
       WORKER_HEALTH_PORT: 9090
       WORKER_JOB_DEGIRO_WATCH_ENABLED: ${WORKER_JOB_DEGIRO_WATCH_ENABLED:-true}
+      DEGIRO_IMPORT_STAGING_DIRECTORY: /tmp/finance-sync/import-staging
     volumes:
       - encryption_keys:/app/keys:ro
       - ${DEGIRO_WATCH_HOST_PATH:-./imports/degiro}:/imports/degiro
@@ -117,76 +181,12 @@ services:
       start_period: 30s
       retries: 3
 
-  # ── Prometheus ────────────────────────────────────────────────────────
-  prometheus:
-    image: prom/prometheus:v2.53.0
-    container_name: finance-sync-prometheus
-    restart: unless-stopped
-    ports:
-      - "9091:9090"
-    volumes:
-      - ./docker/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - prometheus_data:/prometheus
-    command:
-      - "--config.file=/etc/prometheus/prometheus.yml"
-      - "--storage.tsdb.path=/prometheus"
-      - "--storage.tsdb.retention.time=${PROMETHEUS_RETENTION:-30d}"
-      - "--web.console.libraries=/etc/prometheus/console_libraries"
-      - "--web.console.templates=/etc/prometheus/consoles"
-      - "--web.enable-lifecycle"
-    depends_on:
-      app:
-        condition: service_started
-      worker:
-        condition: service_started
-
-  # ── Grafana ───────────────────────────────────────────────────────────
-  grafana:
-    image: grafana/grafana:11.1.0
-    container_name: finance-sync-grafana
-    restart: unless-stopped
-    ports:
-      - "3000:3000"
-    environment:
-      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
-      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
-      GF_INSTALL_PLUGINS: ""
-      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /etc/grafana/dashboards/sync-health.json
-      GF_AUTH_ANONYMOUS_ENABLED: "false"
-      GF_SERVER_ROOT_URL: http://localhost:3000
-      # ── Alerting channels (see docs/observability.md) ─────────────
-      # Webhook receiver URL (Slack/Discord/Telegram/…).  Default is a
-      # no-op placeholder so provisioning never fails.
-      GRAFANA_ALERT_WEBHOOK_URL: ${GRAFANA_ALERT_WEBHOOK_URL:-http://localhost:3000}
-      # Email receiver addresses (comma-separated).  Requires GF_SMTP_*
-      # settings below to actually send.
-      GRAFANA_ALERT_EMAILS: ${GRAFANA_ALERT_EMAILS:-admin@localhost}
-      # Optional SMTP for email notifications:
-      # GF_SMTP_ENABLED: "true"
-      # GF_SMTP_HOST: smtp.example.com:587
-      # GF_SMTP_USER: alert@example.com
-      # GF_SMTP_PASSWORD: ${SMTP_PASSWORD:-}
-      # GF_SMTP_FROM_ADDRESS: alert@example.com
-    volumes:
-      - ./docker/grafana/dashboards:/etc/grafana/dashboards:ro
-      - ./docker/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
-      - ./docker/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
-      - ./docker/grafana/provisioning/alerting:/etc/grafana/provisioning/alerting:ro
-      - grafana_data:/var/lib/grafana
-    depends_on:
-      prometheus:
-        condition: service_started
-
 volumes:
   postgres_data:
     driver: local
   redis_data:
     driver: local
   encryption_keys:
-    driver: local
-  prometheus_data:
-    driver: local
-  grafana_data:
     driver: local
   degiro_import_staging:
     driver: local

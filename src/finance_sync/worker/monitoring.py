@@ -11,10 +11,9 @@ import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, cast
 
-from finance_sync.observability.metrics import (
-    worker_job_duration_seconds,
-    worker_job_success_rate,
-)
+import sentry_sdk
+
+from finance_sync.observability.glitchtip import capture_job_exception
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -88,12 +87,19 @@ class JobRunContext:
         self._job_name = name or job_id
         self._start: float = 0.0
         self._details: dict[str, Any] | None = None
+        self._transaction: Any = None
 
     def set_details(self, details: dict[str, Any]) -> None:
         self._details = details
 
     async def __aenter__(self) -> JobRunContext:
         self._start = time.monotonic()
+        self._transaction = sentry_sdk.start_transaction(
+            op="queue.process",
+            name=self._job_name,
+        )
+        self._transaction.__enter__()
+        self._transaction.set_tag("job_id", self._job_id)
         return self
 
     async def __aexit__(
@@ -113,6 +119,12 @@ class JobRunContext:
             details=self._details,
         )
         self._monitor.record(result)
+        if exc_val is not None:
+            capture_job_exception(exc_val)
+            self._transaction.set_status("internal_error")
+        else:
+            self._transaction.set_status("ok")
+        self._transaction.__exit__(exc_type, exc_val, exc_tb)
         # Don't suppress exceptions — let the caller handle them
         return False
 
@@ -133,17 +145,6 @@ class JobMonitor:
         if result.job_id not in self._history:
             self._history[result.job_id] = JobHistory()
         self._history[result.job_id].record(result)
-        self._update_gauges(result)
-
-    def _update_gauges(self, result: JobRunResult) -> None:
-        """Update Prometheus gauges for the most recent job run."""
-        history = self._history[result.job_id]
-        worker_job_duration_seconds.labels(job_id=result.job_id).set(
-            result.duration_s
-        )
-        worker_job_success_rate.labels(job_id=result.job_id).set(
-            history.success_rate
-        )
 
     def get_history(self, job_id: str) -> JobHistory | None:
         """Return run history for a specific job."""

@@ -161,13 +161,13 @@ class TestWFTransactionMapping(TransactionMappingContractTest):
     # ── WF-specific mapping tests ───────────────────────────────────
 
     def test_map_buy_with_security(self) -> None:
-        """Purchase should map to BUY activity with stable ISIN."""
+        """Purchase should map to BUY activity with a market-data ticker."""
         row = map_transaction_to_wf_row(
             WF_TRANSACTION_BUY_AAPL,
             security=SECURITY_AAPL,
         )
         assert row["activityType"] == WF_ACTIVITY_BUY
-        assert row["symbol"] == "US0378331005"
+        assert row["symbol"] == "AAPL"
         assert row["instrumentType"] == "EQUITY"
         assert row["currency"] == "USD"
 
@@ -178,7 +178,7 @@ class TestWFTransactionMapping(TransactionMappingContractTest):
             security=SECURITY_MSFT,
         )
         assert row["activityType"] == WF_ACTIVITY_SELL
-        assert row["symbol"] == "US5949181045"
+        assert row["symbol"] == "MSFT"
 
     def test_map_deposit(self) -> None:
         """Deposit should map to DEPOSIT with empty symbol."""
@@ -200,7 +200,7 @@ class TestWFTransactionMapping(TransactionMappingContractTest):
             security=SECURITY_AAPL,
         )
         assert row["activityType"] == WF_ACTIVITY_DIVIDEND
-        assert row["symbol"] == "US0378331005"
+        assert row["symbol"] == "AAPL"
         assert row["amount"] == "50.00"
 
     def test_map_interest(self) -> None:
@@ -268,7 +268,7 @@ class TestWFTransactionMapping(TransactionMappingContractTest):
             WF_HOLDING_AAPL,
             security=SECURITY_AAPL,
         )
-        assert row["symbol"] == "US0378331005"
+        assert row["symbol"] == "AAPL"
         assert row["date"] == "2025-06-30"
         assert float(row["quantity"]) == 50.0
 
@@ -391,7 +391,7 @@ class TestWFCsvExport(CsvExportContractTest):
             [WF_TRANSACTION_BUY_AAPL],
             security_map=sec_map,
         )
-        assert "US0378331005" in csv
+        assert "AAPL" in csv
         assert "BUY" in csv
 
     def test_holdings_csv_content(self) -> None:
@@ -406,8 +406,8 @@ class TestWFCsvExport(CsvExportContractTest):
         )
         lines = [line for line in csv.strip().split("\n") if line.strip()]
         assert len(lines) == 3  # header + 2 holdings
-        assert "US0378331005" in csv
-        assert "IE00BK5BQT80" in csv
+        assert "AAPL" in csv
+        assert "VWCE" in csv
 
     def test_csv_with_instrument_type_override(self) -> None:
         """CSV with instrument type map applies custom mappings."""
@@ -854,82 +854,3 @@ class TestWealthfolioLifecycle(ExportLifecycleContractTest):
         assert result.status == "completed"
         assert result.holdings_exported == 0
         assert result.transactions_attempted == 0
-
-
-class TestWealthfolioExportMetrics:
-    """Export outcome Prometheus counter (G-06)."""
-
-    def test_record_metrics_completed(self) -> None:
-        """Completed export increments the exporter counter."""
-        from prometheus_client import REGISTRY
-
-        from finance_sync.exporter.wealthfolio.exporter import (
-            WealthfolioExporter,
-            WealthfolioExportResult,
-        )
-
-        result = WealthfolioExportResult(
-            status="completed",
-            accounts_mapped=1,
-            transactions_attempted=2,
-            transactions_exported=2,
-            transactions_failed=0,
-            transactions_skipped=0,
-            holdings_exported=1,
-            csv_files=["activity.csv"],
-            duration_s=1.0,
-        )
-        before = (
-            REGISTRY.get_sample_value(
-                "export_runs_total",
-                {"exporter": "wealthfolio", "status": "completed"},
-            )
-            or 0.0
-        )
-        WealthfolioExporter._record_export_metrics(result)
-
-        assert (
-            REGISTRY.get_sample_value(
-                "export_runs_total",
-                {"exporter": "wealthfolio", "status": "completed"},
-            )
-            == before + 1.0
-        )
-
-    def test_record_metrics_failed(self) -> None:
-        """Failed export increments the failed-status counter."""
-        from prometheus_client import REGISTRY
-
-        from finance_sync.exporter.wealthfolio.exporter import (
-            WealthfolioExporter,
-            WealthfolioExportResult,
-        )
-
-        result = WealthfolioExportResult(
-            status="failed",
-            accounts_mapped=0,
-            transactions_attempted=0,
-            transactions_exported=0,
-            transactions_failed=0,
-            transactions_skipped=0,
-            holdings_exported=0,
-            csv_files=[],
-            error_message="boom",
-            duration_s=1.0,
-        )
-        before = (
-            REGISTRY.get_sample_value(
-                "export_runs_total",
-                {"exporter": "wealthfolio", "status": "failed"},
-            )
-            or 0.0
-        )
-        WealthfolioExporter._record_export_metrics(result)
-
-        assert (
-            REGISTRY.get_sample_value(
-                "export_runs_total",
-                {"exporter": "wealthfolio", "status": "failed"},
-            )
-            == before + 1.0
-        )

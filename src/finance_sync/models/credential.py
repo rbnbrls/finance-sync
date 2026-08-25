@@ -121,6 +121,18 @@ class Credential(Base):
             "(secrets redacted, truncated)"
         ),
     )
+    last_error_category: Mapped[str | None] = mapped_column(
+        String(32),
+        nullable=True,
+        comment="Normalized category of the latest connection error",
+    )
+    last_test_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    last_test_status: Mapped[str | None] = mapped_column(
+        String(16), nullable=True
+    )
+    last_test_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at = created_at_ts()
     updated_at = updated_at_ts()
 

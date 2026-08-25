@@ -69,7 +69,62 @@ def test_dashboard_is_served(client: TestClient) -> None:
     client side gates on the stored token; the server never 500s."""
     html = _dashboard_html(client)
     assert "section-connectors" in html
-    assert "Connectors" in html
+    assert "Importers" in html
+
+
+def test_dashboard_exposes_control_plane_overview(client: TestClient) -> None:
+    """Phase 3: the landing page is an operational control plane."""
+    html = _dashboard_html(client)
+    assert "control-plane/overview" in html
+    for element_id in (
+        "control-status",
+        "control-issues",
+        "control-connections",
+        "control-syncs",
+        "control-quality",
+        "control-destinations",
+    ):
+        assert f'id="{element_id}"' in html
+    assert "function renderControlPlane" in html
+    assert "function runControlAction" in html
+
+
+def test_dashboard_control_plane_has_safe_recovery_paths(
+    client: TestClient,
+) -> None:
+    """Issue and sync recovery actions use existing API contracts safely."""
+    html = _dashboard_html(client)
+    assert "sync-runs/${encodeURIComponent(runId)}/retry" in html
+    assert "escapeHtml(issue.description)" in html
+    assert 'aria-live="polite"' in html
+    assert "Data gedeeltelijk beschikbaar" in html
+
+
+def test_dashboard_control_plane_renders_operational_action_catalog(
+    client: TestClient,
+) -> None:
+    """Phase 5: cards expose backend-approved actions and safe states."""
+    html = _dashboard_html(client)
+    assert "function renderControlActions" in html
+    assert "renderControlActions(c.actions)" in html
+    assert "renderControlActions(d.actions)" in html
+    assert (
+        "data-disabled-reason" not in html
+    )  # reasons are rendered as text, not executable markup
+    assert "disabled-reason" in html
+    assert "button.dataset.busy = 'true'" in html
+    assert "setAttribute('aria-busy', 'true')" in html
+    assert "control-plane/data-quality" in html
+    assert "findings_total" in html
+
+
+def test_dashboard_control_plane_normalizes_api_action_paths(
+    client: TestClient,
+) -> None:
+    """Action paths may be absolute API paths from the backend contract."""
+    html = _dashboard_html(client)
+    assert "path.startsWith(API_BASE)" in html
+    assert "Open de security-mappingflow" in html
 
 
 def test_dashboard_ships_connector_list_surface(client: TestClient) -> None:
@@ -144,7 +199,7 @@ def test_dashboard_loads_connectors_resiliently(client: TestClient) -> None:
     assert "Promise.allSettled" in html
     assert (
         "renderInlineError('connector-list'" in html
-        or "Could not load connectors" in html
+        or "Could not load importers" in html
     )
 
 
@@ -265,6 +320,7 @@ def test_dashboard_toast_and_regions_are_live(client: TestClient) -> None:
     assert 'aria-live="polite"' in html
     assert 'role="region"' in html
     assert 'aria-labelledby="connectors-title"' in html
+    assert "Importers</h1>" in html
 
 
 def test_dashboard_has_escape_to_close_and_focus_restore(
@@ -521,7 +577,7 @@ def test_dashboard_run_history_ships_filters(client: TestClient) -> None:
     assert "resetRunFilters()" in html
     assert "syncRunQueryString()" in html
     assert "connector" in html and "status" in html
-    assert "Alle connectors" in html
+    assert "Alle importers" in html
     assert "Alle statussen" in html
 
 
@@ -573,13 +629,12 @@ def test_dashboard_run_history_escape_html(client: TestClient) -> None:
 # ══════════════════════════════════════════════════════════════════
 
 
-def test_dashboard_nav_renamed_bestemmingen(client: TestClient) -> None:
-    """AC: the nav item is renamed Exporters → Bestemmingen and opens the
-    destination management section."""
+def test_dashboard_nav_renamed_exporters(client: TestClient) -> None:
+    """The nav item and management section are labelled Exporters."""
     html = _dashboard_html(client)
-    assert "> Bestemmingen" in html
+    assert "> Exporters" in html
     assert 'data-section="exporters"' in html  # section id unchanged internally
-    assert "Bestemmingen</h1>" in html
+    assert "Exporters</h1>" in html
 
 
 def test_dashboard_destination_empty_state_explains_datalake(
@@ -589,7 +644,7 @@ def test_dashboard_destination_empty_state_explains_datalake(
     offers a clear way to add one."""
     html = _dashboard_html(client)
     assert "Je datalake blijft volledig bruikbaar" in html
-    assert "Bestemming toevoegen" in html
+    assert "Exporter toevoegen" in html
     assert "openDestinationWizard(" in html
 
 
@@ -597,19 +652,21 @@ def test_dashboard_ships_four_step_wizard(client: TestClient) -> None:
     """AC: the wizard is four steps with explicit labels and progress."""
     html = _dashboard_html(client)
     assert "Stap ${state.step} van 4" in html
-    for label in ("Kies bestemming", "Verbind", "Kies data", "Activeer"):
+    for label in ("Kies exporter", "Verbind", "Kies data", "Activeer"):
         assert label in html
     assert "destinationWizardNext(" in html
     assert "destinationWizardBack(" in html
 
 
-def test_dashboard_wizard_supports_all_three_types(client: TestClient) -> None:
-    """AC: step 1 offers Wealthfolio, Actual Budget and Jupyter cards with
-    distinguish description text."""
+def test_dashboard_wizard_supports_all_exporters(client: TestClient) -> None:
+    """Step 1 offers every configured exporter, including read-only Jupyter."""
     html = _dashboard_html(client)
     assert "Wealthfolio" in html
     assert "Actual Budget" in html
     assert "Jupyter" in html
+    assert "Firefly III" in html
+    assert "Ghostfolio" in html
+    assert "InvestBrain" in html
     assert "destinationWizardChoose(" in html
 
 

@@ -307,6 +307,8 @@
             margin-bottom: 20px;
         }
     </style>
+    <link rel="stylesheet" href="/static/brand.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@mdi/font@7.4.47/css/materialdesignicons.min.css">
 </head>
 <body>
     <div class="toast-container" id="toast-container"></div>
@@ -316,23 +318,19 @@
         <div class="error hidden" id="login-error"></div>
         <form id="login-form" onsubmit="handleLogin(event)">
             <div class="form-group">
-                <label for="email">Email</label>
-                <input type="email" id="email" placeholder="admin@finance-sync.local" value="admin@finance-sync.local" required autocomplete="email">
+                <label for="admin-key">Admin key</label>
+                <input type="password" id="admin-key" placeholder="Enter the ADMIN_KEY from your environment" required minlength="32" maxlength="32" autocomplete="off">
             </div>
-            <div class="form-group">
-                <label for="password">Password</label>
-                <input type="password" id="password" placeholder="Enter your password" required autocomplete="current-password">
-            </div>
-            <button type="submit" class="btn" id="login-btn">Sign In</button>
+            <button type="submit" class="btn" id="login-btn">Sign in with admin key</button>
         </form>
         <div style="text-align: center; margin-top: 20px; font-size: 0.85rem; color: var(--text-muted);">
-            Don't have an account? <a href="/register" style="color: var(--accent); text-decoration: none;">Create one</a>
+            The first login uses the deployment's <code>ADMIN_KEY</code>. Email/password registration is disabled.
         </div>
     </div>
 
     <!-- Feedback trigger button — emits custom event for integration layer -->
     <button class="feedback-trigger" id="feedback-trigger" title="Send feedback" aria-label="Send feedback">
-        <span class="icon">&#9993;</span>
+        <span class="icon mdi mdi-message-text-outline"></span>
         Feedback
     </button>
 
@@ -363,12 +361,11 @@
             errorEl.classList.add('hidden');
 
             try {
-                const resp = await fetch(`${API_BASE}/auth/login`, {
+                const resp = await fetch(`${API_BASE}/auth/admin-key`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        email: document.getElementById('email').value,
-                        password: document.getElementById('password').value,
+                        admin_key: document.getElementById('admin-key').value,
                     }),
                 });
                 const data = await resp.json();
@@ -383,7 +380,7 @@
                 errorEl.textContent = e.message;
                 errorEl.classList.remove('hidden');
                 btn.disabled = false;
-                btn.textContent = 'Sign In';
+                btn.textContent = 'Sign in with admin key';
             }
         }
 
@@ -430,11 +427,11 @@
                             <label>Type</label>
                             <div class="type-select">
                                 <div class="type-option selected" data-type="bug" onclick="selectFeedbackType(this)">
-                                    <span class="type-icon">&#128169;</span>
+                                    <span class="type-icon mdi mdi-bug-outline"></span>
                                     Bug Report
                                 </div>
                                 <div class="type-option" data-type="feature" onclick="selectFeedbackType(this)">
-                                    <span class="type-icon">&#128161;</span>
+                                    <span class="type-icon mdi mdi-lightbulb-outline"></span>
                                     Feature Request
                                 </div>
                             </div>
@@ -464,7 +461,7 @@
                     </div>
                     <div id="feedback-success-view" class="hidden">
                         <div class="feedback-success">
-                            <div class="check">&#10003;</div>
+                            <div class="check mdi mdi-check"></div>
                             <h3>Thank You!</h3>
                             <p>Your feedback has been submitted. We'll review it as soon as possible.</p>
                             <p><a href="#" class="issue-link hidden" target="_blank" rel="noopener" style="color:var(--accent);font-weight:600;">View issue</a></p>

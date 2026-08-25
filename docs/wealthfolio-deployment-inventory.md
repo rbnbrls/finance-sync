@@ -12,8 +12,12 @@ based on this inventory is tracked separately.
 
 | App | UUID | FQDN | Deployed commit | Container |
 |---|---|---|---|---|
-| finance-sync (production) | obcopz3142hxzs1zlie78amh | https://obcopz3142hxzs1zlie78amh.7rb.nl | dffe9a1 (= main HEAD, "Add DEGIRO pension import workflow (#238)") | obcopz3142hxzs1zlie78amh-100345470405 (uvicorn API only) |
 | finance-sync-staging | mdeal4aqq9ycnozn3mg83zix | https://mdeal4aqq9ycnozn3mg83zix.7rb.nl | c4c5855 ("fix(ops): ship wget in production image … (#234)") — 1 commit behind main | mdeal4aqq9ycnozn3mg83zix-063130662014 (uvicorn API only) |
+
+> ⚠️ 2026-08-24: the production app `obcopz3142hxzs1zlie78amh` no longer exists
+> on dev.7rb.nl. `finance-sync-staging` is the only finance-sync app deployed
+> there; the deploy workflow and runtime defaults now target staging until a
+> production application is (re)created in Coolify.
 
 Health: both `/health/live` return HTTP 200.
 
@@ -51,7 +55,7 @@ both containers.
 Present on prod only (not Wealthfolio-related): SECRET_KEY,
 APP_ENVIRONMENT/NAME/VERSION, DEBUG, POSTGRES_PASSWORD, MASTER_ENCRYPTION_KEY,
 LOG_LEVEL, DATABASE_POOL_MIN/MAX_SIZE, ACCESS_TOKEN_EXPIRE_MINUTES,
-REFRESH_TOKEN_EXPIRE_DAYS, JWT_ALGORITHM, GRAFANA_ADMIN_USER/PASSWORD,
+REFRESH_TOKEN_EXPIRE_DAYS, JWT_ALGORITHM,
 DATABASE_URL, CORS_ORIGINS, REDIS_URL, REDIS_PASSWORD, GITHUB_TOKEN. Staging
 has only the core subset (DATABASE_URL, REDIS_URL, APP_ENVIRONMENT, APP_NAME,
 SECRET_KEY, MASTER_ENCRYPTION_KEY, LOG_LEVEL, CORS_ORIGINS).

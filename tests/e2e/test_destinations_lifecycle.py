@@ -220,7 +220,15 @@ class TestEmptyInstallNoDestinationsRequired:
         )
         assert types.status_code == 200
         keys = {t["key"] for t in types.json()}
-        assert keys == {"wealthfolio", "actual-budget", "jupyter"}
+        assert keys == {
+            "wealthfolio",
+            "actual-budget",
+            "jupyter",
+            "firefly",
+            "ghostfolio",
+            "investbrain",
+            "securo",
+        }
 
         empty = await client.get(
             "/api/v1/destinations", headers=seeded_tenant["headers"]

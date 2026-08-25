@@ -72,7 +72,7 @@ class EnrichmentGateway:
         """Build HTTP headers for OpenBB API requests."""
         headers: dict[str, str] = {
             "Accept": "application/json",
-            "User-Agent": "finance-sync/0.1.0",
+            "User-Agent": "finance-sync/0.5.0",
         }
         if self._settings.openbb_api_key:
             api_key = self._settings.openbb_api_key.get_secret_value()

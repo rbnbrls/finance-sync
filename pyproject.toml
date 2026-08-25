@@ -27,11 +27,12 @@ dependencies = [
     "bcrypt>=4.0",
     "python-multipart>=0.0.18",
     "structlog>=25.1",
-    "prometheus-client>=0.21",
+    "sentry-sdk>=2.0",
+    "prometheus-client>=0.22",
     "actualpy>=0.22",
     "apscheduler>=3.10",
     "aiohttp>=3.9",
-    "mcp>=1.28.1",
+    "mcp>=1.28,<2",
     "openpyxl>=3.1",
     "xlrd>=2.0",
 ]
@@ -53,7 +54,7 @@ openbb = [
 ]
 
 mcp = [
-    "mcp>=1.28",
+    "mcp>=1.28,<2",
     "sse-starlette>=3.4",
 ]
 
@@ -66,6 +67,7 @@ manual_expense = "finance_sync.connectors.manual_expense:ManualExpenseConnector"
 plaid_like = "finance_sync.connectors.plaid_like:PlaidLikeConnector"
 ynab = "finance_sync.connectors.ynab:YnabConnector"
 degiro_pension = "finance_sync.connectors.degiro_pension:DegiroPensionConnector"
+saxo_investor = "finance_sync.connectors.saxo_investor:SaxoInvestorConnector"
 
 [project.scripts]
 finance-sync = "finance_sync.cli:main"
@@ -187,7 +189,7 @@ branch = true
 command_line = "-m pytest"
 
 [tool.coverage.report]
-fail_under = 70
+fail_under = 73
 show_missing = true
 skip_covered = false
 skip_empty = true

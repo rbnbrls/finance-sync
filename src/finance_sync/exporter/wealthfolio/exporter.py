@@ -47,7 +47,7 @@ from finance_sync.exporter.wealthfolio.transaction_mapper import (
     map_transactions_to_csv,
 )
 from finance_sync.models import Account, Holding, Security, Transaction
-from finance_sync.observability.metrics import export_runs_total
+from finance_sync.sync.errors import categorize_export_error
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -153,16 +153,6 @@ class WealthfolioExporter:
 
     # ── Public API ───────────────────────────────────────────────────
 
-    @staticmethod
-    def _record_export_metrics(
-        result: WealthfolioExportResult,
-    ) -> None:
-        """Record the export run outcome as a Prometheus counter."""
-        export_runs_total.labels(
-            exporter="wealthfolio",
-            status=result.status,
-        ).inc()
-
     async def run_export(
         self,
         *,
@@ -204,9 +194,11 @@ class WealthfolioExporter:
         # ── Create ExportRun ──────────────────────────────────────
         async with self._session_factory() as session:
             run = ExportRun(
+                tenant_id=self._tenant_id,
                 status="running",
                 started_at=start_ts,
                 exporter_type="wealthfolio",
+                target_id=self._target_id,
             )
             session.add(run)
             await session.flush()
@@ -230,13 +222,11 @@ class WealthfolioExporter:
                     exported=0,
                     failed=0,
                 )
-                result = WealthfolioExportResult(
+                return WealthfolioExportResult(
                     status="completed",
                     duration_s=(datetime.now(UTC) - start_ts).total_seconds(),
                     run_id=str(run.id),
                 )
-                self._record_export_metrics(result)
-                return result
 
             # Pre-load securities for symbol resolution
             security_map = await self._load_securities()
@@ -353,7 +343,7 @@ class WealthfolioExporter:
                 csv_files=len(csv_files),
                 duration_s=(end_ts - start_ts).total_seconds(),
             )
-            result = WealthfolioExportResult(
+            return WealthfolioExportResult(
                 status="completed",
                 accounts_mapped=accts_mapped,
                 transactions_attempted=txns_attempted,
@@ -365,8 +355,6 @@ class WealthfolioExporter:
                 duration_s=(end_ts - start_ts).total_seconds(),
                 run_id=str(run.id),
             )
-            self._record_export_metrics(result)
-            return result
 
         except Exception:
             end_ts = datetime.now(UTC)
@@ -384,7 +372,7 @@ class WealthfolioExporter:
                 "wealthfolio_export_failed",
                 traceback=tb,
             )
-            result = WealthfolioExportResult(
+            return WealthfolioExportResult(
                 status="failed",
                 accounts_mapped=accts_mapped,
                 transactions_attempted=txns_attempted,
@@ -397,8 +385,6 @@ class WealthfolioExporter:
                 duration_s=(end_ts - start_ts).total_seconds(),
                 run_id=str(run.id),
             )
-            self._record_export_metrics(result)
-            return result
 
     # ── Account resolution ──────────────────────────────────────────
 
@@ -446,7 +432,9 @@ class WealthfolioExporter:
             stmt = select(Account).where(
                 Account.tenant_id == self._tenant_id,  # type: ignore[attr-defined]
                 Account.is_active.is_(True),  # type: ignore[attr-defined]
-                Account.account_type.in_(["investment", "brokerage"]),  # type: ignore[attr-defined]
+                Account.account_type.in_(  # type: ignore[attr-defined]
+                    ["investment", "brokerage", "checking", "savings", "cash"]
+                ),
             )
             if account_ids:
                 stmt = stmt.where(  # type: ignore[attr-defined]
@@ -757,6 +745,7 @@ class WealthfolioExporter:
             run.transactions_failed = failed
             if error_message is not None:
                 run.error_message = error_message
+                run.error_category = categorize_export_error(error_message)
             await session.flush()
             await session.commit()
 
@@ -814,9 +803,11 @@ class WealthfolioExporter:
         # ── Create ExportRun ──────────────────────────────────────
         async with self._session_factory() as session:
             run = ExportRun(
+                tenant_id=self._tenant_id,
                 status="running",
                 started_at=start_ts,
                 exporter_type="wealthfolio",
+                target_id=self._target_id,
             )
             session.add(run)
             await session.flush()
@@ -824,7 +815,14 @@ class WealthfolioExporter:
             log = self._log.bind(export_run_id=str(run.id))
 
         try:
-            _since = since or await self._last_export_time()
+            # Delivery cursors are target-scoped. A newly-created wizard
+            # destination must not inherit the legacy export run's timestamp,
+            # otherwise its first push can incorrectly find zero transactions.
+            _since = since or (
+                await self._last_export_time()
+                if self._target_id == "legacy"
+                else _default_since()
+            )
             fs_accounts = accounts or await self._load_accounts(None)
             security_map = await self._load_securities()
 
@@ -1059,6 +1057,16 @@ class WealthfolioExporter:
             name=name,
             currency=account.currency_code or self._wf_config.default_currency,
             provider_account_id=provider_identity,
+            account_type=(
+                "CASH"
+                if account.account_type in {"checking", "savings", "cash"}
+                else "SECURITIES"
+            ),
+            tracking_mode=(
+                "TRANSACTIONS"
+                if account.account_type in {"checking", "savings", "cash"}
+                else "HOLDINGS"
+            ),
         )
         async with self._session_factory() as session:
             result = await session.execute(
@@ -1104,9 +1112,18 @@ class WealthfolioExporter:
         for holding in holdings:
             security = security_map.get(holding.security_id)
             try:
-                source_rows.append(
-                    map_holding_to_wf_row(holding, security=security)
-                )
+                row = map_holding_to_wf_row(holding, security=security)
+                # Wealthfolio's market-data providers do not reliably resolve
+                # exchange-qualified symbols (or ISINs) for every listing.
+                # Preserve finance-sync's authoritative EUR valuation in the
+                # snapshot as a manual quote so the destination shows the
+                # same portfolio value even when no remote quote is available.
+                if holding.market_value is not None and holding.quantity:
+                    row["snapshotPrice"] = str(
+                        Decimal(holding.market_value)
+                        / Decimal(holding.quantity)
+                    )
+                source_rows.append(row)
             except UnresolvedSecurityExportError:
                 findings.append(
                     {
@@ -1120,10 +1137,17 @@ class WealthfolioExporter:
                 )
 
         remote_rows = await wf_client.get_holdings(wf_account_id)
-        if (
+        remote_positions = [
+            row for row in remote_rows if not _is_cash_wealthfolio_holding(row)
+        ]
+        # A newly-created Wealthfolio account has no position history.  The
+        # default activity-first mode is still safe here: import the provider
+        # snapshot once so the account starts with the current positions.
+        # Without this, Wealthfolio only has the activities and reconciliation
+        # reports every current position as missing.
+        if source_rows and (
             self._wf_config.holdings_strategy == "bootstrap"
-            and not remote_rows
-            and source_rows
+            or not remote_positions
         ):
             snapshot = _holdings_snapshot_payload(
                 source_rows,
@@ -1142,8 +1166,63 @@ class WealthfolioExporter:
                     }
                 )
             else:
-                await wf_client.import_holdings([snapshot], wf_account_id)
+                await wf_client.save_manual_holdings(
+                    _manual_holdings_payload(snapshot),
+                    wf_account_id,
+                    cash_balances=snapshot["cashBalances"],
+                    snapshot_date=snapshot["date"],
+                )
                 remote_rows = await wf_client.get_holdings(wf_account_id)
+
+        # Bank accounts have no securities rows, but their current balance is
+        # still part of the downstream portfolio state.  A cash snapshot
+        # preserves an opening balance that is not represented by the fetched
+        # transaction window (common for bunq exports).
+        if (
+            not source_rows
+            and fs_account.account_type in {"checking", "savings", "cash"}
+            and fs_account.current_balance is not None
+        ):
+            remote_cash = sum(
+                (
+                    Decimal(str(row.get("marketValue", {}).get("base") or 0))
+                    if isinstance(row.get("marketValue"), dict)
+                    else Decimal(0)
+                )
+                for row in remote_rows
+                if _is_cash_wealthfolio_holding(row)
+            )
+            expected_cash = Decimal(str(fs_account.current_balance))
+            tolerance = max(
+                self._wf_config.reconciliation_absolute_tolerance,
+                abs(expected_cash)
+                * self._wf_config.reconciliation_percentage_tolerance,
+            )
+            if abs(expected_cash - remote_cash) > tolerance:
+                snapshot = _holdings_snapshot_payload(
+                    [],
+                    cash_balance=expected_cash,
+                    cash_currency=fs_account.currency_code,
+                )
+                check = await wf_client.check_holdings_import(
+                    [snapshot], wf_account_id
+                )
+                if check.get("validationErrors"):
+                    findings.append(
+                        {
+                            "account_id": fs_account.id,
+                            "account_name": fs_account.name,
+                            "error": "Wealthfolio wees de cash-preview af.",
+                        }
+                    )
+                else:
+                    await wf_client.save_manual_holdings(
+                        _manual_holdings_payload(snapshot),
+                        wf_account_id,
+                        cash_balances=snapshot["cashBalances"],
+                        snapshot_date=snapshot["date"],
+                    )
+                    remote_rows = await wf_client.get_holdings(wf_account_id)
 
         findings.extend(
             _reconcile_holdings(
@@ -1230,14 +1309,23 @@ def _holdings_snapshot_payload(
     cash_currency: str,
 ) -> dict[str, Any]:
     """Build Wealthfolio's holdings snapshot contract without double value."""
-    snapshot_date = max(str(row["date"]) for row in rows)
+    # This is a current-position snapshot, not a historical transaction
+    # snapshot.  Using the last broker observation date can leave the
+    # positions invisible in Wealthfolio's current holdings view when the
+    # export runs later.
+    snapshot_date = datetime.now(UTC).date().isoformat()
     positions = [
         {
             "symbol": row["symbol"],
             "quantity": row["quantity"],
             "avgCost": row["avgCost"] or None,
             "currency": row["currency"],
-            "quoteMode": "MARKET",
+            "quoteMode": "MANUAL" if row.get("snapshotPrice") else "MARKET",
+            **(
+                {"price": row["snapshotPrice"]}
+                if row.get("snapshotPrice")
+                else {}
+            ),
         }
         for row in rows
     ]
@@ -1247,6 +1335,52 @@ def _holdings_snapshot_payload(
         else {}
     )
     return {"date": snapshot_date, "positions": positions, "cashBalances": cash}
+
+
+def _manual_holdings_payload(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
+    """Convert an internal snapshot to Wealthfolio's live holdings shape."""
+    return [
+        {
+            "symbol": position["symbol"],
+            "quantity": str(position["quantity"]),
+            # Wealthfolio stores manual quantities at two decimal places.
+            # Recalculate the manual unit price against that quantity so the
+            # displayed market value remains the finance-sync source value.
+            "unitPrice": str(
+                (
+                    Decimal(str(position["price"]))
+                    * Decimal(str(position["quantity"]))
+                    / Decimal(str(position["quantity"])).quantize(
+                        Decimal("0.01")
+                    )
+                )
+                if position.get("price")
+                else position["avgCost"]
+            ),
+            "sourceValue": str(
+                Decimal(str(position["price"]))
+                * Decimal(str(position["quantity"]))
+            )
+            if position.get("price")
+            else None,
+            "currency": position["currency"],
+            "quoteMode": "MANUAL",
+        }
+        for position in snapshot["positions"]
+    ]
+
+
+def _is_cash_wealthfolio_holding(row: dict[str, Any]) -> bool:
+    """Return whether a Wealthfolio holding is the synthetic cash row."""
+    raw_instrument = row.get("instrument")
+    instrument = (
+        cast(dict[str, Any], raw_instrument)
+        if isinstance(raw_instrument, dict)
+        else {}
+    )
+    return str(row.get("holdingType") or "").lower() == "cash" or str(
+        instrument.get("id") or ""
+    ).startswith("cash:")
 
 
 def _reconcile_holdings(
@@ -1260,7 +1394,10 @@ def _reconcile_holdings(
     """Return visible, path-free reconciliation findings."""
     findings: list[dict[str, str]] = []
     source_quantities = {
-        str(row["symbol"]): Decimal(str(row["quantity"])) for row in source_rows
+        _normalise_wealthfolio_symbol(str(row["symbol"])): Decimal(
+            str(row["quantity"])
+        )
+        for row in source_rows
     }
     remote_quantities: dict[str, Decimal] = {}
     remote_value = Decimal(0)
@@ -1280,7 +1417,9 @@ def _reconcile_holdings(
         # "cash" row with the currency code as its symbol).
         symbol = str(instrument.get("isin") or instrument.get("symbol") or "")
         if symbol and not is_cash:
-            remote_quantities[symbol] = Decimal(str(row.get("quantity") or 0))
+            remote_quantities[_normalise_wealthfolio_symbol(symbol)] = Decimal(
+                str(row.get("quantity") or 0)
+            )
         raw_market_value = row.get("marketValue")
         market_value: dict[str, Any] = (
             cast("dict[str, Any]", raw_market_value)
@@ -1310,7 +1449,15 @@ def _reconcile_holdings(
             }
         )
 
-    if account.current_balance is not None and remote_rows:
+    # For brokerage accounts ``current_balance`` is the provider cash
+    # balance, while Wealthfolio's remote value includes securities market
+    # value.  Comparing those two values produces a false failure.  Cash
+    # accounts have no securities component, so the balance check is valid.
+    if (
+        account.account_type in {"checking", "savings", "cash"}
+        and account.current_balance is not None
+        and remote_rows
+    ):
         source_value = Decimal(str(account.current_balance))
         difference = abs(source_value - remote_value)
         tolerance = max(
@@ -1326,3 +1473,17 @@ def _reconcile_holdings(
                 }
             )
     return findings
+
+
+def _normalise_wealthfolio_symbol(symbol: str) -> str:
+    """Compare exchange-qualified tickers by their Wealthfolio symbol.
+
+    Trading212 fixtures can identify a security as ``VWCE.DE`` or
+    ``ASML.NL`` while Wealthfolio resolves those instruments to ``VWCE`` and
+    ``ASML``.  ISINs are left untouched; only non-ISIN tickers are reduced to
+    the symbol Wealthfolio exposes in ``holdings/list``.
+    """
+    value = symbol.strip().upper()
+    if _looks_like_isin(value):
+        return value
+    return value.split(".", 1)[0]

@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, String, Text
+from sqlalchemy import JSON, DateTime, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from finance_sync.db import Base, created_at_ts, pk_uuid
@@ -29,12 +29,18 @@ class ExportRun(Base):
     __tablename__ = "export_runs"
 
     id: Mapped[str] = pk_uuid()
+    tenant_id: Mapped[str] = mapped_column(
+        ForeignKey("tenants.id"), nullable=False, index=True
+    )
 
     # ── State ────────────────────────────────────────────────────────
     exporter_type: Mapped[str | None] = mapped_column(
         String(32),
         nullable=True,
-        comment="Exporter key ('wealthfolio', 'actual-budget') that ran this",
+        comment=(
+            "Exporter key ('wealthfolio', 'actual-budget', 'firefly') "
+            "that ran this"
+        ),
     )
     status: Mapped[str] = mapped_column(
         String(16),
@@ -56,6 +62,27 @@ class ExportRun(Base):
     transactions_exported: Mapped[int | None] = mapped_column(nullable=True)
     transactions_failed: Mapped[int | None] = mapped_column(nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error_category: Mapped[str | None] = mapped_column(
+        String(32),
+        nullable=True,
+        comment="Stable operational category for a failed export",
+    )
+    target_id: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+        index=True,
+        comment="Destination identifier; legacy exports use NULL",
+    )
+    account_scope: Mapped[list[str] | None] = mapped_column(
+        JSON,
+        nullable=True,
+        comment="Explicit account identifiers included in the export",
+    )
+    delivery_checkpoint: Mapped[dict[str, object] | None] = mapped_column(
+        JSON,
+        nullable=True,
+        comment="Sanitized delivery cursor/checkpoint metadata",
+    )
 
     created_at = created_at_ts()
 

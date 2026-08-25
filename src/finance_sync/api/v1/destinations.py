@@ -20,8 +20,12 @@ from finance_sync.models import Account, ApiKey, SyncSchedule
 from finance_sync.models.export_target import (
     TARGET_ACTIVE,
     TARGET_ACTUAL_BUDGET,
+    TARGET_FIREFLY,
+    TARGET_GHOSTFOLIO,
+    TARGET_INVESTBRAIN,
     TARGET_JUPYTER,
     TARGET_PAUSED,
+    TARGET_SECURO,
     TARGET_TYPES,
     ExportTarget,
 )
@@ -53,7 +57,10 @@ _JUPYTER_PERMISSIONS = (
 
 class TargetCreate(BaseModel):
     target_type: str = Field(
-        description="wealthfolio, actual-budget or jupyter"
+        description=(
+            "wealthfolio, actual-budget, firefly, ghostfolio, "
+            "investbrain, securo or jupyter"
+        )
     )
     display_name: str = Field(min_length=1, max_length=128)
     configuration: dict[str, object] = Field(default_factory=dict)
@@ -188,7 +195,10 @@ def _safe_url(value: object) -> str:
                 or ipaddress.ip_address(host).is_loopback
             )
         except ValueError:
-            private = host == "localhost" or host.endswith(".local")
+            private = host in {
+                "localhost",
+                "host.docker.internal",
+            } or host.endswith(".local")
         if not private:
             raise HTTPException(
                 status_code=422,
@@ -247,7 +257,7 @@ async def _jupyter_account_scope(
 
 def _validate_body(body: TargetCreate | TargetUpdate, target_type: str) -> None:
     config = body.configuration
-    if target_type in {"wealthfolio", "actual-budget"} and config is not None:
+    if target_type != TARGET_JUPYTER and config is not None:
         _safe_url(config.get("server_url"))
     if config is not None:
         secret_keys = {
@@ -338,6 +348,34 @@ async def list_types(_auth: AuthContext = _Admin) -> list[dict[str, object]]:
             "name": "Jupyter Notebook",
             "needs_server": False,
             "datasets": _JUPYTER_DATASETS,
+        },
+        {
+            "key": TARGET_FIREFLY,
+            "name": "Firefly III",
+            "needs_server": True,
+            "secret_label": "Personal access token",
+            "datasets": ["accounts", "transactions"],
+        },
+        {
+            "key": TARGET_GHOSTFOLIO,
+            "name": "Ghostfolio",
+            "needs_server": True,
+            "secret_label": "Access token",
+            "datasets": ["transactions", "holdings"],
+        },
+        {
+            "key": TARGET_INVESTBRAIN,
+            "name": "InvestBrain",
+            "needs_server": True,
+            "secret_label": "Access token",
+            "datasets": ["transactions", "holdings"],
+        },
+        {
+            "key": TARGET_SECURO,
+            "name": "Securo",
+            "needs_server": True,
+            "secret_label": "Securo-wachtwoord",
+            "datasets": ["accounts", "transactions", "holdings"],
         },
     ]
 
@@ -624,7 +662,7 @@ async def test_target(
                 async with WealthfolioClient(wf_config) as client:
                     await client.check_auth_status()
                     await client.authenticate()
-            else:
+            elif row.target_type == TARGET_ACTUAL_BUDGET:
                 from finance_sync.exporter.actual_budget.client import (
                     ActualBudgetClient,
                 )
@@ -650,6 +688,67 @@ async def test_target(
                 )
                 async with ActualBudgetClient(ab_config) as client:
                     await client.get_accounts()
+            elif row.target_type == TARGET_FIREFLY:
+                from finance_sync.exporter.firefly.client import (
+                    FireflyClient,
+                    FireflyClientConfig,
+                )
+
+                async with FireflyClient(
+                    FireflyClientConfig(
+                        base_url=server_url,
+                        access_token=str(
+                            json.loads(plaintext).get("access_token") or ""
+                        ),
+                    )
+                ) as client:
+                    await client.about()
+            elif row.target_type == TARGET_GHOSTFOLIO:
+                from finance_sync.exporter.ghostfolio.client import (
+                    GhostfolioClient,
+                )
+                from finance_sync.exporter.ghostfolio.config import (
+                    GhostfolioConfig,
+                )
+
+                async with GhostfolioClient(
+                    GhostfolioConfig(
+                        server_url=server_url,
+                        access_token=str(
+                            json.loads(plaintext).get("access_token") or ""
+                        ),
+                    )
+                ) as client:
+                    await client.health()
+            elif row.target_type == TARGET_INVESTBRAIN:
+                from finance_sync.exporter.investbrain.client import (
+                    InvestBrainClient,
+                )
+                from finance_sync.exporter.investbrain.config import (
+                    InvestBrainConfig,
+                )
+
+                async with InvestBrainClient(
+                    InvestBrainConfig(
+                        server_url=server_url,
+                        access_token=str(
+                            json.loads(plaintext).get("access_token") or ""
+                        ),
+                    )
+                ) as client:
+                    await client.health()
+            elif row.target_type == TARGET_SECURO:
+                from finance_sync.exporter.securo.client import SecuroClient
+                from finance_sync.exporter.securo.config import SecuroConfig
+
+                secret = json.loads(plaintext)
+                config = SecuroConfig(
+                    server_url=server_url,
+                    email=str((row.configuration or {}).get("email") or ""),
+                    password=str(secret.get("password") or ""),
+                )
+                async with SecuroClient(config) as client:
+                    await client.login()
         row.last_health_status, row.last_health_error = "ready", None
         row.last_checked_at = datetime.now(UTC)
         await db.flush()
@@ -857,6 +956,17 @@ async def run_target(
         status=str(result.get("status", "failed")),
         error=result.get("error"),
     )
+
+
+@router.post("/{target_id}/retry", response_model=DestinationRunResponse)
+async def retry_target(
+    target_id: str,
+    request: Request,
+    auth: AuthContext = _Admin,
+    db: AsyncSession = Depends(get_db),
+) -> DestinationRunResponse:
+    """Retry a failed destination through its persisted target contract."""
+    return await run_target(target_id, request, auth, db)
 
 
 def _jupyter_notebook() -> str:

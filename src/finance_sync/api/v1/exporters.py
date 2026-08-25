@@ -18,16 +18,27 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 
-from finance_sync.api.deps.auth import AuthContext, get_auth_context
+from finance_sync.api.deps.auth import (
+    AuthContext,
+    get_auth_context,
+    require_permission,
+)
 from finance_sync.dependencies import get_container, get_db
 from finance_sync.exporter.actual_budget.config import ActualBudgetConfig
 from finance_sync.exporter.actual_budget.exporter import ActualBudgetExporter
+from finance_sync.exporter.firefly.config import FireflyConfig
+from finance_sync.exporter.firefly.exporter import (
+    FireflyExporter,
+    FireflyExportResult,
+)
 from finance_sync.exporter.models import ExportRun
 from finance_sync.exporter.wealthfolio.config import WealthfolioConfig
 from finance_sync.exporter.wealthfolio.exporter import (
     WealthfolioExporter,
     WealthfolioExportResult,
 )
+from finance_sync.services.retry_lock import retry_lease
+from finance_sync.sync.errors import categorize_export_error
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import (
@@ -85,6 +96,11 @@ class ExportRunResponse(BaseModel):
     transactions_exported: int | None
     transactions_failed: int | None
     error_message: str | None
+    error_category: str | None
+    duration_seconds: float | None
+    target_id: str | None = None
+    account_scope: list[str] | None = None
+    delivery_checkpoint: dict[str, object] | None = None
 
 
 class RetryExportResponse(BaseModel):
@@ -275,7 +291,94 @@ async def list_exporter_types(request: Request) -> list[ExporterTypeInfo]:
             )
         )
 
+    if settings.exporter_firefly_enabled:
+        types.append(
+            ExporterTypeInfo(
+                name="firefly",
+                display_name="Firefly III",
+                description=(
+                    "Push accounts and transactions to a local or remote "
+                    "Firefly III instance through its v1 API."
+                ),
+                config_fields=[
+                    {
+                        "key": "server_url",
+                        "label": "Server URL",
+                        "type": "url",
+                        "default": "http://localhost:8082",
+                    },
+                    {
+                        "key": "access_token",
+                        "label": "Personal access token",
+                        "type": "secret",
+                    },
+                    {
+                        "key": "default_currency",
+                        "label": "Default currency",
+                        "type": "text",
+                        "default": "EUR",
+                    },
+                ],
+            )
+        )
+
     return types
+
+
+def _require_firefly_enabled(request: Request) -> None:
+    if not get_container(request).settings.exporter_firefly_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Firefly exporter is disabled. Set EXPORTER_FIREFLY_ENABLED=true.",
+        )
+
+
+@router.get("/firefly/config")
+async def get_firefly_config(
+    request: Request,
+    _flag: None = Depends(_require_firefly_enabled),
+    _auth: AuthContext = Depends(get_auth_context),
+) -> dict[str, object]:
+    """Return non-secret Firefly exporter configuration."""
+    config = FireflyConfig.from_settings(get_container(request).settings)
+    return {
+        "exporter_type": "firefly",
+        "server_url": config.server_url,
+        "default_currency": config.default_currency,
+        "import_tag": config.import_tag,
+        "configured": bool(config.access_token),
+    }
+
+
+@router.post(
+    "/firefly/export",
+    response_model=TriggerExportResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def trigger_firefly_export(
+    request: Request,
+    _flag: None = Depends(_require_firefly_enabled),
+    auth: AuthContext = Depends(get_auth_context),
+) -> TriggerExportResponse:
+    """Run an idempotent finance-sync → Firefly III export."""
+    container = get_container(request)
+    outcome: FireflyExportResult = await FireflyExporter(
+        session_factory=container.session_factory,
+        firefly_config=FireflyConfig.from_settings(container.settings),
+        tenant_id=auth.tenant_id,
+    ).run_export()
+    return TriggerExportResponse(
+        status=outcome.status,
+        accounts_mapped=outcome.accounts_mapped,
+        transactions_attempted=outcome.transactions_attempted,
+        transactions_exported=outcome.transactions_exported,
+        transactions_failed=outcome.transactions_failed,
+        transactions_skipped=0,
+        holdings_exported=0,
+        csv_files=[],
+        duration_s=outcome.duration_s,
+        error_message=outcome.error_message,
+    )
 
 
 @router.get("/config", response_model=ExporterConfigResponse)
@@ -341,7 +444,7 @@ async def trigger_export(
 
 @router.get("/runs", response_model=ExportRunsListResponse)
 async def list_export_runs(
-    _auth: AuthContext = Depends(get_auth_context),
+    auth: AuthContext = Depends(require_permission("destinations", "read")),
     db: AsyncSession = Depends(get_db),
     limit: int = Query(default=25, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
@@ -365,6 +468,7 @@ async def list_export_runs(
         status_filter = "failed"
 
     filters: list[Any] = []
+    filters.append(ExportRun.tenant_id == auth.tenant_id)
     if status_filter:
         filters.append(ExportRun.status == status_filter)
 
@@ -399,6 +503,17 @@ async def list_export_runs(
                 transactions_exported=r.transactions_exported,
                 transactions_failed=r.transactions_failed,
                 error_message=r.error_message,
+                error_category=categorize_export_error(r.error_message)
+                if r.error_category is None
+                else r.error_category,
+                duration_seconds=(
+                    (r.completed_at - r.started_at).total_seconds()
+                    if r.completed_at
+                    else None
+                ),
+                target_id=r.target_id,
+                account_scope=r.account_scope,
+                delivery_checkpoint=r.delivery_checkpoint,
             )
             for r in runs
         ],
@@ -409,7 +524,7 @@ async def list_export_runs(
 @router.get("/runs/{run_id}", response_model=ExportRunResponse)
 async def get_export_run(
     run_id: str,
-    _auth: AuthContext = Depends(get_auth_context),
+    auth: AuthContext = Depends(require_permission("destinations", "read")),
     db: AsyncSession = Depends(get_db),
 ) -> ExportRunResponse:
     """Get details of a specific export run."""
@@ -419,8 +534,13 @@ async def get_export_run(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Export run not found",
         )
-    result = await db.execute(select(ExportRun).where(ExportRun.id == run_uuid))
-    run = result.scalar_one_or_none()
+    result = await db.execute(
+        select(ExportRun).where(
+            ExportRun.id == run_uuid,
+            ExportRun.tenant_id == auth.tenant_id,
+        )
+    )
+    run: ExportRun | None = result.scalar_one_or_none()
     if run is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -437,6 +557,17 @@ async def get_export_run(
         transactions_exported=run.transactions_exported,
         transactions_failed=run.transactions_failed,
         error_message=run.error_message,
+        error_category=categorize_export_error(run.error_message)
+        if run.error_category is None
+        else run.error_category,
+        duration_seconds=(
+            (run.completed_at - run.started_at).total_seconds()
+            if run.completed_at
+            else None
+        ),
+        target_id=run.target_id,
+        account_scope=run.account_scope,
+        delivery_checkpoint=run.delivery_checkpoint,
     )
 
 
@@ -452,7 +583,7 @@ async def retry_export_run(
     exporter_type: str,
     run_id: str,
     request: Request,
-    _auth: AuthContext = Depends(get_auth_context),
+    _auth: AuthContext = Depends(require_permission("destinations", "write")),
     db: AsyncSession = Depends(get_db),
 ) -> RetryExportResponse:
     """Retry a failed export run.
@@ -467,6 +598,59 @@ async def retry_export_run(
     """
     # Resolve + validate the exporter type
     container = get_container(request)
+    settings = container.settings
+    run_uuid = _parse_run_id(run_id)
+    if run_uuid is None:
+        raise HTTPException(status_code=404, detail="Export run not found")
+    run_result = await db.execute(
+        select(ExportRun).where(
+            ExportRun.id == run_uuid,
+            ExportRun.tenant_id == _auth.tenant_id,
+        )
+    )
+    run = run_result.scalar_one_or_none()
+    if run is None:
+        raise HTTPException(status_code=404, detail="Export run not found")
+    if run.status != "failed":
+        raise HTTPException(
+            status_code=409,
+            detail=f"Only failed export runs can be retried (run is {run.status!r})",
+        )
+    lease_context = (
+        retry_lease(
+            container.redis_client,
+            tenant_id=_auth.tenant_id,
+            kind="export",
+            item_id=run_id,
+        )
+        if settings.redis_url is not None
+        else None
+    )
+    if lease_context is not None:
+        async with lease_context as lease:
+            if not lease.acquired:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="A retry for this export run is already in progress",
+                )
+            return await _retry_export_run_locked(
+                exporter_type, run_id, request, _auth, db, run, container
+            )
+    return await _retry_export_run_locked(
+        exporter_type, run_id, request, _auth, db, run, container
+    )
+
+
+async def _retry_export_run_locked(
+    exporter_type: str,
+    run_id: str,
+    request: Request,
+    _auth: AuthContext,
+    db: AsyncSession,
+    _initial_run: ExportRun,
+    container: Any,
+) -> RetryExportResponse:
+    """Execute the exporter while the caller owns the Redis lease."""
     settings = container.settings
 
     if exporter_type == "wealthfolio":
@@ -487,6 +671,12 @@ async def retry_export_run(
                     " Set EXPORTER_ACTUAL_BUDGET_ENABLED=true to enable."
                 ),
             )
+    elif exporter_type == "firefly":
+        if not settings.exporter_firefly_enabled:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Firefly exporter is disabled.",
+            )
     else:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -500,8 +690,13 @@ async def retry_export_run(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Export run not found",
         )
-    result = await db.execute(select(ExportRun).where(ExportRun.id == run_uuid))
-    run = result.scalar_one_or_none()
+    result = await db.execute(
+        select(ExportRun).where(
+            ExportRun.id == run_uuid,
+            ExportRun.tenant_id == _auth.tenant_id,
+        )
+    )
+    run: ExportRun | None = result.scalar_one_or_none()
     if run is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -530,7 +725,7 @@ async def retry_export_run(
             tenant_id=_auth.tenant_id,
         )
         outcome: Any = await exporter.run_export()
-    else:
+    elif exporter_type == "actual-budget":
         ab_config = ActualBudgetConfig.from_settings(settings)
         exporter = ActualBudgetExporter(
             session_factory=container.session_factory,
@@ -538,6 +733,12 @@ async def retry_export_run(
             tenant_id=_auth.tenant_id,
         )
         outcome = await exporter.run_export()
+    else:
+        outcome = await FireflyExporter(
+            session_factory=container.session_factory,
+            firefly_config=FireflyConfig.from_settings(settings),
+            tenant_id=_auth.tenant_id,
+        ).run_export()
 
     # The retry created a fresh ExportRun — report it from the result
     # (both exporter result types carry ``run_id``) instead of guessing
@@ -546,12 +747,9 @@ async def retry_export_run(
     # Fall back only when the exporter had no run to report.
     retried_run_id = getattr(outcome, "run_id", None)
     if retried_run_id is None:
-        newest_result = await db.execute(
-            select(ExportRun).order_by(ExportRun.started_at.desc()).limit(1)
-        )
-        newest_run = newest_result.scalar_one_or_none()
-        retried_run_id = (
-            str(newest_run.id) if newest_run is not None else run_id
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Exporter did not return the retry run identifier",
         )
 
     return RetryExportResponse(

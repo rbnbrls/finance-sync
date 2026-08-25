@@ -175,6 +175,9 @@ local development:
   supporting that access pattern;
 * DeGiro imports enforce both a per-file limit and a combined upload-batch
   limit (`DEGIRO_IMPORT_MAX_BATCH_BYTES`, default 100 MiB) while streaming;
+
+* Securo export/push: zie
+  [`docs/securo.md`](docs/securo.md).
 * webhook delivery uses Redis-backed per-webhook minute buckets when Redis is
   configured, so throttling is shared across API and worker replicas.
 
@@ -269,6 +272,8 @@ Built images are published to GitHub Container Registry:
 - [Releases & rollback](docs/RELEASING.md)
 - [Implementation roadmap](docs/ROADMAP.md)
 - [Wealthfolio multi-device access](docs/wealthfolio-multi-device-access.md)
+- [Ghostfolio-koppeling](docs/ghostfolio.md)
+- [InvestBrain-koppeling](docs/investbrain.md)
 
 ## Health monitoring
 
@@ -304,7 +309,9 @@ Required environment (no `~/.hermes` fallbacks):
 | `STATE_FILE` | State JSON path (default `/var/lib/finance-sync/finance-sync-monitor-state.json`, dir auto-created) |
 
 Optional overrides: `COOLIFY_API_URL` (default `http://192.168.3.110:8000/api/v1`),
-`COOLIFY_APP_UUID` (default `obcopz3142hxzs1zlie78amh`),
+`COOLIFY_APP_UUID` (default `mdeal4aqq9ycnozn3mg83zix` — finance-sync-staging;
+the former production app `obcopz3142hxzs1zlie78amh` no longer exists on
+dev.7rb.nl),
 `MONITOR_HEALTH_BASE_URL` (default `https://<app-uuid>.7rb.nl`).
 
 ## Project principles

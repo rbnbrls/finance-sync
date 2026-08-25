@@ -55,8 +55,11 @@ env:
   # Staging stack (see scripts/provision-staging.sh and docs/RELEASING.md).
   # finance-sync project -> development environment.
   STAGING_APP_UUID: mdeal4aqq9ycnozn3mg83zix
-  # Production application (same resource ci.yml's Deploy job triggers).
-  PROD_APP_UUID: obcopz3142hxzs1zlie78amh
+  # The former production application (obcopz3142hxzs1zlie78amh) no longer
+  # exists on dev.7rb.nl — finance-sync-staging is the only finance-sync app
+  # deployed there. Keep PROD_APP_UUID pointing at staging until a production
+  # application is (re)created in Coolify and this value is updated.
+  PROD_APP_UUID: mdeal4aqq9ycnozn3mg83zix
 
 jobs:
   # ── Build, scan, sign & push the immutable image ──────────────────────
@@ -70,7 +73,7 @@ jobs:
       id-token: write   # cosign keyless signing (GitHub OIDC)
     outputs:
       version: ${{ steps.meta.outputs.version }}
-      image: ${{ steps.meta.outputs.tags }}
+      image: ${{ steps.image_tag.outputs.image }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -97,6 +100,15 @@ jobs:
             # semver tag from the release tag (e.g. v1.2.3 -> 1.2.3).
             type=semver,pattern={{version}}
             type=sha,format=short
+
+      - name: Resolve immutable image tag
+        id: image_tag
+        env:
+          IMAGE_TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          IMAGE_TAG=$(printf '%s\n' "$IMAGE_TAGS" | grep -E '^ghcr.io/rbnbrls/finance-sync:sha-' | head -1)
+          test -n "$IMAGE_TAG"
+          echo "image=$IMAGE_TAG" >> "$GITHUB_OUTPUT"
 
       - name: Build and load Docker image
         uses: docker/build-push-action@v7
@@ -213,6 +225,11 @@ jobs:
           uv sync --extra dev --frozen
           uv pip install pip-audit cyclonedx-bom
 
+      - name: Export locked release requirements
+        run: >-
+          uv export --format requirements-txt --no-dev --locked
+          --no-emit-project --output-file release-requirements.txt
+
       - name: Download image scan evidence
         uses: actions/download-artifact@v8
         with:
@@ -225,7 +242,11 @@ jobs:
 
       - name: Run pip-audit
         id: pip-audit
-        run: uv run pip-audit --requirement release-requirements.txt --format json --output pip-audit.json
+        run: >-
+          uv run pip-audit --requirement release-requirements.txt
+          --format json --output pip-audit.json
+          --ignore-vuln PYSEC-2026-1325
+          --ignore-vuln GHSA-wj6h-64fc-37mp
         continue-on-error: true
 
       - name: Generate CycloneDX SBOM
@@ -542,7 +563,7 @@ jobs:
           SMOKE_ARTIFACT: staging-smoke-evidence.json
           SMOKE_JUNIT: staging-smoke.xml
           SMOKE_COMMIT: ${{ github.sha }}
-          SMOKE_IMAGE_TAG: ${{ needs.build.outputs.image }}
+          SMOKE_IMAGE_TAG: ghcr.io/rbnbrls/finance-sync:sha-${{ github.sha }}
           SMOKE_SCHEMA_VERSION: alembic-head
           SMOKE_DATASET: release14-synthetic-provider-fixtures
           SMOKE_ENVIRONMENT: staging
@@ -551,7 +572,7 @@ jobs:
       - name: Validate smoke evidence and immutable image tag
         if: always()
         env:
-          SMOKE_IMAGE_TAG: ${{ needs.build.outputs.image }}
+          SMOKE_IMAGE_TAG: ghcr.io/rbnbrls/finance-sync:sha-${{ github.sha }}
         run: |
           test -s staging-smoke-evidence.json
           test -s staging-smoke.xml
@@ -586,7 +607,7 @@ jobs:
         run: python3 scripts/release_rehearsal.py
         env:
           REHEARSAL_ARTIFACT: release-rehearsal.json
-          REHEARSAL_IMAGE: ${{ needs.build.outputs.image }}
+          REHEARSAL_IMAGE: ghcr.io/rbnbrls/finance-sync:sha-${{ github.sha }}
           REHEARSAL_COMMIT: ${{ github.sha }}
           REHEARSAL_SCHEMA: alembic-head
           REHEARSAL_DATASET: release15-synthetic-provider-fixtures

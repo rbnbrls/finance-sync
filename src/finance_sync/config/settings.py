@@ -73,6 +73,44 @@ class Settings(BaseSettings):
         description="Minimum log level (DEBUG, INFO, WARNING, ERROR).",
     )
 
+    # ── GlitchTip / Sentry-compatible observability ─────────────────
+    glitchtip_enabled: bool = Field(
+        default=False,
+        validation_alias="GLITCHTIP_ENABLED",
+        description="Enable privacy-filtered GlitchTip error tracking.",
+    )
+    glitchtip_dsn: SecretStr | None = Field(
+        default=None,
+        validation_alias="GLITCHTIP_DSN",
+        description="GlitchTip project DSN; empty means disabled.",
+    )
+    glitchtip_sample_rate: float = Field(
+        default=1.0,
+        ge=0.0,
+        le=1.0,
+        validation_alias="GLITCHTIP_SAMPLE_RATE",
+        description="Fraction of error events to send.",
+    )
+    glitchtip_traces_sample_rate: float = Field(
+        default=0.01,
+        ge=0.0,
+        le=1.0,
+        validation_alias="GLITCHTIP_TRACES_SAMPLE_RATE",
+        description="Fraction of transactions to trace (keep low in prod).",
+    )
+    glitchtip_release: str | None = Field(
+        default=None,
+        validation_alias="GLITCHTIP_RELEASE",
+        description="Optional release identifier; defaults to APP_VERSION.",
+    )
+    glitchtip_max_breadcrumbs: int = Field(
+        default=20,
+        ge=0,
+        le=100,
+        validation_alias="GLITCHTIP_MAX_BREADCRUMBS",
+        description="Maximum breadcrumbs retained per event.",
+    )
+
     # ── CORS ─────────────────────────────────────────────────────────
     cors_origins: list[str] = Field(
         default_factory=list,
@@ -112,6 +150,15 @@ class Settings(BaseSettings):
     secret_key: SecretStr = Field(
         default=SecretStr("change-me-in-production"),
         validation_alias="SECRET_KEY",
+    )
+    admin_key: SecretStr | None = Field(
+        default=None,
+        validation_alias="ADMIN_KEY",
+        description=(
+            "Exactly 32 characters. Used only to bootstrap/authenticate the "
+            "initial administrator; generate with "
+            "scripts/generate-admin-key.sh."
+        ),
     )
     access_token_expire_minutes: int = Field(
         default=30,
@@ -257,6 +304,25 @@ class Settings(BaseSettings):
         description="Max transactions per export batch.",
     )
 
+    # ── Securo exporter ─────────────────────────────────────────────
+    exporter_securo_enabled: bool = Field(
+        default=True, validation_alias="EXPORTER_SECURO_ENABLED"
+    )
+    securo_server_url: str = Field(
+        default="http://localhost:3001", validation_alias="SECURO_SERVER_URL"
+    )
+    securo_email: str = Field(default="", validation_alias="SECURO_EMAIL")
+    securo_password: SecretStr = Field(
+        default=SecretStr(""), validation_alias="SECURO_PASSWORD"
+    )
+    securo_output_dir: str = Field(
+        default="/tmp/finance_sync_securo_exports",
+        validation_alias="SECURO_OUTPUT_DIR",
+    )
+    securo_auto_create_accounts: bool = Field(
+        default=True, validation_alias="SECURO_AUTO_CREATE_ACCOUNTS"
+    )
+
     # ── Wealthfolio exporter ─────────────────────────────────────────
     # Feature flag (dr.3): defaults to enabled to match the historical
     # unconditional behaviour. Set to false to disable the exporter's
@@ -338,6 +404,95 @@ class Settings(BaseSettings):
         default=SecretStr(""),
         validation_alias="WEALTHFOLIO_PASSWORD",
         description="Password for Wealthfolio self-hosted authentication.",
+    )
+
+    # ── Firefly III exporter ─────────────────────────────────────────
+    exporter_firefly_enabled: bool = Field(
+        default=True,
+        validation_alias="EXPORTER_FIREFLY_ENABLED",
+        description="Enable the Firefly III exporter API surface.",
+    )
+    firefly_server_url: str = Field(
+        default="http://localhost:8082",
+        validation_alias="FIREFLY_SERVER_URL",
+        description="Firefly III URL (local default: http://localhost:8082).",
+    )
+    firefly_access_token: SecretStr = Field(
+        default=SecretStr(""),
+        validation_alias="FIREFLY_ACCESS_TOKEN",
+        description="Firefly III personal access token.",
+    )
+    firefly_verify_ssl: bool = Field(
+        default=True, validation_alias="FIREFLY_VERIFY_SSL"
+    )
+    firefly_request_timeout: float = Field(
+        default=60.0, validation_alias="FIREFLY_REQUEST_TIMEOUT"
+    )
+    firefly_default_currency: str = Field(
+        default="EUR", validation_alias="FIREFLY_DEFAULT_CURRENCY"
+    )
+    firefly_import_tag: str = Field(
+        default="finance-sync", validation_alias="FIREFLY_IMPORT_TAG"
+    )
+    firefly_account_name_overrides: dict[str, str] = Field(
+        default_factory=dict,
+        validation_alias="FIREFLY_ACCOUNT_NAME_OVERRIDES",
+    )
+
+    # ── Ghostfolio exporter ──────────────────────────────────────────
+    exporter_ghostfolio_enabled: bool = Field(
+        default=True,
+        validation_alias="EXPORTER_GHOSTFOLIO_ENABLED",
+        description="Enable the Ghostfolio destination integration.",
+    )
+    ghostfolio_server_url: str = Field(
+        default="http://localhost:3333",
+        validation_alias="GHOSTFOLIO_SERVER_URL",
+    )
+    ghostfolio_access_token: SecretStr = Field(
+        default=SecretStr(""),
+        validation_alias="GHOSTFOLIO_ACCESS_TOKEN",
+        description="Ghostfolio security token exchanged for a bearer token.",
+    )
+    ghostfolio_verify_ssl: bool = Field(
+        default=True, validation_alias="GHOSTFOLIO_VERIFY_SSL"
+    )
+    ghostfolio_request_timeout: float = Field(
+        default=60.0, validation_alias="GHOSTFOLIO_REQUEST_TIMEOUT"
+    )
+    ghostfolio_data_source: str = Field(
+        default="YAHOO", validation_alias="GHOSTFOLIO_DATA_SOURCE"
+    )
+    ghostfolio_include_pending: bool = Field(
+        default=False, validation_alias="GHOSTFOLIO_INCLUDE_PENDING"
+    )
+    ghostfolio_sync_transactions: bool = Field(
+        default=True, validation_alias="GHOSTFOLIO_SYNC_TRANSACTIONS"
+    )
+
+    # ── InvestBrain exporter ────────────────────────────────────────
+    exporter_investbrain_enabled: bool = Field(
+        default=True, validation_alias="EXPORTER_INVESTBRAIN_ENABLED"
+    )
+    investbrain_server_url: str = Field(
+        default="http://localhost:8000",
+        validation_alias="INVESTBRAIN_SERVER_URL",
+    )
+    investbrain_access_token: SecretStr = Field(
+        default=SecretStr(""), validation_alias="INVESTBRAIN_ACCESS_TOKEN"
+    )
+    investbrain_verify_ssl: bool = Field(
+        default=True, validation_alias="INVESTBRAIN_VERIFY_SSL"
+    )
+    investbrain_request_timeout: float = Field(
+        default=60.0, validation_alias="INVESTBRAIN_REQUEST_TIMEOUT"
+    )
+    investbrain_include_pending: bool = Field(
+        default=False, validation_alias="INVESTBRAIN_INCLUDE_PENDING"
+    )
+    investbrain_portfolio_name_prefix: str = Field(
+        default="finance-sync",
+        validation_alias="INVESTBRAIN_PORTFOLIO_NAME_PREFIX",
     )
 
     # ── Worker: Wealthfolio delivery sweep job ───────────────────────
@@ -814,6 +969,15 @@ class Settings(BaseSettings):
         """Ensure secret keys are at least 16 characters long."""
         if len(v.get_secret_value()) < 16:
             msg = "Secret key must be at least 16 characters long"
+            raise ValueError(msg)
+        return v
+
+    @field_validator("admin_key")
+    @classmethod
+    def _admin_key_length(cls, v: SecretStr | None) -> SecretStr | None:
+        """Require a fixed-length bootstrap key when it is configured."""
+        if v is not None and len(v.get_secret_value()) != 32:
+            msg = "ADMIN_KEY must be exactly 32 characters long"
             raise ValueError(msg)
         return v
 

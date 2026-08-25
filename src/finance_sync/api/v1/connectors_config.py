@@ -282,7 +282,12 @@ class ConnectorConfigUpdate(BaseModel):
 # ── Response helpers ───────────────────────────────────────────────────
 
 # Providers whose configs count as configured without encrypted payloads
-_NON_SECRET_PROVIDERS = {"degiro_pension", "csv_import", "manual_expense"}
+_NON_SECRET_PROVIDERS = {
+    "degiro_pension",
+    "saxo_investor",
+    "csv_import",
+    "manual_expense",
+}
 
 
 def _credential_secrets(cred: Credential, settings: Any) -> list[str]:
@@ -488,6 +493,31 @@ def _get_connector_credential_schema(
                     "label": "Portefeuillesnapshotdatum",
                     "type": "date",
                     "required": False,
+                },
+            ],
+        ),
+        "saxo_investor": (
+            [],
+            [
+                {
+                    "key": "account_key",
+                    "label": "Rekeningkenmerk",
+                    "type": "text",
+                    "default": "default",
+                    "description": "Blijvend technisch kenmerk voor deze ene Saxo-rekening.",
+                },
+                {
+                    "key": "account_name",
+                    "label": "Rekeningnaam",
+                    "type": "text",
+                    "default": "SaxoInvestor",
+                },
+                {
+                    "key": "snapshot_at",
+                    "label": "Snapshotdatum",
+                    "type": "date",
+                    "required": False,
+                    "description": "Optioneel; overschrijft de datum uit de bestandsnaam.",
                 },
             ],
         ),
@@ -934,6 +964,10 @@ async def test_connector_connection(
             )
             cred.last_attempt_at = now
             cred.last_error = failure
+            cred.last_error_category = "authentication"
+            cred.last_test_at = now
+            cred.last_test_status = "failed"
+            cred.last_test_error = failure
             cred.updated_at = now
             await db.flush()
             await log_connection_event(
@@ -953,6 +987,21 @@ async def test_connector_connection(
     options: dict[str, Any] = {}
     with contextlib.suppress(json.JSONDecodeError, TypeError):
         options = json.loads(cred.description or "{}")
+
+    # SaxoInvestor is a file-upload connector. A stored connection has no
+    # permanent source path, so testing it without an uploaded workbook must
+    # not be reported as a broken connection. Keep validating legacy
+    # self-hosted configurations that still contain an export path.
+    if cred.provider_key == "saxo_investor" and not (
+        options.get("export_path") or options.get("export_paths")
+    ):
+        return ConnectorTestResult(
+            success=True,
+            message=(
+                "SaxoInvestor is ingesteld. Upload een XLSX-exportbestand "
+                "om posities en transacties te importeren."
+            ),
+        )
 
     # Instantiate connector and test
     registry = _get_registry()
@@ -986,15 +1035,22 @@ async def test_connector_connection(
                 pass
 
         cred.last_attempt_at = now
+        cred.last_test_at = now
         cred.updated_at = now
         if health.healthy:
             cred.last_success_at = now
             cred.last_error = None
+            cred.last_error_category = None
+            cred.last_test_status = "passed"
+            cred.last_test_error = None
             message = health.message or "Connection successful"
         else:
             cred.last_error = sanitize_error(
                 health.message or "Connection test failed", secrets
             )
+            cred.last_error_category = "provider_unavailable"
+            cred.last_test_status = "failed"
+            cred.last_test_error = cred.last_error
             message = cred.last_error or "Connection test failed"
         await db.flush()
         await log_connection_event(
@@ -1017,6 +1073,10 @@ async def test_connector_connection(
         failure = sanitize_error(str(exc), secrets)
         cred.last_attempt_at = now
         cred.last_error = failure
+        cred.last_error_category = "unknown"
+        cred.last_test_at = now
+        cred.last_test_status = "failed"
+        cred.last_test_error = failure
         cred.updated_at = now
         await db.flush()
         await log_connection_event(
@@ -1275,6 +1335,17 @@ async def test_connector_inline(
     settings = get_container(request).settings
     credentials = body.credentials
     options = body.options
+
+    if provider_type == "saxo_investor" and not (
+        options.get("export_path") or options.get("export_paths")
+    ):
+        return InlineTestResult(
+            success=True,
+            message=(
+                "SaxoInvestor gebruikt bestanden uit de frontend-upload. "
+                "Sla de configuratie op en upload daarna een XLSX-exportbestand."
+            ),
+        )
     if is_staging_managed(provider_type, settings):
         try:
             credentials, options = staging_connector_config(

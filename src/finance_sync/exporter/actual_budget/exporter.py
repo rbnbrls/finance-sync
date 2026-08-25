@@ -37,11 +37,6 @@ from finance_sync.exporter.actual_budget.client import (
     ActualBudgetClient,
     ActualBudgetConnectionError,
 )
-from finance_sync.observability.metrics import export_runs_total
-
-if TYPE_CHECKING:
-    from finance_sync.exporter.actual_budget.config import ActualBudgetConfig
-
 from finance_sync.exporter.actual_budget.models import (
     ActualBudgetAccountMapping,
     ExportDelivery,
@@ -52,6 +47,7 @@ from finance_sync.exporter.actual_budget.transaction_mapper import (
 )
 from finance_sync.exporter.models import ExportRun
 from finance_sync.models import Account, Transaction
+from finance_sync.sync.errors import categorize_export_error
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import (
@@ -59,8 +55,36 @@ if TYPE_CHECKING:
         async_sessionmaker,
     )
 
+    from finance_sync.exporter.actual_budget.config import ActualBudgetConfig
+
 
 logger = structlog.get_logger("finance_sync.exporter.actual_budget")
+
+# Actual Budget is the bank/cash destination.  Investment accounts are
+# intentionally excluded even when a caller explicitly supplies their IDs.
+_ACTUAL_BUDGET_ACCOUNT_TYPES = frozenset({"checking", "savings", "cash"})
+_BROKER_PROVIDER_KEYS = frozenset(
+    {
+        "saxoinvestor",
+        "saxo",
+        "trading212",
+        "degiro",
+        "interactive_brokers",
+        "ibkr",
+        "etoro",
+        "lynx",
+    }
+)
+
+
+def is_actual_budget_eligible_account(account: Account) -> bool:
+    """Return whether *account* is a bank/cash account for Actual Budget."""
+    account_type = str(account.account_type).lower()
+    provider_key = str(account.provider_key).lower().replace("-", "_")
+    return (
+        account_type in _ACTUAL_BUDGET_ACCOUNT_TYPES
+        and provider_key not in _BROKER_PROVIDER_KEYS
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -137,16 +161,6 @@ class ActualBudgetExporter:
 
     # ── Public API ───────────────────────────────────────────────────
 
-    @staticmethod
-    def _record_export_metrics(
-        result: ExportResult,
-    ) -> None:
-        """Record the export run outcome as a Prometheus counter."""
-        export_runs_total.labels(
-            exporter="actual_budget",
-            status=result.status,
-        ).inc()
-
     async def run_export(
         self,
         *,
@@ -202,9 +216,11 @@ class ActualBudgetExporter:
         # test's TRUNCATE CASCADE on the same tables.
         async with self._session_factory() as session:
             run = ExportRun(
+                tenant_id=self._tenant_id,
                 status="running",
                 started_at=start_ts,
                 exporter_type="actual-budget",
+                target_id=self._target_id,
             )
             session.add(run)
             await session.flush()
@@ -310,7 +326,7 @@ class ActualBudgetExporter:
                     txns_failed=txns_failed,
                     duration_s=(end_ts - start_ts).total_seconds(),
                 )
-                result = ExportResult(
+                return ExportResult(
                     status="completed",
                     accounts_mapped=accts_mapped,
                     transactions_attempted=txns_attempted,
@@ -319,8 +335,6 @@ class ActualBudgetExporter:
                     duration_s=(end_ts - start_ts).total_seconds(),
                     run_id=str(run.id),
                 )
-                self._record_export_metrics(result)
-                return result
 
             except ActualBudgetConnectionError as exc:
                 await session.rollback()
@@ -328,12 +342,13 @@ class ActualBudgetExporter:
                 run.status = "failed"
                 run.completed_at = end_ts
                 run.error_message = str(exc)
+                run.error_category = categorize_export_error(str(exc))
                 run.transactions_attempted = txns_attempted
                 run.transactions_exported = txns_exported
                 run.transactions_failed = txns_failed
                 await session.commit()
                 self._log.error("export_connection_failed", error=str(exc))
-                result = ExportResult(
+                return ExportResult(
                     status="failed",
                     accounts_mapped=accts_mapped,
                     transactions_attempted=txns_attempted,
@@ -343,8 +358,6 @@ class ActualBudgetExporter:
                     duration_s=(end_ts - start_ts).total_seconds(),
                     run_id=str(run.id),
                 )
-                self._record_export_metrics(result)
-                return result
             except Exception:
                 await session.rollback()
                 end_ts = datetime.now(UTC)
@@ -352,12 +365,13 @@ class ActualBudgetExporter:
                 run.status = "failed"
                 run.completed_at = end_ts
                 run.error_message = tb[:2048]
+                run.error_category = categorize_export_error(tb)
                 run.transactions_attempted = txns_attempted
                 run.transactions_exported = txns_exported
                 run.transactions_failed = txns_failed
                 await session.commit()
                 self._log.error("export_failed", traceback=tb)
-                result = ExportResult(
+                return ExportResult(
                     status="failed",
                     accounts_mapped=accts_mapped,
                     transactions_attempted=txns_attempted,
@@ -367,8 +381,6 @@ class ActualBudgetExporter:
                     duration_s=(end_ts - start_ts).total_seconds(),
                     run_id=str(run.id),
                 )
-                self._record_export_metrics(result)
-                return result
 
     # ── Account resolution ──────────────────────────────────────────
 
@@ -415,14 +427,20 @@ class ActualBudgetExporter:
         )
 
         # 4. Persist the mapping
-        new_mapping = ActualBudgetAccountMapping(
-            tenant_id=self._tenant_id,
-            target_id=self._target_id,
-            account_id=fs_acct.id,
-            ab_account_id=ab_acct["id"],
-            ab_account_name=ab_acct["name"],
-        )
-        session.add(new_mapping)
+        if mapping is None:
+            mapping = ActualBudgetAccountMapping(
+                tenant_id=self._tenant_id,
+                target_id=self._target_id,
+                account_id=fs_acct.id,
+                ab_account_id=ab_acct["id"],
+                ab_account_name=ab_acct["name"],
+            )
+            session.add(mapping)
+        else:
+            # The account may have been deleted and recreated in Actual.
+            # Refresh the existing row instead of violating its unique key.
+            mapping.ab_account_id = ab_acct["id"]
+            mapping.ab_account_name = ab_acct["name"]
         await session.flush()
 
         return ab_acct
@@ -450,7 +468,12 @@ class ActualBudgetExporter:
                 )
             stmt = stmt.order_by(Account.name)  # type: ignore[attr-defined]
             result = await session.execute(stmt)
-            return list(result.scalars().all())
+            accounts = list(result.scalars().all())
+            return [
+                account
+                for account in accounts
+                if is_actual_budget_eligible_account(account)
+            ]
 
     async def _fetch_pending_transactions(
         self,
@@ -681,6 +704,7 @@ class ActualBudgetExporter:
             run.transactions_failed = failed
             if error_message is not None:
                 run.error_message = error_message
+                run.error_category = categorize_export_error(error_message)
             await session.flush()
 
 

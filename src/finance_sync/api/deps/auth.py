@@ -213,6 +213,16 @@ class AuthContext:
         msg = "No authenticated principal"
         raise RuntimeError(msg)
 
+    @property
+    def permissions(self) -> set[str]:
+        """Return effective permissions for projecting safe UI actions."""
+        if self.user is not None:
+            from finance_sync.services.auth import ROLE_PERMISSIONS
+
+            return set(ROLE_PERMISSIONS.get(self.user.role, set()))
+        raw = self.api_key_result.permissions if self.api_key_result else None
+        return set(raw.split()) if raw else set()
+
 
 async def get_auth_context(
     user: UserModel | None = Depends(get_optional_current_user),

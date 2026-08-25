@@ -17,6 +17,7 @@ from finance_sync.exporter.actual_budget.config import ActualBudgetConfig
 from finance_sync.exporter.actual_budget.exporter import (
     ActualBudgetExporter,
     ExportResult,
+    is_actual_budget_eligible_account,
 )
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -186,6 +187,31 @@ class TestExportResult:
         )
         assert r.status == "failed"
         assert r.error_message == "Connection refused"
+
+
+class TestActualBudgetAccountScope:
+    def test_bank_account_is_eligible(self) -> None:
+        assert is_actual_budget_eligible_account(
+            _make_mock_account(provider_key="bunq", account_type="checking")
+        )
+
+    @pytest.mark.parametrize(
+        "provider_key,account_type",
+        [
+            ("saxoinvestor", "investment"),
+            ("trading212", "brokerage"),
+            ("bunq", "investment"),
+            ("saxo", "cash"),
+        ],
+    )
+    def test_broker_or_investment_account_is_excluded(
+        self, provider_key: str, account_type: str
+    ) -> None:
+        assert not is_actual_budget_eligible_account(
+            _make_mock_account(
+                provider_key=provider_key, account_type=account_type
+            )
+        )
 
 
 # ═══════════════════════════════════════════════════════════════════════

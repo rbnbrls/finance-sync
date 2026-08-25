@@ -13,14 +13,11 @@ from finance_sync.api.v1.router import router as v1_router
 from finance_sync.config.settings import Settings
 from finance_sync.gui.router import router as gui_router
 from finance_sync.lifespan import lifespan
+from finance_sync.observability.glitchtip import configure_glitchtip
 from finance_sync.observability.health import router as health_router
 from finance_sync.observability.logging import (
     RequestLogMiddleware,
     configure_logging,
-)
-from finance_sync.observability.metrics import (
-    PrometheusMiddleware,
-    metrics_app,
 )
 
 
@@ -41,6 +38,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         json_output=settings.is_production,
         log_level=settings.log_level,
     )
+    configure_glitchtip(settings)
 
     app = FastAPI(
         title=settings.app_name,
@@ -54,9 +52,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state._settings = settings
 
     # ── Observability middleware stack ───────────────────────────────
-    # Order: outermost first → Prometheus records first, then logging
     app.add_middleware(RequestLogMiddleware)
-    app.add_middleware(PrometheusMiddleware)
 
     # ── CORS ─────────────────────────────────────────────────────────
     app.add_middleware(
@@ -83,8 +79,5 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     # ── Health check endpoints (at root level for probes) ────────────
     app.include_router(health_router)
-
-    # ── Prometheus metrics endpoint ──────────────────────────────────
-    app.mount("/metrics", metrics_app)
 
     return app
