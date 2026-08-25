@@ -8,7 +8,7 @@ prices and enrichment data in PostgreSQL. Redis is used for coordination,
 caching and rate limiting. Consumers such as Wealthfolio, Actual Budget,
 Firefly III, Ghostfolio, InvestBrain, Securo and Jupyter are optional.
 
-The current application version is `0.7.3` and requires Python 3.12 or newer.
+The current application version is `0.7.4` and requires Python 3.12 or newer.
 Deployments are upgraded with **backward-compatible migrations**: the
 application image can be rolled back while the database stays at its current
 revision, so production recovery is an image rollback and never a blind
