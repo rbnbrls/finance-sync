@@ -547,7 +547,7 @@ jobs:
   # pipeline — production is never promoted.
   smoke:
     name: Staging smoke tests (gate)
-    needs: deploy-staging
+    needs: [deploy-staging, build]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -558,13 +558,12 @@ jobs:
       - name: Run acceptance smoke tests
         run: |
           export SMOKE_BASE_URL="https://${STAGING_APP_UUID}.7rb.nl"
-          export SMOKE_IMAGE_TAG="ghcr.io/rbnbrls/finance-sync:sha-${GITHUB_SHA:0:7}"
           python3 scripts/release_smoke.py 2>&1 | tee staging-smoke.log
         env:
           SMOKE_ARTIFACT: staging-smoke-evidence.json
           SMOKE_JUNIT: staging-smoke.xml
           SMOKE_COMMIT: ${{ github.sha }}
-          SMOKE_IMAGE_TAG: ghcr.io/rbnbrls/finance-sync:sha-${{ github.sha }}
+          SMOKE_IMAGE_TAG: ${{ needs.build.outputs.image }}
           SMOKE_SCHEMA_VERSION: alembic-head
           SMOKE_DATASET: release14-synthetic-provider-fixtures
           SMOKE_ENVIRONMENT: staging
@@ -573,7 +572,7 @@ jobs:
       - name: Validate smoke evidence and immutable image tag
         if: always()
         env:
-          SMOKE_IMAGE_TAG: ghcr.io/rbnbrls/finance-sync:sha-${{ github.sha }}
+          SMOKE_IMAGE_TAG: ${{ needs.build.outputs.image }}
         run: |
           test -s staging-smoke-evidence.json
           test -s staging-smoke.xml
@@ -606,7 +605,7 @@ jobs:
         run: python3 scripts/release_rehearsal.py
         env:
           REHEARSAL_ARTIFACT: release-rehearsal.json
-          REHEARSAL_IMAGE: ghcr.io/rbnbrls/finance-sync:sha-${{ github.sha }}
+          REHEARSAL_IMAGE: ${{ needs.build.outputs.image }}
           REHEARSAL_COMMIT: ${{ github.sha }}
           REHEARSAL_SCHEMA: alembic-head
           REHEARSAL_DATASET: release15-synthetic-provider-fixtures
