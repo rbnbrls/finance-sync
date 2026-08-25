@@ -23,7 +23,7 @@ def test_release_workflow_gates_smoke_artifacts_and_image_tag() -> None:
     assert "SMOKE_JUNIT: staging-smoke.xml" in workflow
     assert "test -s staging-smoke-evidence.json" in workflow
     assert "test -s staging-smoke.xml" in workflow
-    assert "finance-sync:sha-${GITHUB_SHA:0:7}" in workflow
+    assert "finance-sync:sha-???????)" in workflow
     assert "staging-smoke.xml" in workflow
 
 
