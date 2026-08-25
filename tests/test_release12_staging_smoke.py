@@ -31,7 +31,7 @@ def test_release_smoke_uploads_commit_bound_evidence() -> None:
     workflow = RELEASE.read_text(encoding="utf-8")
     assert "SMOKE_ARTIFACT: staging-smoke-evidence.json" in workflow
     assert "SMOKE_COMMIT: ${{ github.sha }}" in workflow
-    assert "SMOKE_IMAGE_TAG: ${{ needs.build.outputs.image }}" in workflow
+    assert "SMOKE_IMAGE_TAG: ghcr.io/rbnbrls/finance-sync:sha-${{ github.sha }}" in workflow
     assert "release-staging-smoke-${{ github.sha }}" in workflow
     assert "needs: deploy-staging" in workflow
 
