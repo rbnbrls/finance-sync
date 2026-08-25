@@ -103,8 +103,8 @@ finishes. Links must point to artifacts from that exact run.
 | Owner | `<name or team>` |
 | Verification date (UTC) | `<YYYY-MM-DD>` |
 
-Release 13 closeout requires this checklist and complete staging smoke/
-rollback evidence before promotion.
+Complete this checklist and the staging smoke/rollback evidence before
+promotion.
 
 ## Staging environment
 

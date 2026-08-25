@@ -81,19 +81,29 @@ class AnalyticsOverviewService:
             MarketIntelligenceItem.fetched_at,
         )
 
-        metas = [
-            performance.meta,
-            cashflow.meta,
+        subscription_freshness = freshness_for(
+            subscription_as_of, now=self._now
+        )
+        market_freshness = freshness_for(market_as_of, now=self._now)
+        metas = [performance.meta, cashflow.meta]
+        section_meta = [
+            (subscription_as_of, subscription_freshness),
+            (market_as_of, market_freshness),
         ]
         timestamps = [meta.as_of for meta in metas if meta.as_of is not None]
+        timestamps.extend(
+            value for value, _ in section_meta if value is not None
+        )
         as_of = max(timestamps, default=None)
-        known = [meta for meta in metas if meta.freshness != "unknown"]
+        freshness_values = [meta.freshness for meta in metas]
+        freshness_values.extend(value for _, value in section_meta)
+        known = [value for value in freshness_values if value != "unknown"]
         freshness = (
             "unavailable"
             if not known
             else (
                 "partial"
-                if any(meta.freshness != "fresh" for meta in known)
+                if any(value != "fresh" for value in known)
                 else "fresh"
             )
         )
@@ -116,7 +126,7 @@ class AnalyticsOverviewService:
             subscriptions=AnalyticsSection(
                 items=subscription_count,
                 as_of=subscription_as_of,
-                freshness=freshness_for(subscription_as_of, now=self._now),
+                freshness=subscription_freshness,
                 coverage=CoverageInfo(items=subscription_count),
                 caveats=(
                     ["Alleen subscriptions binnen de zichtbare accountscope."]
@@ -128,7 +138,7 @@ class AnalyticsOverviewService:
             market_intelligence=AnalyticsSection(
                 items=market_count,
                 as_of=market_as_of,
-                freshness=freshness_for(market_as_of, now=self._now),
+                freshness=market_freshness,
                 coverage=CoverageInfo(items=market_count),
                 caveats=[],
             ),

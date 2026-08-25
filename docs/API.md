@@ -42,7 +42,10 @@ upstream source; when the source is unavailable the cached data is
 served with an explicit stale marker (`quote.stale` / `history.stale`
 in the enrichment gateway, surfaced as `stale` in price responses).
 
-Authentication is `Authorization: Bearer <JWT>` or `X-API-Key`. Mutations require `Idempotency-Key`; replay returns the original result. Errors use RFC 9457 Problem Details, with a correlation ID.
+Authentication is `Authorization: Bearer <JWT>` or `X-API-Key`. Mutating
+endpoints that participate in the idempotency contract accept
+`Idempotency-Key`; replay returns the original result. Errors use RFC 9457
+Problem Details, with a correlation ID.
 
 ## Resources
 
@@ -101,16 +104,13 @@ Authentication is `Authorization: Bearer <JWT>` or `X-API-Key`. Mutations requir
 
 ## AI resources
 
-AI routes require `ai:read`, accept `currency` and `asOf`, and intentionally return bounded, source-cited summaries rather than raw paginated ledgers.
+The implemented AI surface is intentionally small and bounded. It requires
+the AI permission and is exposed as POST operations:
 
 | Path | Response focus |
 |---|---|
-| `GET /ai/context` | Data coverage, accounts/portfolios, total values, freshness and caveats. |
-| `GET /ai/networth` | Current and trailing series, component deltas, valuation coverage. |
-| `GET /ai/portfolio` | Holdings, allocation, gains, concentration and stale prices. |
-| `GET /ai/monthly-summary` | Income, expenses, cash-flow, notable changes for requested month. |
-| `GET /ai/dividends` | Paid/expected dividend summary and recent events. |
-| `GET /ai/subscriptions` | Recurring-payment candidates with confidence and evidence transaction IDs. |
+| `POST /ai/summary` | A bounded summary for the requested scope and currency. |
+| `POST /ai/summary/daily` | A bounded daily briefing from current financial aggregates. |
 
 Example response shape:
 

@@ -344,9 +344,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     * Store the container on ``app.state`` so route handlers can access
       it via ``request.app.state.container``.
     * Ensure the database is reachable and seed default data.  The schema
-      itself is owned by Alembic: operators run ``alembic upgrade head``
-      (as part of the release pipeline) before the app starts — the
-      lifespan never creates tables.
+      is created by the Compose ``migrate`` service before this container
+      starts; the lifespan never creates or alters tables.
 
     Shutdown
     --------

@@ -1,7 +1,7 @@
 # Disaster-recovery game day
 
-The Release 17 game day uses only the fixture in
-`config/dr-game-day.json`. It covers database loss (backup restore), Redis
+The game day uses only the fixture in `config/dr-game-day.json`. It covers
+database loss (backup restore), Redis
 loss (rebuild cache/locks) and worker outage (restart and outbox replay).
 
 Run locally with:

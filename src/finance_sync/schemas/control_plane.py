@@ -104,6 +104,9 @@ class ControlPlaneFreshness(BaseModel):
     securities_without_quote: int = 0
     holdings_without_valuation: int = 0
     by_source: dict[str, dict[str, int]] = Field(default_factory=dict)
+    by_category: dict[str, dict[str, int]] = Field(default_factory=dict)
+    ingestion_last_at: datetime | None = None
+    market_data_last_at: datetime | None = None
     last_enrichment_at: datetime | None = None
 
 
@@ -121,6 +124,7 @@ class ControlPlaneDestination(BaseModel):
     health_status: str | None = None
     last_checked_at: datetime | None = None
     last_error: str | None = None
+    last_export_error: str | None = None
     next_scheduled_at: datetime | None = None
     actions: list[ControlPlaneAction] = Field(
         default_factory=lambda: list[ControlPlaneAction]()

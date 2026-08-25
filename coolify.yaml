@@ -91,35 +91,12 @@
 #    The `worker` service should remain at 1 replica (singleton).
 #    The `postgres` and `redis` services are stateful — keep at 1 replica.
 #
-# ── Release Step (Migrations) ──────────────────────────────────────────────────────
+# ── Database initialization ───────────────────────────────────────────────────────
 #
-# Before deploying a new version of the app or worker, run database migrations:
-#
-#   # Via Coolify "Execute command" on the app container:
-#   alembic upgrade head
-#
-#   # Or via a one-off container:
-#   docker run --rm \
-#     --network finance-sync_default \
-#     -e DATABASE_URL="postgresql+asyncpg://finance_sync:${POSTGRES_PASSWORD}@postgres:5432/finance_sync" \
-#     finance-sync:latest \
-#     alembic upgrade head
-#
-# Migration user connection string (for manual runs):
-#   ASYNC_DB_URL=postgresql+asyncpg://finance_sync_migration:<PASSWORD>@postgres:5432/finance_sync
-#
-# NOTE: In Coolify, you can configure a "Pre-deployment" or "Post-deployment"
-# command to run migrations automatically.  Use the app container's environment
-# to run:
-#
-#   cd /app && alembic upgrade head
-#
-# ⚠️ Pre-deployment commands only run while a previous container is still
-# running — in a crash loop (e.g. dependencies down, issue #233) Coolify
-# skips them ("No running containers found").  Treat them as best-effort;
-# the guaranteed path is an explicit `alembic upgrade head` against the
-# target database (one-off container / Coolify "Execute command") plus the
-# release pipeline's `migrate` job.  See docs/MIGRATIONS.md.
+# The `migrate` service in docker-compose.yml runs `alembic upgrade head` and
+# must complete successfully before `app` or `worker` starts. A fresh Coolify
+# deployment therefore initializes its database automatically; no
+# pre-deployment command or manual migration step is required.
 #
 # ── Encryption Keys Volume ─────────────────────────────────────────────────────────
 #
@@ -168,10 +145,9 @@
 #   LOG_LEVEL=INFO
 #   CORS_ORIGINS=["*"]
 #
-# Pre-deployment command (app + worker containers): `alembic upgrade head` —
-# each environment migrates its own database before the new image starts.
-# The release pipeline additionally runs a dedicated migration job against a
-# scratch PostgreSQL before anything deploys.
+# The Compose `migrate` service applies the schema before the app and worker
+# start. The release pipeline still validates the migration chain separately
+# against a scratch PostgreSQL before anything deploys.
 #
 # Rollback = image rollback + backward-compatible migrations; runbook in
 # docs/RELEASING.md.
