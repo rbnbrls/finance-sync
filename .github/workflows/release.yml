@@ -558,6 +558,7 @@ jobs:
       - name: Run acceptance smoke tests
         run: |
           export SMOKE_BASE_URL="https://${STAGING_APP_UUID}.7rb.nl"
+          export SMOKE_IMAGE_TAG="ghcr.io/rbnbrls/finance-sync:sha-${GITHUB_SHA:0:7}"
           python3 scripts/release_smoke.py 2>&1 | tee staging-smoke.log
         env:
           SMOKE_ARTIFACT: staging-smoke-evidence.json
