@@ -67,9 +67,18 @@ ENV PATH="/app/.venv/bin:$PATH" \
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
     CMD curl --fail http://localhost:8000/health/live || exit 1
 
+# Entrypoint: run alembic migrations before the app starts (issue #430).
+# The Compose stack uses a dedicated `migrate` service for this; a
+# single-container Coolify deployment has no such service and Coolify's
+# pre_deployment_command is skipped on first deploy, so migrations run
+# here instead.
+COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
+
 # Drop privileges
 USER finance
 
 # Default command: run the FastAPI application via uvicorn
 EXPOSE 8000
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 CMD ["uvicorn", "finance_sync.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips", "*"]
