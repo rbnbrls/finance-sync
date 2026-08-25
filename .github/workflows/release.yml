@@ -576,10 +576,8 @@ jobs:
         run: |
           test -s staging-smoke-evidence.json
           test -s staging-smoke.xml
-          SMOKE_IMAGE_SHA="${SMOKE_IMAGE_TAG##*:sha-}"
-          test "$SMOKE_IMAGE_TAG" = "ghcr.io/rbnbrls/finance-sync:sha-${SMOKE_IMAGE_SHA}"
-          test "${#SMOKE_IMAGE_SHA}" -eq 7
-          [[ "$SMOKE_IMAGE_SHA" =~ ^[0-9a-f]{7}$ ]]
+          EXPECTED_IMAGE_TAG="ghcr.io/rbnbrls/finance-sync:sha-${GITHUB_SHA:0:7}"
+          test "$SMOKE_IMAGE_TAG" = "$EXPECTED_IMAGE_TAG"
 
       - name: Upload staging smoke evidence
         uses: actions/upload-artifact@v7
