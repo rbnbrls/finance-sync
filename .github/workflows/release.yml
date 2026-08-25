@@ -576,10 +576,14 @@ jobs:
         run: |
           test -s staging-smoke-evidence.json
           test -s staging-smoke.xml
-          SMOKE_IMAGE_SHA="${SMOKE_IMAGE_TAG##*:sha-}"
-          test "$SMOKE_IMAGE_TAG" = "ghcr.io/rbnbrls/finance-sync:sha-${SMOKE_IMAGE_SHA}"
-          test "${#SMOKE_IMAGE_SHA}" -eq 7
-          [[ "$SMOKE_IMAGE_SHA" =~ ^[0-9a-f]{7}$ ]]
+          python3 - "$SMOKE_IMAGE_TAG" <<'PY'
+          import re
+          import sys
+
+          image_tag = sys.argv[1]
+          if not re.fullmatch(r"ghcr\.io/rbnbrls/finance-sync:sha-[0-9a-f]{7}", image_tag):
+              raise SystemExit(f"Unexpected immutable smoke image tag: {image_tag}")
+          PY
 
       - name: Upload staging smoke evidence
         uses: actions/upload-artifact@v7

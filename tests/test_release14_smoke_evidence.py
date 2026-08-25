@@ -23,7 +23,7 @@ def test_release_workflow_gates_smoke_artifacts_and_image_tag() -> None:
     assert "SMOKE_JUNIT: staging-smoke.xml" in workflow
     assert "test -s staging-smoke-evidence.json" in workflow
     assert "test -s staging-smoke.xml" in workflow
-    assert 'SMOKE_IMAGE_SHA="${SMOKE_IMAGE_TAG##*:sha-}"' in workflow
+    assert 're.fullmatch(r"ghcr\\.io/rbnbrls/finance-sync:sha-[0-9a-f]{7}"' in workflow
     assert "staging-smoke.xml" in workflow
 
 
