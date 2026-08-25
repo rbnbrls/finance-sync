@@ -20,14 +20,14 @@ jobs:
           COOLIFY_API_TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}
         run: |
           echo "Triggering Coolify deployment for finance-sync..."
-          # Target finance-sync-staging (mdeal4aqq9ycnozn3mg83zix): the former
-          # production app (obcopz3142hxzs1zlie78amh) no longer exists on
-          # dev.7rb.nl, and staging is the only finance-sync app deployed there.
+          # Target the production application (5iov9i8w9mazc6vhismo3enx) on
+          # finance-sync.7rb.nl — (re)created 2026-08-25 as part of the
+          # production environment rollout (issue #428).
           RESPONSE=$(curl -s -w "\n%{http_code}" \
             -X POST "https://dev.7rb.nl/api/v1/deploy" \
             -H "Authorization: Bearer ${COOLIFY_API_TOKEN}" \
             -H "Content-Type: application/json" \
-            -d '{"uuid": "mdeal4aqq9ycnozn3mg83zix", "force": false}')
+            -d '{"uuid": "5iov9i8w9mazc6vhismo3enx", "force": false}')
           HTTP_CODE=$(echo "$RESPONSE" | tail -1)
           BODY=$(echo "$RESPONSE" | sed '$d')
           echo "Status: ${HTTP_CODE}"
