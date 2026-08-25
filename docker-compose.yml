@@ -64,7 +64,9 @@ services:
       APP_ENVIRONMENT: ${APP_ENVIRONMENT:-prod}
       APP_NAME: ${APP_NAME:-finance-sync}
       APP_VERSION: ${APP_VERSION:-0.7.3}
-      DEBUG: ${DEBUG:-false}
+      # Keep this namespaced so an unrelated host DEBUG value cannot prevent
+      # the API from starting.
+      DEBUG: ${FINANCE_SYNC_DEBUG:-false}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       GLITCHTIP_ENABLED: ${GLITCHTIP_ENABLED:-false}
       GLITCHTIP_DSN: ${GLITCHTIP_DSN:-}

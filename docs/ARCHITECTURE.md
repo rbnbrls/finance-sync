@@ -81,3 +81,8 @@ exposes the corresponding health endpoints on port 9090.
 Alembic is the only schema owner. See [MIGRATIONS.md](MIGRATIONS.md) for the
 current revision chain and [RELEASING.md](RELEASING.md) for promotion and
 rollback rules.
+
+Release 13 uses backward-compatible migrations and immutable application-image rollback.
+A failed release rolls back the image while retaining the database
+revision; schema downgrade requires a separately backed-up and tested recovery
+procedure.

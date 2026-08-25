@@ -33,16 +33,16 @@ type-ci:                           ## Type-check with Pyright in CI mode
 
 # ── Testing ────────────────────────────────────────────────────────
 test:                              ## Run unit tests with pytest (excludes integration + e2e)
-	DEBUG=false uv run pytest -n auto -m "not integration and not e2e"
+	APP_ENVIRONMENT=dev DEBUG=false uv run pytest -n auto -m "not integration and not e2e"
 
 test-cov:                          ## Run unit tests with coverage report
-	DEBUG=false uv run pytest -n auto -m "not integration and not e2e" --cov=finance_sync --cov-report=term --cov-report=html
+	APP_ENVIRONMENT=dev DEBUG=false uv run pytest -n auto -m "not integration and not e2e" --cov=finance_sync --cov-report=term --cov-report=html
 
 test-cov-xml:                      ## Run unit tests with XML coverage (CI)
 	pytest -m "not integration and not e2e" --cov=finance_sync --cov-report=xml
 
 test-ci:                           ## CI unit test run (sequential, coverage threshold)
-	DEBUG=false uv run pytest -m "not integration and not e2e" --cov=finance_sync --cov-report=term --cov-report=xml --junitxml=junit.xml
+	APP_ENVIRONMENT=dev DEBUG=false uv run pytest -m "not integration and not e2e" --cov=finance_sync --cov-report=term --cov-report=xml --junitxml=junit.xml
 
 # ── Integration tests (real PostgreSQL + Redis) ─────────────────────
 # Spins up ephemeral PG+Redis via docker compose and runs the

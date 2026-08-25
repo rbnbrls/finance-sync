@@ -14,7 +14,11 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from finance_sync.api.deps.auth import AuthContext, require_role
+from finance_sync.api.deps.auth import (
+    AuthContext,
+    require_permission,
+    require_role,
+)
 from finance_sync.dependencies import get_container, get_db
 from finance_sync.models import Account, ApiKey, SyncSchedule
 from finance_sync.models.export_target import (
@@ -43,6 +47,7 @@ from finance_sync.utils.redaction import sanitize_error
 
 router = APIRouter(prefix="/destinations", tags=["destinations"])
 _Admin = Depends(require_role("admin"))
+_Read = Depends(require_permission("destinations", "read"))
 _JUPYTER_DATASETS = [
     "accounts",
     "transactions",
@@ -412,6 +417,25 @@ async def list_targets(
         )
         schedules = {str(schedule.id): schedule for schedule in schedule_rows}
     return [_response(row, schedules.get(str(row.schedule_id))) for row in rows]
+
+
+@router.get("/{target_id}", response_model=TargetResponse)
+async def get_target(
+    target_id: str,
+    auth: AuthContext = _Read,
+    db: AsyncSession = Depends(get_db),
+) -> TargetResponse:
+    """Return one destination without exposing its encrypted secret."""
+    row = await _target(db, auth.tenant_id, target_id)
+    schedule = None
+    if row.schedule_id:
+        schedule = await db.scalar(
+            select(SyncSchedule).where(
+                SyncSchedule.id == row.schedule_id,
+                SyncSchedule.tenant_id == auth.tenant_id,
+            )
+        )
+    return _response(row, schedule)
 
 
 @router.post(

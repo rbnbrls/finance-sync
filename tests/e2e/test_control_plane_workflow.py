@@ -20,6 +20,7 @@ from finance_sync.models import (
     Credential,
     ExportTarget,
     Holding,
+    ImportRun,
     ReconciliationResult,
     ReconciliationRun,
     Security,
@@ -93,6 +94,13 @@ async def test_control_plane_recovery_workflow_is_exposed_and_scoped(
             nonce=b"nonce",
             last_error="provider unavailable",
         )
+        credential_two = Credential(
+            id=uuid4(),
+            tenant_id=tenant_id,
+            provider_key="bunq",
+            encrypted_payload=b"ciphertext-two",
+            nonce=b"nonce-two",
+        )
         account = Account(
             id=uuid4(),
             tenant_id=tenant_id,
@@ -102,6 +110,18 @@ async def test_control_plane_recovery_workflow_is_exposed_and_scoped(
             name="E2E Checking",
             account_type="checking",
             currency_code="EUR",
+            current_balance=Decimal("100.00"),
+        )
+        duplicate_account = Account(
+            id=uuid4(),
+            tenant_id=tenant_id,
+            provider_key="bunq",
+            connection_id=str(credential_two.id),
+            external_account_id="e2e-account",
+            name="E2E Checking duplicate",
+            account_type="checking",
+            currency_code="EUR",
+            current_balance=Decimal("50.00"),
         )
         security = Security(
             id=uuid4(),
@@ -130,6 +150,7 @@ async def test_control_plane_recovery_workflow_is_exposed_and_scoped(
             occurred_at=now - timedelta(hours=1),
             transaction_type="purchase",
             status="booked",
+            revision=2,
         )
         holding = Holding(
             id=uuid4(),
@@ -190,17 +211,30 @@ async def test_control_plane_recovery_workflow_is_exposed_and_scoped(
             transaction_id_a=str(transaction.id),
             description="Transaction ontbreekt in tweede bron",
         )
-        session.add_all([credential, account, security])
+        import_run = ImportRun(
+            id=uuid4(),
+            tenant_id=tenant_id,
+            connection_id=str(credential.id),
+            account_id=str(account.id),
+            source="degiro",
+            status="partial",
+            batch_hash="e2e-partial-import",
+            skipped_count=2,
+            rejected_count=1,
+        )
+        session.add_all([credential, credential_two, account, security])
         await session.flush()
         session.add_all(
             [
                 unresolved,
                 transaction,
+                duplicate_account,
                 holding,
                 sync_run,
                 target,
                 export_run,
                 reconciliation_run,
+                import_run,
             ]
         )
         await session.flush()
@@ -276,12 +310,36 @@ async def test_control_plane_recovery_workflow_is_exposed_and_scoped(
     dashboard = await client.get("/")
     assert dashboard.status_code == 200
     assert "control-plane" in dashboard.text
+    assert "#data-health" in dashboard.text
 
     quality = await client.get(
         "/api/v1/control-plane/data-quality", headers=seeded_tenant["headers"]
     )
     assert quality.status_code == 200, quality.text
     assert {"status", "findings_total", "issues"} <= quality.json().keys()
+
+    data_health = await client.get(
+        "/api/v1/control-plane/data-health", headers=seeded_tenant["headers"]
+    )
+    assert data_health.status_code == 200, data_health.text
+    data_health_body = data_health.json()
+    assert data_health_body["status"] == "error"
+    assert data_health_body["unresolved_securities"] >= 1
+    assert data_health_body["failed_exports"] == 1
+    assert data_health_body["reconciliation"]["findings_total"] >= 1
+    assert {
+        "unresolved_security",
+        "failed_export",
+        "reconciliation",
+        "provider_data_changed",
+        "duplicate_accounts",
+        "balance_conflict",
+        "incomplete_import",
+    } <= {issue["category"] for issue in data_health_body["issues"]}
+    _assert_action_routes(
+        e2e_app,
+        [issue["action"] for issue in data_health_body["issues"]],
+    )
 
     analytics = await client.get(
         "/api/v1/analytics/overview", headers=seeded_tenant["headers"]

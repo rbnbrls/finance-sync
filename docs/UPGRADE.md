@@ -36,6 +36,10 @@ The current migration head is `0041_add_connection_test_metadata`. Use
 `docs/MIGRATIONS.md` and the files under `migrations/versions/` as the source
 of truth for revisions.
 
+Release 13 follows backward-compatible expand/contract migrations. The normal
+recovery action is an application-image rollback; production is never a blind
+schema downgrade.
+
 ## Rollback
 
 Prefer rolling back the application image while keeping the database at its

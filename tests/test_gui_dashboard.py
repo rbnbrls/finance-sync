@@ -89,6 +89,21 @@ def test_dashboard_exposes_control_plane_overview(client: TestClient) -> None:
     assert "function runControlAction" in html
 
 
+def test_dashboard_exposes_dedicated_data_health_page(
+    client: TestClient,
+) -> None:
+    html = _dashboard_html(client)
+    assert 'data-section="data-health"' in html
+    assert 'href="#data-health"' in html
+    assert 'id="section-data-health"' in html
+    assert "control-plane/data-health" in html
+    assert "function loadDataHealth" in html
+    assert "function renderDataHealthError" in html
+    assert "window.location.hash.slice(1)" in html
+    assert "function renderDataHealth" in html
+    assert "Elke melding heeft één concrete vervolgstap." in html
+
+
 def test_dashboard_control_plane_has_safe_recovery_paths(
     client: TestClient,
 ) -> None:
@@ -176,6 +191,10 @@ def test_dashboard_serves_login_and_register(client: TestClient) -> None:
         resp = client.get(path)
         assert resp.status_code == 200
         assert "<html" in resp.text.lower()
+
+    login = client.get("/login").text
+    assert "dashboardReturnPath" in login
+    assert "!requested.startsWith('//')" in login
 
 
 # ── Friendly inline error with Retry (AC: no blank/crashing page) ─

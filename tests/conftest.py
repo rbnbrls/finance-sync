@@ -3,10 +3,19 @@
 
 from __future__ import annotations
 
+import os
 from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
+
+# Unit tests must never inherit a developer's production-like .env settings.
+# Settings reads the repository .env file, so explicitly select a supported
+# non-production environment before any application objects are constructed.
+# Tests that exercise environment parsing can still override these values via
+# pytest's monkeypatch fixture.
+os.environ["APP_ENVIRONMENT"] = "dev"
+os.environ["DEBUG"] = "false"
 
 from finance_sync.connectors.base import Connector
 from finance_sync.connectors.models import (
