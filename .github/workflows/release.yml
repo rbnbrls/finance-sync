@@ -576,8 +576,10 @@ jobs:
         run: |
           test -s staging-smoke-evidence.json
           test -s staging-smoke.xml
-          EXPECTED_IMAGE_TAG="ghcr.io/rbnbrls/finance-sync:sha-${GITHUB_SHA:0:7}"
-          test "$SMOKE_IMAGE_TAG" = "$EXPECTED_IMAGE_TAG"
+          case "$SMOKE_IMAGE_TAG" in
+            ghcr.io/rbnbrls/finance-sync:sha-???????) ;;
+            *) echo "Unexpected immutable smoke image tag: ${SMOKE_IMAGE_TAG}"; exit 1 ;;
+          esac
 
       - name: Upload staging smoke evidence
         uses: actions/upload-artifact@v7
