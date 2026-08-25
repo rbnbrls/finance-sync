@@ -982,6 +982,9 @@
             <a href="#" class="active" data-section="overview" aria-current="page" onclick="switchSection('overview')">
                 <span class="icon mdi mdi-view-dashboard-outline" aria-hidden="true"></span> Overzicht
             </a>
+            <a href="#data-health" data-section="data-health" data-perm="sync:read" onclick="switchSection('data-health')">
+                <span class="icon mdi mdi-heart-pulse" aria-hidden="true"></span> Data health
+            </a>
             <a href="#" data-section="connectors" data-perm="connectors:read" onclick="switchSection('connectors')">
                 <span class="icon mdi mdi-link-variant" aria-hidden="true"></span> Importers
             </a>
@@ -1030,6 +1033,16 @@
             <div class="card control-section"><div class="card-header"><h2>Synchronisaties</h2><button type="button" class="btn btn-secondary btn-sm" onclick="switchSection('sync')">Alle runs</button></div><div id="control-syncs" class="control-list" aria-live="polite" aria-busy="true"><div class="overview-empty">Synchronisaties laden…</div></div></div>
             <div class="card control-section"><div class="card-header"><h2>Datakwaliteit</h2><span id="control-quality-status" class="badge pending">Laden…</span></div><div id="control-quality" aria-live="polite" aria-busy="true"><div class="overview-empty">Datakwaliteit laden…</div></div></div>
             <div class="card control-section"><div class="card-header"><h2>Bestemmingen</h2><button type="button" class="btn btn-secondary btn-sm" onclick="switchSection('exporters')">Beheren</button></div><div id="control-destinations" class="control-list" aria-live="polite" aria-busy="true"><div class="overview-empty">Bestemmingen laden…</div></div></div>
+        </div>
+        <div id="section-data-health" class="hidden" role="region" aria-labelledby="data-health-title">
+            <div class="overview-header">
+                <div><div class="overview-kicker">Datakwaliteitsworkflow</div><h1 class="page-title" id="data-health-title">Data health</h1><p class="page-subtitle" style="margin-bottom:0;">Zie wat aandacht nodig heeft en herstel problemen vanuit één overzicht.</p></div>
+                <button type="button" class="btn btn-secondary btn-sm" onclick="loadDataHealth()"><span class="mdi mdi-refresh"></span> Vernieuwen</button>
+            </div>
+            <div id="data-health-status" class="control-status" data-status="loading" aria-live="polite" aria-busy="true"><div><h2 class="control-status-label">Data health laden…</h2><p>De actuele status wordt opgehaald.</p></div><span class="spinner" aria-hidden="true"></span></div>
+            <div id="data-health-summary" class="quality-grid" aria-live="polite" aria-busy="true"><div class="overview-empty"><span class="spinner"></span> Overzicht laden…</div></div>
+            <div class="card control-section"><div class="card-header"><div><h2>Bronnen</h2><p class="chain-subtitle">Laatste succesvolle sync en datadekking per bron.</p></div></div><div id="data-health-sources" aria-live="polite" aria-busy="true"><div class="overview-empty">Bronnen laden…</div></div></div>
+            <div class="card control-section"><div class="card-header"><div><h2>Actie vereist</h2><p class="chain-subtitle">Elke melding heeft één concrete vervolgstap.</p></div></div><div id="data-health-issues" class="issue-list" aria-live="polite" aria-busy="true"><div class="overview-empty">Issues laden…</div></div></div>
         </div>
         <div id="section-connectors" class="hidden" role="region" aria-labelledby="connectors-title">
             <h1 class="page-title" id="connectors-title">Importers</h1>
@@ -1202,7 +1215,8 @@
 
         function redirectToLogin() {
             localStorage.removeItem('fs_token');
-            window.location.href = '/login';
+            const returnTo = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+            window.location.href = `/login?next=${encodeURIComponent(returnTo)}`;
         }
 
         // ── Startpagina ────────────────────────────────────────────────
@@ -1232,6 +1246,44 @@
             } finally {
                 if (grid) grid.setAttribute('aria-busy', 'false');
             }
+        }
+
+        async function loadDataHealth() {
+            const ids = ['data-health-status', 'data-health-summary', 'data-health-sources', 'data-health-issues'];
+            ids.forEach(id => document.getElementById(id)?.setAttribute('aria-busy', 'true'));
+            try { renderDataHealth(await api('GET', '/control-plane/data-health')); }
+            catch (error) { renderDataHealthError(error); }
+        }
+
+        const dataHealthLabels = { healthy: 'Alles in orde', attention_required: 'Aandacht vereist', error: 'Fout in de datastroom', partial: 'Data gedeeltelijk beschikbaar', unavailable: 'Niet beschikbaar' };
+
+        function renderDataHealthError(error) {
+            const status = document.getElementById('data-health-status');
+            if (status) {
+                status.dataset.status = 'error';
+                status.setAttribute('aria-busy', 'false');
+                status.innerHTML = '<div><h2 class="control-status-label">Data health niet beschikbaar</h2><p>De actuele datakwaliteit kon niet worden opgehaald.</p></div><span class="badge disconnected">Controle nodig</span>';
+            }
+            const summary = document.getElementById('data-health-summary');
+            if (summary) { summary.setAttribute('aria-busy', 'false'); summary.innerHTML = '<div class="overview-empty">Overzicht tijdelijk niet beschikbaar.</div>'; }
+            const sources = document.getElementById('data-health-sources');
+            if (sources) { sources.setAttribute('aria-busy', 'false'); sources.innerHTML = '<div class="overview-empty">Bronnen tijdelijk niet beschikbaar.</div>'; }
+            renderInlineError('data-health-issues', 'Data health kon niet worden geladen.', error?.message, loadDataHealth);
+        }
+
+        function renderDataHealth(data) {
+            const status = data.status || 'unavailable';
+            const statusEl = document.getElementById('data-health-status');
+            if (statusEl) { statusEl.dataset.status = status; statusEl.setAttribute('aria-busy', 'false'); statusEl.innerHTML = `<div><h2 class="control-status-label">${escapeHtml(dataHealthLabels[status] || readableStatus(status))}</h2><p>Laatste succesvolle sync: ${escapeHtml(formatControlDate(data.last_successful_sync))} · Gecontroleerd: ${escapeHtml(formatControlDate(data.generated_at))}</p></div><span class="badge ${status === 'healthy' ? 'connected' : status === 'error' ? 'disconnected' : 'pending'}">${escapeHtml((data.issues || []).length ? `${data.issues.length} actiepunten` : 'Geen actiepunten')}</span>`; }
+            const reconciliation = data.reconciliation || {};
+            const stale = data.stale_data || {};
+            const summary = document.getElementById('data-health-summary');
+            if (summary) { summary.setAttribute('aria-busy', 'false'); summary.innerHTML = `<div class="quality-stat"><strong>${escapeHtml((data.sources || []).length)}</strong><span>Bronnen</span></div><div class="quality-stat"><strong>${escapeHtml(data.unresolved_securities || 0)}</strong><span>Niet-gematchte securities</span></div><div class="quality-stat"><strong>${escapeHtml(stale.securities_stale || 0)}</strong><span>Verouderde koersen</span></div><div class="quality-stat"><strong>${escapeHtml(data.failed_exports || 0)}</strong><span>Mislukte exports</span></div><div class="quality-stat"><strong>${escapeHtml(reconciliation.findings_total || 0)}</strong><span>Reconciliatieverschillen</span></div>`; }
+            const sources = document.getElementById('data-health-sources');
+            const sourceRows = (data.sources || []).map(source => `<tr><td><strong>${escapeHtml(source.provider)}</strong></td><td>${controlBadge(source.status)}</td><td>${escapeHtml(formatControlDate(source.last_success_at))}</td><td>${escapeHtml(source.accounts)} accounts · ${escapeHtml(source.transactions)} transacties</td></tr>`).join('');
+            if (sources) { sources.setAttribute('aria-busy', 'false'); sources.innerHTML = sourceRows ? `<div class="control-table-wrap"><table class="data-table control-table"><thead><tr><th>Bron</th><th>Status</th><th>Laatste succesvolle sync</th><th>Dekking</th></tr></thead><tbody>${sourceRows}</tbody></table></div>` : '<div class="overview-empty">Nog geen bronnen geconfigureerd.</div>'; }
+            const issues = document.getElementById('data-health-issues');
+            if (issues) { issues.setAttribute('aria-busy', 'false'); issues.innerHTML = (data.issues || []).length ? data.issues.map(issue => `<article class="issue-card"><div><span class="severity severity-${escapeHtml(issue.severity)}">${escapeHtml(issue.severity)}</span><h3>${escapeHtml(issue.title)}</h3><p>${escapeHtml(issue.description)}</p>${issue.provider ? `<span class="muted">Bron: ${escapeHtml(issue.provider)}</span>` : ''}${issue.impact_count ? `<span class="muted"> · Impact: ${escapeHtml(issue.impact_count)}</span>` : ''}<div class="action-result" id="health-result-${escapeHtml(issue.id)}" aria-live="polite" tabindex="-1"></div></div><div class="control-actions">${renderControlActions([issue.action], `health-result-${issue.id}`)}</div></article>`).join('') : '<div class="overview-empty">Geen open problemen. De datastroom werkt zoals verwacht.</div>'; }
         }
 
         const controlStatusLabels = {
@@ -1551,6 +1603,10 @@
                 // name = 'connectors'
                 name = 'overview';
             }
+            const targetHash = name === 'overview' ? '' : `#${name}`;
+            if (window.location.hash !== targetHash) {
+                window.history.replaceState(null, '', `${window.location.pathname}${targetHash}`);
+            }
             document.querySelectorAll('.sidebar-nav a').forEach(a => {
                 const active = a.getAttribute('data-section') === name;
                 a.classList.toggle('active', active);
@@ -1562,6 +1618,7 @@
             if (section) section.classList.remove('hidden');
             if (name === 'connectors') loadConnectors();
             if (name === 'overview') loadOverview();
+            if (name === 'data-health') loadDataHealth();
             if (name === 'viewer') loadViewer();
             if (name === 'uploads') loadFileUploads();
             if (name === 'exporters') loadExporters();
@@ -4077,7 +4134,12 @@
                 // user's session and show the connectors that still load.
                 console.warn('Could not fetch profile:', e);
             }
-            await loadOverview();
+            const requestedSection = window.location.hash.slice(1);
+            const supportedSections = new Set([
+                'overview', 'data-health', 'connectors', 'viewer', 'uploads',
+                'exporters', 'sync', 'holding-news',
+            ]);
+            switchSection(supportedSections.has(requestedSection) ? requestedSection : 'overview');
         })();
     </script>
 </body>

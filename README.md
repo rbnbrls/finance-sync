@@ -45,6 +45,13 @@ Compose starts PostgreSQL and Redis, runs `alembic upgrade head`, and only
 then starts the API and worker. The API is available at
 `http://localhost:8000`; the worker health endpoint is at
 `http://localhost:9090/health/live`.
+The Compose debug switch is namespaced as `FINANCE_SYNC_DEBUG`, so an
+unrelated host-level `DEBUG` value cannot prevent API startup.
+
+Release 13 established the backward-compatible migration policy: deploy
+expand/contract schema changes first, then use an immutable application-image
+rollback (image rollback) when a release must be reverted. Production is never
+downgraded blindly.
 
 For local development:
 

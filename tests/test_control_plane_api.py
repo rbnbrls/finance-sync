@@ -20,6 +20,7 @@ from finance_sync.app import create_app
 from finance_sync.config.settings import Settings
 from finance_sync.dependencies import get_db
 from finance_sync.schemas.control_plane import ControlPlaneOverview
+from finance_sync.schemas.data_health import DataHealthOverview
 from finance_sync.schemas.data_quality import DataQualityOverview
 
 if TYPE_CHECKING:
@@ -83,11 +84,48 @@ def _quality() -> DataQualityOverview:
     )
 
 
+def _data_health() -> DataHealthOverview:
+    return DataHealthOverview(
+        status="healthy",
+        generated_at=datetime(2026, 8, 24, tzinfo=UTC),
+    )
+
+
 def test_control_plane_routes_are_registered(client: TestClient) -> None:
     paths = client.get("/openapi.json").json()["paths"]
 
     assert "/api/v1/control-plane/overview" in paths
     assert "/api/v1/control-plane/data-quality" in paths
+    assert "/api/v1/control-plane/data-health" in paths
+
+
+def test_data_health_route_passes_tenant_permissions_and_redis_state(
+    client: TestClient,
+) -> None:
+    service = AsyncMock()
+    service.return_value = _data_health()
+    container = SimpleNamespace(
+        settings=SimpleNamespace(redis_url="redis://test")
+    )
+
+    with (
+        patch(
+            "finance_sync.api.v1.control_plane.get_container",
+            return_value=container,
+        ),
+        patch(
+            "finance_sync.api.v1.control_plane.DataHealthService",
+            return_value=SimpleNamespace(get_overview=service),
+        ) as service_factory,
+    ):
+        response = client.get("/api/v1/control-plane/data-health")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "healthy"
+    args, kwargs = service_factory.call_args
+    assert args[1] == "tenant-a"
+    assert kwargs["redis_configured"] is True
+    service.assert_awaited_once_with()
 
 
 def test_overview_route_passes_tenant_permissions_and_redis_state(

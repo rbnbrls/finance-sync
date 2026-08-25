@@ -27,6 +27,15 @@ ACTION_CATALOG: dict[str, ActionSpec] = {
     "view_connection": ActionSpec(
         "view_connection", "Details bekijken", "GET", "connectors:read"
     ),
+    "view_accounts": ActionSpec(
+        "view_accounts", "Accounts bekijken", "GET", "accounts:read"
+    ),
+    "view_transactions": ActionSpec(
+        "view_transactions", "Transacties bekijken", "GET", "transactions:read"
+    ),
+    "view_imports": ActionSpec(
+        "view_imports", "Importdetails bekijken", "GET", "connectors:read"
+    ),
     "edit_connection": ActionSpec(
         "edit_connection", "Bewerken", "GET", "connectors:read"
     ),
