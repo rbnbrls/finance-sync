@@ -320,3 +320,4 @@ dev.7rb.nl),
 - PostgreSQL is the durable system of record. Redis is disposable cache, coordination, and rate-limit state.
 - Synchronization is idempotent, observable, retryable, and produces durable domain events.
 - The first release is a deployable modular monolith; service extraction is an operational decision, not a premature boundary.
+# Trigger CI for fix verification
