@@ -84,6 +84,7 @@ from finance_sync.models.holding_relevance import (
     MATCH_REASON_RECENTLY_SOLD,
     HoldingRelevanceItem,
     RelevanceCluster,
+    RelevanceClusterItem,
     RelevanceCorrection,
     RelevanceNotificationLog,
 )
@@ -772,6 +773,62 @@ class TestClustering:
             "https://example.com/syn/1",
             "https://example.com/syn/2",
         }
+
+    async def test_same_second_syndication_merges_with_all_sources(
+        self, session_factory: async_sessionmaker
+    ) -> None:
+        """Syndicated posts published within one second = one cluster.
+
+        Story keys are second-granular, so two posts about one event that
+        land on the same second must merge into a single cluster that
+        keeps every source link.  Regression: the exact-date bucket
+        partition used microsecond precision while the story key
+        truncates to seconds, so same-second posts merged only via a
+        story-key collision and reported ``source_count=1``.
+        """
+        tenant = await _new_tenant(session_factory)
+        sec = await _new_security(session_factory)
+        acct = await _new_account(session_factory, tenant)
+        await _new_holding(session_factory, tenant, acct, sec)
+        published = datetime(2026, 8, 25, 8, 1, 25, tzinfo=UTC)
+        # Two sources post about the same event within the same second,
+        # with different headlines (syndication suffixes differ).
+        await _new_item(
+            session_factory,
+            tenant,
+            sec,
+            source_id="src-1",
+            kind="earnings_report",
+            headline="Apple beats estimates",
+            canonical_url="https://example.com/a",
+            published_at=published,
+        )
+        await _new_item(
+            session_factory,
+            tenant,
+            sec,
+            source_id="src-2",
+            kind="earnings_report",
+            headline="Apple beats estimates (syndicated)",
+            canonical_url="https://example.com/b",
+            published_at=published + timedelta(microseconds=500),
+        )
+
+        async with session_factory() as session:
+            svc = HoldingRelevanceService(UnitOfWork(session))
+            await _build(svc, tenant)
+
+        clusters = await _clusters(session_factory, tenant)
+        assert len(clusters) == 1
+        assert clusters[0].source_count == 2
+
+        # Both source links are attached to the merged cluster.
+        async with session_factory() as session:
+            stmt = select(RelevanceClusterItem).where(
+                RelevanceClusterItem.cluster_id == clusters[0].id
+            )
+            rows = list((await session.execute(stmt)).scalars().all())
+        assert len(rows) == 2
 
     async def test_distinct_events_stay_separate(
         self, session_factory: async_sessionmaker
@@ -2141,6 +2198,9 @@ class TestNotificationScopingAndSafety:
         acct = await _new_account(session_factory, tenant)
         await _new_holding(session_factory, tenant, acct, sec)
         # Two syndicated items about the same event → one cluster.
+        # Same explicit event date: the merge must not depend on both
+        # inserts landing within the same wall-clock second.
+        published = datetime(2026, 8, 25, 8, 1, 25, tzinfo=UTC)
         await _new_item(
             session_factory,
             tenant,
@@ -2149,6 +2209,7 @@ class TestNotificationScopingAndSafety:
             kind="earnings_report",
             headline="Apple beats estimates",
             canonical_url="https://example.com/a",
+            published_at=published,
         )
         await _new_item(
             session_factory,
@@ -2158,6 +2219,7 @@ class TestNotificationScopingAndSafety:
             kind="earnings_report",
             headline="Apple beats estimates (syndicated)",
             canonical_url="https://example.com/b",
+            published_at=published,
         )
         async with session_factory() as session:
             svc = HoldingRelevanceService(UnitOfWork(session))
