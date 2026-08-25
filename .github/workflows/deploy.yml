@@ -1,3 +1,25 @@
+# =============================================================================
+# Deploy to Coolify — finance-sync production
+# =============================================================================
+# Pushes to main trigger a redeploy of the production Coolify app
+# (5iov9i8w9mazc6vhismo3enx on finance-sync.7rb.nl, recreated 2026-08-25 as
+# part of the production environment rollout, issue #428).
+#
+# Pipeline:
+#   1. Trigger   — POST /api/v1/deploy {uuid, force:true}. force=true rebuilds
+#                  and redeploys the current commit even when Coolify's queue
+#                  thinks the app is already up to date (needed after the app
+#                  recreation — see issue #430).
+#   2. Wait      — poll GET /api/v1/deployments/{uuid} until finished/failed.
+#   3. Health    — poll the REAL health endpoints (/health/live + /health/ready,
+#                  body status "ok"). Coolify reporting "finished" is not proof
+#                  the container serves traffic (issue #430: run #206 reported
+#                  finished while the container crashed at startup), so the
+#                  workflow verifies the app before declaring success.
+#
+# The Coolify API token lives in the COOLIFY_API_TOKEN GitHub secret and is
+# only referenced via ${{ secrets.* }} / the env block — never echoed.
+# =============================================================================
 name: Deploy to Coolify
 
 on:
@@ -37,13 +59,17 @@ jobs:
           HTTP_CODE=$(echo "$RESPONSE" | tail -1)
           BODY=$(echo "$RESPONSE" | sed '$d')
           echo "Status: ${HTTP_CODE}"
+          # The response body contains the deployment UUID, not the token —
+          # safe to log (verified no secret material in Coolify /deploy output).
           echo "Response: ${BODY}"
-          DEPLOY_UUID=$(echo "${BODY}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('deployments',[{}])[0].get('deployment_uuid','unknown'))" 2>/dev/null || echo "unknown")
+          DEPLOY_UUID=$(echo "${BODY}" | python3 -c "import sys,json; d=json.load(sys.stdin); deploys=d.get('deployments',[{}]); print(deploys[0].get('deployment_uuid','unknown') if deploys else 'unknown')" 2>/dev/null || echo "unknown")
           echo "deployment_uuid=${DEPLOY_UUID}" >> $GITHUB_OUTPUT
-          if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
+          # A 2xx alone is not proof the deploy was queued — the body must
+          # carry a real deployment UUID (see issue #430 run #206).
+          if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ] && [ -n "${DEPLOY_UUID}" ] && [ "${DEPLOY_UUID}" != "unknown" ]; then
             echo "✅ Deploy triggered (uuid: ${DEPLOY_UUID})"
           else
-            echo "❌ Deploy failed (HTTP ${HTTP_CODE})"
+            echo "❌ Deploy not queued (HTTP ${HTTP_CODE}, uuid: ${DEPLOY_UUID})"
             exit 1
           fi
 
@@ -57,13 +83,14 @@ jobs:
             exit 1
           fi
           for i in $(seq 1 90); do
-            STATUS=$(curl -s -H "Authorization: Bearer ${COOLIFY_API_TOKEN}" \
-              "https://dev.7rb.nl/api/v1/deployments/${DEPLOYMENT_UUID}" \
-              | python3 -c "import sys,json; print(json.load(sys.stdin).get('status','?'))" 2>/dev/null || true)
+            BODY=$(curl -s -H "Authorization: Bearer ${COOLIFY_API_TOKEN}" \
+              "https://dev.7rb.nl/api/v1/deployments/${DEPLOYMENT_UUID}")
+            STATUS=$(echo "${BODY}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('status','?'))" 2>/dev/null || true)
             echo "[$i] deployment status: ${STATUS}"
             case "${STATUS}" in
               finished) echo "✅ Coolify deployment finished"; exit 0 ;;
               failed|error|cancelled) echo "❌ Coolify deployment ${STATUS}"; exit 1 ;;
+              '?') echo "⚠️  Empty/invalid deployment status response — will keep polling but this should not happen"; ;;
             esac
             sleep 15
           done
@@ -74,20 +101,34 @@ jobs:
       # "finished" from Coolify's perspective while the container was actually
       # crashed (SECRET_KEY missing -> pydantic ValidationError at startup ->
       # healthcheck never passed -> 503). Coolify's deployment status alone is
-      # not proof the app serves traffic, so verify the real health endpoint
+      # not proof the app serves traffic, so verify the real health endpoints
       # before declaring the deploy successful.
+      #
+      # Gate: /health/live (liveness) AND /health/ready (readiness — DB and
+      # Redis reachable) must return HTTP 200 with {"status": "ok"}.  Liveness
+      # alone can false-pass a container that is serving 503s or has lost its
+      # database; readiness is what the release smoke gate checks, so the
+      # deploy gate matches that convention (issue #430 follow-up).
       - name: Verify app health
         run: |
-          URL="https://finance-sync.7rb.nl/health/live"
-          echo "Polling ${URL} for HTTP 200..."
-          for i in $(seq 1 20); do
-            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 15 "${URL}" || true)
-            echo "[$i] health check: HTTP ${HTTP_CODE}"
-            if [ "${HTTP_CODE}" = "200" ]; then
-              echo "✅ App is healthy at ${URL}"
-              exit 0
-            fi
-            sleep 15
-          done
-          echo "❌ App did not become healthy (last HTTP ${HTTP_CODE})"
-          exit 1
+          check_endpoint() {
+            local URL="$1"
+            local NAME="$2"
+            echo "Polling ${URL} for HTTP 200 + status ok..."
+            for i in $(seq 1 20); do
+              BODY=$(curl -s --max-time 15 "${URL}" || true)
+              HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 15 "${URL}" || true)
+              STATUS=$(echo "${BODY}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('status','?'))" 2>/dev/null || true)
+              echo "[$i] ${NAME}: HTTP ${HTTP_CODE} status=${STATUS}"
+              if [ "${HTTP_CODE}" = "200" ] && [ "${STATUS}" = "ok" ]; then
+                echo "✅ ${NAME} is healthy (${URL})"
+                return 0
+              fi
+              sleep 15
+            done
+            echo "❌ ${NAME} did not become healthy (last HTTP ${HTTP_CODE}, status ${STATUS})"
+            return 1
+          }
+          check_endpoint "https://finance-sync.7rb.nl/health/live" "liveness" || exit 1
+          check_endpoint "https://finance-sync.7rb.nl/health/ready" "readiness" || exit 1
+          echo "✅ App is healthy (liveness + readiness)"
