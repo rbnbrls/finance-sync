@@ -46,6 +46,9 @@ downgrade on a restored copy.
 
 If a migration is not backward-compatible, the release must provide an
 explicit forward-fix or a tested rollback procedure in its release notes.
+Release 13 closeout evidence includes the immutable image tag, migration
+artifact link and staging smoke artifact link. Rollback remains an image rollback against backward-compatible migrations, never an automatic
+production downgrade.
 
 ## Verification checklist
 

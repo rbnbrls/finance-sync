@@ -81,3 +81,12 @@ exposes the corresponding health endpoints on port 9090.
 Alembic is the only schema owner. See [MIGRATIONS.md](MIGRATIONS.md) for the
 current revision chain and [RELEASING.md](RELEASING.md) for promotion and
 rollback rules.
+
+## Release history and rollback contract
+
+Releases are tag-driven and promote to production only after a staging smoke
+gate passes. Recovery is an **image rollback against backward-compatible
+migrations** — the database stays at its current revision and schema
+downgrades are never run automatically. Release 13 closed out the staged
+rollback and evidence checklist; release 14 kept the commit-bound smoke and
+OpenAPI contract artifacts auditable.

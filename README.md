@@ -9,6 +9,12 @@ caching and rate limiting. Consumers such as Wealthfolio, Actual Budget,
 Firefly III, Ghostfolio, InvestBrain, Securo and Jupyter are optional.
 
 The current application version is `0.7.3` and requires Python 3.12 or newer.
+Deployments are upgraded with **backward-compatible migrations**: the
+application image can be rolled back while the database stays at its current
+revision, so production recovery is an image rollback and never a blind
+schema downgrade. Release 13 introduced the staged rollback and release
+evidence checklist; release 14 kept the smoke evidence and OpenAPI contract
+artifacts commit-bound. See [docs/RELEASING.md](docs/RELEASING.md).
 
 ## What is included
 
