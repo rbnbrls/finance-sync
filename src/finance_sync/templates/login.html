@@ -375,13 +375,22 @@
                 localStorage.setItem('fs_token', data.access_token);
                 // Also store refresh token
                 localStorage.setItem('fs_refresh_token', data.refresh_token);
-                window.location.href = '/';
+                window.location.href = dashboardReturnPath();
             } catch (e) {
                 errorEl.textContent = e.message;
                 errorEl.classList.remove('hidden');
                 btn.disabled = false;
                 btn.textContent = 'Sign in with admin key';
             }
+        }
+
+        function dashboardReturnPath() {
+            const requested = new URLSearchParams(window.location.search).get('next');
+            // Only allow same-origin absolute paths; never turn the login
+            // redirect into an open redirect.
+            return requested && requested.startsWith('/') && !requested.startsWith('//')
+                ? requested
+                : '/';
         }
 
         // If already authenticated, redirect to dashboard

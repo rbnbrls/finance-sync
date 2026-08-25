@@ -8,7 +8,7 @@ prices and enrichment data in PostgreSQL. Redis is used for coordination,
 caching and rate limiting. Consumers such as Wealthfolio, Actual Budget,
 Firefly III, Ghostfolio, InvestBrain, Securo and Jupyter are optional.
 
-The current application version is `0.7.3` and requires Python 3.12 or newer.
+The current application version is `0.7.4` and requires Python 3.12 or newer.
 Deployments are upgraded with **backward-compatible migrations**: the
 application image can be rolled back while the database stays at its current
 revision, so production recovery is an image rollback and never a blind
@@ -45,6 +45,13 @@ Compose starts PostgreSQL and Redis, runs `alembic upgrade head`, and only
 then starts the API and worker. The API is available at
 `http://localhost:8000`; the worker health endpoint is at
 `http://localhost:9090/health/live`.
+The Compose debug switch is namespaced as `FINANCE_SYNC_DEBUG`, so an
+unrelated host-level `DEBUG` value cannot prevent API startup.
+
+Release 13 established the backward-compatible migration policy: deploy
+expand/contract schema changes first, then use an immutable application-image
+rollback (image rollback) when a release must be reverted. Production is never
+downgraded blindly.
 
 For local development:
 

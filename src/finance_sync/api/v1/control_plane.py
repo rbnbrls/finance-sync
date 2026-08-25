@@ -8,8 +8,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from finance_sync.api.deps.auth import AuthContext, require_permission
 from finance_sync.dependencies import get_container, get_db
 from finance_sync.schemas.control_plane import ControlPlaneOverview
+from finance_sync.schemas.data_health import DataHealthOverview
 from finance_sync.schemas.data_quality import DataQualityOverview
 from finance_sync.services.control_plane import ControlPlaneService
+from finance_sync.services.data_health import DataHealthService
 from finance_sync.services.data_quality import DataQualityService
 
 router = APIRouter(prefix="/control-plane", tags=["control-plane"])
@@ -38,3 +40,19 @@ async def get_data_quality_overview(
 ) -> DataQualityOverview:
     """Return tenant-scoped reconciliation findings and source coverage."""
     return await DataQualityService(db, auth.tenant_id).get_overview()
+
+
+@router.get("/data-health", response_model=DataHealthOverview)
+async def get_data_health_overview(
+    request: Request,
+    auth: AuthContext = Depends(require_permission("sync", "read")),
+    db: AsyncSession = Depends(get_db),
+) -> DataHealthOverview:
+    """Return the canonical, actionable Data health projection."""
+    settings = get_container(request).settings
+    return await DataHealthService(
+        db,
+        auth.tenant_id,
+        permissions=auth.permissions,
+        redis_configured=settings.redis_url is not None,
+    ).get_overview()

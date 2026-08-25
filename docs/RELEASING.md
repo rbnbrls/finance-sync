@@ -6,6 +6,9 @@ staging environment is configured.  Companion docs: [MIGRATIONS.md](MIGRATIONS.m
 
 ## Release model
 
+Release 13 formalized the backward-compatible migration and immutable image
+rollback policy used by this release process.
+
 Releases are **tag-driven** and fully automated by GitHub Actions
 (`.github/workflows/release.yml`).  A push of a `v*` tag runs the whole
 pipeline; there is no Hermes/cron involvement and no manual prod step

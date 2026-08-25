@@ -47,6 +47,8 @@ All tables use UUID primary keys, `tenant_id`, `created_at`, and `updated_at` un
   is diagnostic only.
 - Performance scripts and CI artifacts are operational evidence, not part of
   the schema contract. Re-run them after query or infrastructure changes.
+- Release 13 follows backward-compatible migrations and application-image rollback;
+  production is never a blind schema-downgrade target.
 
 ## Accounting semantics
 
