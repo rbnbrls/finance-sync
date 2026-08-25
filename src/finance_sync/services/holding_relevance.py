@@ -1421,10 +1421,15 @@ class HoldingRelevanceService:
         """
         del event_type
         # 1. Exact-date buckets: items sharing one exact event date.
+        #    Bucket at the same granularity as the story key (seconds),
+        #    so same-second syndication merges here with correct member
+        #    accounting instead of colliding on the story key later.
         exact: dict[str, list[Any]] = {}
         for entry in group:
             if entry[3] is not None:
-                exact.setdefault(entry[3].isoformat(), []).append(entry)
+                exact.setdefault(
+                    entry[3].isoformat(timespec="seconds"), []
+                ).append(entry)
         buckets: list[tuple[list[Any], str]] = []
         # Dates with ≥2 items are already merged stories (exact event).
         # Single-item dates may still fingerprint-merge with other dates.
