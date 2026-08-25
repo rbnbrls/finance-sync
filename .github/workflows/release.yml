@@ -73,7 +73,7 @@ jobs:
       id-token: write   # cosign keyless signing (GitHub OIDC)
     outputs:
       version: ${{ steps.meta.outputs.version }}
-      image: ${{ steps.meta.outputs.tags }}
+      image: ${{ steps.image-tag.outputs.image }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -100,6 +100,15 @@ jobs:
             # semver tag from the release tag (e.g. v1.2.3 -> 1.2.3).
             type=semver,pattern={{version}}
             type=sha,format=short
+
+      - name: Resolve immutable image tag
+        id: image-tag
+        env:
+          IMAGE_TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          IMAGE_TAG=$(printf '%s\n' "$IMAGE_TAGS" | grep -E '^ghcr.io/rbnbrls/finance-sync:sha-' | head -1)
+          test -n "$IMAGE_TAG"
+          echo "image=$IMAGE_TAG" >> "$GITHUB_OUTPUT"
 
       - name: Build and load Docker image
         uses: docker/build-push-action@v7
