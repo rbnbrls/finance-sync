@@ -580,7 +580,7 @@ jobs:
           import re
           import sys
 
-          image_tag = sys.argv[1]
+          image_tag = sys.argv[1].strip()
           if not re.fullmatch(r"ghcr\.io/rbnbrls/finance-sync:sha-[0-9a-f]{7}", image_tag):
               raise SystemExit(f"Unexpected immutable smoke image tag: {image_tag}")
           PY
