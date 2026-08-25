@@ -13,6 +13,7 @@ from finance_sync.schemas.data_health import (
     DataHealthOverview,
     DataHealthReconciliation,
     DataHealthSource,
+    DataHealthStatus,
 )
 from finance_sync.services.control_plane import ControlPlaneService
 from finance_sync.services.control_plane_actions import action
@@ -341,11 +342,13 @@ class DataHealthService:
         return issues
 
     @staticmethod
-    def _status(control_status: str, quality_status: str) -> str:
+    def _status(control_status: str, quality_status: str) -> DataHealthStatus:
         if control_status == "sync_failed":
             return "error"
-        if control_status in {"attention_required", "partial"}:
-            return control_status
+        if control_status == "attention_required":
+            return "attention_required"
+        if control_status == "partial":
+            return "partial"
         if quality_status == "attention_required":
             return "attention_required"
         if quality_status == "unavailable":

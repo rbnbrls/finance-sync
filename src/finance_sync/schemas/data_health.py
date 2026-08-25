@@ -67,13 +67,17 @@ class DataHealthReconciliation(BaseModel):
 class DataHealthOverview(BaseModel):
     status: DataHealthStatus
     last_successful_sync: datetime | None = None
-    sources: list[DataHealthSource] = Field(default_factory=list)
+    sources: list[DataHealthSource] = Field(
+        default_factory=lambda: list[DataHealthSource]()
+    )
     stale_data: dict[str, int] = Field(default_factory=dict)
     unresolved_securities: int = 0
     failed_exports: int = 0
     reconciliation: DataHealthReconciliation = Field(
         default_factory=DataHealthReconciliation
     )
-    issues: list[DataHealthIssue] = Field(default_factory=list)
+    issues: list[DataHealthIssue] = Field(
+        default_factory=lambda: list[DataHealthIssue]()
+    )
     as_of: datetime | None = None
     generated_at: datetime

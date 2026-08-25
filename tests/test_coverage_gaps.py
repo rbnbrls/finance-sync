@@ -144,7 +144,9 @@ async def test_worker_process_shutdown_drains_and_stops_components() -> None:
 
 
 @pytest.mark.asyncio
-async def test_worker_process_shutdown_logs_drain_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_worker_process_shutdown_logs_drain_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     from finance_sync.worker import WorkerProcess
 
     scheduler = MagicMock()
@@ -153,7 +155,9 @@ async def test_worker_process_shutdown_logs_drain_timeout(monkeypatch: pytest.Mo
     process = WorkerProcess(settings=MagicMock())
     process._scheduler = scheduler
 
-    async def timeout(awaitable: object, _timeout: float = 0.0, **_kwargs: object) -> None:
+    async def timeout(
+        awaitable: object, _timeout: float = 0.0, **_kwargs: object
+    ) -> None:
         close = getattr(awaitable, "close", None)
         if close is not None:
             close()
@@ -179,7 +183,9 @@ async def test_worker_process_start_registers_signals_and_shutdowns(
     signal_calls: list[tuple[signal.Signals, object]] = []
 
     class FakeLoop:
-        def add_signal_handler(self, sig: signal.Signals, callback: object) -> None:
+        def add_signal_handler(
+            self, sig: signal.Signals, callback: object
+        ) -> None:
             signal_calls.append((sig, callback))
 
     class FakeContainer:
@@ -209,14 +215,23 @@ async def test_worker_process_start_registers_signals_and_shutdowns(
         async def serve(self) -> None:
             process._shutdown_event.set()
 
-    monkeypatch.setattr(worker_module.Container, "from_settings", lambda _settings: FakeContainer())
+    monkeypatch.setattr(
+        worker_module.Container,
+        "from_settings",
+        lambda _settings: FakeContainer(),
+    )
     monkeypatch.setattr(worker_module, "WorkerScheduler", FakeScheduler)
     monkeypatch.setattr(worker_module, "WorkerHealthServer", FakeHealth)
-    monkeypatch.setattr(worker_module.asyncio, "get_running_loop", lambda: FakeLoop())
+    monkeypatch.setattr(
+        worker_module.asyncio, "get_running_loop", lambda: FakeLoop()
+    )
 
     await process.start()
 
-    assert {sig for sig, _callback in signal_calls} == {signal.SIGTERM, signal.SIGINT}
+    assert {sig for sig, _callback in signal_calls} == {
+        signal.SIGTERM,
+        signal.SIGINT,
+    }
     assert process._scheduler is not None
     assert process._health_server is not None
 
@@ -240,7 +255,9 @@ def test_run_worker_configures_runtime_and_handles_keyboard_interrupt(
     settings.is_production = False
     settings.log_level = "INFO"
     worker = MagicMock()
-    monkeypatch.setattr(worker_module, "WorkerProcess", lambda _settings: worker)
+    monkeypatch.setattr(
+        worker_module, "WorkerProcess", lambda _settings: worker
+    )
     logging = MagicMock()
     glitchtip = MagicMock()
     monkeypatch.setattr(worker_module, "configure_logging", logging)
@@ -258,7 +275,9 @@ def test_run_worker_configures_runtime_and_handles_keyboard_interrupt(
     glitchtip.assert_called_once_with(settings)
 
 
-def test_worker_main_delegates_to_run_worker(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_worker_main_delegates_to_run_worker(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     import finance_sync.worker as worker_module
 
     run = MagicMock()
@@ -317,7 +336,9 @@ async def test_mcp_resources_serialize_read_service_results(
     service = SimpleNamespace(
         _session=session,
         list_accounts=AsyncMock(
-            return_value=SimpleNamespace(items=[account], model_dump=accounts.model_dump)
+            return_value=SimpleNamespace(
+                items=[account], model_dump=accounts.model_dump
+            )
         ),
         list_account_transactions=AsyncMock(
             return_value=SimpleNamespace(items=[tx])
@@ -326,12 +347,21 @@ async def test_mcp_resources_serialize_read_service_results(
         get_net_worth=AsyncMock(return_value=net_worth),
     )
     monkeypatch.setattr(server, "_get_tenant_id", lambda _ctx: "tenant-1")
-    monkeypatch.setattr(server, "_get_read_service", AsyncMock(return_value=service))
+    monkeypatch.setattr(
+        server, "_get_read_service", AsyncMock(return_value=service)
+    )
     ctx = _mcp_context()
 
-    assert json.loads(await server.resource_accounts(ctx))["items"][0]["id"] == "a1"
-    assert json.loads(await server.resource_portfolio(ctx))["total_value"] == "0"
-    assert json.loads(await server.resource_net_worth(ctx))["net_worth"] == "12.34"
+    assert (
+        json.loads(await server.resource_accounts(ctx))["items"][0]["id"]
+        == "a1"
+    )
+    assert (
+        json.loads(await server.resource_portfolio(ctx))["total_value"] == "0"
+    )
+    assert (
+        json.loads(await server.resource_net_worth(ctx))["net_worth"] == "12.34"
+    )
     transactions = json.loads(await server.resource_transactions(ctx))
     assert transactions[0]["account_name"] == "Bank"
     assert transactions[0]["account_type"] == "checking"
@@ -351,7 +381,9 @@ async def test_mcp_read_tools_forward_filters_and_close_sessions(
         list_sync_runs=AsyncMock(return_value=_mcp_result({"items": []})),
     )
     monkeypatch.setattr(server, "_get_tenant_id", lambda _ctx: "tenant-1")
-    monkeypatch.setattr(server, "_get_read_service", AsyncMock(return_value=service))
+    monkeypatch.setattr(
+        server, "_get_read_service", AsyncMock(return_value=service)
+    )
     ctx = _mcp_context()
 
     assert json.loads(await server.tool_get_cashflow(ctx, "7d"))["net"] == "4"
@@ -385,7 +417,9 @@ async def test_mcp_holding_tools_handle_success_not_found_and_invalid_dates(
             return_value={"enabled": True, "event_types": ["news"]}
         ),
     )
-    monkeypatch.setattr(server, "_get_holding_relevance_service", lambda _ctx: holding)
+    monkeypatch.setattr(
+        server, "_get_holding_relevance_service", lambda _ctx: holding
+    )
     monkeypatch.setattr(
         server, "_auth_principal", lambda _ctx: ("tenant-1", "principal-1")
     )
@@ -399,26 +433,46 @@ async def test_mcp_holding_tools_handle_success_not_found_and_invalid_dates(
     assert feed == {"clusters": []}
     assert holding.feed.await_args.kwargs["date_from"] is None
     assert holding.feed.await_args.kwargs["date_to"] is not None
-    assert json.loads(
-        await server.tool_get_holding_calendar(ctx, date_from="bad")
-    ) == []
-    assert json.loads(
-        await server.tool_acknowledge_holding_cluster(ctx, "cluster-1")
-    )["status"] == "not_found"
-    assert json.loads(
-        await server.tool_acknowledge_holding_cluster(ctx, "cluster-2", False)
-    )["acknowledged"] is False
-    assert json.loads(
-        await server.tool_correct_holding_item(ctx, "item-1", reason="wrong")
-    )["status"] == "corrected"
-    assert json.loads(
-        await server.tool_get_holding_notification_preferences(ctx)
-    )["enabled"] is False
-    assert json.loads(
-        await server.tool_set_holding_notification_preferences(
-            ctx, enabled=True, event_types=["news"]
-        )
-    )["enabled"] is True
+    assert (
+        json.loads(await server.tool_get_holding_calendar(ctx, date_from="bad"))
+        == []
+    )
+    assert (
+        json.loads(
+            await server.tool_acknowledge_holding_cluster(ctx, "cluster-1")
+        )["status"]
+        == "not_found"
+    )
+    assert (
+        json.loads(
+            await server.tool_acknowledge_holding_cluster(
+                ctx, "cluster-2", False
+            )
+        )["acknowledged"]
+        is False
+    )
+    assert (
+        json.loads(
+            await server.tool_correct_holding_item(
+                ctx, "item-1", reason="wrong"
+            )
+        )["status"]
+        == "corrected"
+    )
+    assert (
+        json.loads(await server.tool_get_holding_notification_preferences(ctx))[
+            "enabled"
+        ]
+        is False
+    )
+    assert (
+        json.loads(
+            await server.tool_set_holding_notification_preferences(
+                ctx, enabled=True, event_types=["news"]
+            )
+        )["enabled"]
+        is True
+    )
     assert uow.commit.await_count == 2
     assert session.aclose.await_count == 7
 
@@ -525,7 +579,9 @@ async def test_worker_health_handlers_cover_scheduler_and_monitor() -> None:
         },
     }
     assert json.loads(ready.body._value.decode())["status"] == "ok"  # type: ignore[attr-defined]
-    assert json.loads(jobs.body._value.decode()) == {"jobs": [{"job_id": "sync"}]}  # type: ignore[attr-defined]
+    assert json.loads(jobs.body._value.decode()) == {
+        "jobs": [{"job_id": "sync"}]
+    }  # type: ignore[attr-defined]
     assert json.loads(live.body._value.decode()) == {"status": "ok"}  # type: ignore[attr-defined]
 
 
@@ -646,7 +702,9 @@ def _auth() -> AuthContext:
 
 
 @pytest.mark.asyncio
-async def test_webhook_create_list_get_delete_paths(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_webhook_create_list_get_delete_paths(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     request = SimpleNamespace()
     service = MagicMock()
     service.create_webhook = AsyncMock(return_value=_webhook())
@@ -805,7 +863,9 @@ async def test_portfolio_read_builds_values_and_latest_holding_items(
         price=Decimal(60),
         price_currency="EUR",
     )
-    account = SimpleNamespace(id="account-1", name="Broker", account_type="brokerage")
+    account = SimpleNamespace(
+        id="account-1", name="Broker", account_type="brokerage"
+    )
     security = SimpleNamespace(
         id="security-1", ticker="ABC", name="ABC Corp", security_type="stock"
     )
@@ -819,8 +879,15 @@ async def test_portfolio_read_builds_values_and_latest_holding_items(
     count_result.scalar.return_value = 1
     session = MagicMock()
     session.execute = AsyncMock(
-        side_effect=[result, account_result, security_result, result, count_result,
-                     account_result, security_result]
+        side_effect=[
+            result,
+            account_result,
+            security_result,
+            result,
+            count_result,
+            account_result,
+            security_result,
+        ]
     )
     monkeypatch.setattr(
         "finance_sync.services.read.portfolio.fetch_latest_daily_prices",
@@ -889,7 +956,9 @@ async def test_worker_enrich_prices_selects_identifiers_and_counts_failures(
         SimpleNamespace(id="s3", ticker=None, figi=None, isin="ISIN-3"),
         SimpleNamespace(id="s4", ticker=None, figi=None, isin=None),
     ]
-    uow = SimpleNamespace(securities=SimpleNamespace(list=AsyncMock(return_value=securities)))
+    uow = SimpleNamespace(
+        securities=SimpleNamespace(list=AsyncMock(return_value=securities))
+    )
     monkeypatch.setattr("finance_sync.db.uow.UnitOfWork", lambda _session: uow)
     gateway = SimpleNamespace(
         get_latest_quote=AsyncMock(
@@ -904,7 +973,10 @@ async def test_worker_enrich_prices_selects_identifiers_and_counts_failures(
     result = await jobs.enrich_prices_job(container)
 
     assert result == {"enriched": 1, "failed": 2}
-    assert [call.kwargs["identifier_type"] for call in gateway.get_latest_quote.await_args_list] == [
+    assert [
+        call.kwargs["identifier_type"]
+        for call in gateway.get_latest_quote.await_args_list
+    ] == [
         "ticker",
         "figi",
         "isin",
@@ -960,8 +1032,12 @@ async def test_worker_webhook_and_outbox_jobs_close_services(
     publisher = SimpleNamespace(
         register_handler=MagicMock(), run_once=AsyncMock(return_value=2)
     )
-    monkeypatch.setattr("finance_sync.worker.jobs.OutboxPublisher", lambda **_kwargs: publisher)
-    outbox_service = SimpleNamespace(handle_outbox_message=MagicMock(), close=AsyncMock())
+    monkeypatch.setattr(
+        "finance_sync.worker.jobs.OutboxPublisher", lambda **_kwargs: publisher
+    )
+    outbox_service = SimpleNamespace(
+        handle_outbox_message=MagicMock(), close=AsyncMock()
+    )
     monkeypatch.setattr(
         "finance_sync.services.webhook.WebhookService",
         lambda **_kwargs: outbox_service,
@@ -982,7 +1058,9 @@ async def test_worker_webhook_and_outbox_jobs_propagate_failures_and_close(
         session_factory=MagicMock(), settings=settings, redis_client=None
     )
     retry_service = SimpleNamespace(
-        retry_due_deliveries=AsyncMock(side_effect=RuntimeError("retry failed")),
+        retry_due_deliveries=AsyncMock(
+            side_effect=RuntimeError("retry failed")
+        ),
         close=AsyncMock(),
     )
     monkeypatch.setattr(
@@ -1017,7 +1095,10 @@ async def test_holding_relevance_job_isolates_tenant_failures(
     from finance_sync.worker import jobs
 
     session = SimpleNamespace()
-    tenants = [SimpleNamespace(id="tenant-ok"), SimpleNamespace(id="tenant-bad")]
+    tenants = [
+        SimpleNamespace(id="tenant-ok"),
+        SimpleNamespace(id="tenant-bad"),
+    ]
     commits = 0
     rollbacks = 0
 
@@ -1043,7 +1124,9 @@ async def test_holding_relevance_job_isolates_tenant_failures(
                 raise RuntimeError(message)
             return {"tenant": tenant_id}
 
-        async def dispatch_new_cluster_notifications(self, _tenant_id: str) -> int:
+        async def dispatch_new_cluster_notifications(
+            self, _tenant_id: str
+        ) -> int:
             return 1
 
     monkeypatch.setattr("finance_sync.db.uow.UnitOfWork", Uow)
@@ -1100,7 +1183,9 @@ async def test_intel_refresh_job_delegates_to_intel_scheduler(
     from finance_sync.worker import jobs
 
     delegated = AsyncMock(return_value={"status": "ok"})
-    monkeypatch.setattr("finance_sync.intel.scheduler.intel_refresh_job", delegated)
+    monkeypatch.setattr(
+        "finance_sync.intel.scheduler.intel_refresh_job", delegated
+    )
     container = SimpleNamespace()
 
     result = await jobs.intel_refresh_job(container)
@@ -1121,7 +1206,9 @@ async def test_holding_relevance_job_uses_hermes_explainer(
 
     class Uow:
         def __init__(self, _session: object) -> None:
-            self.tenants = SimpleNamespace(list=AsyncMock(return_value=[tenant]))
+            self.tenants = SimpleNamespace(
+                list=AsyncMock(return_value=[tenant])
+            )
 
         async def commit(self) -> None:
             nonlocal commits
@@ -1138,7 +1225,9 @@ async def test_holding_relevance_job_uses_hermes_explainer(
         async def build_feed(self, _tenant_id: str) -> dict[str, bool]:
             return {"built": True}
 
-        async def dispatch_new_cluster_notifications(self, _tenant_id: str) -> int:
+        async def dispatch_new_cluster_notifications(
+            self, _tenant_id: str
+        ) -> int:
             return 0
 
     monkeypatch.setattr("finance_sync.db.uow.UnitOfWork", Uow)
@@ -1197,20 +1286,24 @@ async def test_schedule_runner_export_skip_branches() -> None:
         )
 
     inactive = SimpleNamespace(status="disabled")
-    schedule = SimpleNamespace(target_id="firefly:target-1", tenant_id="tenant-1")
-    assert (await run_export(container_for(inactive), schedule=schedule))["reason"] == (
-        "target_inactive"
+    schedule = SimpleNamespace(
+        target_id="firefly:target-1", tenant_id="tenant-1"
     )
+    assert (await run_export(container_for(inactive), schedule=schedule))[
+        "reason"
+    ] == ("target_inactive")
 
-    unconfigured = SimpleNamespace(status="active", encrypted_secret=None, secret_nonce=None)
-    assert (await run_export(container_for(unconfigured), schedule=schedule))["reason"] == (
-        "target_unconfigured"
+    unconfigured = SimpleNamespace(
+        status="active", encrypted_secret=None, secret_nonce=None
     )
+    assert (await run_export(container_for(unconfigured), schedule=schedule))[
+        "reason"
+    ] == ("target_unconfigured")
 
     no_target = SimpleNamespace(target_id="firefly:", tenant_id="tenant-1")
-    assert (await run_export(container_for(None), schedule=no_target))["reason"] == (
-        "target_inactive"
-    )
+    assert (await run_export(container_for(None), schedule=no_target))[
+        "reason"
+    ] == ("target_inactive")
 
     legacy = SimpleNamespace(target_id="wealthfolio", tenant_id="tenant-1")
     disabled_settings = SimpleNamespace(
@@ -1219,9 +1312,9 @@ async def test_schedule_runner_export_skip_branches() -> None:
         wealthfolio_password=None,
     )
     disabled_container = SimpleNamespace(settings=disabled_settings)
-    assert (await run_export(disabled_container, schedule=legacy))["reason"] == (
-        "global_gate_disabled"
-    )
+    assert (await run_export(disabled_container, schedule=legacy))[
+        "reason"
+    ] == ("global_gate_disabled")
 
 
 @pytest.mark.asyncio
@@ -1272,7 +1365,9 @@ async def test_webhook_attempt_delivery_success_and_timeout(
     )
     service = WebhookService(MagicMock(), settings)
     service._is_rate_allowed = AsyncMock(return_value=True)  # type: ignore[method-assign]
-    monkeypatch.setattr(webhook_module, "validate_webhook_url", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        webhook_module, "validate_webhook_url", lambda *_args, **_kwargs: None
+    )
     response = SimpleNamespace(status_code=204, text="")
     client = SimpleNamespace(post=AsyncMock(return_value=response))
     service._http_client = client  # type: ignore[assignment]
@@ -1353,9 +1448,7 @@ async def test_webhook_attempt_delivery_rate_limited_and_retry_empty(
             return None
 
         async def execute(self, _stmt: object) -> SimpleNamespace:
-            return SimpleNamespace(
-                scalars=lambda: SimpleNamespace(all=list)
-            )
+            return SimpleNamespace(scalars=lambda: SimpleNamespace(all=list))
 
     empty_service = WebhookService(lambda: Session(), settings)
     assert await empty_service.retry_due_deliveries() == 0
@@ -1449,7 +1542,9 @@ async def test_degiro_watchfolder_processes_preview_and_archives_batch(
         ),
     )
     monkeypatch.setattr(jobs, "execute_run", AsyncMock())
-    container = SimpleNamespace(settings=settings, session_factory=lambda: session)
+    container = SimpleNamespace(
+        settings=settings, session_factory=lambda: session
+    )
 
     result = await jobs.process_degiro_watchfolders_job(container)
 
@@ -1517,7 +1612,9 @@ async def test_degiro_watchfolder_quarantines_invalid_batch(
         MagicMock(side_effect=ValueError("invalid file")),
     )
     session = Session()
-    container = SimpleNamespace(settings=settings, session_factory=lambda: session)
+    container = SimpleNamespace(
+        settings=settings, session_factory=lambda: session
+    )
 
     result = await jobs.process_degiro_watchfolders_job(container)
 
@@ -1536,7 +1633,9 @@ async def test_schedule_runner_actual_budget_legacy_export(
     result = SimpleNamespace(status="completed", error_message=None)
     exporter = SimpleNamespace(run_export=AsyncMock(return_value=result))
     config = SimpleNamespace(from_settings=MagicMock(return_value="config"))
-    exporter_type = SimpleNamespace(ActualBudgetExporter=MagicMock(return_value=exporter))
+    exporter_type = SimpleNamespace(
+        ActualBudgetExporter=MagicMock(return_value=exporter)
+    )
     monkeypatch.setattr(
         "finance_sync.exporter.actual_budget.config.ActualBudgetConfig", config
     )
@@ -1599,7 +1698,9 @@ async def test_schedule_runner_firefly_target_export(
         settings=settings,
         session_factory=lambda: Session(),
     )
-    schedule = SimpleNamespace(target_id="firefly:target-1", tenant_id="tenant-1")
+    schedule = SimpleNamespace(
+        target_id="firefly:target-1", tenant_id="tenant-1"
+    )
 
     outcome = await schedule_runner.run_export(container, schedule=schedule)
 
@@ -1638,7 +1739,9 @@ async def test_schedule_runner_ghostfolio_investbrain_and_securo_exports(
         lambda *_args: '{"access_token":"token","password":"secret"}',
     )
     settings = SimpleNamespace()
-    container = SimpleNamespace(settings=settings, session_factory=lambda: Session())
+    container = SimpleNamespace(
+        settings=settings, session_factory=lambda: Session()
+    )
 
     class ClientContext:
         async def __aenter__(self) -> ClientContext:
@@ -1649,7 +1752,9 @@ async def test_schedule_runner_ghostfolio_investbrain_and_securo_exports(
 
     ghost_client = ClientContext()
     ghost_exporter = SimpleNamespace(
-        run_export=AsyncMock(return_value={"status": "completed", "failures": []})
+        run_export=AsyncMock(
+            return_value={"status": "completed", "failures": []}
+        )
     )
     monkeypatch.setattr(
         "finance_sync.exporter.ghostfolio.client.GhostfolioClient",
@@ -1661,7 +1766,9 @@ async def test_schedule_runner_ghostfolio_investbrain_and_securo_exports(
     )
     ghost = await schedule_runner.run_export(
         container,
-        schedule=SimpleNamespace(target_id="ghostfolio:target-1", tenant_id="tenant-1"),
+        schedule=SimpleNamespace(
+            target_id="ghostfolio:target-1", tenant_id="tenant-1"
+        ),
     )
     assert ghost == {"status": "completed", "error": None}
     ghost_exporter.run_export.assert_awaited_once()
@@ -1689,14 +1796,18 @@ async def test_schedule_runner_ghostfolio_investbrain_and_securo_exports(
     assert invest == {"status": "failed", "error": "bad row"}
 
     securo_result = SimpleNamespace(status="completed", error_message=None)
-    securo_exporter = SimpleNamespace(run_export=AsyncMock(return_value=securo_result))
+    securo_exporter = SimpleNamespace(
+        run_export=AsyncMock(return_value=securo_result)
+    )
     monkeypatch.setattr(
         "finance_sync.exporter.securo.exporter.SecuroExporter",
         MagicMock(return_value=securo_exporter),
     )
     securo = await schedule_runner.run_export(
         container,
-        schedule=SimpleNamespace(target_id="securo:target-1", tenant_id="tenant-1"),
+        schedule=SimpleNamespace(
+            target_id="securo:target-1", tenant_id="tenant-1"
+        ),
     )
     assert securo == {"status": "completed", "error": None}
     securo_exporter.run_export.assert_awaited_once_with(
@@ -1714,7 +1825,9 @@ def test_sync_schedule_helpers_cover_fallback_and_redaction() -> None:
         resolve_tenant_timezone,
     )
 
-    assert resolve_tenant_timezone("not/a-zone", fallback="also/invalid") == "UTC"
+    assert (
+        resolve_tenant_timezone("not/a-zone", fallback="also/invalid") == "UTC"
+    )
     assert resolve_tenant_timezone(None) == "Europe/Amsterdam"
     assert _default_schedule_payload() == {
         "frequency": "weekdays",
@@ -1785,7 +1898,9 @@ async def test_sync_schedule_service_get_missing_and_noop_update(
 
 
 @pytest.mark.asyncio
-async def test_sync_schedule_service_lists_filters_and_updates_with_audit() -> None:
+async def test_sync_schedule_service_lists_filters_and_updates_with_audit() -> (
+    None
+):
     from finance_sync.models.sync_schedule import SyncSchedule
     from finance_sync.services.sync_schedule import SyncScheduleService
 
@@ -1807,7 +1922,9 @@ async def test_sync_schedule_service_lists_filters_and_updates_with_audit() -> N
 
     session = SimpleNamespace(
         scalars=AsyncMock(return_value=ScalarRows()),
-        execute=AsyncMock(return_value=SimpleNamespace(scalar_one_or_none=lambda: row)),
+        execute=AsyncMock(
+            return_value=SimpleNamespace(scalar_one_or_none=lambda: row)
+        ),
         flush=AsyncMock(),
         add=MagicMock(),
     )
@@ -1865,7 +1982,9 @@ async def test_sync_schedule_service_rejects_stale_version() -> None:
 
 
 @pytest.mark.asyncio
-async def test_sync_schedule_service_ensure_returns_existing_and_race_winner() -> None:
+async def test_sync_schedule_service_ensure_returns_existing_and_race_winner() -> (
+    None
+):
     from finance_sync.models.sync_schedule import SyncSchedule
     from finance_sync.services.sync_schedule import SyncScheduleService
 
@@ -1890,9 +2009,12 @@ async def test_sync_schedule_service_ensure_returns_existing_and_race_winner() -
         flush=AsyncMock(),
     )
     service = SyncScheduleService(session)
-    assert await service.ensure_for_scope(
-        "tenant-1", scope="ingestion", target_id="connection-1"
-    ) is existing
+    assert (
+        await service.ensure_for_scope(
+            "tenant-1", scope="ingestion", target_id="connection-1"
+        )
+        is existing
+    )
     session.add.assert_not_called()
 
     winner = SimpleNamespace(id="winner")
@@ -1911,9 +2033,12 @@ async def test_sync_schedule_service_ensure_returns_existing_and_race_winner() -
         ),
         rollback=AsyncMock(),
     )
-    assert await SyncScheduleService(race_session).ensure_for_scope(
-        "tenant-1", scope="ingestion", target_id="connection-1"
-    ) is winner
+    assert (
+        await SyncScheduleService(race_session).ensure_for_scope(
+            "tenant-1", scope="ingestion", target_id="connection-1"
+        )
+        is winner
+    )
     race_session.rollback.assert_awaited_once()
 
 
@@ -2054,7 +2179,9 @@ async def test_sync_connector_job_handles_empty_and_mixed_connections(
         settings=settings,
         session_factory=lambda: _AsyncContext(session),
     )
-    monkeypatch.setattr(jobs, "_get_tenant_connections", AsyncMock(return_value=[]))
+    monkeypatch.setattr(
+        jobs, "_get_tenant_connections", AsyncMock(return_value=[])
+    )
     empty = await jobs.sync_connector_job(container, "bunq")
     assert empty == {"provider": "bunq", "connections_synced": 0, "results": []}
 
@@ -2074,7 +2201,9 @@ async def test_sync_connector_job_handles_empty_and_mixed_connections(
             "config": SimpleNamespace(provider_type="bunq"),
         },
     ]
-    monkeypatch.setattr(jobs, "_get_tenant_connections", AsyncMock(return_value=connections))
+    monkeypatch.setattr(
+        jobs, "_get_tenant_connections", AsyncMock(return_value=connections)
+    )
 
     class Orchestrator:
         def __init__(self, **kwargs: object) -> None:
@@ -2105,7 +2234,9 @@ async def test_sync_connector_job_handles_empty_and_mixed_connections(
 
 
 @pytest.mark.asyncio
-async def test_bunq_job_delegates_to_connector_job(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_bunq_job_delegates_to_connector_job(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     from finance_sync.worker import jobs
 
     delegated = AsyncMock(return_value={"provider": "bunq"})
@@ -2117,7 +2248,9 @@ async def test_bunq_job_delegates_to_connector_job(monkeypatch: pytest.MonkeyPat
 
 
 @pytest.mark.asyncio
-async def test_transaction_stage_resolves_security_and_tracks_unresolved() -> None:
+async def test_transaction_stage_resolves_security_and_tracks_unresolved() -> (
+    None
+):
     from datetime import datetime
 
     from finance_sync.connectors.models import (
@@ -2221,12 +2354,15 @@ async def test_sync_cursor_read_and_upsert_support_connection_scopes() -> None:
         connection_id="connection-1",
     )
     assert result == {"account-1": timestamp, "legacy": timestamp}
-    assert await get_cursor(
-        session,
-        tenant_id="tenant-1",
-        connector="bunq",
-        resource="missing",
-    ) is None
+    assert (
+        await get_cursor(
+            session,
+            tenant_id="tenant-1",
+            connector="bunq",
+            resource="missing",
+        )
+        is None
+    )
 
     created = await upsert_sync_cursor(
         session,
@@ -2251,7 +2387,9 @@ async def test_sync_cursor_read_and_upsert_support_connection_scopes() -> None:
 
 
 @pytest.mark.asyncio
-async def test_account_persistence_resolves_connection_owner_on_create() -> None:
+async def test_account_persistence_resolves_connection_owner_on_create() -> (
+    None
+):
     from finance_sync.connectors.models import CanonicalAccountData
     from finance_sync.sync.persistence import AccountPersistence
 
@@ -2269,7 +2407,9 @@ async def test_account_persistence_resolves_connection_owner_on_create() -> None
     )
     uow = SimpleNamespace(
         session=session,
-        accounts=SimpleNamespace(get_by_external_id=AsyncMock(return_value=None)),
+        accounts=SimpleNamespace(
+            get_by_external_id=AsyncMock(return_value=None)
+        ),
     )
 
     result = await AccountPersistence("tenant-1").persist_account(
@@ -2405,7 +2545,9 @@ async def test_webhook_active_query_scopes_by_tenant() -> None:
 
 
 @pytest.mark.asyncio
-async def test_webhook_emit_event_closes_service(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_webhook_emit_event_closes_service(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     from finance_sync.services.webhook import WebhookService
 
     dispatch = AsyncMock(return_value=2)
@@ -2451,7 +2593,9 @@ async def test_bunq_cards_job_reports_paused_connections(
         "secrets": [],
     }
 
-    async def connections(_uow: object, _provider: str) -> list[dict[str, object]]:
+    async def connections(
+        _uow: object, _provider: str
+    ) -> list[dict[str, object]]:
         return [paused]
 
     monkeypatch.setattr(jobs, "_get_tenant_connections", connections)
@@ -2481,7 +2625,9 @@ async def test_nightly_reconciliation_handles_empty_tenant_set(
     monkeypatch.setattr(
         jobs,
         "sync_trading212_job",
-        AsyncMock(return_value={"provider": "trading212", "connections_synced": 0}),
+        AsyncMock(
+            return_value={"provider": "trading212", "connections_synced": 0}
+        ),
     )
     monkeypatch.setattr(
         jobs,
@@ -2507,7 +2653,9 @@ async def test_nightly_reconciliation_handles_empty_tenant_set(
     session.commit.assert_awaited_once()
 
 
-def test_degiro_import_helpers_cover_invalid_names_and_options(tmp_path: Path) -> None:
+def test_degiro_import_helpers_cover_invalid_names_and_options(
+    tmp_path: Path,
+) -> None:
     from finance_sync.models.credential import Credential
     from finance_sync.services.degiro_import import (
         ImportValidationError,
@@ -2559,9 +2707,14 @@ def test_degiro_xlsx_archive_and_local_file_validation(tmp_path: Path) -> None:
     )
     with pytest.raises(ImportValidationError, match="ongeldig XLS"):
         validate_local_files([invalid_xls], settings)
-    assert cleanup_expired_previews(
-        SimpleNamespace(degiro_import_staging_directory=tmp_path / "missing")
-    ) == 0
+    assert (
+        cleanup_expired_previews(
+            SimpleNamespace(
+                degiro_import_staging_directory=tmp_path / "missing"
+            )
+        )
+        == 0
+    )
 
 
 def test_degiro_stage_paths_and_verification_errors(tmp_path: Path) -> None:
@@ -2620,7 +2773,9 @@ async def test_degiro_execute_run_completes_and_cleans_staged_files(
         duration_s=0.1,
     )
     orchestrator = SimpleNamespace(run_sync=AsyncMock(return_value=result))
-    monkeypatch.setattr(degiro_import, "SyncOrchestrator", lambda **_kwargs: orchestrator)
+    monkeypatch.setattr(
+        degiro_import, "SyncOrchestrator", lambda **_kwargs: orchestrator
+    )
     monkeypatch.setattr(degiro_import, "ConnectorRegistry", MagicMock)
     session = SimpleNamespace(
         flush=AsyncMock(),
@@ -2686,7 +2841,9 @@ async def test_degiro_execute_run_marks_failed_result_and_cleans_up(
         duration_s=0.1,
     )
     orchestrator = SimpleNamespace(run_sync=AsyncMock(return_value=result))
-    monkeypatch.setattr(degiro_import, "SyncOrchestrator", lambda **_kwargs: orchestrator)
+    monkeypatch.setattr(
+        degiro_import, "SyncOrchestrator", lambda **_kwargs: orchestrator
+    )
     monkeypatch.setattr(degiro_import, "ConnectorRegistry", MagicMock)
     session = SimpleNamespace(flush=AsyncMock())
     container = SimpleNamespace(
@@ -2765,7 +2922,9 @@ async def test_worker_scheduler_monitored_job_clears_running_state(
         async def __aexit__(self, *_args: object) -> None:
             return None
 
-    monkeypatch.setattr(scheduler_module, "JobRunContext", lambda *_args, **_kwargs: Context())
+    monkeypatch.setattr(
+        scheduler_module, "JobRunContext", lambda *_args, **_kwargs: Context()
+    )
     scheduler = scheduler_module.WorkerScheduler(
         SimpleNamespace(database_url=None), MagicMock(), MagicMock()
     )
@@ -2780,7 +2939,9 @@ async def test_worker_scheduler_monitored_job_clears_running_state(
 
 
 @pytest.mark.asyncio
-async def test_worker_scheduler_waits_for_running_jobs(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_worker_scheduler_waits_for_running_jobs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     import finance_sync.worker.scheduler as scheduler_module
 
     scheduler = scheduler_module.WorkerScheduler(
@@ -2825,7 +2986,10 @@ async def test_nightly_reconciliation_isolates_tenant_and_pruning_failures(
     from finance_sync.worker import jobs
 
     session = SimpleNamespace(info={}, commit=AsyncMock())
-    tenants = [SimpleNamespace(id="tenant-ok"), SimpleNamespace(id="tenant-bad")]
+    tenants = [
+        SimpleNamespace(id="tenant-ok"),
+        SimpleNamespace(id="tenant-bad"),
+    ]
     container = SimpleNamespace(
         settings=SimpleNamespace(),
         session_factory=lambda: _AsyncContext(session),
@@ -2873,11 +3037,17 @@ async def test_nightly_reconciliation_isolates_tenant_and_pruning_failures(
     result = await jobs.nightly_reconciliation_job(container)
 
     assert result["status"] == "completed"
-    assert {item["tenant_id"] for item in result["results"] if "tenant_id" in item} == {
+    assert {
+        item["tenant_id"] for item in result["results"] if "tenant_id" in item
+    } == {
         "tenant-ok",
         "tenant-bad",
     }
-    failed = next(item for item in result["results"] if item.get("tenant_id") == "tenant-bad")
+    failed = next(
+        item
+        for item in result["results"]
+        if item.get("tenant_id") == "tenant-bad"
+    )
     assert failed["error"] == "tenant failure"
     assert session.commit.await_count == 0
 
@@ -2902,7 +3072,9 @@ async def test_worker_scheduler_skips_stop_and_pause_when_not_running() -> None:
 
 
 @pytest.mark.asyncio
-async def test_worker_scheduler_registers_trading_price_and_reconciliation_jobs() -> None:
+async def test_worker_scheduler_registers_trading_price_and_reconciliation_jobs() -> (
+    None
+):
     from finance_sync.worker.scheduler import WorkerScheduler
 
     settings = SimpleNamespace(
@@ -2933,7 +3105,9 @@ async def test_worker_scheduler_registers_trading_price_and_reconciliation_jobs(
 
     assert ids == {"sync_trading212", "enrich_prices", "nightly_reconciliation"}
 
-    invalid = SimpleNamespace(**{**settings.__dict__, "worker_job_reconciliation_cron": "invalid"})
+    invalid = SimpleNamespace(
+        **{**settings.__dict__, "worker_job_reconciliation_cron": "invalid"}
+    )
     invalid_scheduler = WorkerScheduler(invalid, MagicMock(), MagicMock())
     invalid_scheduler._register_jobs()
     try:
@@ -2952,7 +3126,9 @@ async def test_worker_scheduler_registers_trading_price_and_reconciliation_jobs(
         "http://service.localhost/hook",
     ],
 )
-def test_webhook_url_validation_accepts_supported_destinations(url: str) -> None:
+def test_webhook_url_validation_accepts_supported_destinations(
+    url: str,
+) -> None:
     validate_webhook_url(url)
 
 
@@ -3014,7 +3190,9 @@ async def test_webhook_retry_cancels_inactive_delivery() -> None:
             nonlocal calls
             calls += 1
             if calls == 1:
-                return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: [pending_log]))
+                return SimpleNamespace(
+                    scalars=lambda: SimpleNamespace(all=lambda: [pending_log])
+                )
             return SimpleNamespace(scalar_one_or_none=lambda: row)
 
         async def get(self, _model: object, _id: object) -> None:
@@ -3054,7 +3232,9 @@ async def test_webhook_retry_reloads_active_delivery_and_commits() -> None:
             nonlocal calls
             calls += 1
             if calls == 1:
-                return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: [pending_log]))
+                return SimpleNamespace(
+                    scalars=lambda: SimpleNamespace(all=lambda: [pending_log])
+                )
             return SimpleNamespace(scalar_one_or_none=lambda: fresh)
 
         async def get(self, _model: object, _id: object) -> object:
@@ -3111,10 +3291,14 @@ async def test_webhook_delivery_failure_modes_schedule_or_record_retry(
     request = httpx.Request("POST", webhook.url)
     if failure == "http":
         response = SimpleNamespace(status_code=503, text="service unavailable")
-        service._http_client = SimpleNamespace(post=AsyncMock(return_value=response))  # type: ignore[assignment]
+        service._http_client = SimpleNamespace(
+            post=AsyncMock(return_value=response)
+        )  # type: ignore[assignment]
     elif failure == "request":
         service._http_client = SimpleNamespace(  # type: ignore[assignment]
-            post=AsyncMock(side_effect=httpx.RequestError("network", request=request))
+            post=AsyncMock(
+                side_effect=httpx.RequestError("network", request=request)
+            )
         )
     else:
         service._http_client = SimpleNamespace(  # type: ignore[assignment]
@@ -3174,7 +3358,9 @@ async def test_webhook_crud_is_tenant_scoped_with_fake_unit_of_work(
             return list(self.items)
 
         async def get(self, item_id: str) -> object | None:
-            return next((item for item in self.items if item.id == item_id), None)
+            return next(
+                (item for item in self.items if item.id == item_id), None
+            )
 
         async def delete(self, item: object) -> None:
             self.items.remove(item)
@@ -3209,9 +3395,9 @@ async def test_webhook_crud_is_tenant_scoped_with_fake_unit_of_work(
     )
     assert created.tenant_id == "tenant-1"
     assert created.secret
-    assert await service.list_webhooks("tenant-1", event_type="sync.completed") == [
-        created
-    ]
+    assert await service.list_webhooks(
+        "tenant-1", event_type="sync.completed"
+    ) == [created]
     assert await service.get_webhook(str(created.id), "tenant-2") is None
     assert await service.get_webhook(str(created.id), "tenant-1") is created
     assert await service.delete_webhook(str(created.id), "tenant-2") is False
@@ -3234,19 +3420,27 @@ def test_webhook_url_validation_rejects_unsafe_destinations(url: str) -> None:
         validate_webhook_url(url)
 
 
-def test_webhook_url_validation_resolve_errors(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_webhook_url_validation_resolve_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     def fail_lookup(*_args: object, **_kwargs: object) -> object:
         message = "dns unavailable"
         raise OSError(message)
 
-    monkeypatch.setattr("finance_sync.services.webhook.socket.getaddrinfo", fail_lookup)
+    monkeypatch.setattr(
+        "finance_sync.services.webhook.socket.getaddrinfo", fail_lookup
+    )
     with pytest.raises(ValueError, match="could not be resolved"):
         validate_webhook_url("https://unresolvable.example", resolve=True)
 
 
-def test_webhook_sliding_window_counter_prunes_and_limits(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_webhook_sliding_window_counter_prunes_and_limits(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     now = 100.0
-    monkeypatch.setattr("finance_sync.services.webhook.time.monotonic", lambda: now)
+    monkeypatch.setattr(
+        "finance_sync.services.webhook.time.monotonic", lambda: now
+    )
     counter = _SlidingWindowCounter()
     assert counter.is_allowed("hook", 2, window_s=60) is True
     assert counter.is_allowed("hook", 2, window_s=60) is True
@@ -3332,7 +3526,9 @@ async def test_performance_mwr_handles_cash_flows() -> None:
     assert result.initial_value == 100
     assert result.final_value == 121
     assert result.converged is True
-    assert float(result.internal_rate_of_return_pct) == pytest.approx(21, abs=0.1)
+    assert float(result.internal_rate_of_return_pct) == pytest.approx(
+        21, abs=0.1
+    )
 
 
 @pytest.mark.asyncio
@@ -3351,8 +3547,8 @@ async def test_performance_benchmark_calculates_statistics() -> None:
     )
     service._get_daily_returns = AsyncMock(  # type: ignore[method-assign]
         return_value=[
-                (datetime(2025, 1, 2, tzinfo=UTC), Decimal("0.04")),
-                (datetime(2025, 1, 3, tzinfo=UTC), Decimal("0.05")),
+            (datetime(2025, 1, 2, tzinfo=UTC), Decimal("0.04")),
+            (datetime(2025, 1, 3, tzinfo=UTC), Decimal("0.05")),
         ]
     )
 
@@ -3436,13 +3632,19 @@ async def test_security_resolution_honours_mapping_and_figi_fallback() -> None:
     uow = SimpleNamespace(
         unresolved_securities=SimpleNamespace(
             list=AsyncMock(
-                return_value=[SimpleNamespace(resolved_security_id="security-resolved")]
+                return_value=[
+                    SimpleNamespace(resolved_security_id="security-resolved")
+                ]
             )
         ),
         securities=SimpleNamespace(get=AsyncMock(return_value=resolved)),
     )
-    result, unresolved = await SecurityPersistence("tenant-1").resolve_security_reference(
-        uow, "broker", SecurityReference(external_id="provider-id", isin="US0378331005")
+    result, unresolved = await SecurityPersistence(
+        "tenant-1"
+    ).resolve_security_reference(
+        uow,
+        "broker",
+        SecurityReference(external_id="provider-id", isin="US0378331005"),
     )
     assert result is resolved
     assert unresolved is None
@@ -3452,7 +3654,9 @@ async def test_security_resolution_honours_mapping_and_figi_fallback() -> None:
         unresolved_securities=SimpleNamespace(list=AsyncMock(return_value=[])),
         securities=SimpleNamespace(list=AsyncMock(return_value=[candidate])),
     )
-    result, unresolved = await SecurityPersistence("tenant-1").resolve_security_reference(
+    result, unresolved = await SecurityPersistence(
+        "tenant-1"
+    ).resolve_security_reference(
         uow, "broker", SecurityReference(figi="BBG000B9XRY4")
     )
     assert result is candidate
@@ -3460,19 +3664,29 @@ async def test_security_resolution_honours_mapping_and_figi_fallback() -> None:
 
 
 @pytest.mark.asyncio
-async def test_security_resolution_filters_ticker_and_queues_ambiguity() -> None:
+async def test_security_resolution_filters_ticker_and_queues_ambiguity() -> (
+    None
+):
     from finance_sync.connectors.models import SecurityReference
     from finance_sync.sync.persistence import SecurityPersistence
 
     eur = SimpleNamespace(id="security-eur", currency_code="EUR")
     usd = SimpleNamespace(id="security-usd", currency_code="USD")
     uow = SimpleNamespace(
-        unresolved_securities=SimpleNamespace(list=AsyncMock(side_effect=[[], []])),
+        unresolved_securities=SimpleNamespace(
+            list=AsyncMock(side_effect=[[], []])
+        ),
         securities=SimpleNamespace(list=AsyncMock(return_value=[eur, usd])),
         session=SimpleNamespace(add=MagicMock(), flush=AsyncMock()),
     )
-    result, unresolved = await SecurityPersistence("tenant-1").resolve_security_reference(
-        uow, "broker", SecurityReference(ticker="VWCE", currency_code="EUR", external_id="provider-vwce")
+    result, unresolved = await SecurityPersistence(
+        "tenant-1"
+    ).resolve_security_reference(
+        uow,
+        "broker",
+        SecurityReference(
+            ticker="VWCE", currency_code="EUR", external_id="provider-vwce"
+        ),
     )
     assert result is None
     assert unresolved == "provider-vwce"
@@ -3481,7 +3695,9 @@ async def test_security_resolution_filters_ticker_and_queues_ambiguity() -> None
         unresolved_securities=SimpleNamespace(list=AsyncMock(return_value=[])),
         securities=SimpleNamespace(list=AsyncMock(return_value=[eur, usd])),
     )
-    result, unresolved = await SecurityPersistence("tenant-1").resolve_security_reference(
+    result, unresolved = await SecurityPersistence(
+        "tenant-1"
+    ).resolve_security_reference(
         uow, "broker", SecurityReference(ticker="VWCE", currency_code="EUR")
     )
     assert result is eur
@@ -3489,7 +3705,9 @@ async def test_security_resolution_filters_ticker_and_queues_ambiguity() -> None
 
 
 @pytest.mark.asyncio
-async def test_security_resolution_creates_instrument_and_updates_queue() -> None:
+async def test_security_resolution_creates_instrument_and_updates_queue() -> (
+    None
+):
     from finance_sync.connectors.models import SecurityReference
     from finance_sync.models.enums import SecurityType
     from finance_sync.sync.persistence import SecurityPersistence
@@ -3500,13 +3718,19 @@ async def test_security_resolution_creates_instrument_and_updates_queue() -> Non
         securities=SimpleNamespace(list=AsyncMock(return_value=[])),
         session=session,
     )
-    result, unresolved = await SecurityPersistence("tenant-1").resolve_security_reference(
+    result, unresolved = await SecurityPersistence(
+        "tenant-1"
+    ).resolve_security_reference(
         uow,
         "broker",
         SecurityReference(
-            external_id="provider-id", ticker="ABC", name="Alpha",
-            currency_code="eur", security_type="not-a-real-type",
-            provider_metadata={"source": "test"}, venue="XETRA",
+            external_id="provider-id",
+            ticker="ABC",
+            name="Alpha",
+            currency_code="eur",
+            security_type="not-a-real-type",
+            provider_metadata={"source": "test"},
+            venue="XETRA",
         ),
     )
     assert result is not None
@@ -3515,16 +3739,24 @@ async def test_security_resolution_creates_instrument_and_updates_queue() -> Non
     assert unresolved is None
     assert session.add.call_count == 2
     assert session.flush.await_count == 2
-    assert session.add.call_args.args[0].raw_metadata == '{"source": "test", "venue": "XETRA"}'
+    assert (
+        session.add.call_args.args[0].raw_metadata
+        == '{"source": "test", "venue": "XETRA"}'
+    )
 
     existing = SimpleNamespace()
     uow = SimpleNamespace(
-        unresolved_securities=SimpleNamespace(list=AsyncMock(return_value=[existing])),
+        unresolved_securities=SimpleNamespace(
+            list=AsyncMock(return_value=[existing])
+        ),
         session=SimpleNamespace(flush=AsyncMock()),
     )
     result = await SecurityPersistence("tenant-1")._queue_unresolved_security(
-        uow, "broker", SecurityReference(external_id="provider-id", ticker="ABC"),
-        resolved_security_id="security-1", resolution_method="manual",
+        uow,
+        "broker",
+        SecurityReference(external_id="provider-id", ticker="ABC"),
+        resolved_security_id="security-1",
+        resolution_method="manual",
     )
     assert result == "provider-id"
     assert existing.resolved_security_id == "security-1"
@@ -3532,7 +3764,9 @@ async def test_security_resolution_creates_instrument_and_updates_queue() -> Non
 
 
 @pytest.mark.asyncio
-async def test_sync_persistence_routes_context_and_rejects_card_writes_without_it() -> None:
+async def test_sync_persistence_routes_context_and_rejects_card_writes_without_it() -> (
+    None
+):
     from finance_sync.sync.persistence import (
         PersistenceContext,
         SyncPersistence,
@@ -3540,24 +3774,50 @@ async def test_sync_persistence_routes_context_and_rejects_card_writes_without_i
 
     writer = SimpleNamespace(
         persist_holding=AsyncMock(return_value="writer-holding"),
-        resolve_security_reference=AsyncMock(return_value=("writer-security", None)),
+        resolve_security_reference=AsyncMock(
+            return_value=("writer-security", None)
+        ),
     )
     persistence = SyncPersistence(writer)
-    assert await persistence.persist_holding("uow", "holding", "account", "security") == "writer-holding"
-    assert await persistence.resolve_security_reference("uow", "broker", "reference") == ("writer-security", None)
+    assert (
+        await persistence.persist_holding(
+            "uow", "holding", "account", "security"
+        )
+        == "writer-holding"
+    )
+    assert await persistence.resolve_security_reference(
+        "uow", "broker", "reference"
+    ) == ("writer-security", None)
     with pytest.raises(ValueError, match="scheduled-payment"):
-        await persistence.persist_scheduled_payment("uow", "schedule", "account")
+        await persistence.persist_scheduled_payment(
+            "uow", "schedule", "account"
+        )
     with pytest.raises(ValueError, match="card-transaction"):
         await persistence.persist_card_transaction("uow", "card")
 
-    persistence = SyncPersistence(SimpleNamespace(), context=PersistenceContext("tenant-1", "broker"))
-    persistence._holding_persistence.persist_holding = AsyncMock(return_value="context-holding")
-    persistence._security_persistence.resolve_security_reference = AsyncMock(return_value=("context-security", None))
-    assert await persistence.persist_holding("uow", "holding", "account", "security") == "context-holding"
-    assert await persistence.resolve_security_reference("uow", "broker", "reference") == ("context-security", None)
+    persistence = SyncPersistence(
+        SimpleNamespace(), context=PersistenceContext("tenant-1", "broker")
+    )
+    persistence._holding_persistence.persist_holding = AsyncMock(
+        return_value="context-holding"
+    )
+    persistence._security_persistence.resolve_security_reference = AsyncMock(
+        return_value=("context-security", None)
+    )
+    assert (
+        await persistence.persist_holding(
+            "uow", "holding", "account", "security"
+        )
+        == "context-holding"
+    )
+    assert await persistence.resolve_security_reference(
+        "uow", "broker", "reference"
+    ) == ("context-security", None)
 
 
-def test_exporter_api_lists_enabled_types_and_builds_config(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_exporter_api_lists_enabled_types_and_builds_config(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     from finance_sync.api.v1 import exporters
 
     settings = SimpleNamespace(
@@ -3580,7 +3840,11 @@ def test_exporter_api_lists_enabled_types_and_builds_config(monkeypatch: pytest.
     request = SimpleNamespace()
 
     types = asyncio.run(exporters.list_exporter_types(request))
-    assert [item.name for item in types] == ["wealthfolio", "actual-budget", "firefly"]
+    assert [item.name for item in types] == [
+        "wealthfolio",
+        "actual-budget",
+        "firefly",
+    ]
     config = exporters._build_wealthfolio_config(container)
     assert config.output_dir == Path("/tmp/exports")
     assert config.default_currency == "USD"
@@ -3588,7 +3852,9 @@ def test_exporter_api_lists_enabled_types_and_builds_config(monkeypatch: pytest.
     assert config.account_name_overrides == {"a": "Main"}
 
 
-def test_exporter_api_flags_and_run_id_validation(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_exporter_api_flags_and_run_id_validation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     from fastapi import HTTPException
 
     from finance_sync.api.v1 import exporters
@@ -3598,7 +3864,9 @@ def test_exporter_api_flags_and_run_id_validation(monkeypatch: pytest.MonkeyPatc
         exporter_firefly_enabled=False,
     )
     monkeypatch.setattr(
-        exporters, "get_container", lambda _request: SimpleNamespace(settings=disabled)
+        exporters,
+        "get_container",
+        lambda _request: SimpleNamespace(settings=disabled),
     )
     with pytest.raises(HTTPException) as error:
         exporters._require_wealthfolio_enabled(SimpleNamespace())
@@ -3607,7 +3875,10 @@ def test_exporter_api_flags_and_run_id_validation(monkeypatch: pytest.MonkeyPatc
         exporters._require_firefly_enabled(SimpleNamespace())
     assert error.value.status_code == 404
     assert exporters._parse_run_id("not-a-uuid") is None
-    assert exporters._parse_run_id("00000000-0000-0000-0000-000000000001") is not None
+    assert (
+        exporters._parse_run_id("00000000-0000-0000-0000-000000000001")
+        is not None
+    )
 
 
 @pytest.mark.asyncio
@@ -3635,8 +3906,12 @@ async def test_exporter_api_lists_runs_and_gets_run_details() -> None:
         delivery_checkpoint={"cursor": "4"},
     )
     count_result = SimpleNamespace(all=lambda: [run])
-    page_result = SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: [run]))
-    db = SimpleNamespace(execute=AsyncMock(side_effect=[count_result, page_result]))
+    page_result = SimpleNamespace(
+        scalars=lambda: SimpleNamespace(all=lambda: [run])
+    )
+    db = SimpleNamespace(
+        execute=AsyncMock(side_effect=[count_result, page_result])
+    )
     auth = SimpleNamespace(tenant_id="tenant-1")
 
     response = await exporters.list_export_runs(
@@ -3646,7 +3921,11 @@ async def test_exporter_api_lists_runs_and_gets_run_details() -> None:
     assert response.runs[0].duration_seconds == 2
     assert response.runs[0].error_category == "provider_unavailable"
 
-    db = SimpleNamespace(execute=AsyncMock(return_value=SimpleNamespace(scalar_one_or_none=lambda: run)))
+    db = SimpleNamespace(
+        execute=AsyncMock(
+            return_value=SimpleNamespace(scalar_one_or_none=lambda: run)
+        )
+    )
     detail = await exporters.get_export_run(run.id, auth=auth, db=db)
     assert detail.id == run.id
     assert detail.delivery_checkpoint == {"cursor": "4"}
@@ -3657,7 +3936,9 @@ async def test_exporter_api_lists_runs_and_gets_run_details() -> None:
 
 
 @pytest.mark.asyncio
-async def test_lifespan_database_initialisation_updates_existing_admin(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_lifespan_database_initialisation_updates_existing_admin(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     from finance_sync import lifespan as lifespan_module
 
     class _Row:
@@ -3685,11 +3966,17 @@ async def test_lifespan_database_initialisation_updates_existing_admin(monkeypat
     )
     container = SimpleNamespace(
         settings=settings,
-        engine=SimpleNamespace(begin=MagicMock(return_value=_AsyncContext(conn))),
+        engine=SimpleNamespace(
+            begin=MagicMock(return_value=_AsyncContext(conn))
+        ),
     )
-    monkeypatch.setattr(lifespan_module, "secret_value", lambda _value: "a" * 32)
+    monkeypatch.setattr(
+        lifespan_module, "secret_value", lambda _value: "a" * 32
+    )
     monkeypatch.setattr(lifespan_module, "_DB_RETRIES", 1)
-    monkeypatch.setattr("finance_sync.services.auth.hash_password", lambda _value: "new-hash")
+    monkeypatch.setattr(
+        "finance_sync.services.auth.hash_password", lambda _value: "new-hash"
+    )
 
     await lifespan_module._init_database(container)
 
@@ -3698,7 +3985,9 @@ async def test_lifespan_database_initialisation_updates_existing_admin(monkeypat
 
 
 @pytest.mark.asyncio
-async def test_lifespan_database_initialisation_creates_tenant_and_admin(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_lifespan_database_initialisation_creates_tenant_and_admin(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     from finance_sync import lifespan as lifespan_module
 
     class _Row:
@@ -3724,12 +4013,20 @@ async def test_lifespan_database_initialisation_creates_tenant_and_admin(monkeyp
         commit=AsyncMock(),
     )
     container = SimpleNamespace(
-        settings=SimpleNamespace(admin_key="ignored", is_production=True, is_staging=False),
-        engine=SimpleNamespace(begin=MagicMock(return_value=_AsyncContext(conn))),
+        settings=SimpleNamespace(
+            admin_key="ignored", is_production=True, is_staging=False
+        ),
+        engine=SimpleNamespace(
+            begin=MagicMock(return_value=_AsyncContext(conn))
+        ),
     )
-    monkeypatch.setattr(lifespan_module, "secret_value", lambda _value: "b" * 32)
+    monkeypatch.setattr(
+        lifespan_module, "secret_value", lambda _value: "b" * 32
+    )
     monkeypatch.setattr(lifespan_module, "_DB_RETRIES", 1)
-    monkeypatch.setattr("finance_sync.services.auth.hash_password", lambda _value: "hash")
+    monkeypatch.setattr(
+        "finance_sync.services.auth.hash_password", lambda _value: "hash"
+    )
 
     await lifespan_module._init_database(container)
 
@@ -3738,7 +4035,9 @@ async def test_lifespan_database_initialisation_creates_tenant_and_admin(monkeyp
 
 
 @pytest.mark.asyncio
-async def test_lifespan_database_initialisation_retries_transient_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_lifespan_database_initialisation_retries_transient_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     from finance_sync import lifespan as lifespan_module
 
     engine = SimpleNamespace(
@@ -3746,7 +4045,9 @@ async def test_lifespan_database_initialisation_retries_transient_failure(monkey
     )
     container = SimpleNamespace(engine=engine, settings=SimpleNamespace())
     sleeps = AsyncMock()
-    monkeypatch.setattr(lifespan_module, "asyncio", SimpleNamespace(sleep=sleeps))
+    monkeypatch.setattr(
+        lifespan_module, "asyncio", SimpleNamespace(sleep=sleeps)
+    )
     monkeypatch.setattr(lifespan_module, "_DB_RETRIES", 2)
     monkeypatch.setattr(lifespan_module, "_DB_RETRY_DELAY_S", 0.01)
 
@@ -3756,11 +4057,15 @@ async def test_lifespan_database_initialisation_retries_transient_failure(monkey
 
 
 @pytest.mark.asyncio
-async def test_lifespan_bootstraps_legacy_export_targets(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_lifespan_bootstraps_legacy_export_targets(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     from finance_sync import lifespan as lifespan_module
 
     session = SimpleNamespace(
-        scalar=AsyncMock(side_effect=[SimpleNamespace(id="tenant-1"), None, None]),
+        scalar=AsyncMock(
+            side_effect=[SimpleNamespace(id="tenant-1"), None, None]
+        ),
         add=MagicMock(),
         flush=AsyncMock(),
         commit=AsyncMock(),
@@ -3778,7 +4083,9 @@ async def test_lifespan_bootstraps_legacy_export_targets(monkeypatch: pytest.Mon
         settings=settings,
         session_factory=MagicMock(return_value=_AsyncContext(session)),
     )
-    monkeypatch.setattr(lifespan_module, "secret_value", lambda _value: "secret")
+    monkeypatch.setattr(
+        lifespan_module, "secret_value", lambda _value: "secret"
+    )
     monkeypatch.setattr(
         "finance_sync.services.auth.encrypt_credential",
         lambda _payload, _settings: ("encrypted", "nonce"),
@@ -3793,14 +4100,19 @@ async def test_lifespan_bootstraps_legacy_export_targets(monkeypatch: pytest.Mon
     assert session.add.call_count == 2
     assert session.flush.await_count == 2
     session.commit.assert_awaited_once()
-    assert {item.target_type for item in (call.args[0] for call in session.add.call_args_list)} == {
+    assert {
+        item.target_type
+        for item in (call.args[0] for call in session.add.call_args_list)
+    } == {
         "wealthfolio",
         "actual-budget",
     }
 
 
 @pytest.mark.asyncio
-async def test_exporter_retry_rejects_invalid_and_disabled_requests(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_exporter_retry_rejects_invalid_and_disabled_requests(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     from fastapi import HTTPException
 
     from finance_sync.api.v1 import exporters
@@ -3841,7 +4153,9 @@ async def test_exporter_retry_rejects_invalid_and_disabled_requests(monkeypatch:
 
 
 @pytest.mark.asyncio
-async def test_exporter_retry_runs_each_enabled_exporter(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_exporter_retry_runs_each_enabled_exporter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     from finance_sync.api.v1 import exporters
 
     settings = SimpleNamespace(
@@ -3859,7 +4173,9 @@ async def test_exporter_retry_runs_each_enabled_exporter(monkeypatch: pytest.Mon
     def database() -> SimpleNamespace:
         return SimpleNamespace(
             execute=AsyncMock(
-                return_value=SimpleNamespace(scalar_one_or_none=lambda run=run: run)
+                return_value=SimpleNamespace(
+                    scalar_one_or_none=lambda run=run: run
+                )
             )
         )
 
@@ -3920,20 +4236,42 @@ def test_sync_error_classification_covers_operational_categories() -> None:
         safe_sync_error_message,
     )
 
-    assert classify_sync_error(TransientError("temporary")) == SyncErrorKind.TRANSIENT
-    assert classify_sync_error(PermanentError("invalid input")) == SyncErrorKind.PERMANENT
-    assert classify_sync_error(RuntimeError("internal")) == SyncErrorKind.INTERNAL
+    assert (
+        classify_sync_error(TransientError("temporary"))
+        == SyncErrorKind.TRANSIENT
+    )
+    assert (
+        classify_sync_error(PermanentError("invalid input"))
+        == SyncErrorKind.PERMANENT
+    )
+    assert (
+        classify_sync_error(RuntimeError("internal")) == SyncErrorKind.INTERNAL
+    )
     assert safe_sync_error_message(ConnectorError()) == "Connector sync failed"
-    assert safe_sync_error_message(RuntimeError("secret")) == "Sync failed due to an internal error"
+    assert (
+        safe_sync_error_message(RuntimeError("secret"))
+        == "Sync failed due to an internal error"
+    )
     assert categorize_sync_error(RateLimitError()) == "rate_limited"
     assert categorize_sync_error(TransientError()) == "provider_unavailable"
-    assert categorize_sync_error(PermanentError("bad credential")) == "authentication"
-    assert categorize_sync_error(PermanentError("security mapping")) == "data_mapping"
-    assert categorize_sync_error(PermanentError("malformed payload")) == "validation"
+    assert (
+        categorize_sync_error(PermanentError("bad credential"))
+        == "authentication"
+    )
+    assert (
+        categorize_sync_error(PermanentError("security mapping"))
+        == "data_mapping"
+    )
+    assert (
+        categorize_sync_error(PermanentError("malformed payload"))
+        == "validation"
+    )
     assert categorize_sync_error(PermanentError("other")) == "unknown"
     assert categorize_sync_error(ConnectorError()) == "provider_unavailable"
     assert categorize_sync_error(RuntimeError("other")) == "unknown"
-    database_error = type("DatabaseError", (Exception,), {"__module__": "sqlalchemy.exc"})()
+    database_error = type(
+        "DatabaseError", (Exception,), {"__module__": "sqlalchemy.exc"}
+    )()
     assert categorize_sync_error(database_error) == "database"
     assert categorize_export_error(None) is None
     assert categorize_export_error("401 credential error") == "authentication"
@@ -3947,7 +4285,9 @@ def test_sync_error_classification_covers_operational_categories() -> None:
 
 
 @pytest.mark.asyncio
-async def test_exporter_retry_validates_existing_run_state(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_exporter_retry_validates_existing_run_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     from fastapi import HTTPException
 
     from finance_sync.api.v1 import exporters
@@ -3963,7 +4303,9 @@ async def test_exporter_retry_validates_existing_run_state(monkeypatch: pytest.M
     for run in (None, SimpleNamespace(status="completed")):
         db = SimpleNamespace(
             execute=AsyncMock(
-                return_value=SimpleNamespace(scalar_one_or_none=lambda run=run: run)
+                return_value=SimpleNamespace(
+                    scalar_one_or_none=lambda run=run: run
+                )
             )
         )
         with pytest.raises(HTTPException) as error:
@@ -3981,8 +4323,12 @@ async def test_lifespan_rejects_invalid_admin_key_and_skips_empty_bootstrap(
 
     conn = SimpleNamespace(execute=AsyncMock())
     container = SimpleNamespace(
-        settings=SimpleNamespace(admin_key="invalid", is_production=True, is_staging=False),
-        engine=SimpleNamespace(begin=MagicMock(return_value=_AsyncContext(conn))),
+        settings=SimpleNamespace(
+            admin_key="invalid", is_production=True, is_staging=False
+        ),
+        engine=SimpleNamespace(
+            begin=MagicMock(return_value=_AsyncContext(conn))
+        ),
     )
     monkeypatch.setattr(lifespan_module, "_DB_RETRIES", 1)
     with pytest.raises(RuntimeError, match="exactly 32 characters"):
@@ -4006,14 +4352,18 @@ async def test_lifespan_rejects_invalid_admin_key_and_skips_empty_bootstrap(
             actual_budget_server_url=None,
         ),
         session_factory=MagicMock(
-            return_value=_AsyncContext(SimpleNamespace(scalar=AsyncMock(return_value=None)))
+            return_value=_AsyncContext(
+                SimpleNamespace(scalar=AsyncMock(return_value=None))
+            )
         ),
     )
     await lifespan_module._bootstrap_legacy_export_targets(tenant_missing)
 
 
 @pytest.mark.asyncio
-async def test_exporter_retry_returns_conflict_when_lease_is_held(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_exporter_retry_returns_conflict_when_lease_is_held(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     from fastapi import HTTPException
 
     from finance_sync.api.v1 import exporters
@@ -4027,10 +4377,14 @@ async def test_exporter_retry_returns_conflict_when_lease_is_held(monkeypatch: p
     monkeypatch.setattr(
         exporters,
         "retry_lease",
-        lambda *_args, **_kwargs: _AsyncContext(SimpleNamespace(acquired=False)),
+        lambda *_args, **_kwargs: _AsyncContext(
+            SimpleNamespace(acquired=False)
+        ),
     )
     db = SimpleNamespace(
-        execute=AsyncMock(return_value=SimpleNamespace(scalar_one_or_none=lambda: run))
+        execute=AsyncMock(
+            return_value=SimpleNamespace(scalar_one_or_none=lambda: run)
+        )
     )
     with pytest.raises(HTTPException) as error:
         await exporters.retry_export_run(
@@ -4065,11 +4419,19 @@ async def test_exporter_retry_locked_checks_run_presence_and_type() -> None:
     ):
         db = SimpleNamespace(
             execute=AsyncMock(
-                return_value=SimpleNamespace(scalar_one_or_none=lambda run=run: run)
+                return_value=SimpleNamespace(
+                    scalar_one_or_none=lambda run=run: run
+                )
             )
         )
         with pytest.raises(HTTPException) as error:
             await exporters._retry_export_run_locked(
-                "wealthfolio", run_id, SimpleNamespace(), auth, db, SimpleNamespace(), container
+                "wealthfolio",
+                run_id,
+                SimpleNamespace(),
+                auth,
+                db,
+                SimpleNamespace(),
+                container,
             )
         assert error.value.status_code == expected
