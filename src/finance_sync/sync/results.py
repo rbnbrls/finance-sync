@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from finance_sync.models.enums import ReconciliationRunStatus, SyncRunStatus
 
 
@@ -11,8 +13,12 @@ class SyncResult:
     __slots__ = (
         "accounts_synced",
         "duration_s",
+        "error_category",
         "error_message",
         "holdings_synced",
+        "rate_limit_attempts",
+        "rate_limit_scope",
+        "retry_after_at",
         "status",
         "transactions_synced",
         "unresolved_securities",
@@ -28,6 +34,10 @@ class SyncResult:
         duration_s: float,
         holdings_synced: int = 0,
         unresolved_securities: int = 0,
+        error_category: str | None = None,
+        retry_after_at: datetime | None = None,
+        rate_limit_scope: str | None = None,
+        rate_limit_attempts: int = 0,
     ) -> None:
         self.status = status
         self.accounts_synced = accounts_synced
@@ -35,6 +45,10 @@ class SyncResult:
         self.holdings_synced = holdings_synced
         self.unresolved_securities = unresolved_securities
         self.error_message = error_message
+        self.error_category = error_category
+        self.retry_after_at = retry_after_at
+        self.rate_limit_scope = rate_limit_scope
+        self.rate_limit_attempts = rate_limit_attempts
         self.duration_s = duration_s
 
     def __repr__(self) -> str:

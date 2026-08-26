@@ -10,9 +10,11 @@ from finance_sync.dependencies import get_container, get_db
 from finance_sync.schemas.control_plane import ControlPlaneOverview
 from finance_sync.schemas.data_health import DataHealthOverview
 from finance_sync.schemas.data_quality import DataQualityOverview
+from finance_sync.schemas.provider_health import ProviderHealthOverview
 from finance_sync.services.control_plane import ControlPlaneService
 from finance_sync.services.data_health import DataHealthService
 from finance_sync.services.data_quality import DataQualityService
+from finance_sync.services.provider_health import ProviderHealthService
 
 router = APIRouter(prefix="/control-plane", tags=["control-plane"])
 
@@ -56,3 +58,12 @@ async def get_data_health_overview(
         permissions=auth.permissions,
         redis_configured=settings.redis_url is not None,
     ).get_overview()
+
+
+@router.get("/provider-health", response_model=list[ProviderHealthOverview])
+async def get_provider_health_overview(
+    auth: AuthContext = Depends(require_permission("sync", "read")),
+    db: AsyncSession = Depends(get_db),
+) -> list[ProviderHealthOverview]:
+    """Return connection, resource and processing health per provider."""
+    return await ProviderHealthService(db, auth.tenant_id).get_overview()

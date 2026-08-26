@@ -5,6 +5,14 @@ plugins interact with.  It covers the SDK classes, models, and protocols
 that are guaranteed to remain backward-compatible within the same major
 version of `finance-sync-sdk`.
 
+## Connector lifecycle contract
+
+Releases use `candidate -> certified -> enabled`, with controlled pause,
+deprecation, blocked and rollback states. Promotion and rollback are
+operator-only and audited. Connection health is three-level (connection,
+resource data, processing); `connected` does not mean the last sync succeeded.
+Reauthentication is test-then-commit and never returns credential material.
+
 ---
 
 ## 1. Plugin package layout

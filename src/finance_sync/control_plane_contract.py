@@ -32,9 +32,14 @@ ExportStatus = Literal["running", "completed", "failed", "cancelled"]
 CONTROL_PLANE_ERROR_CATEGORIES = frozenset(
     {
         "authentication",
+        "token_expired",
+        "reauth_required",
         "provider_unavailable",
         "rate_limited",
+        "timeout",
         "validation",
+        "incompatible",
+        "cancelled",
         "data_mapping",
         "database",
         "unknown",

@@ -126,6 +126,33 @@ class Credential(Base):
         nullable=True,
         comment="Normalized category of the latest connection error",
     )
+    rate_limited_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    retry_after_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    rate_limit_attempts: Mapped[int] = mapped_column(default=0, nullable=False)
+    rate_limit_scope: Mapped[str | None] = mapped_column(
+        String(16), nullable=True
+    )
+    last_http_status: Mapped[int | None] = mapped_column(nullable=True)
+    credential_status: Mapped[str] = mapped_column(
+        String(24), default="unknown", nullable=False
+    )
+    last_authenticated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    reauth_required_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    last_auth_error_code: Mapped[str | None] = mapped_column(
+        String(64), nullable=True
+    )
+    credential_version: Mapped[int] = mapped_column(default=1, nullable=False)
     last_test_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )

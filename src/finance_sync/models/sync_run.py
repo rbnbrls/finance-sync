@@ -39,6 +39,7 @@ class SyncRun(Base):
             "when the sync was performed for a specific connection"
         ),
     )
+    resource: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     # ── State ────────────────────────────────────────────────────────
     status: Mapped[SyncRunStatus] = mapped_column(
@@ -81,6 +82,14 @@ class SyncRun(Base):
     warnings: Mapped[list[str]] = mapped_column(
         JSON, nullable=False, default=list, server_default="[]"
     )
+    retry_after_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    rate_limit_attempts: Mapped[int] = mapped_column(default=0, nullable=False)
+    rate_limit_scope: Mapped[str | None] = mapped_column(
+        String(16), nullable=True
+    )
+    last_http_status: Mapped[int | None] = mapped_column(nullable=True)
 
     created_at = created_at_ts()
 

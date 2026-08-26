@@ -554,16 +554,33 @@ jobs:
         with:
           python-version: "3.12"
       - run: uv sync --extra dev --frozen
-      - run: DEBUG=false uv run pytest tests/test_release18_connector_lifecycle.py -q
+      - run: >
+          DEBUG=false uv run pytest -q
+          tests/test_release18_connector_lifecycle.py
+          tests/test_connector_lifecycle_evidence.py
+          tests/test_connector_releases.py
+          tests/test_provider_health.py
+      - name: Secret-redaction and synthetic lifecycle gate
+        run: >
+          DEBUG=false uv run pytest -q
+          tests/test_connector_lifecycle_observability.py
+          tests/test_connection_audit.py
+          tests/test_connectors_multi_connection.py
       - name: Publish safe connector lifecycle diagnostics
         run: >
           uv run python scripts/connector_lifecycle.py
           --config config/connector-lifecycle.json
           --artifact connector-lifecycle-report.json
+      - name: Build release evidence artifact
+        run: >
+          uv run python scripts/connector_lifecycle_evidence.py
+          --output connector-lifecycle-evidence.json
       - uses: actions/upload-artifact@v7
         with:
           name: connector-lifecycle-${{ github.sha }}
-          path: connector-lifecycle-report.json
+          path: |
+            connector-lifecycle-report.json
+            connector-lifecycle-evidence.json
           retention-days: 30
 
   # ── Autoscaling and backpressure policy ──────────────────────────────

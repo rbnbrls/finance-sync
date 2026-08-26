@@ -8,6 +8,15 @@ selection.
 
 This page is the operator/user guide for the connection model.  The
 OpenAPI document (served live at `/openapi.json`) is the authoritative
+source for request and response shapes.
+
+## Provider health
+
+The connection view exposes three independent levels: connection,
+per-resource source data, and last successful processing. Show reauth-required
+and rate-limit retry states with their safe reason codes and next action.
+`connected` means only that credentials passed a provider check; it does not
+mean that source data or the last sync is healthy.
 API reference; the control panel at `/dashboard` exposes the same
 operations in the UI.
 

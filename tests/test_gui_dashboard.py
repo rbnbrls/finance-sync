@@ -446,6 +446,12 @@ def test_dashboard_ships_connection_lifecycle_actions(
     assert "deleteConfig(" in html
     assert "api('POST', `/connectors/configs/${connectionId}/pause`)" in html
     assert "api('POST', `/connectors/configs/${connectionId}/resume`)" in html
+    assert (
+        "/connectors/${encodeURIComponent(c.id || c.connection_id)}/health"
+        in html
+    )
+    assert "Provider health" in html
+    assert "Reauthentication required" in html
 
 
 def test_dashboard_edit_wizard_targets_connection_id(

@@ -97,6 +97,7 @@ def test_control_plane_routes_are_registered(client: TestClient) -> None:
     assert "/api/v1/control-plane/overview" in paths
     assert "/api/v1/control-plane/data-quality" in paths
     assert "/api/v1/control-plane/data-health" in paths
+    assert "/api/v1/control-plane/provider-health" in paths
 
 
 def test_data_health_route_passes_tenant_permissions_and_redis_state(

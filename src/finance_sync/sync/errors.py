@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from enum import StrEnum
 
 from finance_sync.connectors.exceptions import (
@@ -45,10 +46,23 @@ def categorize_sync_error(error: BaseException) -> str:
     """Return the stable control-plane category for an operational error."""
     if isinstance(error, RateLimitError):
         return "rate_limited"
+    if isinstance(error, asyncio.CancelledError):
+        return "cancelled"
+    if isinstance(error, (TimeoutError, asyncio.TimeoutError)):
+        return "timeout"
     if isinstance(error, TransientError):
         return "provider_unavailable"
     if isinstance(error, PermanentError):
         message = str(error).lower()
+        if "incompatible" in message:
+            return "incompatible"
+        if any(
+            token in message
+            for token in ("expired", "revoked", "reauth", "401", "403")
+        ):
+            return "reauth_required"
+        if any(token in message for token in ("expired", "token expired")):
+            return "token_expired"
         if any(token in message for token in ("auth", "credential", "token")):
             return "authentication"
         if any(token in message for token in ("map", "security", "instrument")):
@@ -68,6 +82,11 @@ def categorize_export_error(message: str | None) -> str | None:
     if not message:
         return None
     text = message.lower()
+    if any(
+        token in text
+        for token in ("expired", "revoked", "reauth", "401", "403")
+    ):
+        return "reauth_required"
     if any(
         token in text for token in ("auth", "credential", "token", "401", "403")
     ):

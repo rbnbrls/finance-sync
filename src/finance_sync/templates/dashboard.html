@@ -1189,6 +1189,7 @@
         let connectors = [];     // available connector types
         let connectorCatalog = [];
         let configs = [];        // saved configs (one entry per connection)
+        let connectionHealth = {}; // read-only three-level health projection
         let degiroRuns = [];     // path-free DEGIRO import status
         let degiroConfigs = [];
         let degiroUploadRunId = null;
@@ -1635,7 +1636,12 @@
             if (response.status === 401) { redirectToLogin(); return null; }
             if (response.status === 204) return {};
             const data = await response.json();
-            if (!response.ok) { throw new Error(data.detail || `Request failed (${response.status})`); }
+            if (!response.ok) {
+                const detail = typeof data.detail === 'string'
+                    ? data.detail
+                    : (data.detail?.message || data.detail?.code || `Request failed (${response.status})`);
+                throw new Error(detail);
+            }
             return data;
         }
 
@@ -1748,6 +1754,15 @@
             connectorCatalog = avail || [];
             connectors = connectorCatalog.filter(c => c.name !== 'degiro_pension');
             configs = (cfgs || []).filter(c => c.provider_type !== 'degiro_pension');
+            const healthResults = await Promise.allSettled(configs.map(c =>
+                api('GET', `/connectors/${encodeURIComponent(c.id || c.connection_id)}/health`)
+            ));
+            connectionHealth = {};
+            healthResults.forEach((result, index) => {
+                if (result.status === 'fulfilled') {
+                    connectionHealth[String(configs[index].id || configs[index].connection_id)] = result.value;
+                }
+            });
             renderConnections();
 
             // Friendly inline notice for any endpoint that failed, each
@@ -1891,6 +1906,18 @@
             const label = escapeHtml(String(cfg.description || `${displayName} connection`));
             const isPaused = cfg.status === 'paused';
             const isConfigured = !!cfg.is_configured;
+            const health = connectionHealth[String(cfg.id || cfg.connection_id)];
+            const healthStatus = health?.overall_status || (isConfigured ? 'pending' : 'unavailable');
+            const resourceRows = (health?.resources || []).map(resource =>
+                `<div class="meta-row"><span>${escapeHtml(resource.resource)}: ${escapeHtml(resource.source_status)}</span><span>${resource.stale ? 'stale' : 'fresh'} · ${escapeHtml(fmtDate(resource.last_success_at))}</span></div>`
+            ).join('');
+            const versionRow = `<div class="meta-row"><span>Connector</span><span>${escapeHtml(meta?.plugin_version || 'unknown')} · ${escapeHtml(health?.compatibility?.status || 'unknown')}</span></div>`;
+            const rateLimit = health?.connection?.rate_limit;
+            const rateNotice = rateLimit?.active
+                ? `<div class="conn-error" role="status">Rate limit: retry after ${escapeHtml(fmtDate(rateLimit.retry_after_at))} (${escapeHtml(rateLimit.limit_scope || 'connection')}, ${escapeHtml(rateLimit.attempt_count)} attempts)</div>`
+                : '';
+            const reauthNotice = healthStatus === 'error' && health?.action_required === 'reauthenticate'
+                ? '<div class="conn-error" role="alert">Reauthentication required</div>' : '';
             const selected = cfg.selected_accounts;
             const selectedCount = (selected && selected.length) || 0;
             const selectedText = selected === null || selected === undefined || selected.length === 0
@@ -1898,9 +1925,11 @@
                 : `${selectedCount} selected`;
             const statusBadge = isPaused
                 ? '<span class="badge pending">Paused</span>'
-                : (isConfigured
-                    ? '<span class="badge connected">Active</span>'
-                    : '<span class="badge unconfigured">Not configured</span>');
+                : (healthStatus === 'healthy'
+                    ? '<span class="badge connected">Healthy</span>'
+                    : (isConfigured
+                    ? `<span class="badge ${healthStatus === 'error' ? 'disconnected' : 'pending'}">${escapeHtml(readableStatus(healthStatus))}</span>`
+                    : '<span class="badge unconfigured">Not configured</span>'));
             // Credentials are never rendered — only a masked "stored" hint.
             const credCap = isConfigured
                 ? '<span class="cap"><span class="mdi mdi-lock-outline"></span> Credentials stored</span>'
@@ -1926,12 +1955,21 @@
                         </div>
                     </div>
                     ${lastError}
+                    ${reauthNotice}${rateNotice}
+                    <div class="conn-meta" aria-label="Provider health">
+                        <div class="meta-row"><strong>Connection</strong><span>${escapeHtml(health?.connection?.status || 'loading')}</span></div>
+                        <div class="meta-row"><strong>Processing</strong><span>${escapeHtml(fmtDate(health?.last_successful_processing?.last_success_at))}</span></div>
+                        ${versionRow}
+                        ${resourceRows || '<div class="meta-row"><span>Resource health loading…</span></div>'}
+                    </div>
                     <div class="actions">
                         ${cfg.provider_type === 'saxo_investor' ? '' : `<button class="btn btn-success btn-sm" onclick="syncConnection('${connectionId}')"><span class="mdi mdi-sync"></span> Sync now</button>`}
                         ${cfg.provider_type === 'saxo_investor'
                             ? `<button class="btn btn-primary btn-sm" onclick="openSaxoImport('${connectionId}')"><span class="mdi mdi-file-upload-outline"></span> Upload Saxo Excel</button>`
                             : ''}
                         <button class="btn btn-secondary btn-sm" onclick="testConnection('${connectionId}', '${provider}')"><span class="mdi mdi-check-circle-outline"></span> Test</button>
+                        <button class="btn btn-secondary btn-sm" onclick="refreshConnectionHealth('${connectionId}')"><span class="mdi mdi-heart-pulse"></span> Health</button>
+                        ${health?.action_required === 'reauthenticate' ? `<button class="btn btn-warning btn-sm" onclick="openConfigModal('${provider}', '${connectionId}')">Reauthenticate</button>` : ''}
                         <button class="btn btn-secondary btn-sm" onclick="openAccountsModal('${connectionId}')"><span class="mdi mdi-folder-account-outline"></span> Accounts</button>
                         <button class="btn btn-secondary btn-sm" onclick="openConfigModal('${provider}', '${connectionId}')"><span class="mdi mdi-pencil-outline"></span> Edit</button>
                         <button class="btn btn-secondary btn-sm" onclick="openRenameModal('${connectionId}')"><span class="mdi mdi-rename-box-outline"></span> Rename</button>
@@ -1941,7 +1979,22 @@
                         <button class="btn btn-danger btn-sm" onclick="deleteConfig('${connectionId}', '${provider}')"><span class="mdi mdi-delete-outline"></span> Delete</button>
                     </div>
                     <div id="test-result-${connectionId}" style="margin-top: 12px;" aria-live="polite"></div>
+                    <div id="health-result-${connectionId}" style="margin-top: 8px;" aria-live="polite"></div>
                 </div>`;
+        }
+
+        async function refreshConnectionHealth(connectionId) {
+            const result = document.getElementById(`health-result-${connectionId}`);
+            if (result) result.textContent = 'Checking provider health…';
+            try {
+                const health = await api('GET', `/connectors/${encodeURIComponent(connectionId)}/health?refresh=true`);
+                connectionHealth[String(connectionId)] = health;
+                const cfg = findConfig(connectionId);
+                if (cfg) renderConnections();
+                if (result) result.textContent = `Health: ${readableStatus(health.overall_status)}`;
+            } catch (error) {
+                if (result) result.textContent = error?.message || 'Health check failed.';
+            }
         }
 
         function openDegiroImport(connectionId) {

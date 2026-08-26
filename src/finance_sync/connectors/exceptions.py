@@ -45,4 +45,9 @@ class RateLimitError(TransientError):
     ) -> None:
         self.retry_after = retry_after
         hint = f" (retry after {retry_after}s)" if retry_after else ""
-        super().__init__(f"{message}{hint}")
+        # Provider response text can contain a body, account identifier or
+        # other sensitive material. Keep the supplied message for connector
+        # debugging at the call site, but expose only a fixed safe diagnosis
+        # through ``str(error)`` and persisted sync metadata.
+        self.provider_message = message
+        super().__init__(f"Provider rate limit exceeded{hint}")

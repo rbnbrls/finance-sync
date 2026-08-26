@@ -421,6 +421,24 @@ async def trigger_sync_connection(
             detail="Connector configuration not found",
         )
 
+    retry_after_at = getattr(cred, "retry_after_at", None)
+    if retry_after_at is not None and retry_after_at > datetime.now(UTC):
+        # A retry during an active provider backoff is an actionable conflict,
+        # not a new provider attempt. The response contains only safe timing
+        # metadata; provider payloads and credentials never leave the system.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "rate_limit_active",
+                "retry_after_at": retry_after_at.isoformat(),
+                "limit_scope": getattr(cred, "rate_limit_scope", None),
+                "attempt_count": int(
+                    getattr(cred, "rate_limit_attempts", 0) or 0
+                ),
+                "action": "wait",
+            },
+        )
+
     link = await _run_connection_sync(
         get_container(request),
         db,

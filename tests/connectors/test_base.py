@@ -146,6 +146,13 @@ class TestConnectorABC:
         health = await conn.health()
         assert not health.healthy
 
+    async def test_legacy_connector_lifecycle_defaults_to_unknown_expiry(
+        self, mock_connector: Connector
+    ) -> None:
+        assert await mock_connector.credential_expiry() is None
+        await mock_connector.reauthenticate()
+        assert mock_connector.auth_calls == 1  # type: ignore[attr-defined]
+
     async def test_transform_accounts(
         self, mock_connector: Connector, sample_raw_account: RawAccount
     ) -> None:
