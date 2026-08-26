@@ -1,0 +1,49 @@
+# ==============================================================================
+# docker-compose.coolify.yml — finance-sync Coolify Deployment (app + worker)
+# ==============================================================================
+# Environment variables are injected by Coolify at container runtime via the
+# dashboard or envs API.  The compose file does NOT reference ${VAR} syntax
+# because Coolify injects env vars directly into the container environment.
+#
+# Standalone databases (managed by Coolify):
+#   PostgreSQL: avoxjx7g0c36ru1ez7hetauy:5432 (finance_sync)
+#   Redis:      upof2f9om8d8vppx0nxvvzwg:6379
+#
+# Required Coolify env vars:
+#   POSTGRES_PASSWORD, SECRET_KEY, MASTER_ENCRYPTION_KEY
+# ==============================================================================
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: finance-sync-app
+    restart: unless-stopped
+    ports:
+      - "8000"
+    networks:
+      - coolify
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: finance-sync-worker
+    restart: unless-stopped
+    entrypoint: ["python", "-m", "finance_sync.worker"]
+    ports:
+      - "9090"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:9090/health/live"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+    networks:
+      - coolify
+
+networks:
+  coolify:
+    name: coolify
+    external: true

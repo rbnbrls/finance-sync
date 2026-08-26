@@ -1,0 +1,354 @@
+{
+  "__inputs": [],
+  "__requires": [],
+  "title": "Portfolio",
+  "uid": "finance-sync-portfolio",
+  "version": 1,
+  "schemaVersion": 39,
+  "tags": ["finance-sync", "portfolio"],
+  "timezone": "browser",
+  "editable": true,
+  "refresh": "60s",
+  "panels": [
+    {
+      "title": "Net Worth",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 0 },
+      "id": 1,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "values": false, "fields": "" },
+        "textMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "unit": "currencyEUR",
+          "decimals": 2,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "green", "value": 0 }
+            ]
+          },
+          "custom": { "displayMode": "auto", "orientation": "horizontal" }
+        },
+        "overrides": []
+      },
+      "pluginVersion": "11.0",
+      "targets": [
+        {
+          "expr": "finance_net_worth_eur or vector(0)",
+          "legendFormat": "Net worth",
+          "refId": "A"
+        }
+      ],
+      "description": "Current net worth.\nRequires the `finance_net_worth_eur` gauge to be exposed (HA integration or dedicated metric). Falls back to 0."
+    },
+    {
+      "title": "Portfolio Value",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 0 },
+      "id": 2,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "values": false, "fields": "" },
+        "textMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "unit": "currencyEUR",
+          "decimals": 2,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "orange", "value": null },
+              { "color": "green", "value": 0 }
+            ]
+          },
+          "custom": { "displayMode": "auto", "orientation": "horizontal" }
+        },
+        "overrides": []
+      },
+      "pluginVersion": "11.0",
+      "targets": [
+        {
+          "expr": "finance_portfolio_value_eur or vector(0)",
+          "legendFormat": "Portfolio",
+          "refId": "A"
+        }
+      ],
+      "description": "Total investment portfolio value.\nRequires the `finance_portfolio_value_eur` gauge to be exposed."
+    },
+    {
+      "title": "Account Count",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 0 },
+      "id": 3,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "values": false, "fields": "" },
+        "textMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "fixed", "fixedColor": "blue" },
+          "unit": "short",
+          "min": 0,
+          "custom": { "displayMode": "auto", "orientation": "horizontal" }
+        },
+        "overrides": []
+      },
+      "pluginVersion": "11.0",
+      "targets": [
+        {
+          "expr": "finance_account_count or vector(0)",
+          "legendFormat": "Accounts",
+          "refId": "A"
+        }
+      ],
+      "description": "Number of tracked accounts."
+    },
+    {
+      "title": "Net Worth Over Time",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "id": 4,
+      "options": {
+        "legend": { "displayMode": "table", "placement": "right", "calcs": ["last", "max", "min"] },
+        "tooltip": { "mode": "multi" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyEUR",
+          "decimals": 2,
+          "custom": { "showPoints": "never", "lineInterpolation": "linear", "fillOpacity": 15 }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "Net worth" },
+            "properties": [
+              { "id": "custom.fillOpacity", "value": 20 },
+              { "id": "custom.lineWidth", "value": 2 }
+            ]
+          }
+        ]
+      },
+      "pluginVersion": "11.0",
+      "targets": [
+        {
+          "expr": "finance_net_worth_history_eur",
+          "legendFormat": "Net worth",
+          "refId": "A"
+        }
+      ],
+      "description": "Net worth historical trend.\nRequires the `finance_net_worth_history_eur` gauge set to be exposed (one time series per date)."
+    },
+    {
+      "title": "Portfolio Value by Account",
+      "type": "barchart",
+      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 4 },
+      "id": 5,
+      "options": {
+        "orientation": "horizontal",
+        "groupWidth": 0.7,
+        "barWidth": 0.85,
+        "showValue": "always",
+        "legend": { "displayMode": "list", "showLegend": false }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyEUR",
+          "decimals": 0,
+          "min": 0,
+          "custom": { "stacking": { "mode": "none" }, "axisBorderShow": false }
+        },
+        "overrides": []
+      },
+      "pluginVersion": "11.0",
+      "targets": [
+        {
+          "expr": "finance_account_value_eur",
+          "legendFormat": "{{account}}",
+          "refId": "A"
+        }
+      ],
+      "description": "Portfolio value broken down by account.\nRequires the `finance_account_value_eur` gauge set to be exposed."
+    },
+    {
+      "title": "Portfolio Allocation by Security Type",
+      "type": "piechart",
+      "gridPos": { "h": 8, "w": 6, "x": 0, "y": 12 },
+      "id": 6,
+      "options": {
+        "displayLabels": ["name", "percent"],
+        "legend": { "displayMode": "table", "placement": "right", "values": ["percent", "value"] },
+        "reduceOptions": { "calcs": ["lastNotNull"], "values": false, "fields": "" },
+        "tooltip": { "mode": "multi" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyEUR",
+          "decimals": 0,
+          "min": 0,
+          "custom": { "hideFrom": { "viz": false, "legend": false, "tooltip": false } }
+        },
+        "overrides": []
+      },
+      "pluginVersion": "11.0",
+      "targets": [
+        {
+          "expr": "finance_allocation_by_type_eur",
+          "legendFormat": "{{type}}",
+          "refId": "A"
+        }
+      ],
+      "description": "Portfolio allocation by security type (stock, ETF, bond, crypto, etc.).\nRequires the `finance_allocation_by_type_eur` metric to be exposed."
+    },
+    {
+      "title": "Top Holdings by Market Value",
+      "type": "table",
+      "gridPos": { "h": 8, "w": 6, "x": 6, "y": 12 },
+      "id": 7,
+      "options": {
+        "sortBy": [{ "displayName": "Market value", "desc": true }],
+        "frameIndex": 0,
+        "showTypeIcons": false
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyEUR",
+          "custom": {
+            "align": "auto",
+            "cellOptions": { "type": "auto" },
+            "inspect": false
+          }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "Name" },
+            "properties": [
+              { "id": "custom.width", "value": 200 }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Quantity" },
+            "properties": [
+              { "id": "unit", "value": "none" },
+              { "id": "custom.width", "value": 100 }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Price" },
+            "properties": [
+              { "id": "unit", "value": "currencyEUR" }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Unrealised P&L %" },
+            "properties": [
+              { "id": "unit", "value": "percentunit" },
+              { "id": "color", "mode": "thresholds" },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    { "color": "red", "value": null },
+                    { "color": "green", "value": 0 }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "pluginVersion": "11.0",
+      "targets": [
+        {
+          "expr": "finance_top_holdings",
+          "legendFormat": "{{security}}",
+          "refId": "A"
+        }
+      ],
+      "description": "Top holdings ranked by market value.\nRequires the `finance_top_holdings` metric to be exposed."
+    },
+    {
+      "title": "Account Balance Trends (7d)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 20 },
+      "id": 8,
+      "options": {
+        "legend": { "displayMode": "table", "placement": "right", "calcs": ["last", "max", "min"] },
+        "tooltip": { "mode": "multi" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyEUR",
+          "decimals": 0,
+          "custom": { "showPoints": "never", "lineInterpolation": "linear", "fillOpacity": 10 }
+        },
+        "overrides": []
+      },
+      "pluginVersion": "11.0",
+      "targets": [
+        {
+          "expr": "finance_account_balance_eur",
+          "legendFormat": "{{account}}",
+          "refId": "A"
+        }
+      ],
+      "description": "Daily account balance trends for the last 7 days.\nRequires the `finance_account_balance_eur` gauge set to be exposed."
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "datasource",
+        "type": "datasource",
+        "query": "prometheus",
+        "current": { "selected": true, "text": "Prometheus", "value": "prometheus" },
+        "hide": 0,
+        "refresh": 1
+      },
+      {
+        "name": "env",
+        "type": "custom",
+        "query": "dev, staging, prod",
+        "current": { "selected": true, "text": "prod", "value": "prod" },
+        "hide": 0,
+        "refresh": 1,
+        "label": "Environment",
+        "includeAll": false
+      }
+    ]
+  },
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": { "type": "grafana", "uid": "-- Grafana --" },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "links": [
+    { "title": "Sync Health", "type": "dashboards", "tags": ["finance-sync"] },
+    { "title": "System", "type": "dashboards", "tags": ["finance-sync"] }
+  ]
+}
