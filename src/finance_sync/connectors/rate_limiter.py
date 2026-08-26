@@ -120,6 +120,7 @@ class RateLimiter:
         """
         from finance_sync.connectors.exceptions import (
             PermanentError,
+            RateLimitError,
             TransientError,
         )
 
@@ -129,6 +130,16 @@ class RateLimiter:
             try:
                 await self.acquire()
                 return await coro_factory()
+            except RateLimitError as exc:
+                last_exc = exc
+                if attempt < self.policy.max_retries:
+                    # Retry-After is authoritative.  The local exponential
+                    # delay is still used when the provider did not send a
+                    # hint, and never shortens an explicit provider delay.
+                    delay = self.backoff_delay(attempt)
+                    if exc.retry_after is not None:
+                        delay = max(delay, exc.retry_after)
+                    await asyncio.sleep(delay)
             except TransientError as exc:
                 last_exc = exc
                 if attempt < self.policy.max_retries:
@@ -143,6 +154,8 @@ class RateLimiter:
                     delay = self.backoff_delay(attempt)
                     await asyncio.sleep(delay)
 
+        if isinstance(last_exc, RateLimitError):
+            raise last_exc
         msg = f"All {self.policy.max_retries} retries exhausted"
         raise TransientError(msg) from last_exc
 

@@ -2,6 +2,14 @@
 
 All tables use UUID primary keys, `tenant_id`, `created_at`, and `updated_at` unless immutable. Monetary values use `numeric(24,8)` plus ISO-4217 `currency_code`; timestamps are `timestamptz` in UTC. Provider IDs are strings, never integers. No floats are used for money, quantities, or prices.
 
+## Connector lifecycle data
+
+`connector_releases` stores version, certification, compatibility, canary,
+previous-version and rollback state. `connection_audit_log` is tenant-scoped
+and stores actor, provider, connection, timestamp, result and reason code.
+Credentials remain encrypted; audit and telemetry exclude secrets, tokens,
+financial payloads and full provider error text.
+
 ## Core tables
 
 | Table | Purpose and key constraints |

@@ -48,6 +48,10 @@ async def complete_sync_run(
     error_message: str | None = None,
     error_category: str | None = None,
     cursor: datetime | None = None,
+    retry_after_at: datetime | None = None,
+    rate_limit_attempts: int = 0,
+    rate_limit_scope: str | None = None,
+    last_http_status: int | None = None,
 ) -> SyncRun:
     """Mark a ``SyncRun`` as completed / failed.
 
@@ -68,5 +72,13 @@ async def complete_sync_run(
         run.error_category = error_category
     if cursor is not None:
         run.cursor = cursor
+    if retry_after_at is not None:
+        run.retry_after_at = retry_after_at
+    if rate_limit_attempts:
+        run.rate_limit_attempts = rate_limit_attempts
+    if rate_limit_scope is not None:
+        run.rate_limit_scope = rate_limit_scope
+    if last_http_status is not None:
+        run.last_http_status = last_http_status
     await uow.session.flush()  # type: ignore[union-attr]
     return run

@@ -95,6 +95,28 @@ def test_production_exposes_user_managed_api_fields_and_hides_fixtures() -> (
         assert fixture.status_code == 404
 
 
+def test_connector_catalog_exposes_safe_installation_metadata() -> None:
+    with TestClient(create_app(_settings("prod"))) as client:
+        response = client.get("/api/v1/connectors/catalog")
+
+        assert response.status_code == 200
+        connectors = {item["name"]: item for item in response.json()}
+        assert len(connectors) == 8
+        bunq = connectors["bunq"]
+        assert bunq["provider_key"] == "bunq"
+        assert bunq["plugin_version"] == "0.1.0"
+        assert bunq["sdk_version"] == "0.1.0"
+        assert bunq["supported_resources"] == ["accounts", "transactions"]
+        assert bunq["rate_limit_policy"] == {
+            "max_requests": 60,
+            "window_seconds": 60.0,
+            "max_retries": 3,
+        }
+        assert bunq["configuration_mode"] == "user"
+        assert "staging-synthetic" not in response.text
+        assert "api_key" in response.text  # field name, never its value
+
+
 def test_sync_uses_frontend_saved_connector_options() -> None:
     settings = _settings("prod")
     encrypted, nonce = encrypt_credential(

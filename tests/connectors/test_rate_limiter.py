@@ -5,7 +5,11 @@ from __future__ import annotations
 
 import pytest
 
-from finance_sync.connectors.exceptions import PermanentError, TransientError
+from finance_sync.connectors.exceptions import (
+    PermanentError,
+    RateLimitError,
+    TransientError,
+)
 from finance_sync.connectors.rate_limiter import RateLimiter, RateLimitPolicy
 
 pytestmark = pytest.mark.asyncio
@@ -157,3 +161,21 @@ class TestRateLimiterRetry:
         with pytest.raises(TransientError, match="retries exhausted"):
             await limiter.retry(fail_unknown)  # type: ignore[arg-type]
         assert call_count == 2  # initial + 1 retry
+
+    async def test_retry_after_is_honoured_and_429_is_preserved(self, monkeypatch) -> None:
+        policy = RateLimitPolicy(max_retries=1, backoff_base=0.01, jitter=0.0)
+        limiter = RateLimiter(policy)
+        sleeps: list[float] = []
+
+        async def fake_sleep(delay: float) -> None:
+            sleeps.append(delay)
+
+        monkeypatch.setattr("finance_sync.connectors.rate_limiter.asyncio.sleep", fake_sleep)
+
+        async def rate_limited() -> str:
+            message = "provider payload must not be persisted"
+            raise RateLimitError(message, retry_after=7)
+
+        with pytest.raises(RateLimitError, match="rate limit exceeded"):
+            await limiter.retry(rate_limited)  # type: ignore[arg-type]
+        assert sleeps == [7]

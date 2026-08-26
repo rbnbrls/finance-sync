@@ -2,6 +2,12 @@
 
 Base URL: `/api/v1`. JSON uses lower camel case externally, RFC 3339 timestamps, decimal values encoded as strings, and ISO currencies. Every collection endpoint supports `limit` (1–500), opaque `cursor`, `from`, `to`, and an `asOf` timestamp where meaningful. Responses include `meta: {asOf, currency, nextCursor, freshness}`.
 
+Connector health is available at `GET /api/v1/connectors/{connection_id}/health`
+and reports connection, resource and processing health independently. A
+`connected` status is not equivalent to successful processing. Reauth is
+`POST /api/v1/connectors/{connection_id}/reauthenticate`; release promotion,
+pause/resume and rollback require a human administrator.
+
 ### Meta envelope — as-of / freshness / coverage
 
 Every aggregate endpoint (`/allocation`, `/cashflow`, `/performance`,

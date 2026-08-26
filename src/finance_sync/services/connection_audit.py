@@ -22,7 +22,12 @@ from finance_sync.models.connection_audit_log import (
     AUDIT_CREATE,
     AUDIT_DELETE,
     AUDIT_PAUSE,
+    AUDIT_REAUTH_FAILURE,
+    AUDIT_REAUTH_START,
+    AUDIT_REAUTH_SUCCESS,
+    AUDIT_RELEASE_CANDIDATE,
     AUDIT_RESUME,
+    AUDIT_RETRY,
     AUDIT_SYNC,
     AUDIT_TEST,
     AUDIT_UPDATE,
@@ -41,7 +46,12 @@ __all__ = [
     "AUDIT_CREATE",
     "AUDIT_DELETE",
     "AUDIT_PAUSE",
+    "AUDIT_REAUTH_FAILURE",
+    "AUDIT_REAUTH_START",
+    "AUDIT_REAUTH_SUCCESS",
+    "AUDIT_RELEASE_CANDIDATE",
     "AUDIT_RESUME",
+    "AUDIT_RETRY",
     "AUDIT_SYNC",
     "AUDIT_TEST",
     "AUDIT_UPDATE",
@@ -69,7 +79,10 @@ async def log_connection_event(
     with the shared secret scrubber (defence in depth).  The record is
     added to *session* and flushed when *flush* is true.
     """
-    sanitised_detail: dict[str, Any] = {}
+    sanitised_detail: dict[str, Any] = {
+        "result": "success",
+        "reason_code": action,
+    }
     secrets_list = secrets or []
     for key, value in (detail or {}).items():
         if isinstance(value, str):

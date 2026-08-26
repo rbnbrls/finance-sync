@@ -12,7 +12,7 @@ import json
 from datetime import UTC, datetime
 from typing import Any, cast
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy import delete as sa_delete
 from sqlalchemy import select
@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from finance_sync.api.deps.auth import (
     AuthContext,
+    get_auth_context,
     require_permission,
     require_role,
 )
@@ -34,27 +35,92 @@ from finance_sync.connectors.models import (
 )
 from finance_sync.connectors.registry import ConnectorRegistry
 from finance_sync.dependencies import get_container, get_db
+from finance_sync.models.connector_release import ConnectorRelease
 from finance_sync.models.credential import (
     CONNECTION_STATUS_ACTIVE,
     CONNECTION_STATUS_PAUSED,
     Credential,
 )
 from finance_sync.models.transaction import Transaction
+from finance_sync.schemas.connector_release import (
+    ConnectorReleaseRequest,
+    ConnectorReleaseResponse,
+    ReleaseStatus,
+)
+from finance_sync.schemas.provider_health import ProviderHealthOverview
 from finance_sync.services.auth import decrypt_credential, encrypt_credential
 from finance_sync.services.connection_audit import (
     AUDIT_ACCOUNTS,
     AUDIT_CREATE,
     AUDIT_DELETE,
     AUDIT_PAUSE,
+    AUDIT_REAUTH_FAILURE,
+    AUDIT_REAUTH_START,
+    AUDIT_REAUTH_SUCCESS,
+    AUDIT_RELEASE_CANDIDATE,
     AUDIT_RESUME,
     AUDIT_TEST,
     AUDIT_UPDATE,
     list_connection_audit_events,
     log_connection_event,
 )
+from finance_sync.services.connector_compatibility import (
+    ConnectorCompatibility,
+    default_contract_paths,
+    evaluate_connector,
+    load_json,
+)
+from finance_sync.services.connector_releases import (
+    ConnectorReleaseError,
+    register_candidate,
+)
+from finance_sync.services.connector_releases import (
+    pause as pause_release,
+)
+from finance_sync.services.connector_releases import (
+    promote as promote_release,
+)
+from finance_sync.services.connector_releases import (
+    resume as resume_release,
+)
+from finance_sync.services.connector_releases import (
+    rollback as rollback_release,
+)
+from finance_sync.services.provider_health import ProviderHealthService
 from finance_sync.utils.redaction import sanitize_error
 
 router = APIRouter(prefix="/connectors", tags=["connectors"])
+
+
+async def _require_operator(
+    auth: AuthContext = Depends(get_auth_context),
+) -> AuthContext:
+    """Require a human administrator for provider-wide release changes."""
+    if auth.user is None or auth.user.role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Connector release actions require an administrator",
+        )
+    return auth
+
+
+def _release_response(row: ConnectorRelease) -> ConnectorReleaseResponse:
+    return ConnectorReleaseResponse(
+        id=str(row.id),
+        provider_key=row.provider_key,
+        version=row.version,
+        status=cast(ReleaseStatus, row.status),
+        previous_version=row.previous_version,
+        certification_status=row.certification_status,
+        certification_commit=row.certification_commit,
+        compatibility_status=row.compatibility_status,
+        canary_status=row.canary_status,
+        capabilities=list(row.capabilities or []),
+        reason_code=row.reason_code,
+        enabled_at=row.enabled_at,
+        disabled_at=row.disabled_at,
+    )
+
 
 # ── Singleton registry ──────────────────────────────────────────────────
 _registry: ConnectorRegistry | None = None
@@ -103,6 +169,28 @@ class ConnectorInfo(BaseModel):
     )
 
 
+class ConnectorCatalogInfo(BaseModel):
+    """Stable, secret-safe metadata for one installed connector."""
+
+    name: str
+    provider_key: str
+    display_name: str
+    plugin_package: str
+    plugin_version: str
+    sdk_version: str
+    supported_resources: list[str]
+    credential_fields: list[dict[str, object]]
+    option_fields: list[dict[str, object]]
+    rate_limit_policy: dict[str, int | float] | None = None
+    auth_mode: str = "credentials"
+    documentation_url: str | None = None
+    lifecycle_status: str = "available"
+    feature_flag: str | None = None
+    configuration_mode: str
+    metadata_incomplete: bool = False
+    compatibility: ConnectorCompatibility
+
+
 class ConnectorConfigResponse(BaseModel):
     """A stored connector configuration (without sensitive credentials).
 
@@ -148,6 +236,11 @@ class ConnectorConfigResponse(BaseModel):
         default=None,
         description="Sanitised error of the last failed sync / connection test",
     )
+    credential_status: str = "unknown"
+    last_authenticated_at: datetime | None = None
+    expires_at: datetime | None = None
+    reauth_required_at: datetime | None = None
+    credential_version: int = 1
     created_at: datetime
     updated_at: datetime
 
@@ -279,6 +372,13 @@ class ConnectorConfigUpdate(BaseModel):
     )
 
 
+class ReauthenticateRequest(BaseModel):
+    """Replacement credentials tested before they are committed."""
+
+    credentials: dict[str, str] = Field(default_factory=dict)
+    options: dict[str, Any] = Field(default_factory=dict)
+
+
 # ── Response helpers ───────────────────────────────────────────────────
 
 # Providers whose configs count as configured without encrypted payloads
@@ -335,6 +435,11 @@ def _credential_response(row: Credential) -> ConnectorConfigResponse:
         last_attempt_at=row.last_attempt_at,
         last_success_at=row.last_success_at,
         last_error=row.last_error,
+        credential_status=getattr(row, "credential_status", None) or "unknown",
+        last_authenticated_at=getattr(row, "last_authenticated_at", None),
+        expires_at=getattr(row, "expires_at", None),
+        reauth_required_at=getattr(row, "reauth_required_at", None),
+        credential_version=int(getattr(row, "credential_version", 1) or 1),
         created_at=row.created_at,
         updated_at=row.updated_at,
     )
@@ -357,6 +462,207 @@ async def _load_tenant_credential(
             detail="Connector configuration not found",
         )
     return cred
+
+
+@router.get(
+    "/{connection_id}/health",
+    response_model=ProviderHealthOverview,
+)
+async def get_connection_health(
+    connection_id: str,
+    request: Request,
+    refresh: bool = Query(
+        default=False,
+        description="Run one lightweight provider health check before projecting health",
+    ),
+    auth: AuthContext = Depends(require_permission("connectors", "read")),
+    db: AsyncSession = Depends(get_db),
+) -> ProviderHealthOverview:
+    """Return the three-level health projection for one connection.
+
+    A normal read is database-only. ``refresh=true`` performs only the
+    connector's lightweight ``health`` hook; it never starts a full sync.
+    """
+    cred = await _load_tenant_credential(db, auth, connection_id)
+    if refresh:
+        container = get_container(request)
+        credentials: dict[str, str] = {}
+        if cred.encrypted_payload:
+            try:
+                raw = decrypt_credential(
+                    cred.encrypted_payload, cred.nonce, container.settings
+                )
+                parsed = json.loads(raw)
+                if isinstance(parsed, dict):
+                    credentials = cast(dict[str, str], parsed)
+            except Exception as exc:
+                cred.last_error = sanitize_error(str(exc), [])
+                cred.last_error_category = "authentication"
+        options: dict[str, Any] = {}
+        with contextlib.suppress(json.JSONDecodeError, TypeError):
+            parsed_options = json.loads(cred.description or "{}")
+            if isinstance(parsed_options, dict):
+                options = cast(dict[str, Any], parsed_options)
+        try:
+            connector = _get_registry().get_connector(
+                ConnectorConfigModel(
+                    provider_type=cred.provider_key,
+                    credentials=credentials,
+                    options=options,
+                )
+            )
+            health = await connector.health()
+            now = datetime.now(UTC)
+            cred.last_test_at = now
+            cred.last_test_status = "passed" if health.healthy else "failed"
+            if health.healthy:
+                cred.last_error = None
+                cred.last_error_category = None
+            else:
+                cred.last_error = sanitize_error(health.message or "Health check failed", list(credentials.values()))
+                cred.last_error_category = "provider_unavailable"
+            await db.flush()
+        except Exception as exc:
+            cred.last_error = sanitize_error(str(exc), list(credentials.values()))
+            cred.last_error_category = "unknown"
+            await db.flush()
+    return await _single_provider_health(db, auth.tenant_id, cred)
+
+
+async def _single_provider_health(
+    db: AsyncSession, tenant_id: str, credential: Credential
+) -> ProviderHealthOverview:
+    overviews = await ProviderHealthService(db, tenant_id).get_overview()
+    for overview in overviews:
+        if overview.connection_id == str(credential.id):
+            return overview
+    raise HTTPException(status_code=404, detail="Connection health not found")
+
+
+@router.post(
+    "/releases/{provider_key}",
+    response_model=ConnectorReleaseResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def register_connector_release(
+    provider_key: str,
+    body: ConnectorReleaseRequest,
+    auth: AuthContext = Depends(_require_operator),
+    db: AsyncSession = Depends(get_db),
+) -> ConnectorReleaseResponse:
+    """Register a candidate release; registration never enables it."""
+    try:
+        release = await register_candidate(
+            db,
+            provider_key=provider_key,
+            version=body.version,
+            previous_version=body.previous_version,
+            certification_status=body.certification_status,
+            certification_commit=body.certification_commit,
+            compatibility_status=body.compatibility_status,
+            canary_status=body.canary_status,
+            capabilities=body.capabilities,
+        )
+    except ConnectorReleaseError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    await log_connection_event(
+        db,
+        tenant_id=auth.tenant_id,
+        action=AUDIT_RELEASE_CANDIDATE,
+        provider_key=provider_key,
+        detail={
+            "version": release.version,
+            "result": "candidate_registered",
+            "reason_code": "release_candidate_registered",
+        },
+        actor_user_id=auth.principal_id,
+        actor_role=auth.user.role if auth.user else None,
+    )
+    return _release_response(release)
+
+
+async def _release_action(
+    db: AsyncSession,
+    auth: AuthContext,
+    provider_key: str,
+    version: str | None,
+    action: str,
+) -> ConnectorReleaseResponse:
+    try:
+        if action == "promote":
+            assert version is not None
+            release = await promote_release(db, provider_key, version)
+        elif action == "pause":
+            assert version is not None
+            release = await pause_release(db, provider_key, version)
+        elif action == "resume":
+            assert version is not None
+            release = await resume_release(db, provider_key, version)
+        else:
+            release = await rollback_release(db, provider_key)
+    except ConnectorReleaseError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    await log_connection_event(
+        db,
+        tenant_id=auth.tenant_id,
+        action=action,
+        provider_key=provider_key,
+        detail={"version": release.version, "action": action},
+        actor_user_id=auth.principal_id,
+        actor_role=auth.user.role if auth.user else None,
+    )
+    return _release_response(release)
+
+
+@router.post(
+    "/releases/{provider_key}/{version}/promote",
+    response_model=ConnectorReleaseResponse,
+)
+async def promote_connector_release(
+    provider_key: str,
+    version: str,
+    auth: AuthContext = Depends(_require_operator),
+    db: AsyncSession = Depends(get_db),
+) -> ConnectorReleaseResponse:
+    return await _release_action(db, auth, provider_key, version, "promote")
+
+
+@router.post(
+    "/releases/{provider_key}/{version}/pause",
+    response_model=ConnectorReleaseResponse,
+)
+async def pause_connector_release(
+    provider_key: str,
+    version: str,
+    auth: AuthContext = Depends(_require_operator),
+    db: AsyncSession = Depends(get_db),
+) -> ConnectorReleaseResponse:
+    return await _release_action(db, auth, provider_key, version, "pause")
+
+
+@router.post(
+    "/releases/{provider_key}/{version}/resume",
+    response_model=ConnectorReleaseResponse,
+)
+async def resume_connector_release(
+    provider_key: str,
+    version: str,
+    auth: AuthContext = Depends(_require_operator),
+    db: AsyncSession = Depends(get_db),
+) -> ConnectorReleaseResponse:
+    return await _release_action(db, auth, provider_key, version, "resume")
+
+
+@router.post(
+    "/releases/{provider_key}/rollback",
+    response_model=ConnectorReleaseResponse,
+)
+async def rollback_connector_release(
+    provider_key: str,
+    auth: AuthContext = Depends(_require_operator),
+    db: AsyncSession = Depends(get_db),
+) -> ConnectorReleaseResponse:
+    return await _release_action(db, auth, provider_key, None, "rollback")
 
 
 # ── Credential field definitions per connector ──────────────────────────
@@ -590,6 +896,82 @@ async def list_available_connectors(
                 option_fields=opt_fields,
                 capabilities=capabilities,
                 configuration_mode="staging_choice" if managed else "user",
+            )
+        )
+    return result
+
+
+@router.get("/catalog", response_model=list[ConnectorCatalogInfo])
+async def list_connector_catalog(
+    request: Request,
+) -> list[ConnectorCatalogInfo]:
+    """Return the installed connector catalogue without secret values.
+
+    The catalogue is static installation metadata and therefore remains
+    available before login, like the legacy ``GET /connectors`` endpoint.
+    Tenant-specific connection health is deliberately not included here.
+    """
+    registry = _get_registry()
+    settings = get_container(request).settings
+    lifecycle_path, matrix_path = default_contract_paths()
+    lifecycle = load_json(lifecycle_path)
+    contract_matrix = load_json(matrix_path)
+    fixture_versions = {
+        str(item["name"]): str(item["fixture_date"])
+        for item in cast(
+            "list[dict[str, Any]]", contract_matrix.get("connectors", [])
+        )
+        if item.get("name") and item.get("fixture_date")
+    }
+    result: list[ConnectorCatalogInfo] = []
+    for name, meta in registry.list_connectors().items():
+        managed = is_staging_managed(name, settings)
+        credential_fields, option_fields = _get_connector_credential_schema(
+            name
+        )
+        if managed:
+            credential_fields, option_fields = _staging_connector_schema(name)
+
+        raw_rate_limit = meta.get("rate_limit_policy")
+        rate_limit: dict[str, int | float] | None = (
+            cast("dict[str, int | float]", raw_rate_limit)
+            if isinstance(raw_rate_limit, dict)
+            else None
+        )
+        credential_auth = "file" if not credential_fields else "credentials"
+        compatibility = evaluate_connector(
+            lifecycle,
+            meta,
+            fixture_version=fixture_versions.get(name),
+            contract_matrix=contract_matrix,
+            enabled=bool(
+                cast(
+                    "dict[str, bool]",
+                    getattr(settings, "connector_feature_flags", {}),
+                ).get(name, True)
+            ),
+        )
+        result.append(
+            ConnectorCatalogInfo(
+                name=name,
+                provider_key=str(meta.get("provider_key", name)),
+                display_name=str(meta.get("display_name", name)),
+                plugin_package=str(meta.get("plugin_package", "unknown")),
+                plugin_version=str(meta.get("plugin_version", "0.1.0")),
+                sdk_version=str(meta.get("sdk_version", "0.1.0")),
+                supported_resources=list(meta.get("supported_resources", [])),
+                credential_fields=credential_fields,
+                option_fields=option_fields,
+                rate_limit_policy=rate_limit,
+                auth_mode=str(meta.get("auth_mode", credential_auth)),
+                documentation_url=meta.get("documentation_url"),
+                lifecycle_status=str(meta.get("lifecycle_status", "available")),
+                feature_flag=meta.get("feature_flag"),
+                configuration_mode="staging_choice" if managed else "user",
+                metadata_incomplete=bool(
+                    meta.get("metadata_incomplete", False)
+                ),
+                compatibility=compatibility,
             )
         )
     return result
@@ -1039,16 +1421,32 @@ async def test_connector_connection(
         cred.updated_at = now
         if health.healthy:
             cred.last_success_at = now
+            cred.credential_status = "verified"
+            cred.last_authenticated_at = now
+            cred.reauth_required_at = None
+            cred.last_auth_error_code = None
             cred.last_error = None
             cred.last_error_category = None
             cred.last_test_status = "passed"
             cred.last_test_error = None
             message = health.message or "Connection successful"
         else:
+            from finance_sync.sync.errors import categorize_export_error
+
             cred.last_error = sanitize_error(
                 health.message or "Connection test failed", secrets
             )
-            cred.last_error_category = "provider_unavailable"
+            cred.last_error_category = categorize_export_error(
+                health.message or "Connection test failed"
+            )
+            cred.credential_status = (
+                "reauth_required"
+                if cred.last_error_category == "reauth_required"
+                else "unknown"
+            )
+            if cred.credential_status == "reauth_required":
+                cred.reauth_required_at = now
+                cred.last_auth_error_code = cred.last_error_category
             cred.last_test_status = "failed"
             cred.last_test_error = cred.last_error
             message = cred.last_error or "Connection test failed"
@@ -1071,9 +1469,19 @@ async def test_connector_connection(
         )
     except Exception as exc:
         failure = sanitize_error(str(exc), secrets)
+        from finance_sync.sync.errors import categorize_export_error
+
         cred.last_attempt_at = now
         cred.last_error = failure
-        cred.last_error_category = "unknown"
+        cred.last_error_category = categorize_export_error(str(exc))
+        cred.credential_status = (
+            "reauth_required"
+            if cred.last_error_category == "reauth_required"
+            else "unknown"
+        )
+        if cred.credential_status == "reauth_required":
+            cred.reauth_required_at = now
+            cred.last_auth_error_code = cred.last_error_category
         cred.last_test_at = now
         cred.last_test_status = "failed"
         cred.last_test_error = failure
@@ -1091,6 +1499,121 @@ async def test_connector_connection(
             secrets=secrets,
         )
         return ConnectorTestResult(success=False, message=failure)
+
+
+@router.post(
+    "/{connection_id}/reauthenticate",
+    response_model=ConnectorConfigResponse,
+)
+async def reauthenticate_connector(
+    connection_id: str,
+    body: ReauthenticateRequest,
+    request: Request,
+    auth: AuthContext = Depends(require_permission("connectors", "write")),
+    db: AsyncSession = Depends(get_db),
+) -> ConnectorConfigResponse:
+    """Test replacement credentials, then atomically activate them.
+
+    The old encrypted payload is untouched when authentication fails. The
+    endpoint never returns, logs, or audits the submitted secret values.
+    """
+    if not body.credentials:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="New credentials are required",
+        )
+    container = get_container(request)
+    cred = await _load_tenant_credential(db, auth, connection_id)
+    registry = _get_registry()
+    candidate = ConnectorConfigModel(
+        provider_type=cred.provider_key,
+        credentials=dict(body.credentials),
+        options=dict(body.options),
+    )
+    try:
+        await log_connection_event(
+            db,
+            tenant_id=auth.tenant_id,
+            action=AUDIT_REAUTH_START,
+            provider_key=cred.provider_key,
+            connection_id=str(cred.id),
+            detail={"result": "started", "reason_code": "reauth_requested"},
+            actor_user_id=auth.principal_id,
+            actor_role=auth.user.role if auth.user else None,
+        )
+        connector = registry.get_connector(candidate)
+        await connector.reauthenticate()
+        expires_at = await connector.credential_expiry()
+    except Exception as exc:
+        from finance_sync.sync.errors import categorize_export_error
+
+        safe_error = sanitize_error(str(exc), list(body.credentials.values()))
+        cred.credential_status = "reauth_required"
+        cred.reauth_required_at = datetime.now(UTC)
+        cred.last_auth_error_code = categorize_export_error(str(exc))
+        cred.last_error = safe_error
+        cred.last_error_category = cred.last_auth_error_code
+        cred.updated_at = datetime.now(UTC)
+        await db.flush()
+        await log_connection_event(
+            db,
+            tenant_id=auth.tenant_id,
+            action=AUDIT_REAUTH_FAILURE,
+            provider_key=cred.provider_key,
+            connection_id=str(cred.id),
+            detail={
+                "success": False,
+                "reason_code": cred.last_auth_error_code,
+                "error_category": cred.last_auth_error_code,
+            },
+            actor_user_id=auth.principal_id,
+            actor_role=auth.user.role if auth.user else None,
+            secrets=list(body.credentials.values()),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=safe_error or "Reauthentication failed",
+        ) from exc
+
+    plaintext = json.dumps(body.credentials, separators=(",", ":"))
+    encrypted, nonce = encrypt_credential(plaintext, container.settings)
+    cred.encrypted_payload = encrypted
+    cred.nonce = nonce
+    if body.options:
+        existing: dict[str, Any] = {}
+        with contextlib.suppress(json.JSONDecodeError, TypeError):
+            parsed = json.loads(cred.description or "{}")
+            if isinstance(parsed, dict):
+                existing = cast(dict[str, Any], parsed)
+        label = existing.get("_label")
+        existing = dict(body.options)
+        if label:
+            existing["_label"] = label
+        cred.description = json.dumps(existing, separators=(",", ":"))
+    now = datetime.now(UTC)
+    cred.credential_status = "verified"
+    cred.last_authenticated_at = now
+    cred.expires_at = expires_at
+    cred.reauth_required_at = None
+    cred.last_auth_error_code = None
+    cred.last_error = None
+    cred.last_error_category = None
+    cred.credential_version = (
+        int(getattr(cred, "credential_version", 1) or 1) + 1
+    )
+    cred.updated_at = now
+    await db.flush()
+    await log_connection_event(
+        db,
+        tenant_id=auth.tenant_id,
+        action=AUDIT_REAUTH_SUCCESS,
+        provider_key=cred.provider_key,
+        connection_id=str(cred.id),
+        detail={"success": True, "reason_code": "reauthenticated"},
+        actor_user_id=auth.principal_id,
+        actor_role=auth.user.role if auth.user else None,
+    )
+    return _credential_response(cred)
 
 
 @router.post(

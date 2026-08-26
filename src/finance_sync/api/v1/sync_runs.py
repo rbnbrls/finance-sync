@@ -23,6 +23,10 @@ from finance_sync.models.credential import (
 from finance_sync.models.sync_run import SyncRun
 from finance_sync.models.unresolved_security import UnresolvedSecurity
 from finance_sync.services.auth import decrypt_credential
+from finance_sync.services.connection_audit import (
+    AUDIT_RETRY,
+    log_connection_event,
+)
 from finance_sync.services.read_api import ReadService, SyncRunListResponse
 from finance_sync.services.retry_lock import retry_lease
 from finance_sync.sync.orchestrator import SyncOrchestrator
@@ -242,6 +246,21 @@ async def _retry_sync_run_locked(
         .limit(1)
     )
     new_id = latest.scalar_one_or_none()
+    await log_connection_event(
+        db,
+        tenant_id=auth.tenant_id,
+        action=AUDIT_RETRY,
+        provider_key=credential.provider_key,
+        connection_id=str(credential.id),
+        detail={
+            "run_id": str(run.id),
+            "result": str(result.status),
+            "reason_code": "manual_sync_retry",
+            "error_category": getattr(result, "error_category", None),
+        },
+        actor_user_id=auth.principal_id,
+        actor_role=auth.user.role if auth.user else None,
+    )
     return SyncRetryResponse(
         run_id=str(new_id) if new_id else None,
         status=str(result.status),

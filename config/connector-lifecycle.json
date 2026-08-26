@@ -6,6 +6,9 @@
       "previous_version": "0.0.9",
       "capabilities": ["accounts", "transactions"],
       "minimum_fixture_version": "2026-01-15",
+      "certification_status": "certified",
+      "certified_at": "2026-08-22",
+      "certification_commit": "synthetic-contract-matrix",
       "feature_flag": "connector_bunq_enabled",
       "deprecation_date": null,
       "removal_date": "2027-01-01"
@@ -16,6 +19,9 @@
       "previous_version": "0.0.9",
       "capabilities": ["accounts", "transactions", "holdings"],
       "minimum_fixture_version": "2026-01-15",
+      "certification_status": "certified",
+      "certified_at": "2026-08-22",
+      "certification_commit": "synthetic-contract-matrix",
       "feature_flag": "connector_trading212_enabled",
       "deprecation_date": null,
       "removal_date": "2027-01-01"
@@ -26,6 +32,9 @@
       "previous_version": "0.0.9",
       "capabilities": ["accounts", "transactions", "holdings"],
       "minimum_fixture_version": "2026-01-15",
+      "certification_status": "certified",
+      "certified_at": "2026-08-22",
+      "certification_commit": "synthetic-contract-matrix",
       "feature_flag": "connector_degiro_pension_enabled",
       "deprecation_date": null,
       "removal_date": "2027-01-01"
@@ -36,6 +45,9 @@
       "previous_version": "0.0.9",
       "capabilities": ["accounts", "transactions"],
       "minimum_fixture_version": "2026-01-15",
+      "certification_status": "certified",
+      "certified_at": "2026-08-22",
+      "certification_commit": "synthetic-contract-matrix",
       "feature_flag": "connector_ynab_enabled",
       "deprecation_date": null,
       "removal_date": "2027-01-01"

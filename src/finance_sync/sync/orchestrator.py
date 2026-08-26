@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import traceback
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any, cast
 
 import structlog
@@ -12,6 +12,7 @@ from sqlalchemy import select
 from finance_sync.connectors.exceptions import (
     ConnectorError,
     PermanentError,
+    RateLimitError,
     TransientError,
 )
 from finance_sync.models import (
@@ -22,6 +23,9 @@ from finance_sync.models.enums import (
     ReconciliationRunStatus,
     SyncRunStatus,
 )
+from finance_sync.observability.connector_metrics import (
+    record_connector_operation,
+)
 from finance_sync.sync.cards_pipeline import (
     BunqCardsSyncResult,
     CardsSyncMixin,
@@ -29,6 +33,11 @@ from finance_sync.sync.cards_pipeline import (
 )
 
 __all__ = ["BunqCardsSyncResult", "SyncOrchestrator"]
+from finance_sync.services.connector_compatibility import (
+    default_contract_paths,
+    evaluate_connector,
+    load_json,
+)
 from finance_sync.sync.context import SyncContext
 from finance_sync.sync.errors import (
     categorize_sync_error,
@@ -160,6 +169,7 @@ class SyncOrchestrator(CardsSyncMixin):
         status: SyncRunStatus,
         error_message: str | None,
         log: structlog.BoundLogger,
+        result: SyncResult | None = None,
     ) -> None:
         """Persist ``last_success_at`` / sanitised ``last_error``.
 
@@ -179,6 +189,11 @@ class SyncOrchestrator(CardsSyncMixin):
                     cred.last_success_at = datetime.now(UTC)
                     cred.last_error = None
                     cred.last_error_category = None
+                    cred.retry_after_at = None
+                    cred.rate_limited_at = None
+                    cred.rate_limit_attempts = 0
+                    cred.rate_limit_scope = None
+                    cred.last_http_status = None
                 else:
                     from finance_sync.utils.redaction import sanitize_error
 
@@ -191,6 +206,15 @@ class SyncOrchestrator(CardsSyncMixin):
                     cred.last_error_category = categorize_export_error(
                         error_message
                     )
+                    if (
+                        result is not None
+                        and result.error_category == "rate_limited"
+                    ):
+                        cred.rate_limited_at = datetime.now(UTC)
+                        cred.retry_after_at = result.retry_after_at
+                        cred.rate_limit_attempts = result.rate_limit_attempts
+                        cred.rate_limit_scope = result.rate_limit_scope
+                        cred.last_http_status = 429
                 await session.commit()
         except Exception:
             log.warning(
@@ -248,11 +272,87 @@ class SyncOrchestrator(CardsSyncMixin):
         )
         log.info("sync_starting")
 
+        # Persisted on the connection row so this guard survives a worker
+        # restart. It also ensures an early manual retry makes no provider
+        # request while Retry-After is active.
+        if connection_id:
+            async with self._session_factory() as guard_session:
+                guarded = await guard_session.get(Credential, connection_id)
+                retry_after_at = getattr(guarded, "retry_after_at", None)
+                if (
+                    guarded is not None
+                    and str(guarded.tenant_id) == self._tenant_id
+                    and retry_after_at is not None
+                    and retry_after_at > datetime.now(UTC)
+                ):
+                    return SyncResult(
+                        status=SyncRunStatus.FAILED,
+                        accounts_synced=0,
+                        transactions_synced=0,
+                        holdings_synced=0,
+                        unresolved_securities=0,
+                        error_message="Provider rate limit active; retry later",
+                        error_category="rate_limited",
+                        retry_after_at=retry_after_at,
+                        rate_limit_scope=getattr(
+                            guarded, "rate_limit_scope", None
+                        ),
+                        rate_limit_attempts=int(
+                            getattr(guarded, "rate_limit_attempts", 0) or 0
+                        ),
+                        duration_s=0.0,
+                    )
+
         # Record the attempt on the connection row so the control-panel
         # UI can show per-connection status even while the run is live.
         await self._mark_connection_attempt(connection_id, log)
 
         connector = self._registry.get_connector(config)
+        compatibility_error: str | None = None
+
+        # A connector that is explicitly covered by the lifecycle contract
+        # must not make provider calls when its installed version/capabilities
+        # are incompatible.  Providers without a lifecycle entry retain the
+        # legacy behaviour until their metadata is onboarded.
+        lifecycle_path, matrix_path = default_contract_paths()
+        lifecycle = load_json(lifecycle_path)
+        contract_matrix = load_json(matrix_path)
+        lifecycle_entries = cast(
+            "list[dict[str, Any]]", lifecycle.get("connectors", [])
+        )
+        has_lifecycle_entry = any(
+            item.get("name") == provider_type
+            for item in lifecycle_entries
+        )
+        if has_lifecycle_entry:
+            matrix_entries = cast(
+                "list[dict[str, Any]]", contract_matrix.get("connectors", [])
+            )
+            matrix_item = next(
+                (
+                    item
+                    for item in matrix_entries
+                    if item.get("name") == provider_type
+                ),
+                None,
+            )
+            fixture_version = (
+                str(matrix_item["fixture_date"])
+                if matrix_item and matrix_item.get("fixture_date")
+                else None
+            )
+            metadata = self._registry.list_connectors().get(provider_type, {})
+            compatibility = evaluate_connector(
+                lifecycle,
+                metadata,
+                fixture_version=fixture_version,
+                contract_matrix=contract_matrix,
+            )
+            if compatibility.status == "incompatible":
+                compatibility_error = (
+                    f"Connector {provider_type!r} is incompatible: "
+                    f"{compatibility.reason}"
+                )
 
         # Inject persisted connector state (e.g. bunq installation material)
         # before the run so stateful connectors reuse their device identity.
@@ -268,18 +368,20 @@ class SyncOrchestrator(CardsSyncMixin):
 
         # ── Run the pipeline ──────────────────────────────────────
         async with self._session_factory() as session:
+            pipeline_kwargs: dict[str, Any] = {
+                "resume": since is None,
+                "connection_id": connection_id,
+                "selected_accounts": selected_accounts,
+            }
+            if compatibility_error is not None:
+                pipeline_kwargs["compatibility_error"] = compatibility_error
             result = await self._run_pipeline(
                 session,
                 connector,
                 provider_type,
                 _since,
                 log,
-                # An explicit `since` is an operator backfill: it wins
-                # over stored cursors.  The default (None) resumes each
-                # account from its stored cursor.
-                resume=since is None,
-                connection_id=connection_id,
-                selected_accounts=selected_accounts,
+                **pipeline_kwargs,
             )
 
         # Persist new connector state (a freshly created bunq installation)
@@ -296,6 +398,22 @@ class SyncOrchestrator(CardsSyncMixin):
             result.status,
             result.error_message,
             log,
+            result=result,
+        )
+        metadata = self._registry.list_connectors().get(provider_type, {})
+        record_connector_operation(
+            provider=provider_type,
+            connector_version=metadata.get("plugin_version"),
+            connection_id=connection_id,
+            resource="all",
+            status=str(result.status),
+            duration_seconds=result.duration_s or 0.0,
+            error_category=result.error_category,
+            retries=result.rate_limit_attempts,
+            rate_limit_count=(
+                1 if result.error_category == "rate_limited" else 0
+            ),
+            rate_limit_scope=result.rate_limit_scope,
         )
 
         if result.status == SyncRunStatus.COMPLETED:
@@ -514,6 +632,7 @@ class SyncOrchestrator(CardsSyncMixin):
         resume: bool = True,
         connection_id: str | None = None,
         selected_accounts: list[str] | None = None,
+        compatibility_error: str | None = None,
     ) -> SyncResult:
         from datetime import datetime as _dt
 
@@ -562,6 +681,9 @@ class SyncOrchestrator(CardsSyncMixin):
                     connection_id=connection_id,
                 )
                 log = log.bind(sync_run_id=str(run.id))
+
+                if compatibility_error:
+                    raise PermanentError(compatibility_error)
 
                 # 2. Authenticate
                 await connector.authenticate()
@@ -719,6 +841,39 @@ class SyncOrchestrator(CardsSyncMixin):
                 error_message=str(exc),
                 duration_s=(end_ts - start_ts).total_seconds(),
             )
+        except RateLimitError as exc:
+            end_ts = _dt.now(UTC)
+            retry_after_at = (
+                end_ts + timedelta(seconds=exc.retry_after)
+                if exc.retry_after is not None
+                else None
+            )
+            category = categorize_sync_error(exc)
+            await self._mark_run_failed(
+                session,
+                run,
+                str(exc),
+                log,
+                error_category=category,
+                connection_id=connection_id,
+                retry_after_at=retry_after_at,
+                rate_limit_attempts=1,
+                rate_limit_scope="connection",
+                last_http_status=429,
+            )
+            return SyncResult(
+                status=SyncRunStatus.FAILED,
+                accounts_synced=accounts_synced,
+                transactions_synced=transactions_synced,
+                holdings_synced=holdings_synced,
+                unresolved_securities=len(unresolved_keys),
+                error_message=str(exc),
+                error_category=category,
+                retry_after_at=retry_after_at,
+                rate_limit_scope="connection",
+                rate_limit_attempts=1,
+                duration_s=(end_ts - start_ts).total_seconds(),
+            )
         except (TransientError, ConnectorError) as exc:
             end_ts = _dt.now(UTC)
             await self._mark_run_failed(
@@ -736,6 +891,7 @@ class SyncOrchestrator(CardsSyncMixin):
                 holdings_synced=holdings_synced,
                 unresolved_securities=len(unresolved_keys),
                 error_message=str(exc),
+                error_category=categorize_sync_error(exc),
                 duration_s=(end_ts - start_ts).total_seconds(),
             )
         except Exception as exc:
@@ -780,6 +936,10 @@ class SyncOrchestrator(CardsSyncMixin):
         *,
         connection_id: str | None = None,
         error_category: str = "unknown",
+        retry_after_at: datetime | None = None,
+        rate_limit_attempts: int = 0,
+        rate_limit_scope: str | None = None,
+        last_http_status: int | None = None,
     ) -> None:
         """Persist a failed SyncRun outside the main UoW (which rolled back).
 
@@ -813,6 +973,10 @@ class SyncOrchestrator(CardsSyncMixin):
                         status=SyncRunStatus.FAILED,
                         error_message=error_message[:2048],
                         error_category=error_category,
+                        retry_after_at=retry_after_at,
+                        rate_limit_attempts=rate_limit_attempts,
+                        rate_limit_scope=rate_limit_scope,
+                        last_http_status=last_http_status,
                     )
                 else:
                     # The original row never made it to the DB — insert a
@@ -826,6 +990,10 @@ class SyncOrchestrator(CardsSyncMixin):
                             completed_at=datetime.now(UTC),
                             error_message=error_message[:2048],
                             error_category=error_category,
+                            retry_after_at=retry_after_at,
+                            rate_limit_attempts=rate_limit_attempts,
+                            rate_limit_scope=rate_limit_scope,
+                            last_http_status=last_http_status,
                         )
                     )
         except Exception as exc:

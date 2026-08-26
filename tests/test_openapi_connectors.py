@@ -97,6 +97,16 @@ class TestMultiConnectionOpenApiPaths:
         ),
         (
             "post",
+            "/api/v1/connectors/{connection_id}/reauthenticate",
+            "reauthenticate_connector",
+        ),
+        (
+            "get",
+            "/api/v1/connectors/{connection_id}/health",
+            "get_connection_health",
+        ),
+        (
+            "post",
             "/api/v1/connectors/configs/{config_id}/pause",
             "pause_connector_connection",
         ),
@@ -129,6 +139,13 @@ class TestMultiConnectionOpenApiPaths:
             assert actual.startswith(operation_id), (
                 f"{method.upper()} {path} operationId drift: {actual}"
             )
+
+    def test_connector_catalog_endpoint_is_documented(self, client: TestClient) -> None:
+        paths = _paths(client)
+        assert "/api/v1/connectors/catalog" in paths
+        operation = paths["/api/v1/connectors/catalog"]["get"]
+        assert operation["tags"] == ["connectors"]
+        assert "secret" in operation["description"].lower()
 
     def test_connectors_config_listing_describes_connections(
         self, client: TestClient

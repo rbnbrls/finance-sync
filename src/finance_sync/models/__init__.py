@@ -20,6 +20,7 @@ from finance_sync.models.balance import Balance
 from finance_sync.models.card_transaction import CardTransaction
 from finance_sync.models.connection_audit_log import ConnectionAuditLog
 from finance_sync.models.connector_state import ConnectorState
+from finance_sync.models.connector_release import ConnectorRelease
 from finance_sync.models.credential import Credential
 from finance_sync.models.datamart import (
     DataMart,
@@ -181,6 +182,7 @@ __all__ = [
     "CardTransaction",
     "ConnectionAuditLog",
     "ConnectorProvider",
+    "ConnectorRelease",
     "ConnectorState",
     "CostBasisMethod",
     "Credential",

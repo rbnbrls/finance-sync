@@ -85,6 +85,36 @@ class TestConnectorRegistryWithMock:
         assert mock_meta["name"] == "mock_provider"
         assert mock_meta["display_name"] == "Mock Provider (Test)"
         assert mock_meta["has_rate_limit_policy"] is False
+        assert mock_meta["provider_key"] == "mock_provider"
+        assert mock_meta["plugin_version"] == "0.1.0"
+        assert mock_meta["plugin_package"] == "tests"
+        assert mock_meta["metadata_incomplete"] is False
+
+    def test_malformed_optional_catalog_metadata_is_safe(self) -> None:
+        class MalformedConnector(Connector):
+            catalog_metadata = {"documentation_url": 123}  # type: ignore[assignment]
+
+            @property
+            def name(self) -> str:
+                return "malformed"
+
+            async def authenticate(self) -> None:
+                return None
+
+            async def fetch_accounts(self):
+                return []
+
+            async def fetch_transactions(self, since, *, account_id=None, limit=None):
+                return []
+
+        registry = ConnectorRegistry()
+        registry.register_class("malformed", MalformedConnector)
+
+        metadata = registry.list_connectors()["malformed"]
+
+        assert metadata["metadata_incomplete"] is True
+        assert "documentation_url" not in metadata
+        assert metadata["name"] == "malformed"
 
     def test_get_unknown_connector(self, registry_with_mock: tuple) -> None:
         registry, _ = registry_with_mock

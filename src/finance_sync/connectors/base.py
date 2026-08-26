@@ -15,7 +15,7 @@ decrypted secrets in ``self.config.credentials``.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, ClassVar, cast
 
 from finance_sync.connectors.exceptions import ConnectorError
 from finance_sync.connectors.models import (
@@ -63,6 +63,15 @@ class Connector(ABC):
     #: Semantic version of the connector SDK this connector targets.
     #: Must be a PEP 440 version string such as ``"0.1.0"``.
     sdk_version: str = "0.1.0"
+
+    #: Semantic version of the connector implementation itself.  Older
+    #: third-party connectors may omit this attribute and receive the safe
+    #: default used by :class:`ConnectorRegistry`.
+    plugin_version: str = "0.1.0"
+
+    #: Optional, non-sensitive metadata for the public connector catalog.
+    #: Only documented scalar/list fields are exposed by the registry.
+    catalog_metadata: ClassVar[dict[str, object]] = {}
 
     #: Resources implemented by this connector.  Holdings are deliberately
     #: opt-in so existing third-party connectors keep their old behaviour.
@@ -149,6 +158,23 @@ class Connector(ABC):
                 message=str(exc),
                 provider_type=self.name,
             )
+
+    async def credential_expiry(self) -> datetime | None:
+        """Return the credential expiry in UTC when the provider exposes it.
+
+        Connectors without a provider expiry signal deliberately return
+        ``None``; callers must report expiry as unknown rather than inventing
+        a date.
+        """
+        return None
+
+    async def reauthenticate(self) -> None:
+        """Validate/refresh credentials for the reauthentication flow.
+
+        The default keeps older connectors compatible by delegating to their
+        existing authentication implementation.
+        """
+        await self.authenticate()
 
     async def fetch_holdings(
         self, *, account_id: str | None = None

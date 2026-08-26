@@ -6,13 +6,12 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
 import sys
 from datetime import date
 from pathlib import Path
 from typing import Any
 
-VERSION = re.compile(r"^\d+\.\d+\.\d+$")
+from finance_sync.services.connector_compatibility import evaluate_connector
 
 
 def evaluate(
@@ -21,23 +20,45 @@ def evaluate(
     diagnostics: list[dict[str, Any]] = []
     for connector in lifecycle.get("connectors", []):
         name = str(connector["name"])
-        status = "disabled" if not enabled else "healthy"
-        reason = "feature_flag_disabled" if not enabled else "compatible"
-        if not VERSION.match(str(connector["version"])):
-            status, reason = "incompatible", "invalid_version"
-        elif fixture_version < str(connector["minimum_fixture_version"]):
-            status, reason = "incompatible", "fixture_too_old"
-        elif connector.get("deprecation_date") and today >= date.fromisoformat(str(connector["deprecation_date"])):
-            status, reason = "deprecated", "deprecation_date_reached"
+        metadata = {
+            "name": name,
+            "provider_key": name,
+            "plugin_version": connector.get("version"),
+            "supported_resources": connector.get("capabilities", []),
+        }
+        compatibility = evaluate_connector(
+            lifecycle,
+            metadata,
+            today=today,
+            fixture_version=fixture_version,
+            enabled=enabled,
+        )
         diagnostics.append(
             {
                 "connector": name,
-                "version": connector["version"],
-                "status": status,
-                "reason": reason,
+                "version": compatibility.current_version,
+                "status": (
+                    "healthy"
+                    if compatibility.status == "compatible"
+                    else compatibility.status
+                ),
+                "reason": compatibility.reason,
                 "capabilities": connector["capabilities"],
-                "removal_date": connector["removal_date"],
-                "rollback_version": connector["previous_version"],
+                "removal_date": (
+                    compatibility.removal_date.isoformat()
+                    if compatibility.removal_date
+                    else None
+                ),
+                "rollback_version": compatibility.previous_version,
+                "certification_status": compatibility.certification_status,
+                "certified_at": (
+                    compatibility.certified_at.isoformat()
+                    if compatibility.certified_at
+                    else None
+                ),
+                "certification_commit": compatibility.certification_commit,
+                "migration_required": compatibility.migration_required,
+                "warnings": compatibility.warnings,
                 "credentials_included": False,
             }
         )
