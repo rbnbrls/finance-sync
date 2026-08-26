@@ -104,7 +104,9 @@ class TestConnectorRegistryWithMock:
             async def fetch_accounts(self):
                 return []
 
-            async def fetch_transactions(self, since, *, account_id=None, limit=None):
+            async def fetch_transactions(
+                self, since, *, account_id=None, limit=None
+            ):
                 return []
 
         registry = ConnectorRegistry()

@@ -432,7 +432,9 @@ async def trigger_sync_connection(
                 "code": "rate_limit_active",
                 "retry_after_at": retry_after_at.isoformat(),
                 "limit_scope": getattr(cred, "rate_limit_scope", None),
-                "attempt_count": int(getattr(cred, "rate_limit_attempts", 0) or 0),
+                "attempt_count": int(
+                    getattr(cred, "rate_limit_attempts", 0) or 0
+                ),
                 "action": "wait",
             },
         )

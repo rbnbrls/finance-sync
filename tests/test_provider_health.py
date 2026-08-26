@@ -110,7 +110,9 @@ def _service(session: _Session, now: datetime) -> ProviderHealthService:
 
 
 @pytest.mark.asyncio
-async def test_credentials_without_successful_processing_need_sync(contracts) -> None:
+async def test_credentials_without_successful_processing_need_sync(
+    contracts,
+) -> None:
     now = datetime(2026, 8, 26, 10, tzinfo=UTC)
     result = await _service(
         _Session(_Result([_credential()]), _Result([])), now
@@ -121,7 +123,9 @@ async def test_credentials_without_successful_processing_need_sync(contracts) ->
     assert overview.overall_status == "attention_required"
     assert overview.action_required == "run_sync"
     assert overview.connection.status == "connected"
-    assert all(item.source_status == "not_processed" for item in overview.resources)
+    assert all(
+        item.source_status == "not_processed" for item in overview.resources
+    )
     assert overview.last_successful_processing.last_success_at is None
 
 
@@ -140,7 +144,9 @@ async def test_fresh_successful_processing_is_healthy(contracts) -> None:
 
 
 @pytest.mark.asyncio
-async def test_failed_latest_run_is_error_but_history_is_preserved(contracts) -> None:
+async def test_failed_latest_run_is_error_but_history_is_preserved(
+    contracts,
+) -> None:
     now = datetime(2026, 8, 26, 10, tzinfo=UTC)
     result = await _service(
         _Session(

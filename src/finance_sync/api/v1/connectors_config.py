@@ -519,11 +519,16 @@ async def get_connection_health(
                 cred.last_error = None
                 cred.last_error_category = None
             else:
-                cred.last_error = sanitize_error(health.message or "Health check failed", list(credentials.values()))
+                cred.last_error = sanitize_error(
+                    health.message or "Health check failed",
+                    list(credentials.values()),
+                )
                 cred.last_error_category = "provider_unavailable"
             await db.flush()
         except Exception as exc:
-            cred.last_error = sanitize_error(str(exc), list(credentials.values()))
+            cred.last_error = sanitize_error(
+                str(exc), list(credentials.values())
+            )
             cred.last_error_category = "unknown"
             await db.flush()
     return await _single_provider_health(db, auth.tenant_id, cred)

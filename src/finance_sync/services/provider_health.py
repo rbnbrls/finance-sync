@@ -245,9 +245,7 @@ class ProviderHealthService:
             (run for run in scoped_runs if str(run.status) == "completed"), None
         )
         success_at = latest_success.completed_at if latest_success else None
-        fresh_until = (
-            success_at + self._freshness_limit if success_at else None
-        )
+        fresh_until = success_at + self._freshness_limit if success_at else None
         stale = fresh_until is None or fresh_until < self._now
         if latest is None:
             source_status = "not_processed"
@@ -280,8 +278,9 @@ class ProviderHealthService:
         ]
         latest = max(
             successful,
-            key=lambda item: item.last_success_at
-            or datetime.min.replace(tzinfo=UTC),
+            key=lambda item: (
+                item.last_success_at or datetime.min.replace(tzinfo=UTC)
+            ),
             default=None,
         )
         return ProviderProcessingHealth(

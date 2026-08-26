@@ -85,9 +85,7 @@ class SyncRun(Base):
     retry_after_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
-    rate_limit_attempts: Mapped[int] = mapped_column(
-        default=0, nullable=False
-    )
+    rate_limit_attempts: Mapped[int] = mapped_column(default=0, nullable=False)
     rate_limit_scope: Mapped[str | None] = mapped_column(
         String(16), nullable=True
     )

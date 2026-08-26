@@ -48,7 +48,9 @@ def test_compatible_result_contains_safe_release_metadata() -> None:
     assert result.migration_required is False
 
 
-def test_missing_lifecycle_entry_is_unavailable_and_requires_migration() -> None:
+def test_missing_lifecycle_entry_is_unavailable_and_requires_migration() -> (
+    None
+):
     result = evaluate_connector(
         {"connectors": []},
         _metadata(),
@@ -84,7 +86,9 @@ def test_version_and_capability_mismatch_are_incompatible() -> None:
     assert capability.migration_required
 
 
-def test_missing_certification_and_approaching_deprecation_are_warnings() -> None:
+def test_missing_certification_and_approaching_deprecation_are_warnings() -> (
+    None
+):
     result = evaluate_connector(
         _lifecycle(
             certification_status="unknown",
@@ -97,7 +101,10 @@ def test_missing_certification_and_approaching_deprecation_are_warnings() -> Non
 
     assert result.status == "attention_required"
     assert result.reason == "certification_missing"
-    assert result.warnings == ["certification_missing", "deprecation_approaching"]
+    assert result.warnings == [
+        "certification_missing",
+        "deprecation_approaching",
+    ]
 
 
 def test_disabled_and_old_fixture_statuses_are_explicit() -> None:

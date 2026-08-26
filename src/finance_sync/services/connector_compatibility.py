@@ -18,6 +18,8 @@ from typing import Any
 from finance_sync.schemas.connector_compatibility import ConnectorCompatibility
 
 _SEMVER = re.compile(r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$")
+
+
 def _parse_date(value: Any) -> date | None:
     if value in (None, ""):
         return None

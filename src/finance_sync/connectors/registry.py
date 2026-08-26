@@ -116,9 +116,7 @@ class ConnectorRegistry:
         """
         raw = getattr(connector, "catalog_metadata", {})
         metadata_incomplete = not isinstance(raw, dict)
-        values = (
-            cast("dict[str, object]", raw) if isinstance(raw, dict) else {}
-        )
+        values = cast("dict[str, object]", raw) if isinstance(raw, dict) else {}
         safe: dict[str, Any] = {}
         for key in _CATALOG_METADATA_KEYS:
             value = values.get(key)

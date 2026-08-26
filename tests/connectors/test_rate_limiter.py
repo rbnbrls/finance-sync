@@ -162,7 +162,9 @@ class TestRateLimiterRetry:
             await limiter.retry(fail_unknown)  # type: ignore[arg-type]
         assert call_count == 2  # initial + 1 retry
 
-    async def test_retry_after_is_honoured_and_429_is_preserved(self, monkeypatch) -> None:
+    async def test_retry_after_is_honoured_and_429_is_preserved(
+        self, monkeypatch
+    ) -> None:
         policy = RateLimitPolicy(max_retries=1, backoff_base=0.01, jitter=0.0)
         limiter = RateLimiter(policy)
         sleeps: list[float] = []
@@ -170,7 +172,9 @@ class TestRateLimiterRetry:
         async def fake_sleep(delay: float) -> None:
             sleeps.append(delay)
 
-        monkeypatch.setattr("finance_sync.connectors.rate_limiter.asyncio.sleep", fake_sleep)
+        monkeypatch.setattr(
+            "finance_sync.connectors.rate_limiter.asyncio.sleep", fake_sleep
+        )
 
         async def rate_limited() -> str:
             message = "provider payload must not be persisted"

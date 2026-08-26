@@ -140,7 +140,9 @@ class TestMultiConnectionOpenApiPaths:
                 f"{method.upper()} {path} operationId drift: {actual}"
             )
 
-    def test_connector_catalog_endpoint_is_documented(self, client: TestClient) -> None:
+    def test_connector_catalog_endpoint_is_documented(
+        self, client: TestClient
+    ) -> None:
         paths = _paths(client)
         assert "/api/v1/connectors/catalog" in paths
         operation = paths["/api/v1/connectors/catalog"]["get"]

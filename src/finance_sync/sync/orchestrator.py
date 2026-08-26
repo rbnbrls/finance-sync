@@ -321,8 +321,7 @@ class SyncOrchestrator(CardsSyncMixin):
             "list[dict[str, Any]]", lifecycle.get("connectors", [])
         )
         has_lifecycle_entry = any(
-            item.get("name") == provider_type
-            for item in lifecycle_entries
+            item.get("name") == provider_type for item in lifecycle_entries
         )
         if has_lifecycle_entry:
             matrix_entries = cast(
