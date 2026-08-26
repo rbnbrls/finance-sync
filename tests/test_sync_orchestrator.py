@@ -1734,6 +1734,7 @@ class TestAutoReconciliationAfterSync:
             ) as mock_rec,
         ):
             config = MagicMock()
+            config.connection_id = "test-connection-id"
             result = await orchestrator.run_sync(
                 provider_type="mock_provider",
                 config=config,
@@ -1786,6 +1787,7 @@ class TestAutoReconciliationAfterSync:
             ) as mock_rec,
         ):
             config = MagicMock()
+            config.connection_id = "test-connection-id"
             result = await orchestrator.run_sync(
                 provider_type="mock_provider",
                 config=config,
@@ -1839,6 +1841,7 @@ class TestAutoReconciliationAfterSync:
             ) as mock_rec,
         ):
             config = MagicMock()
+            config.connection_id = "test-connection-id"
             result = await orchestrator.run_sync(
                 provider_type="mock_provider",
                 config=config,
@@ -1914,6 +1917,7 @@ class TestAutoReconciliationDisabled:
             ) as mock_rec,
         ):
             config = MagicMock()
+            config.connection_id = "test-connection-id"
             result = await orchestrator.run_sync(
                 provider_type="mock_provider",
                 config=config,
