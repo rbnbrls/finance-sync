@@ -14,7 +14,9 @@ class SyncResult:
         "accounts_synced",
         "duration_s",
         "error_category",
+        "error_kind",
         "error_message",
+        "error_type",
         "holdings_synced",
         "rate_limit_attempts",
         "rate_limit_scope",
@@ -35,6 +37,8 @@ class SyncResult:
         holdings_synced: int = 0,
         unresolved_securities: int = 0,
         error_category: str | None = None,
+        error_type: str | None = None,
+        error_kind: str | None = None,
         retry_after_at: datetime | None = None,
         rate_limit_scope: str | None = None,
         rate_limit_attempts: int = 0,
@@ -46,6 +50,8 @@ class SyncResult:
         self.unresolved_securities = unresolved_securities
         self.error_message = error_message
         self.error_category = error_category
+        self.error_type = error_type
+        self.error_kind = error_kind
         self.retry_after_at = retry_after_at
         self.rate_limit_scope = rate_limit_scope
         self.rate_limit_attempts = rate_limit_attempts

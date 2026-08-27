@@ -451,6 +451,8 @@ class SyncOrchestrator(CardsSyncMixin):
             log.error(
                 "sync_failed",
                 error=result.error_message,
+                error_type=result.error_type,
+                error_kind=result.error_kind,
                 duration_s=result.duration_s,
             )
 
@@ -837,6 +839,8 @@ class SyncOrchestrator(CardsSyncMixin):
                 holdings_synced=holdings_synced,
                 unresolved_securities=len(unresolved_keys),
                 error_message=str(exc),
+                error_type=type(exc).__name__,
+                error_kind=classify_sync_error(exc).value,
                 duration_s=(end_ts - start_ts).total_seconds(),
             )
         except RateLimitError as exc:
@@ -867,6 +871,8 @@ class SyncOrchestrator(CardsSyncMixin):
                 unresolved_securities=len(unresolved_keys),
                 error_message=str(exc),
                 error_category=category,
+                error_type=type(exc).__name__,
+                error_kind=classify_sync_error(exc).value,
                 retry_after_at=retry_after_at,
                 rate_limit_scope="connection",
                 rate_limit_attempts=1,
@@ -890,6 +896,8 @@ class SyncOrchestrator(CardsSyncMixin):
                 unresolved_securities=len(unresolved_keys),
                 error_message=str(exc),
                 error_category=categorize_sync_error(exc),
+                error_type=type(exc).__name__,
+                error_kind=classify_sync_error(exc).value,
                 duration_s=(end_ts - start_ts).total_seconds(),
             )
         except Exception as exc:
@@ -916,6 +924,8 @@ class SyncOrchestrator(CardsSyncMixin):
                 holdings_synced=holdings_synced,
                 unresolved_securities=len(unresolved_keys),
                 error_message=error_message,
+                error_type=type(exc).__name__,
+                error_kind=classify_sync_error(exc).value,
                 duration_s=(end_ts - start_ts).total_seconds(),
             )
 
