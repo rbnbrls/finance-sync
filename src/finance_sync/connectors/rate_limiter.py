@@ -154,7 +154,12 @@ class RateLimiter:
 
         if isinstance(last_exc, RateLimitError):
             raise last_exc
-        msg = f"All {self.policy.max_retries} retries exhausted"
+        # Surface the underlying cause so operators see what actually
+        # failed instead of only "All N retries exhausted".  ``last_exc``
+        # is a connector exception whose string form is already sanitised
+        # (never contains credentials or provider payloads).
+        detail = f": {last_exc}" if last_exc is not None else ""
+        msg = f"All {self.policy.max_retries} retries exhausted{detail}"
         raise TransientError(msg) from last_exc
 
 

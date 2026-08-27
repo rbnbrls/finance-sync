@@ -91,8 +91,8 @@ class Trading212Connector(Connector):
     rate_limit_policy = RateLimitPolicy(
         max_requests=10,
         window_seconds=60,
-        max_retries=3,
-        backoff_base=1.0,
+        max_retries=5,
+        backoff_base=2.0,
     )
 
     def __init__(
@@ -509,15 +509,14 @@ def _auth_headers(
 def _raise_for_status(response: httpx.Response) -> None:
     """Raise appropriate connector error from an HTTP error response.
 
-    Classification:
-        - 429            -> RateLimitError (retryable, honours Retry-After)
-        - 401/403        -> PermanentError (bad credentials)
-        - other 4xx      -> PermanentError (client/contract errors — a 400
-          from Trading212 means the request itself is invalid and retrying
-          it can never succeed; surfacing it as ``TransientError`` wasted
-          all retries and hid the actionable status behind "All N retries
-          exhausted")
-        - 5xx/unknown    -> TransientError (provider-side, safe to retry)
+    Classification mirrors the provider contract:
+
+    - ``429`` → :class:`RateLimitError` (retryable, honours ``Retry-After``).
+    - ``401``/``403`` → :class:`PermanentError` (bad/expired credentials).
+    - Other ``4xx`` (e.g. ``400`` invalid ``from``/``since``, ``404`` unknown
+      resource) → :class:`PermanentError` — a client error will not resolve
+      by retrying the same request.
+    - ``5xx`` → :class:`TransientError` (temporary provider outage).
     """
     status = response.status_code
     if status == 429:

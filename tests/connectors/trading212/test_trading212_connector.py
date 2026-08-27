@@ -744,6 +744,29 @@ class TestTrading212ConnectorErrorHandling:
         # auth: 2 requests (cash + info) + exactly 1 history attempt: no retry
         assert calls["count"] == 3
 
+    async def test_not_found_is_permanent(
+        self,
+        t212_connector_config: ConnectorConfig,
+    ) -> None:
+        """HTTP 404 should raise PermanentError, not TransientError."""
+        import httpx
+
+        from finance_sync.connectors.trading212 import Trading212Connector
+
+        async def handler(_: object) -> httpx.Response:
+            return httpx.Response(404, json={"error": "Not Found"})
+
+        transport = httpx.MockTransport(handler)
+        http_client = httpx.AsyncClient(
+            base_url="https://live.trading212.com", transport=transport
+        )
+        conn = Trading212Connector(
+            config=t212_connector_config, http_client=http_client
+        )
+
+        with pytest.raises(PermanentError, match="HTTP 404"):
+            await conn.authenticate()
+
     async def test_transient_error_on_fetch(
         self,
         t212_connector: Trading212Connector,
@@ -768,9 +791,32 @@ class TestTrading212ConnectorErrorHandling:
             resp = httpx.Response(403)
             _raise_for_status(resp)
 
+        with pytest.raises(PermanentError, match="HTTP 400"):
+            resp = httpx.Response(400)
+            _raise_for_status(resp)
+
+        with pytest.raises(PermanentError, match="HTTP 404"):
+            resp = httpx.Response(404)
+            _raise_for_status(resp)
+
         with pytest.raises(TransientError):
             resp = httpx.Response(503)
             _raise_for_status(resp)
+
+    def test_rate_limit_policy_retries_transient_errors(self) -> None:
+        """The Trading212 policy must retry transient failures robustly.
+
+        The observed production failure was a transient provider outage
+        that exhausted the old ``max_retries=3`` / ``backoff_base=1.0``
+        policy after ~7 seconds.  The policy now retries longer so a
+        brief outage does not surface as a sync failure.
+        """
+        from finance_sync.connectors.trading212 import Trading212Connector
+
+        policy = Trading212Connector.rate_limit_policy
+        assert policy is not None
+        assert policy.max_retries >= 5
+        assert policy.backoff_base >= 2.0
 
     async def test_account_id_mismatch_returns_empty(
         self, t212_connector: Trading212Connector
