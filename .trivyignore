@@ -138,31 +138,3 @@ CVE-2026-11822
 # expiry="2026-12-31"
 CVE-2026-11824
 
-# ── NEW HIGH CVEs FROM TRIVY SCAN 2026-08-27 (accepted risk) ─────
-# curl/libcurl4: proxy-auth info disclosure (no fix yet)
-# expiry="2026-12-31"
-CVE-2026-8458
-# curl/libcurl4: unauthorized connection reuse (no fix yet)
-# expiry="2026-12-31"
-CVE-2026-8286
-# curl/libcurl4: cookie leak (no fix yet)
-# expiry="2026-12-31"
-CVE-2026-6276
-# curl/libcurl4: SSH host verification bypass (no fix yet)
-# expiry="2026-12-31"
-CVE-2026-12064
-# libacl1: symlink traversal privilege escalation (no fix yet)
-# expiry="2026-12-31"
-CVE-2026-54369
-# gzip: global buffer overflow (no fix yet)
-# expiry="2026-12-31"
-CVE-2026-41992
-# wget: unauthenticated availability DoS via crafted response (no fix yet)
-# expiry="2026-12-31"
-CVE-2026-58469
-# wget: unauthenticated availability DoS via crafted response (no fix yet)
-# expiry="2026-12-31"
-CVE-2026-58471
-# wget: unauthenticated availability DoS via crafted response (no fix yet)
-# expiry="2026-12-31"
-CVE-2026-58472
