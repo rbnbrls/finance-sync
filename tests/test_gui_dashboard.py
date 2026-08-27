@@ -186,6 +186,176 @@ def test_dashboard_separates_manual_uploads_from_api_connectors(
     assert "c.provider_type !== 'degiro_pension'" in html
 
 
+# ══════════════════════════════════════════════════════════════════
+# DEGIRO guided import wizard (a8eefc2 — CI #724 regression guard)
+# ══════════════════════════════════════════════════════════════════
+#
+# CI #724 (Test 3.12) was triggered by the commit that introduced the
+# DEGIRO guided import wizard with file upload and progress tracking
+# (a8eefc2).  The failing test itself was an unrelated release-14 backlog
+# audit crash (see tests/test_release14_backlog_closeout.py), but the
+# wizard's own frontend contract had no dedicated regression coverage.
+# These tests pin the wizard's rendered contract: the three report steps,
+# the progress tracker, the per-report upload input and the preview/confirm
+# API calls — so any future change that breaks the guided flow fails here.
+
+
+def test_dashboard_ships_degiro_guided_wizard(client: TestClient) -> None:
+    """The uploads section renders the DEGIRO guided import wizard."""
+    html = _dashboard_html(client)
+    assert 'class="card degiro-wizard"' in html
+    assert "<h2>DEGIRO importwizard</h2>" in html
+    assert '<span class="badge pending">3 bestanden</span>' in html
+    # Progress tracker, body and result regions are all present.
+    assert 'id="degiro-wizard-progress"' in html
+    assert 'id="degiro-wizard-body" aria-live="polite"' in html
+    assert 'id="degiro-wizard-result" aria-live="polite"' in html
+    # Privacy notice: files are validated and only processed after confirm.
+    assert (
+        "Je bestanden worden veilig gecontroleerd en pas na jouw "
+        "bevestiging verwerkt." in html
+    )
+
+
+def test_degiro_wizard_defines_three_reports(client: TestClient) -> None:
+    """The wizard collects exactly the three DEGIRO report types."""
+    html = _dashboard_html(client)
+    for key, title in (
+        ("transactions", "Transactieoverzicht"),
+        ("account_statement", "Rekeningoverzicht"),
+        ("portfolio", "Portefeuilleoverzicht"),
+    ):
+        assert f"key: '{key}'" in html
+        assert title in html
+
+
+def test_degiro_wizard_progress_tracking_renders_four_steps(
+    client: TestClient,
+) -> None:
+    """Progress tracking: four labelled steps, driven by state.step.
+
+    The tracker renders one step per report plus the final
+    "Controleren & importeren" step, marking steps before the current
+    one as done and the current one as active.
+    """
+    html = _dashboard_html(client)
+    # The four steps are built from the report list plus the final label.
+    assert "Controleren & importeren" in html
+    assert "Stap" in html
+    # Active/done classes are derived from the current step.
+    assert "index + 1 === degiroWizardState.step" in html
+    assert "index + 1 < degiroWizardState.step" in html
+    assert "wizard-step-label" in html
+    # The wizard is initialised on page load.
+    assert "function initDegiroWizard()" in html
+    assert "initDegiroWizard();" in html
+
+
+def test_degiro_wizard_ships_per_report_file_upload(
+    client: TestClient,
+) -> None:
+    """Each report step has a file input restricted to DEGIRO exports.
+
+    Selected files are stored per report key and the step shows the
+    chosen file name (escaped) with an uploaded state.
+    """
+    html = _dashboard_html(client)
+    # The per-step input accepts only the three supported export formats.
+    assert 'accept=".csv,.xlsx,.xls"' in html
+    # Picking a file binds the report key (template literal) and re-renders.
+    assert "degiroWizardPickFile('${report.key}', this)" in html
+    # Uploaded state and escaped file name rendering.
+    assert "is-uploaded" in html
+    assert "escapeHtml(file.name)" in html
+
+
+def test_degiro_wizard_guards_step_advance_and_preview(
+    client: TestClient,
+) -> None:
+    """Corrected behaviour: the wizard never fires preview incomplete.
+
+    Regression guard for the guided flow: advancing past a report step
+    requires that report's file, and starting the preview requires all
+    three reports plus a selected DEGIRO connection profile.
+    """
+    html = _dashboard_html(client)
+    # Step guard: cannot advance without the current report file.
+    assert "Upload eerst het ${report.title}." in html
+    # Preview guard: all three reports must be uploaded.
+    assert "Upload eerst alle drie DEGIRO-rapporten." in html
+    # Connection guard: a DEGIRO profile must be selected.
+    assert "Stel eerst een DEGIRO-accountprofiel in." in html
+    # Review step lists missing reports before anything is submitted.
+    assert (
+        "degiroWizardReports.filter(report => !degiroWizardState.files[report.key])"
+        in html
+    )
+    assert "Nog te uploaden:" in html
+    # Navigation handlers exist (back / jump-to-step / reset).
+    assert "degiroWizardBack()" in html
+    assert "degiroWizardGoTo(" in html
+    assert "degiroWizardReset()" in html
+
+
+def test_degiro_wizard_review_loads_connection_profile(
+    client: TestClient,
+) -> None:
+    """The review step loads DEGIRO connection profiles from the API."""
+    html = _dashboard_html(client)
+    assert "api('GET', '/connectors/configs')" in html
+    assert "config.provider_type === 'degiro_pension'" in html
+    assert "Nog geen DEGIRO-profiel ingesteld" in html
+    assert "degiro-wizard-connection" in html
+
+
+def test_degiro_wizard_preview_contract(client: TestClient) -> None:
+    """Normal behaviour: preview posts multipart and renders the summary.
+
+    The wizard submits ``connection_id`` plus all three files to the
+    preview endpoint, stores the run id, then renders the transaction /
+    holding / duplicate counts and any missing-report warning before
+    anything is persisted.
+    """
+    html = _dashboard_html(client)
+    # Multipart payload: connection id + the three collected files.
+    assert (
+        "form.append('connection_id', degiroWizardState.connectionId)" in html
+    )
+    assert (
+        "Object.values(degiroWizardState.files).forEach(file => form.append('files', file))"
+        in html
+    )
+    assert "/connectors/degiro-pension/imports/preview" in html
+    # Summary renders the preview numbers.
+    assert "p.transactions ?? 0" in html
+    assert "p.holdings ?? 0" in html
+    assert "p.possible_duplicates ?? 0" in html
+    assert "escapeHtml(p.missing_report_types.join(', '))" in html
+    # The run id from the preview response is stored for confirmation.
+    assert "degiroWizardState.runId = data.id" in html
+    assert "degiroWizardState.preview = data.preview || {}" in html
+
+
+def test_degiro_wizard_confirm_contract(client: TestClient) -> None:
+    """Normal behaviour: confirm posts the run id and shows item counts.
+
+    Confirming the previewed run posts to the per-run confirm endpoint,
+    renders the created/updated counts and clears the wizard state so a
+    new import can start.
+    """
+    html = _dashboard_html(client)
+    assert (
+        "/connectors/degiro-pension/imports/${degiroWizardState.runId}/confirm"
+        in html
+    )
+    assert "data.created_count ?? 0" in html
+    assert "data.updated_count ?? 0" in html
+    # After a successful import the wizard resets for the next dataset.
+    assert "degiroWizardState.runId = null" in html
+    assert "degiroWizardState.preview = null" in html
+    assert "await loadFileUploads()" in html
+
+
 def test_dashboard_serves_login_and_register(client: TestClient) -> None:
     for path in ("/login", "/register"):
         resp = client.get(path)
