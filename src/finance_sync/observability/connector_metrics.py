@@ -37,8 +37,10 @@ CONNECTOR_RATE_LIMITS = Counter(
 
 def connection_hash(connection_id: str | None) -> str:
     """Return a stable non-reversible identifier for external telemetry."""
-    if not connection_id:
+    if connection_id is None:
         return "none"
+    if not isinstance(connection_id, str):
+        connection_id = str(connection_id)
     return hashlib.sha256(connection_id.encode("utf-8")).hexdigest()[:16]
 
 

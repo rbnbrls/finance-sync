@@ -82,14 +82,13 @@ def categorize_export_error(message: str | None) -> str | None:
     if not message:
         return None
     text = message.lower()
-    if any(
-        token in text
-        for token in ("expired", "revoked", "reauth", "401", "403")
-    ):
+    if any(token in text for token in ("incompatible",)):
+        return "incompatible"
+    if any(token in text for token in ("expired", "revoked", "reauth")):
         return "reauth_required"
-    if any(
-        token in text for token in ("auth", "credential", "token", "401", "403")
-    ):
+    if any(token in text for token in ("expired", "token expired")):
+        return "token_expired"
+    if any(token in text for token in ("auth", "credential", "token")):
         return "authentication"
     if any(token in text for token in ("rate limit", "429", "too many")):
         return "rate_limited"

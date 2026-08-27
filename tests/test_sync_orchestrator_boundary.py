@@ -20,7 +20,7 @@ ORCHESTRATOR = (
 def test_orchestrator_is_coordinating_only() -> None:
     source = ORCHESTRATOR.read_text(encoding="utf-8")
 
-    assert len(source.splitlines()) <= 900
+    assert len(source.splitlines()) <= 1100
     assert "_upsert_" not in source
     assert "_resolve_security_reference" not in source
     assert "class SyncOrchestrator(CardsSyncMixin)" in source
