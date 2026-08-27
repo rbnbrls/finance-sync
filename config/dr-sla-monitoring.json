@@ -1,0 +1,16 @@
+{
+  "synthetic_data_only": true,
+  "rpo_minutes": 15,
+  "rto_minutes": 30,
+  "check_interval_minutes": 60,
+  "alert_dedup_minutes": 60,
+  "owner": "finance-platform-oncall",
+  "runbook_url": "https://github.com/rbnbrls/finance-sync/blob/main/docs/observability.md",
+  "runbook_id": "automated-dr-runbook",
+  "tenant_prefix_separator": ".",
+  "restore_check": {
+    "backup_schema": "release19_dr_sla",
+    "max_restore_seconds": 600,
+    "max_replay_lag_seconds": 900
+  }
+}
