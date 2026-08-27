@@ -828,3 +828,57 @@ class TestTrading212ConnectorErrorHandling:
             since=since, account_id="nonexistent_account"
         )
         assert txns == []
+
+    async def test_validated_since_reaches_from_param(
+        self,
+        t212_connector_config: ConnectorConfig,
+        t212_mock_transport: object,
+    ) -> None:
+        """The validated ``since`` is exactly what the provider call sends.
+
+        End-to-end guarantee for the connection sync path: a ``since``
+        that the orchestrator validated (here a truncated ISO string,
+        interpreted as UTC) must reach the Trading212 API as the
+        ``from=`` query parameter — never a raw string or a naive
+        timestamp that could shift the look-back window.
+        """
+        import httpx
+
+        from finance_sync.connectors.trading212 import Trading212Connector
+        from finance_sync.sync.errors import validate_since
+
+        transport = t212_mock_transport
+        http_client = httpx.AsyncClient(
+            base_url="https://live.trading212.com",
+            transport=transport,  # type: ignore[arg-type]
+        )
+        conn = Trading212Connector(
+            config=t212_connector_config,
+            http_client=http_client,
+        )
+        await conn.authenticate()
+        conn._account_id = "12345678"
+
+        # What the orchestrator's run_sync would hand the connector after
+        # validate_since(): an aware UTC datetime parsed from a truncated
+        # ISO string.
+        validated = validate_since("2026-05-29T13:04:07")
+
+        txns = await conn.fetch_transactions(since=validated)
+        assert isinstance(txns, list)
+
+        # The connector formatted the validated (UTC-aware) datetime.
+        # Its strftime produces ``2026-05-29T13:04:07.000Z`` (milliseconds
+        # + Z suffix; httpx leaves ``:``/``.`` literal in the query) — the
+        # point is that the value is the validated UTC instant, not a raw
+        # string or a naive timestamp.
+        expected_fragment = "from=2026-05-29T13:04:07.000Z"
+        urls = [
+            str(call["url"])
+            for call in transport.call_log  # type: ignore[attr-defined]
+        ]
+        history_urls = [u for u in urls if "/history/" in u]
+        assert history_urls, "expected history requests to be recorded"
+        assert any(expected_fragment in u for u in history_urls), (
+            f"expected {expected_fragment!r} in {history_urls}"
+        )

@@ -2443,3 +2443,164 @@ class TestConnectorStatePersistence:
         await orchestrator._persist_connector_state("bunq", PlainConnector())  # type: ignore[arg-type]
 
         assert fake.added == []
+
+
+# ── ``since`` validation ────────────────────────────────────────────
+
+
+class TestSyncOrchestratorSinceValidation:
+    """``run_sync`` validates ``since`` before it reaches a connector.
+
+    Regression coverage for the trading212 connection sync path: a
+    missing, truncated, or malformed ``since`` must never cause an
+    unhandled exception (previously a ``str`` ``since`` crashed at
+    ``_since.isoformat()`` with ``AttributeError`` before the pipeline's
+    try/except, surfacing as a 500).  The validated value — an aware UTC
+    datetime — is what the provider-specific connector receives.
+    """
+
+    @pytest.fixture
+    def orchestrator(self) -> SyncOrchestrator:
+        session_factory = MagicMock()
+        mock_session = AsyncMock()
+        session_factory.return_value.__aenter__ = AsyncMock(
+            return_value=mock_session
+        )
+        session_factory.return_value.__aexit__ = AsyncMock(return_value=None)
+        registry = MagicMock()
+        return SyncOrchestrator(
+            session_factory=session_factory,
+            registry=registry,
+            tenant_id="tenant_test_1",
+        )
+
+    async def _run(
+        self, orchestrator, since, connector=None
+    ) -> tuple[SyncResult, dict[str, object]]:
+        """Run run_sync with a stubbed connector/pipeline."""
+        mock_connector = connector or MagicMock()
+        mock_connector.name = "mock_provider"
+        orchestrator._registry.get_connector = MagicMock(
+            return_value=mock_connector
+        )
+        captured: dict[str, object] = {}
+
+        def patch_run_pipeline(
+            session,
+            connector,
+            provider_type,
+            since,
+            log,
+            *,
+            resume=True,
+            connection_id=None,
+            selected_accounts=None,
+        ):
+            captured["since"] = since
+            return SyncResult(
+                status=SyncRunStatus.COMPLETED,
+                accounts_synced=0,
+                transactions_synced=0,
+                error_message=None,
+                duration_s=0.1,
+            )
+
+        with patch.object(
+            orchestrator,
+            "_run_pipeline",
+            side_effect=patch_run_pipeline,
+        ):
+            result = await orchestrator.run_sync(
+                provider_type="mock_provider",
+                config=ConnectorConfig(provider_type="mock_provider"),
+                since=since,
+            )
+        return result, captured
+
+    async def test_missing_since_uses_default_window(
+        self, orchestrator
+    ) -> None:
+        """``since=None`` falls back to the 90-day default window."""
+        result, captured = await self._run(orchestrator, None)
+        assert result.status == SyncRunStatus.COMPLETED
+        pipeline_since = captured["since"]
+        assert isinstance(pipeline_since, datetime)
+        assert pipeline_since.tzinfo is not None
+        # ~90 days before now
+        assert pipeline_since > datetime.now(UTC) - timedelta(days=91)
+        assert pipeline_since <= datetime.now(UTC) - timedelta(days=89)
+
+    async def test_string_since_is_parsed_to_datetime(
+        self, orchestrator
+    ) -> None:
+        """An ISO-8601 string ``since`` is parsed before the connector."""
+        result, captured = await self._run(orchestrator, "2026-05-29T13:04:07Z")
+        assert result.status == SyncRunStatus.COMPLETED
+        pipeline_since = captured["since"]
+        assert isinstance(pipeline_since, datetime)
+        assert pipeline_since == datetime(2026, 5, 29, 13, 4, 7, tzinfo=UTC)
+
+    async def test_truncated_since_is_accepted(self, orchestrator) -> None:
+        """A truncated ISO string (no tz, no seconds) is interpreted UTC."""
+        result, captured = await self._run(orchestrator, "2026-05-29")
+        assert result.status == SyncRunStatus.COMPLETED
+        pipeline_since = captured["since"]
+        assert isinstance(pipeline_since, datetime)
+        assert pipeline_since == datetime(2026, 5, 29, tzinfo=UTC)
+        assert pipeline_since.tzinfo is not None
+
+    async def test_naive_datetime_is_coerced_to_utc(self, orchestrator) -> None:
+        """A naive datetime is interpreted as UTC, never left tz-naive."""
+        result, captured = await self._run(
+            orchestrator, datetime(2026, 5, 29, 13, 4, 7)
+        )
+        assert result.status == SyncRunStatus.COMPLETED
+        pipeline_since = captured["since"]
+        assert isinstance(pipeline_since, datetime)
+        assert pipeline_since.tzinfo is not None
+        assert pipeline_since == datetime(2026, 5, 29, 13, 4, 7, tzinfo=UTC)
+
+    async def test_invalid_since_returns_controlled_failed(
+        self, orchestrator
+    ) -> None:
+        """A malformed ``since`` yields FAILED, never an unhandled error."""
+        result, captured = await self._run(orchestrator, "not-a-date")
+        assert result.status == SyncRunStatus.FAILED
+        assert result.error_category == "validation"
+        assert result.error_kind == "permanent"
+        assert result.error_type == "InvalidSinceError"
+        assert "not-a-date" not in (result.error_message or "")
+        # The pipeline must not have been reached with a bad value.
+        assert "since" not in captured
+
+    async def test_invalid_since_logs_reason_without_raw_value(
+        self, orchestrator
+    ) -> None:
+        """The rejection log carries the reason, never the raw input."""
+        import finance_sync.sync.orchestrator as orch_module
+
+        captured_logger = MagicMock()
+        with (
+            patch.object(
+                orchestrator,
+                "_run_pipeline",
+                side_effect=AssertionError("pipeline must not run"),
+            ),
+            patch.object(orch_module, "logger", captured_logger),
+        ):
+            result = await orchestrator.run_sync(
+                provider_type="trading212",
+                config=ConnectorConfig(provider_type="trading212"),
+                since="super-secret-token-value",
+            )
+
+        assert result.status == SyncRunStatus.FAILED
+        # The rejection was logged with an actionable reason...
+        assert captured_logger.error.call_count == 1
+        event, kwargs = captured_logger.error.call_args
+        assert event[0] == "sync_since_rejected"
+        assert kwargs["reason"] == "not a valid ISO-8601 datetime"
+        assert kwargs["provider"] == "trading212"
+        # ...and the raw value never appears in any log payload.
+        for _call in captured_logger.error.call_args_list:
+            assert "super-secret-token-value" not in repr(_call)

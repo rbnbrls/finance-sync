@@ -40,9 +40,12 @@ from finance_sync.services.connector_compatibility import (
 )
 from finance_sync.sync.context import SyncContext
 from finance_sync.sync.errors import (
+    InvalidSinceError,
+    SyncErrorKind,
     categorize_sync_error,
     classify_sync_error,
     safe_sync_error_message,
+    validate_since,
 )
 from finance_sync.sync.outbox import (
     outbox_reconciliation_completed,
@@ -227,7 +230,7 @@ class SyncOrchestrator(CardsSyncMixin):
         provider_type: str,
         config: ConnectorConfig,
         *,
-        since: dt_type | None = None,
+        since: dt_type | str | None = None,
         connection_id: str | None = None,
         selected_accounts: list[str] | None = None,
     ) -> SyncResult:
@@ -237,9 +240,13 @@ class SyncOrchestrator(CardsSyncMixin):
             provider_type:  Connector name (e.g. 'bunq').
             config:         ``ConnectorConfig`` with credentials + options.
             since:          Only fetch transactions on or after this time.
-                            Defaults to each account's stored sync
-                            cursor (resume), or 90 days ago for accounts
-                            on their first sync.
+                            Accepts an aware/naive :class:`datetime` or an
+                            ISO-8601 string (truncated forms allowed);
+                            missing/empty falls back to each account's
+                            stored sync cursor (resume), or 90 days ago
+                            for accounts on their first sync.  A value
+                            that cannot be parsed yields a controlled
+                            FAILED result instead of an unhandled error.
             connection_id:  Stable connection (credential) id this sync
                             belongs to.  When provided, the run is scoped
                             to that connection: accounts, transactions,
@@ -259,10 +266,41 @@ class SyncOrchestrator(CardsSyncMixin):
         Returns:
             A ``SyncResult`` named tuple with status, counts, and error.
         """
-        _since = since or _default_since()
+        # Validate the ``since`` parameter before it enters any
+        # provider-specific path.  A missing value falls back to the
+        # documented 90-day default window; a malformed value (garbage,
+        # wrong type, unparseable ISO string) must not crash the sync or
+        # reach a connector's ``strftime`` — it becomes a controlled
+        # FAILED result with an actionable, credential-free message.
         connection_id = connection_id or getattr(config, "connection_id", None)
         if selected_accounts is None:
             selected_accounts = getattr(config, "selected_accounts", None)
+        try:
+            _since = _resolve_since(since)
+        except InvalidSinceError as exc:
+            # Log only the rejection reason — never the raw value.  The
+            # value may originate from user input or a stored cursor and
+            # is not echoed anywhere (logs, response, SyncRun row).
+            logger.error(
+                "sync_since_rejected",
+                provider=provider_type,
+                tenant_id=self._tenant_id,
+                connection_id=connection_id,
+                reason=exc.reason,
+                error_kind=SyncErrorKind.PERMANENT.value,
+            )
+            return SyncResult(
+                status=SyncRunStatus.FAILED,
+                accounts_synced=0,
+                transactions_synced=0,
+                holdings_synced=0,
+                unresolved_securities=0,
+                error_message=str(exc),
+                error_category="validation",
+                error_type=type(exc).__name__,
+                error_kind=SyncErrorKind.PERMANENT.value,
+                duration_s=0.0,
+            )
         log = logger.bind(
             provider=provider_type,
             tenant_id=self._tenant_id,
@@ -1016,3 +1054,17 @@ def _default_since() -> dt_type:
     from datetime import timedelta
 
     return datetime.now(UTC) - timedelta(days=90)
+
+
+def _resolve_since(
+    since: dt_type | str | None,
+) -> dt_type:
+    """Normalise the ``run_sync`` ``since`` parameter.
+
+    Delegates to :func:`validate_since` with the orchestrator's documented
+    default (the 90-day backfill window).  A rejected value raises
+    :class:`InvalidSinceError` — the caller (``run_sync``) converts it
+    into a controlled ``FAILED`` ``SyncResult`` so no unhandled exception
+    escapes to the API layer.
+    """
+    return validate_since(since, default=_default_since())
