@@ -5,7 +5,6 @@ from __future__ import annotations
 from datetime import datetime
 
 from sqlalchemy import JSON, DateTime, String, Text
-from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from finance_sync.db import Base, created_at_ts, pk_uuid
@@ -32,7 +31,7 @@ class SyncRun(Base):
         comment="Connector name, e.g. 'plaid', 'teller', 'openbb'",
     )
     connection_id: Mapped[str | None] = mapped_column(
-        UUID(as_uuid=True),
+        String(64),
         nullable=True,
         index=True,
         comment=(
