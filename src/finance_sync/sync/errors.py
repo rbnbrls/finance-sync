@@ -67,7 +67,10 @@ def categorize_sync_error(error: BaseException) -> str:
             return "authentication"
         if any(token in message for token in ("map", "security", "instrument")):
             return "data_mapping"
-        if any(token in message for token in ("valid", "malformed", "invalid")):
+        if any(
+            token in message
+            for token in ("valid", "malformed", "invalid", "rejected", "400")
+        ):
             return "validation"
         return "unknown"
     if isinstance(error, ConnectorError):

@@ -126,9 +126,32 @@ class TestRateLimiterRetry:
             msg = "always fails"
             raise TransientError(msg)
 
-        with pytest.raises(TransientError, match="retries exhausted"):
+        with pytest.raises(
+            TransientError, match=r"retries exhausted.*always fails"
+        ):
             await limiter.retry(always_fail)  # type: ignore[arg-type]
         assert call_count == 3  # initial + 2 retries
+
+    async def test_exhaustion_message_carries_sanitised_cause(self) -> None:
+        """Exhaustion must surface the underlying failure cause.
+
+        The production incident was logged only as "All 3 retries
+        exhausted" with no indication of what failed.  The exhausted
+        message now appends the sanitised connector error so operators
+        can act on it.
+        """
+        policy = RateLimitPolicy(max_retries=1, backoff_base=0.01)
+        limiter = RateLimiter(policy)
+
+        async def always_503() -> str:
+            msg = "Trading212 request failed (HTTP 503)"
+            raise TransientError(msg)
+
+        with pytest.raises(
+            TransientError,
+            match="All 1 retries exhausted: Trading212 request failed",
+        ):
+            await limiter.retry(always_503)  # type: ignore[arg-type]
 
     async def test_does_not_retry_permanent_error(self) -> None:
         policy = RateLimitPolicy(max_retries=3, backoff_base=0.01)

@@ -23,6 +23,12 @@ def test_sync_error_categories_are_stable() -> None:
     assert categorize_sync_error(
         PermanentError("invalid security mapping")
     ) == ("data_mapping")
+    # 4xx client errors (e.g. invalid ``since`` → HTTP 400) are now
+    # classified as PermanentError and categorised as validation, so
+    # operators see the actionable cause instead of "provider_unavailable".
+    assert categorize_sync_error(
+        PermanentError("Trading212 request failed (HTTP 400)")
+    ) == ("validation")
 
 
 def test_sync_projection_contains_recovery_metadata() -> None:
