@@ -11,8 +11,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
-from sqlalchemy import String, select
-from sqlalchemy import cast as sql_cast
+from sqlalchemy import select
 
 from finance_sync.models import Credential, SyncRun
 from finance_sync.schemas.provider_health import (
@@ -95,7 +94,7 @@ class ProviderHealthService:
                 select(SyncRun)
                 .join(
                     Credential,
-                    sql_cast(Credential.id, String) == SyncRun.connection_id,
+                    Credential.id == SyncRun.connection_id,
                 )
                 .where(
                     Credential.tenant_id == self._tenant_id,

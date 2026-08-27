@@ -1820,7 +1820,7 @@ async def list_connection_audit(
     return [
         ConnectionAuditEntry(
             id=str(e.id),
-            connection_id=e.connection_id,
+            connection_id=str(e.connection_id) if e.connection_id else None,
             provider_key=e.provider_key,
             action=e.action,
             detail=dict(e.detail or {}),
