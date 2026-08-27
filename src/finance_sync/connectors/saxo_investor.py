@@ -188,6 +188,7 @@ class SaxoInvestorConnector(Connector):
         self._snapshot: datetime | None = None
         self._rows: list[dict[str, Any]] = []
         self._transactions: list[RawTransaction] = []
+        self._skipped_transaction_rows: int = 0
         self._account: RawAccount | None = None
 
     @property
@@ -304,6 +305,7 @@ class SaxoInvestorConnector(Connector):
         self._rows = []
         self._transactions = []
         self._position_path = None
+        self._skipped_transaction_rows = 0
         for path in self._paths:
             sheets = self._read_workbook(path)
             for values in sheets.values():
@@ -344,6 +346,7 @@ class SaxoInvestorConnector(Connector):
                 else None,
                 "holdings_count": len(self._rows),
                 "transactions_count": len(self._transactions),
+                "skipped_transaction_rows": self._skipped_transaction_rows,
             },
         )
 
@@ -423,10 +426,20 @@ class SaxoInvestorConnector(Connector):
             row = list(values_row) + [None] * max(
                 0, len(headers) - len(values_row)
             )
+            raw_amount = row[index["Boekingsbedrag"]]
+            # Saxo transaction exports intersperse summary/separator rows
+            # (subtotals, account totals, blank lines) that share the sheet
+            # layout but carry no booking amount.  Skipping them instead of
+            # aborting the whole import keeps a single malformed or
+            # non-transaction row from failing every account (GlitchTip #6 /
+            # GitHub #463: "Boekingsbedrag op regel N ontbreekt").
+            if _clean(raw_amount) in {"", "–", "-", "—"}:
+                self._skipped_transaction_rows += 1
+                continue
             occurred_at = _as_datetime(row[index["Transactiedatum"]])
             currency = _currency(row[index["Valuta"]])
             amount = _decimal(
-                row[index["Boekingsbedrag"]],
+                raw_amount,
                 field=f"Boekingsbedrag op regel {line}",
             )
             assert amount is not None
