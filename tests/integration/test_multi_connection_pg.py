@@ -301,7 +301,7 @@ class TestMultiConnectionIsolationPg:
                 )
             ).all()
             assert len(accounts) == 2, "one account per connection"
-            assert {a.connection_id for a in accounts} == {
+            assert {str(a.connection_id) for a in accounts} == {
                 str(conn_a.id),
                 str(conn_b.id),
             }
@@ -316,7 +316,7 @@ class TestMultiConnectionIsolationPg:
                 )
             ).all()
             assert len(txns) == 2, "one transaction per connection"
-            assert {t.connection_id for t in txns} == {
+            assert {str(t.connection_id) for t in txns} == {
                 str(conn_a.id),
                 str(conn_b.id),
             }
@@ -330,7 +330,7 @@ class TestMultiConnectionIsolationPg:
                 )
             ).all()
             assert len(cursors) == 2, "independent cursors per connection"
-            assert {c.connection_id for c in cursors} == {
+            assert {str(c.connection_id) for c in cursors} == {
                 str(conn_a.id),
                 str(conn_b.id),
             }
@@ -346,7 +346,7 @@ class TestMultiConnectionIsolationPg:
                 )
             ).all()
             assert len(runs) == 2
-            assert {r.connection_id for r in runs} == {
+            assert {str(r.connection_id) for r in runs} == {
                 str(conn_a.id),
                 str(conn_b.id),
             }
@@ -541,7 +541,7 @@ class TestFailureIsolationPg:
                 )
             ).all()
             assert len(runs) == 2
-            statuses = {r.connection_id: r.status for r in runs}
+            statuses = {str(r.connection_id): r.status for r in runs}
             assert statuses[str(conn_a.id)] == SyncRunStatus.FAILED
             assert statuses[str(conn_b.id)] == SyncRunStatus.COMPLETED
 
@@ -554,7 +554,7 @@ class TestFailureIsolationPg:
                     )
                 )
             ).all()
-            assert [a.connection_id for a in accounts] == [str(conn_b.id)]
+            assert [str(a.connection_id) for a in accounts] == [str(conn_b.id)]
 
 
 class TestExportSelectionPg:
@@ -753,7 +753,7 @@ class TestConcurrentSyncPg:
                 )
             ).all()
             assert len(accounts) == 2, "one account per connection"
-            assert {a.connection_id for a in accounts} == {
+            assert {str(a.connection_id) for a in accounts} == {
                 str(conn_a.id),
                 str(conn_b.id),
             }
@@ -768,7 +768,7 @@ class TestConcurrentSyncPg:
                 )
             ).all()
             assert len(txns) == 2, "one transaction per connection"
-            assert {t.connection_id for t in txns} == {
+            assert {str(t.connection_id) for t in txns} == {
                 str(conn_a.id),
                 str(conn_b.id),
             }
@@ -782,7 +782,7 @@ class TestConcurrentSyncPg:
                 )
             ).all()
             assert len(cursors) == 2, "independent cursors per connection"
-            assert {c.connection_id for c in cursors} == {
+            assert {str(c.connection_id) for c in cursors} == {
                 str(conn_a.id),
                 str(conn_b.id),
             }
@@ -798,7 +798,7 @@ class TestConcurrentSyncPg:
                 )
             ).all()
             assert len(runs) == 2, "one run per connection"
-            assert {r.connection_id for r in runs} == {
+            assert {str(r.connection_id) for r in runs} == {
                 str(conn_a.id),
                 str(conn_b.id),
             }
@@ -876,7 +876,7 @@ class TestSchedulerJobPg:
                 )
             ).all()
             assert len(runs) == 2
-            statuses = {r.connection_id: r.status for r in runs}
+            statuses = {str(r.connection_id): r.status for r in runs}
             assert statuses[str(conn_a.id)] == SyncRunStatus.FAILED
             assert statuses[str(conn_b.id)] == SyncRunStatus.COMPLETED
 
@@ -889,7 +889,7 @@ class TestSchedulerJobPg:
                     )
                 )
             ).all()
-            assert [a.connection_id for a in accounts] == [str(conn_b.id)]
+            assert [str(a.connection_id) for a in accounts] == [str(conn_b.id)]
 
     @pytest.mark.integration
     async def test_paused_connection_skipped_by_scheduler(
@@ -967,7 +967,7 @@ class TestSchedulerJobPg:
                     select(Account).where(Account.tenant_id == str(tenant.id))
                 )
             ).all()
-            assert [a.connection_id for a in accounts] == [str(conn_active.id)]
+            assert [str(a.connection_id) for a in accounts] == [str(conn_active.id)]
 
 
 class TestManualSyncEndpointPg:

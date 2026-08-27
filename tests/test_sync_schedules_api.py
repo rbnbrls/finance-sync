@@ -163,7 +163,7 @@ def schedule_row(tenant: Tenant) -> SyncSchedule:
     row = SyncSchedule(
         tenant_id=tenant.id,
         scope=SCOPE_INGESTION,
-        target_id="conn-1",
+        target_id="aaaa1111-aaaa-4aaa-8aaa-aaaa11111111",
         enabled=True,
         schedule=default_schedule(),
         schema_version=1,
@@ -200,7 +200,7 @@ class TestScheduleApi:
             assert data["total"] == 1
             item = data["items"][0]
             assert item["scope"] == "ingestion"
-            assert item["target_id"] == "conn-1"
+            assert item["target_id"] == "aaaa1111-aaaa-4aaa-8aaa-aaaa11111111"
             assert item["enabled"] is True
             assert item["timezone"] == "Europe/Amsterdam"
             assert item["human_readable"] == "Elke werkdag om 07:00"
