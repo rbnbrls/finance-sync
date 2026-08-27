@@ -10,7 +10,7 @@ PostgreSQL-flavoured ORM models work with SQLite.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -946,7 +946,10 @@ class TestPostSyncReconciliation:
         tenant_id: str,
     ) -> None:
         """run_sync triggers reconciliation after successful sync."""
-        now = datetime.now()
+        # Aware UTC timestamps: run_sync validates ``since`` to an aware
+        # UTC datetime (connector contract), so the mock data must be
+        # aware too — a naive timestamp would crash the >= comparison.
+        now = datetime.now(UTC)
 
         from finance_sync.connectors.models import (
             ConnectorConfig,
