@@ -76,7 +76,6 @@ if TYPE_CHECKING:
     )
     from finance_sync.connectors.registry import ConnectorRegistry
 
-
 logger = structlog.get_logger("finance_sync.sync.orchestrator")
 
 
