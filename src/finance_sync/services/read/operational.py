@@ -8,7 +8,7 @@ from datetime import (
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import desc, func, select
+from sqlalchemy import String, cast, desc, func, select
 
 from finance_sync.models.balance import Balance
 from finance_sync.models.card_transaction import CardTransaction
@@ -773,7 +773,7 @@ class OperationalReadService:
         ).select_from(SyncRun)
         if tenant_id is not None:
             count_by_q = count_by_q.join(
-                Credential, Credential.id == SyncRun.connection_id
+                Credential, cast(Credential.id, String) == SyncRun.connection_id
             )
         count_by_q = count_by_q.where(_expr(*conditions)).group_by(
             SyncRun.connector, SyncRun.status
@@ -792,7 +792,7 @@ class OperationalReadService:
         total_query = select(func.count()).select_from(SyncRun)
         if tenant_id is not None:
             total_query = total_query.join(
-                Credential, Credential.id == SyncRun.connection_id
+                Credential, cast(Credential.id, String) == SyncRun.connection_id
             )
         total_query = total_query.where(_expr(*conditions))
         total_result = await self._session.execute(total_query)
@@ -802,7 +802,9 @@ class OperationalReadService:
         order = _sort_field(_SORTABLE_SYNC_RUN_FIELDS, sort_by, sort_order)
         stmt = select(SyncRun)
         if tenant_id is not None:
-            stmt = stmt.join(Credential, Credential.id == SyncRun.connection_id)
+            stmt = stmt.join(
+                Credential, cast(Credential.id, String) == SyncRun.connection_id
+            )
         stmt = (
             stmt.where(_expr(*conditions))
             .order_by(order)

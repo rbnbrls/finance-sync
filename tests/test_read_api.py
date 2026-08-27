@@ -424,6 +424,40 @@ class TestReadServiceSyncRuns:
         await svc.list_sync_runs(connector="bunq")
         _assert_sql_contains(mock_session, "bunq")
 
+    async def test_tenant_join_casts_uuid_to_varchar(
+        self, mock_session: AsyncMock
+    ) -> None:
+        """Tenant-scoped list_sync_runs must cast credentials.id (uuid) to
+        varchar before joining sync_runs.connection_id (varchar).
+
+        Regression test for issue #451: the raw join
+        ``credentials.id = sync_runs.connection_id`` raises
+        ``UndefinedFunctionError: operator does not exist: uuid = character
+        varying`` in asyncpg. The fix casts the uuid side to varchar so the
+        comparison is varchar = varchar (same pattern as provider_health and
+        control_plane).
+        """
+        svc = ReadService(mock_session)
+        await svc.list_sync_runs(tenant_id="tenant-a")
+
+        # The count, total, and item queries all join Credential — the join
+        # condition must compile to a CAST on credentials.id.
+        calls = mock_session.execute.call_args_list
+        assert calls, "expected at least one execute() call"
+        compiled = [
+            str(
+                args[0][0].compile(
+                    dialect=postgresql.dialect(),
+                    compile_kwargs={"literal_binds": True},
+                )
+            )
+            for args in calls
+        ]
+        for sql in compiled:
+            assert "CAST(credentials.id AS VARCHAR)" in sql, (
+                f"join is missing uuid->varchar cast; SQL:\n{sql}"
+            )
+
     async def test_response_exposes_cursor(self) -> None:
         """Sync-run items carry the cursor watermark (G-03)."""
         from finance_sync.services.read_api import SyncRunResponse
