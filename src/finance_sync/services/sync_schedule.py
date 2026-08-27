@@ -469,7 +469,9 @@ class SyncScheduleService:
         entry = ConnectionAuditLog(
             tenant_id=tenant_id,
             connection_id=(
-                schedule.target_id if schedule.scope == SCOPE_INGESTION else None
+                schedule.target_id
+                if schedule.scope == SCOPE_INGESTION
+                else None
             ),
             provider_key=schedule.scope,
             action=action,

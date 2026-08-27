@@ -967,7 +967,9 @@ class TestSchedulerJobPg:
                     select(Account).where(Account.tenant_id == str(tenant.id))
                 )
             ).all()
-            assert [str(a.connection_id) for a in accounts] == [str(conn_active.id)]
+            assert [str(a.connection_id) for a in accounts] == [
+                str(conn_active.id)
+            ]
 
 
 class TestManualSyncEndpointPg:
