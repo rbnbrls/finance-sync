@@ -61,6 +61,8 @@ stable (file-provisioned) and appear in the UI at
 | `finance-sync-export-failures` | `increase(export_runs_total{status="failed"}[1h])` | `> 0` for 5m | critical | webhook + email |
 | `finance-sync-worker-down` | `up{job="finance-sync-worker"}` | `== 0` for 2m | critical | webhook + email |
 | `finance-sync-app-down` | `up{job="finance-sync-app"}` | `== 0` for 2m | critical | webhook + email |
+| `finance-sync-dr-rpo-breach` | `dr_sla_last_usable_backup_age_seconds` | `> 900` (15m) for 15m | critical | webhook + email |
+| `finance-sync-dr-rto-breach` | `dr_sla_replay_lag_seconds` | `> 1800` (30m) for 15m | critical | webhook + email |
 
 Each dashboard panel that can trip an alert carries a "View alert" link
 to the corresponding rule.
@@ -161,6 +163,9 @@ docker compose restart grafana
 | `worker_job_success_rate` | gauge | `job_id` | JobMonitor |
 | `http_requests_total` / `http_request_duration_seconds` / `http_*_size_bytes` | counter / histogram | `method`, `path`, `status` | app middleware |
 | `db_pool_*` | gauge | — | app middleware |
+| `dr_sla_last_usable_backup_age_seconds` | gauge | — | `scripts/dr_sla_monitoring.py` (CI artifact + metrics) |
+| `dr_sla_replay_lag_seconds` | gauge | — | `scripts/dr_sla_monitoring.py` (CI artifact + metrics) |
+| `dr_sla_restore_duration_seconds` | gauge | — | `scripts/dr_sla_monitoring.py` (CI artifact + metrics) |
 
 All of these are served from the **app** (`app:8000/metrics`) or the
 **worker** (`worker:9090/metrics`) — see the table in §1.

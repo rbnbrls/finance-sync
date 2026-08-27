@@ -682,6 +682,43 @@ jobs:
           path: automated-dr-runbook.json
           retention-days: 30
 
+  # ── Periodic DR SLA (RPO/RTO) monitoring ────────────────────────────
+  dr-sla-monitoring:
+    name: DR SLA monitoring
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: finance_sync_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s --health-timeout 5s --health-retries 5
+    steps:
+      - uses: actions/checkout@v7
+      - name: Create isolated restore database
+        run: createdb -h localhost -U postgres finance_sync_restore
+        env:
+          PGPASSWORD: postgres
+      - name: Run synthetic DR restore-check
+        run: >
+          python3 scripts/dr_sla_monitoring.py
+          --config config/dr-sla-monitoring.json
+          --artifact dr-sla-monitoring.json
+          --source-url postgresql://postgres:postgres@localhost:5432/finance_sync_test
+          --target-url postgresql://postgres:postgres@localhost:5432/finance_sync_restore
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: dr-sla-monitoring-${{ github.sha }}
+          path: dr-sla-monitoring.json
+          retention-days: 30
+
   # ── Encryption key-rotation drill ────────────────────────────────────
   key-rotation:
     name: Encryption key rotation

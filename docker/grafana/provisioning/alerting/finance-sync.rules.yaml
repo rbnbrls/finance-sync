@@ -268,3 +268,87 @@ groups:
             (app:8000/metrics). Restart the app container:
             docker compose restart app.
           runbook_url: "https://github.com/rbnbrls/finance-sync/blob/main/docs/observability.md"
+
+      # ── DR SLA: RPO breach ─────────────────────────────────────────
+      - uid: finance-sync-dr-rpo-breach
+        title: DR RPO breached (backup too old)
+        condition: B
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            relativeTimeRange:
+              from: 3600
+              to: 0
+            model:
+              refId: A
+              expr: dr_sla_last_usable_backup_age_seconds > 900
+              instant: true
+              range: false
+          - refId: B
+            datasourceUid: __expr__
+            relativeTimeRange:
+              from: 3600
+              to: 0
+            model:
+              refId: B
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: [0]
+                  operator:
+                    type: and
+        for: 15m
+        labels:
+          severity: critical
+          team: finance
+        annotations:
+          summary: "DR RPO breached: newest usable backup exceeds 15 minutes"
+          description: >-
+            The newest usable backup is older than the 15-minute RPO.
+            Follow the recovery runbook
+            (docs/AUTOMATED_DR_RUNBOOK.md) and page finance-platform-oncall.
+          runbook_url: "https://github.com/rbnbrls/finance-sync/blob/main/docs/observability.md"
+
+      # ── DR SLA: RTO breach ─────────────────────────────────────────
+      - uid: finance-sync-dr-rto-breach
+        title: DR RTO breached (replay-lag too high)
+        condition: B
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            relativeTimeRange:
+              from: 3600
+              to: 0
+            model:
+              refId: A
+              expr: dr_sla_replay_lag_seconds > 1800
+              instant: true
+              range: false
+          - refId: B
+            datasourceUid: __expr__
+            relativeTimeRange:
+              from: 3600
+              to: 0
+            model:
+              refId: B
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: [0]
+                  operator:
+                    type: and
+        for: 15m
+        labels:
+          severity: critical
+          team: finance
+        annotations:
+          summary: "DR RTO breached: replay-lag exceeds 30 minutes"
+          description: >-
+            Replay-lag on the restore target exceeds the 30-minute RTO.
+            Follow the recovery runbook
+            (docs/AUTOMATED_DR_RUNBOOK.md) and page finance-platform-oncall.
+          runbook_url: "https://github.com/rbnbrls/finance-sync/blob/main/docs/observability.md"
