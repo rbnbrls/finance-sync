@@ -507,7 +507,18 @@ def _auth_headers(
 
 
 def _raise_for_status(response: httpx.Response) -> None:
-    """Raise appropriate connector error from an HTTP error response."""
+    """Raise appropriate connector error from an HTTP error response.
+
+    Classification:
+        - 429            -> RateLimitError (retryable, honours Retry-After)
+        - 401/403        -> PermanentError (bad credentials)
+        - other 4xx      -> PermanentError (client/contract errors — a 400
+          from Trading212 means the request itself is invalid and retrying
+          it can never succeed; surfacing it as ``TransientError`` wasted
+          all retries and hid the actionable status behind "All N retries
+          exhausted")
+        - 5xx/unknown    -> TransientError (provider-side, safe to retry)
+    """
     status = response.status_code
     if status == 429:
         retry_after = _parse_retry_after(response)
@@ -515,6 +526,9 @@ def _raise_for_status(response: httpx.Response) -> None:
         raise RateLimitError(msg, retry_after=retry_after)
     if status in (401, 403):
         msg = f"Trading212 authentication failed (HTTP {status})"
+        raise PermanentError(msg)
+    if 400 <= status < 500:
+        msg = f"Trading212 request failed (HTTP {status})"
         raise PermanentError(msg)
     msg = f"Trading212 request failed (HTTP {status})"
     raise TransientError(msg)

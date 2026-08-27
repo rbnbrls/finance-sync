@@ -667,6 +667,83 @@ class TestTrading212ConnectorErrorHandling:
         with pytest.raises(TransientError):
             await conn.authenticate()
 
+    async def test_bad_request_error_is_permanent(
+        self,
+        t212_connector_config: ConnectorConfig,
+    ) -> None:
+        """HTTP 400 should raise PermanentError — never retried.
+
+        Regression test for the prod sync failure where Trading212
+        answered ``400 Bad Request`` to the history request and the
+        connector classified it as transient, burning all 3 retries and
+        surfacing as the misleading "All 3 retries exhausted" alert.
+        A 400 is a client/contract error: retrying it can never succeed,
+        so it must fail fast as PermanentError.
+        """
+        import httpx
+
+        from finance_sync.connectors.trading212 import Trading212Connector
+
+        async def handler(_: object) -> httpx.Response:
+            return httpx.Response(400, json={"error": "Bad Request"})
+
+        transport = httpx.MockTransport(handler)
+        http_client = httpx.AsyncClient(
+            base_url="https://live.trading212.com", transport=transport
+        )
+        conn = Trading212Connector(
+            config=t212_connector_config, http_client=http_client
+        )
+
+        with pytest.raises(PermanentError, match="HTTP 400"):
+            await conn.authenticate()
+
+    async def test_bad_request_during_fetch_not_retried(
+        self,
+        t212_connector_config: ConnectorConfig,
+    ) -> None:
+        """A 400 during a rate-limited fetch fails fast without retries.
+
+        The orchestrator calls ``_rate_limited_fetch_transactions`` which
+        wraps the fetch in ``RateLimiter.retry``; a PermanentError must
+        propagate immediately (no retry loop, no "retries exhausted"
+        wrap) so the actionable status code reaches the sync result.
+        """
+        import httpx
+
+        from finance_sync.connectors.trading212 import Trading212Connector
+
+        calls = {"count": 0}
+
+        async def handler(request: httpx.Request) -> httpx.Response:
+            calls["count"] += 1
+            path = request.url.path
+            if path == "/api/v0/equity/account/cash":
+                return httpx.Response(200, json={"free": 100.0})
+            if path == "/api/v0/equity/account/info":
+                return httpx.Response(200, json={"id": "12345678"})
+            # history endpoints -> 400
+            return httpx.Response(400, json={"error": "Bad Request"})
+
+        transport = httpx.MockTransport(handler)
+        http_client = httpx.AsyncClient(
+            base_url="https://live.trading212.com", transport=transport
+        )
+        conn = Trading212Connector(
+            config=t212_connector_config, http_client=http_client
+        )
+        await conn.authenticate()
+        conn._account_id = "12345678"
+
+        from datetime import UTC, datetime
+
+        with pytest.raises(PermanentError, match="HTTP 400"):
+            await conn._rate_limited_fetch_transactions(
+                datetime(2024, 1, 1, tzinfo=UTC)
+            )
+        # auth: 2 requests (cash + info) + exactly 1 history attempt: no retry
+        assert calls["count"] == 3
+
     async def test_transient_error_on_fetch(
         self,
         t212_connector: Trading212Connector,

@@ -140,6 +140,22 @@ class TestSyncResult:
         )
         assert result.status == SyncRunStatus.FAILED
         assert result.error_message == "Auth failed"
+        # New diagnostic fields default to None and are populated on failures
+        assert result.error_type is None
+        assert result.error_kind is None
+
+    def test_failed_result_with_error_type_kind(self) -> None:
+        result = SyncResult(
+            status=SyncRunStatus.FAILED,
+            accounts_synced=0,
+            transactions_synced=0,
+            error_message="Trading212 request failed (HTTP 400)",
+            error_type="PermanentError",
+            error_kind="permanent",
+            duration_s=0.5,
+        )
+        assert result.error_type == "PermanentError"
+        assert result.error_kind == "permanent"
 
 
 class TestReconciliationRunSummary:
