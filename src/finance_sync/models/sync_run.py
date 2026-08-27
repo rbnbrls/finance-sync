@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from uuid import UUID as _UUID
 
 from sqlalchemy import JSON, DateTime, String, Text
 from sqlalchemy.dialects.postgresql import UUID
@@ -31,7 +32,7 @@ class SyncRun(Base):
         nullable=False,
         comment="Connector name, e.g. 'plaid', 'teller', 'openbb'",
     )
-    connection_id: Mapped[str | None] = mapped_column(
+    connection_id: Mapped[_UUID | None] = mapped_column(
         UUID(as_uuid=True),
         nullable=True,
         index=True,

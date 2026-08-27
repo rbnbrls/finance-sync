@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from decimal import Decimal
 from typing import ClassVar
+from uuid import UUID as _UUID
 
 from sqlalchemy import DateTime, ForeignKey, Numeric, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
@@ -37,7 +38,7 @@ class Transaction(TimestampMixin, Base):
     provider_key: Mapped[str] = mapped_column(
         String(64), nullable=False, comment="Ingestion connector name"
     )
-    connection_id: Mapped[str | None] = mapped_column(
+    connection_id: Mapped[_UUID | None] = mapped_column(
         UUID(as_uuid=True),
         nullable=True,
         index=True,

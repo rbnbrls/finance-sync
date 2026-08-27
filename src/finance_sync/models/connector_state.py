@@ -12,6 +12,7 @@ connectors decide what to store and how to interpret it.
 from __future__ import annotations
 
 from typing import Any, ClassVar
+from uuid import UUID as _UUID
 
 from sqlalchemy import ForeignKey, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, UUID
@@ -51,7 +52,7 @@ class ConnectorState(Base):
         nullable=False,
         comment="Connector name, e.g. 'bunq'",
     )
-    connection_id: Mapped[str | None] = mapped_column(
+    connection_id: Mapped[_UUID | None] = mapped_column(
         UUID(as_uuid=True),
         nullable=True,
         index=True,

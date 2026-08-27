@@ -11,6 +11,7 @@ from __future__ import annotations
 from datetime import datetime
 from decimal import Decimal
 from typing import Any, ClassVar
+from uuid import UUID as _UUID
 
 from sqlalchemy import DateTime, ForeignKey, Numeric, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, UUID
@@ -51,7 +52,7 @@ class CardTransaction(TimestampMixin, Base):
     provider_key: Mapped[str] = mapped_column(
         String(64), nullable=False, comment="Ingestion connector name"
     )
-    connection_id: Mapped[str | None] = mapped_column(
+    connection_id: Mapped[_UUID | None] = mapped_column(
         UUID(as_uuid=True),
         nullable=True,
         index=True,
