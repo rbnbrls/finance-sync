@@ -802,7 +802,9 @@ class OperationalReadService:
         order = _sort_field(_SORTABLE_SYNC_RUN_FIELDS, sort_by, sort_order)
         stmt = select(SyncRun)
         if tenant_id is not None:
-            stmt = stmt.join(Credential, cast(Credential.id, String) == SyncRun.connection_id)
+            stmt = stmt.join(
+                Credential, cast(Credential.id, String) == SyncRun.connection_id
+            )
         stmt = (
             stmt.where(_expr(*conditions))
             .order_by(order)

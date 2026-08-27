@@ -9,7 +9,8 @@ from typing import Any, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel
-from sqlalchemy import String, cast, func, select
+from sqlalchemy import String, func, select
+from sqlalchemy import cast as sql_cast
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from finance_sync.api.deps.auth import AuthContext, require_permission
@@ -84,7 +85,7 @@ async def _tenant_run(
 ) -> tuple[SyncRun, Credential]:
     result = await db.execute(
         select(SyncRun, Credential)
-        .join(Credential, cast(Credential.id, String) == SyncRun.connection_id)
+        .join(Credential, sql_cast(Credential.id, String) == SyncRun.connection_id)
         .where(SyncRun.id == run_id, Credential.tenant_id == tenant_id)
     )
     pair = result.one_or_none()
