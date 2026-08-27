@@ -2474,7 +2474,9 @@ class TestSyncOrchestratorSinceValidation:
             tenant_id="tenant_test_1",
         )
 
-    async def _run(self, orchestrator, since, connector=None) -> SyncResult:
+    async def _run(
+        self, orchestrator, since, connector=None
+    ) -> tuple[SyncResult, dict[str, object]]:
         """Run run_sync with a stubbed connector/pipeline."""
         mock_connector = connector or MagicMock()
         mock_connector.name = "mock_provider"
