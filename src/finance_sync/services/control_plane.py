@@ -6,7 +6,7 @@ import json
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import String, cast, func, or_, select
+from sqlalchemy import func, or_, select
 
 from finance_sync.control_plane_contract import (
     latest_timestamp,
@@ -177,7 +177,7 @@ class ControlPlaneService:
                 select(SyncRun)
                 .join(
                     Credential,
-                    cast(Credential.id, String) == SyncRun.connection_id,
+                    Credential.id == SyncRun.connection_id,
                 )
                 .where(Credential.id.in_(connection_ids))
                 .where(Credential.tenant_id == self._tenant_id)

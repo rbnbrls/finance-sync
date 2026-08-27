@@ -424,6 +424,47 @@ class TestReadServiceSyncRuns:
         await svc.list_sync_runs(connector="bunq")
         _assert_sql_contains(mock_session, "bunq")
 
+    async def test_tenant_join_uses_matching_uuid_types(
+        self, mock_session: AsyncMock
+    ) -> None:
+        """Tenant-scoped list_sync_runs joins credentials.id (uuid) to
+        sync_runs.connection_id (uuid) directly — no cast.
+
+        Migration 0045 aligned sync_runs.connection_id (and 7 sibling
+        tables) from varchar(64) to uuid, so the raw join
+        ``credentials.id = sync_runs.connection_id`` compiles to
+        uuid = uuid and runs without a cast.  This is the regression
+        guard for issue #451 (UndefinedFunctionError: operator does not
+        exist: uuid = character varying): the pre-migration code needed
+        ``CAST(credentials.id AS VARCHAR)`` on this join; post-migration
+        that cast would itself break (varchar = uuid), so the join must
+        stay cast-free.
+        """
+        svc = ReadService(mock_session)
+        await svc.list_sync_runs(tenant_id="tenant-a")
+
+        # The count, total, and item queries all join Credential — the join
+        # condition must compile to a bare uuid = uuid comparison (no cast).
+        calls = mock_session.execute.call_args_list
+        assert calls, "expected at least one execute() call"
+        compiled = [
+            str(
+                args[0][0].compile(
+                    dialect=postgresql.dialect(),
+                    compile_kwargs={"literal_binds": True},
+                )
+            )
+            for args in calls
+        ]
+        for sql in compiled:
+            assert "CAST(credentials.id AS VARCHAR)" not in sql, (
+                f"join must not cast credentials.id after migration 0045; "
+                f"SQL:\n{sql}"
+            )
+            assert "credentials.id = sync_runs.connection_id" in sql, (
+                f"join is missing uuid = uuid comparison; SQL:\n{sql}"
+            )
+
     async def test_response_exposes_cursor(self) -> None:
         """Sync-run items carry the cursor watermark (G-03)."""
         from finance_sync.services.read_api import SyncRunResponse

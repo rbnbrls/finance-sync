@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import ClassVar
+from uuid import UUID as _UUID
 
 from sqlalchemy import DateTime, ForeignKey, String, UniqueConstraint
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from finance_sync.db import Base, created_at_ts, pk_uuid, updated_at_ts
@@ -48,8 +50,8 @@ class SyncCursor(Base):
         nullable=False,
         comment="Connector name, e.g. 'bunq', 'bunq_cards'",
     )
-    connection_id: Mapped[str | None] = mapped_column(
-        String(64),
+    connection_id: Mapped[_UUID | None] = mapped_column(
+        UUID(as_uuid=True),
         nullable=True,
         index=True,
         comment=(

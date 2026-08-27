@@ -19,6 +19,7 @@ from finance_sync.observability.logging import (
     RequestLogMiddleware,
     configure_logging,
 )
+from finance_sync.observability.metrics import PrometheusMiddleware, metrics_app
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -53,6 +54,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     # ── Observability middleware stack ───────────────────────────────
     app.add_middleware(RequestLogMiddleware)
+    app.add_middleware(PrometheusMiddleware)
 
     # ── CORS ─────────────────────────────────────────────────────────
     app.add_middleware(
@@ -79,5 +81,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     # ── Health check endpoints (at root level for probes) ────────────
     app.include_router(health_router)
+
+    # ── Metrics endpoint ─────────────────────────────────────────────
+    app.mount("/metrics", metrics_app)
 
     return app

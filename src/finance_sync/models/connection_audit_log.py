@@ -12,9 +12,10 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Any, ClassVar
+from uuid import UUID as _UUID
 
 from sqlalchemy import ForeignKey, Index, String
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from finance_sync.db import Base, created_at_ts, pk_uuid
@@ -73,8 +74,8 @@ class ConnectionAuditLog(Base):
         nullable=False,
         index=True,
     )
-    connection_id: Mapped[str | None] = mapped_column(
-        String(64),
+    connection_id: Mapped[_UUID | None] = mapped_column(
+        UUID(as_uuid=True),
         nullable=True,
         comment=(
             "Connection (credential) id this event refers to; kept as a "

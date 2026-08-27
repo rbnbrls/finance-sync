@@ -54,6 +54,28 @@ _UUID_SEGMENT = re.compile(
     re.IGNORECASE,
 )
 
+#: Sentry/GlitchTip protocol identifier fields.  These are opaque UUID/hex
+#: values that the ingest endpoint *requires* to remain valid UUIDs — running
+#: them through :func:`~finance_sync.utils.redaction.redact_text` turns them
+#: into ``[REDACTED]`` (the 32+ char hex run matches ``_LONG_RUN_RE``), which
+#: makes GlitchTip reject the whole envelope with HTTP 400.  They carry no
+#: secret value (they are random IDs, not credentials), so they are exempted
+#: from value redaction.
+_PROTOCOL_ID_KEYS = frozenset(
+    {
+        "event_id",
+        "trace_id",
+        "span_id",
+        "parent_span_id",
+        "public_key",
+        "profile_id",
+        "replay_id",
+        "check_in_id",
+        "monitor_id",
+        "cron_id",
+    }
+)
+
 
 def _safe_key(key: object) -> bool:
     normalized = str(key).casefold().replace("-", "_")
@@ -63,27 +85,40 @@ def _safe_key(key: object) -> bool:
     )
 
 
-def _safe_value(value: Any, *, depth: int = 0) -> Any:
-    """Copy event data while dropping sensitive fields and bounding strings."""
+def _safe_value(value: Any, *, depth: int = 0, key: str | None = None) -> Any:
+    """Copy event data while dropping sensitive fields and bounding strings.
+
+    Protocol identifier values (``event_id``, ``trace_id``, ...) are returned
+    verbatim: they must stay valid UUIDs for the ingest endpoint and are not
+    secrets.
+    """
     if depth > 5:
         return "[TRUNCATED]"
     if isinstance(value, Mapping):
         mapping = cast("Mapping[object, Any]", value)
         return {
-            str(key): _safe_value(item, depth=depth + 1)
+            str(key): _safe_value(item, depth=depth + 1, key=str(key))
             for key, item in mapping.items()
             if _safe_key(key)
         }
     if isinstance(value, list):
         items = cast("list[Any]", value)
-        return [_safe_value(item, depth=depth + 1) for item in items[:20]]
+        return [
+            _safe_value(item, depth=depth + 1, key=key) for item in items[:20]
+        ]
     if isinstance(value, tuple):
         items = cast("tuple[Any, ...]", value)
-        return [_safe_value(item, depth=depth + 1) for item in items[:20]]
+        return [
+            _safe_value(item, depth=depth + 1, key=key) for item in items[:20]
+        ]
     if isinstance(value, str):
+        if key is not None and key.casefold() in _PROTOCOL_ID_KEYS:
+            return value[:500]
         return redact_text(value)[:500]
     if isinstance(value, (int, float, bool)) or value is None:
         return value
+    if key is not None and key.casefold() in _PROTOCOL_ID_KEYS:
+        return str(value)[:500]
     return redact_text(str(value))[:500]
 
 

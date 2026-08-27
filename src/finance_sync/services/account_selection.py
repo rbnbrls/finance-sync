@@ -65,7 +65,7 @@ def account_is_selected(
     if connection_id is None:
         # Legacy row imported before account selection existed.
         return True
-    selected = selection.get(connection_id)
+    selected = selection.get(str(connection_id))
     if not selected:
         # Connection without a selection (or an empty selection, or the
         # connection row is gone): keep the account — history is only
