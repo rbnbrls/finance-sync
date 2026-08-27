@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+
 from prometheus_client import Counter, Histogram
 
 CONNECTOR_OPERATIONS = Counter(
@@ -38,8 +39,7 @@ def connection_hash(connection_id: str | None) -> str:
     """Return a stable non-reversible identifier for external telemetry."""
     if connection_id is None:
         return "none"
-    if not isinstance(connection_id, str):
-        connection_id = str(connection_id)
+    # After the None check, connection_id must be str (per type annotation)
     return hashlib.sha256(connection_id.encode("utf-8")).hexdigest()[:16]
 
 

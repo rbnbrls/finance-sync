@@ -103,10 +103,14 @@ def _safe_value(value: Any, *, depth: int = 0, key: str | None = None) -> Any:
         }
     if isinstance(value, list):
         items = cast("list[Any]", value)
-        return [_safe_value(item, depth=depth + 1, key=key) for item in items[:20]]
+        return [
+            _safe_value(item, depth=depth + 1, key=key) for item in items[:20]
+        ]
     if isinstance(value, tuple):
         items = cast("tuple[Any, ...]", value)
-        return [_safe_value(item, depth=depth + 1, key=key) for item in items[:20]]
+        return [
+            _safe_value(item, depth=depth + 1, key=key) for item in items[:20]
+        ]
     if isinstance(value, str):
         if key is not None and key.casefold() in _PROTOCOL_ID_KEYS:
             return value[:500]

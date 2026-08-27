@@ -58,9 +58,14 @@ def test_latest_timestamp_ignores_missing_source_data() -> None:
 def test_error_category_contract_is_closed() -> None:
     assert {
         "authentication",
+        "token_expired",
+        "reauth_required",
         "provider_unavailable",
         "rate_limited",
+        "timeout",
         "validation",
+        "incompatible",
+        "cancelled",
         "data_mapping",
         "database",
         "unknown",
