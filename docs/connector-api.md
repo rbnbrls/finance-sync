@@ -106,7 +106,12 @@ class ConnectorPlugin(ABC):
 
 - `authenticate()` is called once before any `fetch_*` call.
 - `fetch_accounts()` may be called multiple times after a single `authenticate()`.
-- `fetch_transactions()` must accept a `since` datetime in UTC.
+- `fetch_transactions()` must accept a `since` datetime in UTC. The
+  orchestrator validates/normalises `since` before any connector call:
+  ISO-8601 strings (including truncated forms) are parsed, naive values
+  are interpreted as UTC, and a value that cannot be parsed yields a
+  controlled FAILED sync result (category `validation`) — it never
+  reaches a connector.
 - Exceptions must be from the `finance_sync_sdk.exceptions` hierarchy.
 
 ---

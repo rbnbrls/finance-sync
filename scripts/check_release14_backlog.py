@@ -21,6 +21,9 @@ def audit() -> list[str]:
     errors: list[str] = []
     for filename in STORIES:
         path = BACKLOG / filename
+        if not path.is_file():
+            errors.append(f"{filename}: missing story file")
+            continue
         text = path.read_text(encoding="utf-8")
         if not re.search(r"^status:\s*done\s*$", text, re.MULTILINE):
             errors.append(f"{filename}: status is not done")
