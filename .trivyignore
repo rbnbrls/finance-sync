@@ -128,3 +128,12 @@ CVE-2026-58471
 # wget: unauthenticated availability DoS via crafted response (no fix yet)
 # expiry="2026-12-31"
 CVE-2026-58472
+
+# ── NEW ENTRIES FROM TRIVY SCAN 2026-08-26 ────────────────────────
+# libsqlite3-0: SQLite: Arbitrary code execution via crafted FTS5 full-text search data
+# expiry="2026-12-31"
+CVE-2026-11822
+
+# libsqlite3-0: SQLite: Arbitrary code execution and crash via heap-based buffer overflow in FTS5
+# expiry="2026-12-31"
+CVE-2026-11824

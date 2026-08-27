@@ -62,7 +62,6 @@ class RateLimiter:
         self._request_times: list[float] = []
 
     # ── Sliding-window throttle ────────────────────────────────────────
-
     async def acquire(self) -> None:
         """Wait until the slot window allows a new request.
 
@@ -94,7 +93,6 @@ class RateLimiter:
         self._request_times.append(_monotonic())
 
     # ── Exponential backoff with jitter ────────────────────────────────
-
     def backoff_delay(self, attempt: int) -> float:
         """Return the delay in seconds for the given retry *attempt* (0-based).
 

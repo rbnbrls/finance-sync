@@ -56,3 +56,40 @@ def test_glitchtip_settings_are_loaded_from_environment(monkeypatch) -> None:
     assert isinstance(settings.glitchtip_dsn, SecretStr)
     assert settings.glitchtip_traces_sample_rate == 0.05
     assert settings.glitchtip_release == "release-test"
+
+
+def test_scrub_event_preserves_protocol_identifier_fields() -> None:
+    """Protocol UUIDs must survive scrubbing (issue: 32-hex runs were being
+    redacted to ``[REDACTED]`` by the long-run regex, making GlitchTip reject
+    the envelope with HTTP 400)."""
+    event_id = "f1571095dd934b3197aede6b128c0705"
+    trace_id = "398ca6ba62a14f2ca87767aa148d321e"
+    span_id = "89cbdf0250009381"
+
+    event = scrub_event(
+        {
+            "event_id": event_id,
+            "message": "boom",
+            "level": "error",
+            "platform": "python",
+            "contexts": {
+                "trace": {
+                    "trace_id": trace_id,
+                    "span_id": span_id,
+                    "parent_span_id": None,
+                }
+            },
+            "sdk": {"name": "sentry.python.fastapi", "version": "2.68.0"},
+            "release": "0.7.3",
+            "environment": "prod",
+        },
+        {},
+    )
+
+    scrubbed = cast("dict[str, Any]", event)
+    assert scrubbed["event_id"] == event_id
+    trace = scrubbed["contexts"]["trace"]
+    assert trace["trace_id"] == trace_id
+    assert trace["span_id"] == span_id
+    assert scrubbed["release"] == "0.7.3"
+    assert scrubbed["environment"] == "prod"
