@@ -468,7 +468,11 @@ class SyncScheduleService:
             detail = {"truncated": True, "scope": schedule.scope}
         entry = ConnectionAuditLog(
             tenant_id=tenant_id,
-            connection_id=schedule.target_id,
+            connection_id=(
+                schedule.target_id
+                if schedule.scope == SCOPE_INGESTION
+                else None
+            ),
             provider_key=schedule.scope,
             action=action,
             detail=detail,

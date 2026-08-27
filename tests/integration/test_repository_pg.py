@@ -237,7 +237,7 @@ class TestPgConstraints:
             session_factory,
             tenant,
             external_id="dup-1",
-            connection_id="conn-1",
+            connection_id="aaaa1111-aaaa-4aaa-8aaa-aaaa11111111",
         )
 
         async with session_factory() as session:
@@ -250,7 +250,7 @@ class TestPgConstraints:
                             external_account_id="dup-1",
                             name="Duplicate",
                             account_type=AccountType.CHECKING,
-                            connection_id="conn-1",
+                            connection_id="aaaa1111-aaaa-4aaa-8aaa-aaaa11111111",
                         )
                     )
                     await uow.commit()
@@ -261,7 +261,7 @@ class TestPgConstraints:
             session_factory,
             tenant,
             external_id="dup-1",
-            connection_id="conn-2",
+            connection_id="bbbb2222-bbbb-4bbb-8bbb-bbbb22222222",
         )
         assert second.id is not None
 

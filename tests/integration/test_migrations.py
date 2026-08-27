@@ -462,7 +462,7 @@ class TestMultiConnectionUpgrade:
                         )
                     )
                 ).one()
-                assert acc.connection_id == str(cred_id)
+                assert acc.connection_id == cred_id
                 cur = (
                     await conn.execute(
                         sa.text(
@@ -471,7 +471,7 @@ class TestMultiConnectionUpgrade:
                         )
                     )
                 ).one()
-                assert cur.connection_id == str(cred_id)
+                assert cur.connection_id == cred_id
                 txn = (
                     await conn.execute(
                         sa.text(
@@ -480,7 +480,7 @@ class TestMultiConnectionUpgrade:
                         )
                     )
                 ).one()
-                assert txn.connection_id == str(cred_id)
+                assert txn.connection_id == cred_id
 
                 # Unique index (tenant_id, provider_key) is gone.
                 indexes = (

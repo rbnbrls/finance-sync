@@ -6,7 +6,7 @@ from decimal import Decimal
 from typing import Any, ClassVar
 
 from sqlalchemy import ForeignKey, Numeric, String, UniqueConstraint
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from finance_sync.db import Base, pk_uuid
@@ -57,7 +57,7 @@ class Account(TimestampMixin, Base):
         String(64), nullable=False, comment="e.g. 'plaid', 'teller', 'openbb'"
     )
     connection_id: Mapped[str | None] = mapped_column(
-        String(64),
+        UUID(as_uuid=True),
         nullable=True,
         index=True,
         comment=(

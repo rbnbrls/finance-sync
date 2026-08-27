@@ -7,6 +7,7 @@ from decimal import Decimal
 from typing import ClassVar
 
 from sqlalchemy import DateTime, ForeignKey, Numeric, String, UniqueConstraint
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from finance_sync.db import Base, pk_uuid
@@ -37,7 +38,7 @@ class Transaction(TimestampMixin, Base):
         String(64), nullable=False, comment="Ingestion connector name"
     )
     connection_id: Mapped[str | None] = mapped_column(
-        String(64),
+        UUID(as_uuid=True),
         nullable=True,
         index=True,
         comment=(
