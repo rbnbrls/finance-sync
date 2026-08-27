@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+
 from prometheus_client import Counter, Histogram
 
 CONNECTOR_OPERATIONS = Counter(
