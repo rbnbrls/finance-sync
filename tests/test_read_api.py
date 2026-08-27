@@ -424,7 +424,9 @@ class TestReadServiceSyncRuns:
         await svc.list_sync_runs(connector="bunq")
         _assert_sql_contains(mock_session, "bunq")
 
-    async def test_tenant_join_casts_uuid_to_varchar(self, mock_session: AsyncMock) -> None:
+    async def test_tenant_join_casts_uuid_to_varchar(
+        self, mock_session: AsyncMock
+    ) -> None:
         """Tenant-scoped list_sync_runs must cast credentials.id (uuid) to
         varchar before joining sync_runs.connection_id (varchar).
 

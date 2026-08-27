@@ -85,7 +85,9 @@ async def _tenant_run(
 ) -> tuple[SyncRun, Credential]:
     result = await db.execute(
         select(SyncRun, Credential)
-        .join(Credential, sql_cast(Credential.id, String) == SyncRun.connection_id)
+        .join(
+            Credential, sql_cast(Credential.id, String) == SyncRun.connection_id
+        )
         .where(SyncRun.id == run_id, Credential.tenant_id == tenant_id)
     )
     pair = result.one_or_none()
