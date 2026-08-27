@@ -62,7 +62,7 @@ _XML_NS = {"m": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
 
 
 def _clean(value: object) -> str:
-    return str(value or "").replace("\xa0", " ").strip()
+    return str("" if value is None else value).replace("\xa0", " ").strip()
 
 
 def _decimal(

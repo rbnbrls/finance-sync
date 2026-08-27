@@ -231,6 +231,51 @@ async def test_imports_saxo_transactions_and_combines_both_exports(
 
 
 @pytest.mark.asyncio
+async def test_accepts_zero_booking_amount(tmp_path: Path) -> None:
+    path = tmp_path / "Transactions_zero.xlsx"
+    workbook = Workbook()
+    sheet = workbook.active
+    assert sheet is not None
+    sheet.title = "Transacties"
+    sheet.append(TRANSACTION_HEADERS)
+    sheet.append(
+        [
+            datetime(2026, 5, 29),
+            datetime(2026, 5, 28),
+            "15996986",
+            None,
+            2335654579,
+            None,
+            "Corporate action",
+            "Dividend",
+            0,
+            "EUR",
+            -0.48,
+            "Petroleo Brasileiro SA Petrobras - Pref ADR",
+            "PBRa:xnys",
+            "US71654V1017",
+            "USD",
+            "Stock",
+        ]
+    )
+    workbook.save(path)
+
+    connector = SaxoInvestorConnector(
+        ConnectorConfig(
+            provider_type="saxo_investor", options={"export_path": str(path)}
+        )
+    )
+
+    await connector.authenticate()
+    imported = await connector.fetch_transactions(
+        datetime.min.replace(tzinfo=UTC)
+    )
+
+    assert len(imported) == 1
+    assert imported[0].amount == 0
+
+
+@pytest.mark.asyncio
 async def test_rejects_non_saxo_layout(tmp_path: Path) -> None:
     path = tmp_path / "wrong.xlsx"
     workbook = Workbook()
