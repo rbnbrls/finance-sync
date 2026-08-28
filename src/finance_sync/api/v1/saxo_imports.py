@@ -25,7 +25,12 @@ from finance_sync.connectors.models import ConnectorConfig
 from finance_sync.connectors.registry import ConnectorRegistry
 from finance_sync.dependencies import get_container, get_db
 from finance_sync.models.credential import Credential
-from finance_sync.services.degiro_import import connector_options, stage_uploads
+from finance_sync.models.import_run import ImportRun
+from finance_sync.services.degiro_import import (
+    batch_hash,
+    connector_options,
+    stage_uploads,
+)
 from finance_sync.sync.orchestrator import SyncOrchestrator
 
 router = APIRouter(
@@ -78,8 +83,9 @@ async def import_files(
     container = get_container(request)
     run_id = str(uuid4())
     staged: list[Path] = []
+    import_run: ImportRun | None = None
     try:
-        staged, names, _ = await stage_uploads(
+        staged, names, hashes = await stage_uploads(
             files,
             settings=container.settings,
             tenant_id=auth.tenant_id,
@@ -89,6 +95,26 @@ async def import_files(
         if any(path.suffix.casefold() != ".xlsx" for path in staged):
             message = "SaxoInvestor ondersteunt alleen XLSX-bestanden."
             raise PermanentError(message)
+        import_run = ImportRun(
+            id=run_id,
+            tenant_id=auth.tenant_id,
+            connection_id=connection.id,
+            source="upload",
+            status="running",
+            batch_hash=batch_hash(hashes),
+            attempt=1,
+            report_types=["positions", "transactions"],
+            content_hashes=hashes,
+            file_names=names,
+            storage_names=[path.name for path in staged],
+            rows_total=0,
+            warnings=[],
+            error_details=[],
+            preview={},
+            audit_events=[],
+        )
+        db.add(import_run)
+        await db.flush()
         options = connector_options(connection)
         config = ConnectorConfig(
             provider_type="saxo_investor",
@@ -107,9 +133,22 @@ async def import_files(
             connection_id=str(connection.id),
         )
         if result.status.value == "failed":
+            import_run.status = "failed"
+            import_run.error_details = [
+                str(result.error_message or "Saxo-import mislukt.")[:500]
+            ]
+            import_run.completed_at = datetime.now(UTC)
             raise PermanentError(
                 result.error_message or "De Saxo-import is mislukt."
             )
+        import_run.status = result.status.value
+        import_run.rows_total = (
+            result.accounts_synced
+            + result.transactions_synced
+            + result.holdings_synced
+        )
+        import_run.created_count = import_run.rows_total
+        import_run.completed_at = datetime.now(UTC)
         await db.commit()
         return SaxoImportResponse(
             status=result.status.value,
@@ -121,9 +160,27 @@ async def import_files(
             message="Saxo-bestanden zijn geïmporteerd.",
         )
     except PermanentError as exc:
-        await db.rollback()
+        if import_run is not None:
+            import_run.status = "failed"
+            import_run.error_details = [str(exc)[:500]]
+            import_run.completed_at = datetime.now(UTC)
+            await db.commit()
+        else:
+            await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
+    except Exception as exc:
+        if import_run is not None:
+            import_run.status = "failed"
+            import_run.error_details = [str(exc)[:500]]
+            import_run.completed_at = datetime.now(UTC)
+            await db.commit()
+        else:
+            await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="De Saxo-import is mislukt.",
         ) from exc
     finally:
         if staged:

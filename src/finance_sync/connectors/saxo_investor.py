@@ -13,7 +13,7 @@ from __future__ import annotations
 import hashlib
 import re
 import zipfile
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
@@ -40,9 +40,7 @@ _REQUIRED_HEADERS = {
 }
 _TRANSACTION_HEADERS = {
     "Transactiedatum",
-    "Transactietype",
     "Boekingsbedrag",
-    "Valuta",
 }
 _DUTCH_MONTHS = {
     "jan": 1,
@@ -100,6 +98,9 @@ def _as_datetime(value: object) -> datetime:
         parsed = value
     elif isinstance(value, date):
         parsed = datetime.combine(value, datetime.min.time())
+    elif isinstance(value, (int, float, Decimal)):
+        # Excel's 1900 date system, including its historical leap-year bug.
+        parsed = datetime(1899, 12, 30) + timedelta(days=float(value))
     else:
         parsed = datetime.fromisoformat(_clean(value))
     return (parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)).astimezone(
@@ -179,6 +180,15 @@ class SaxoInvestorConnector(Connector):
     display_name = "SaxoInvestor Posities (Excel)"
     sdk_version = "0.1.0"
     supported_resources = frozenset({"accounts", "transactions", "holdings"})
+    ingestion_methods = ("file",)
+    import_wizard = {
+        "files": [
+            {"key": "positions", "label": "Posities", "required": True},
+            {"key": "transactions", "label": "Transacties", "required": True},
+        ],
+        "accept": [".xlsx"],
+        "preview": False,
+    }
     rate_limit_policy = None
 
     def __init__(self, config: ConnectorConfig) -> None:
@@ -437,17 +447,41 @@ class SaxoInvestorConnector(Connector):
                 self._skipped_transaction_rows += 1
                 continue
             occurred_at = _as_datetime(row[index["Transactiedatum"]])
-            currency = _currency(row[index["Valuta"]])
+            booking_currency = (
+                _currency(row[index["Valuta"]])
+                if "Valuta" in index
+                else _currency(
+                    self.config.options.get("currency_code") or "EUR"
+                )
+            )
             amount = _decimal(
                 raw_amount,
                 field=f"Boekingsbedrag op regel {line}",
             )
             assert amount is not None
-            action = _clean(row[index["Acties"]])
-            native_type = _clean(row[index["Transactietype"]])
-            isin = _clean(row[index["Instrument ISIN"]]).upper()
-            symbol = _clean(row[index["Instrumentsymbool"]])
-            instrument = _clean(row[index["Instrument"]])
+            action = _clean(row[index["Acties"]]) if "Acties" in index else ""
+            native_type = _clean(
+                row[index["Transactietype"]]
+                if "Transactietype" in index
+                else row[index["Type"]]
+                if "Type" in index
+                else ""
+            )
+            isin = (
+                _clean(row[index["Instrument ISIN"]]).upper()
+                if "Instrument ISIN" in index
+                else ""
+            )
+            symbol = (
+                _clean(row[index["Instrumentsymbool"]])
+                if "Instrumentsymbool" in index
+                else ""
+            )
+            instrument = (
+                _clean(row[index["Instrument"]])
+                if "Instrument" in index
+                else ""
+            )
             reference = (
                 SecurityReference(
                     external_id=isin or symbol or None,
@@ -457,7 +491,9 @@ class SaxoInvestorConnector(Connector):
                     venue=symbol.rsplit(":", 1)[1] if ":" in symbol else None,
                     currency_code=_clean(row[index["Instrumentvaluta"]]).upper()
                     or None,
-                    security_type=_security_type(_clean(row[index["Type"]])),
+                    security_type=_security_type(
+                        _clean(row[index["Type"]]) if "Type" in index else ""
+                    ),
                 )
                 if (isin or symbol or instrument)
                 else None
@@ -466,7 +502,13 @@ class SaxoInvestorConnector(Connector):
             source_id = (
                 row[index["Transactie-ID"]]
                 if "Transactie-ID" in index
-                else (row[fallback_id] if fallback_id is not None else None)
+                else (
+                    row[index["Order-ID"]]
+                    if "Order-ID" in index
+                    else row[fallback_id]
+                    if fallback_id is not None
+                    else None
+                )
             )
             booking_id = (
                 row[index["Booking Id"]]
@@ -483,36 +525,44 @@ class SaxoInvestorConnector(Connector):
                         native_type,
                         action,
                         amount,
-                        currency,
+                        booking_currency,
                         isin,
                         line,
                     ]
                 )[:32]
             )
-            fee = _decimal(
-                row[index.get("Totale kosten", index["Boekingsbedrag"])],
-                field="Totale kosten",
-                required=False,
+            fee = (
+                _decimal(
+                    row[index["Totale kosten"]],
+                    field="Totale kosten",
+                    required=False,
+                )
+                if "Totale kosten" in index
+                else Decimal(0)
             ) or Decimal(0)
             result.append(
                 RawTransaction(
                     external_transaction_id=external_id,
                     external_account_id=self.external_account_id,
                     amount=amount,
-                    currency_code=currency,
+                    currency_code=booking_currency,
                     occurred_at=occurred_at,
                     booked_at=_as_datetime(row[index["Valutadatum"]])
-                    if row[index["Valutadatum"]]
+                    if "Valutadatum" in index and row[index["Valutadatum"]]
                     else None,
-                    description=action or _clean(row[index["Opmerking"]]),
+                    description=(
+                        action or _clean(row[index["Opmerking"]])
+                        if "Opmerking" in index
+                        else action
+                    ),
                     transaction_type=_transaction_type(action, native_type),
                     status="booked",
                     provider_fingerprint=external_id,
                     security_reference=reference,
                     fee_amount=abs(fee) if fee else None,
-                    fee_currency_code=currency if fee else None,
+                    fee_currency_code=booking_currency if fee else None,
                     amount_in_base=amount,
-                    base_currency_code=currency,
+                    base_currency_code=booking_currency,
                     fx_rate=(
                         _decimal(
                             row[index["Omrekeningskoers"]],
@@ -527,7 +577,13 @@ class SaxoInvestorConnector(Connector):
                         "source_file": path.name,
                         "booking_id": _clean(booking_id),
                         "transaction_id": _clean(source_id),
-                        "account_id": _clean(row[index["Rekening-ID"]]),
+                        "account_id": _clean(
+                            row[index["Rekening-ID"]]
+                            if "Rekening-ID" in index
+                            else row[index["Klant-id"]]
+                            if "Klant-id" in index
+                            else ""
+                        ),
                     },
                 )
             )

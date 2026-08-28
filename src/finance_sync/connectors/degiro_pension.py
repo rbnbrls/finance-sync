@@ -184,6 +184,16 @@ class DegiroPensionConnector(Connector):
     display_name = "DEGIRO Pensioen"
     sdk_version = "0.1.0"
     supported_resources = frozenset({"accounts", "transactions", "holdings"})
+    ingestion_methods = ("file",)
+    import_wizard = {
+        "files": [
+            {"key": "account", "label": "Accountoverzicht", "required": True},
+            {"key": "transactions", "label": "Transacties", "required": True},
+            {"key": "portfolio", "label": "Portefeuille", "required": True},
+        ],
+        "accept": [".csv", ".xlsx", ".xls"],
+        "preview": True,
+    }
     rate_limit_policy = None
 
     def __init__(self, config: ConnectorConfig) -> None:
@@ -414,6 +424,13 @@ class DegiroPensionConnector(Connector):
                 if sheet is None:
                     message = f"{path.name}: het werkboek heeft geen werkblad"
                     raise ValueError(message)
+                # DEGIRO's XLSX exports currently declare ``dimension A1``
+                # even when the sheet contains many populated cells. In
+                # read-only mode openpyxl trusts that stale dimension and
+                # would return only the first cell. Force a scan of the real
+                # worksheet bounds before reading the table.
+                if sheet.calculate_dimension() in {"A1", "A1:A1"}:
+                    sheet.reset_dimensions()
                 table = [list(row) for row in sheet.iter_rows(values_only=True)]
             finally:
                 workbook.close()
@@ -520,6 +537,11 @@ class DegiroPensionConnector(Connector):
             if not any(_clean(v) for v in values):
                 continue
             try:
+                if not _clean(row.get("Datum", "Date")):
+                    # DEGIRO sometimes wraps a long product name onto a
+                    # continuation row without a date or transaction data.
+                    report.rows_skipped += 1
+                    continue
                 occurred = _parse_datetime(
                     row.get("Datum", "Date"), row.get("Tijd", "Time")
                 )
@@ -659,6 +681,8 @@ class DegiroPensionConnector(Connector):
     ) -> list[RawTransaction]:
         parsed: list[RawTransaction] = []
         signatures: Counter[str] = Counter()
+        latest_balance_at: datetime | None = None
+        latest_balance: Decimal | None = None
         for number, values in enumerate(source.rows, start=2):
             row = _Row(source.headers, values)
             try:
@@ -672,6 +696,16 @@ class DegiroPensionConnector(Connector):
                 occurred = _parse_datetime(
                     row.get("Datum", "Date"), row.get("Tijd", "Time")
                 )
+                balance_raw = row.get("Saldo", "Balance")
+                balance_currency = _currency(balance_raw, default="")
+                if balance_currency:
+                    balance_raw = row.after("Saldo", "Balance")
+                balance = _decimal(balance_raw)
+                if balance is not None and (
+                    latest_balance_at is None or occurred >= latest_balance_at
+                ):
+                    latest_balance_at = occurred
+                    latest_balance = balance
                 order_id = _clean(row.get("Order ID", "Order Id", "OrderID"))
                 if order_id in self._trade_order_ids and self._is_trade_fee(
                     lowered
@@ -680,12 +714,26 @@ class DegiroPensionConnector(Connector):
                     continue
                 isin = _clean(row.get("ISIN")).upper()
                 product = _clean(row.get("Product"))
-                amount = _decimal(
-                    row.get("Mutatie", "Change", "Amount"), required=True
-                )
+                mutation_raw = row.get("Mutatie", "Change", "Amount")
+                # Current DEGIRO XLSX files put the currency immediately
+                # before the numeric mutation (with an unlabeled spacer
+                # column). Older exports put the numeric value directly in
+                # the named column, so support both layouts.
+                mutation_currency = _currency(mutation_raw, default="")
+                if mutation_currency:
+                    mutation_raw = row.after("Mutatie", "Change", "Amount")
+                if mutation_raw in (None, ""):
+                    # Balance-only rows are common in the Account export
+                    # (for example the cash-sweep header rows). They update
+                    # the account balance but are not transactions.
+                    report.rows_skipped += 1
+                    continue
+                amount = _decimal(mutation_raw, required=True)
+                mutation_after = row.after("Mutatie", "Change", "Amount")
                 currency = _currency(
                     row.get("Valuta", "Currency", occurrence=1)
-                    or row.after("Mutatie", "Change", "Amount")
+                    or _currency(mutation_after, default="")
+                    or mutation_currency
                     or row.get("Valuta", "Currency")
                 )
                 fx = _decimal(row.get("FX mutatie", "FX", "Exchange rate"))
@@ -735,6 +783,12 @@ class DegiroPensionConnector(Connector):
                 report.errors.append(
                     f"{source.source.name}, regel {number}: {exc}"
                 )
+        # An Account/statement export has no positions, but it does contain
+        # the latest cash balance. Preserve it as the account balance when no
+        # portfolio export was supplied.
+        if self._portfolio_total is None and latest_balance is not None:
+            self._portfolio_total = latest_balance
+            self._cash_total = latest_balance
         return parsed
 
     @staticmethod

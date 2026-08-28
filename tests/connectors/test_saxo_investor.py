@@ -47,6 +47,24 @@ TRANSACTION_HEADERS = [
     "Type",
 ]
 
+CURRENT_TRANSACTION_HEADERS = [
+    "Klant-id",
+    "Transactiedatum",
+    "Valutadatum",
+    "Type",
+    "Instrument",
+    "Instrument ISIN",
+    "Instrumentvaluta",
+    "Uitwisselingsbeschrijving",
+    "Instrumentsymbool",
+    "Acties",
+    "Boekingsbedrag",
+    "Order-ID",
+    "Omrekeningskoers",
+    "Van derivaat",
+    "Onderliggend instrumenttype",
+]
+
 
 def _write_export(path: Path) -> None:
     workbook = Workbook()
@@ -228,6 +246,56 @@ async def test_imports_saxo_transactions_and_combines_both_exports(
     assert imported[0].security_reference.isin == "US75574V1016"
     assert imported[0].fee_amount == Decimal("4.92")
     assert len(await connector.fetch_holdings()) == 2
+
+
+@pytest.mark.asyncio
+async def test_imports_current_saxo_transaction_export_schema(
+    tmp_path: Path,
+) -> None:
+    """Current Saxo exports use Type and omit the booking currency column."""
+    path = tmp_path / "Transactions_15996986_2022-07-13_2026-08-28.xlsx"
+    workbook = Workbook()
+    sheet = workbook.active
+    assert sheet is not None
+    sheet.append(CURRENT_TRANSACTION_HEADERS)
+    sheet.append(
+        [
+            "15996986",
+            46244,
+            46241,
+            "Geldoverboeking",
+            "Ready Capital Corp.",
+            "US75574U1016",
+            "USD",
+            "New York Stock Exchange",
+            "RC:xnys",
+            "Securities Lending inkomsten",
+            0.03,
+            None,
+            0.86636316,
+            "No",
+            None,
+        ]
+    )
+    workbook.save(path)
+
+    connector = SaxoInvestorConnector(
+        ConnectorConfig(
+            provider_type="saxo_investor", options={"export_path": str(path)}
+        )
+    )
+
+    await connector.authenticate()
+    imported = await connector.fetch_transactions(
+        datetime.min.replace(tzinfo=UTC)
+    )
+
+    assert len(imported) == 1
+    assert imported[0].occurred_at == datetime(2026, 8, 10, tzinfo=UTC)
+    assert imported[0].currency_code == "EUR"
+    assert imported[0].transaction_type == "interest"
+    assert imported[0].fee_amount is None
+    assert imported[0].security_reference.isin == "US75574U1016"
 
 
 @pytest.mark.asyncio
