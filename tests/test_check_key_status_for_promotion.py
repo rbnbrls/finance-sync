@@ -135,11 +135,11 @@ def test_main_blocks_on_error(capsys):
             "status": "error",
         }
 
-        # Capture stdout and stderr
-        captured = capsys.readouterr()
-
         # Call main
         exit_code = main()
+
+        # Capture stdout and stderr
+        captured = capsys.readouterr()
 
         # Check that it returned error code
         assert exit_code == 1
@@ -176,11 +176,11 @@ def test_main_blocks_on_expiring_soon(capsys):
             "material_logged": False,
         }
 
-        # Capture stdout and stderr
-        captured = capsys.readouterr()
-
         # Call main
         exit_code = main()
+
+        # Capture stdout and stderr
+        captured = capsys.readouterr()
 
         # Check that it returned error code
         assert exit_code == 1
@@ -217,11 +217,11 @@ def test_main_blocks_on_material_logged(capsys):
             "material_logged": True,  # Security violation
         }
 
-        # Capture stdout and stderr
-        captured = capsys.readouterr()
-
         # Call main
         exit_code = main()
+
+        # Capture stdout and stderr
+        captured = capsys.readouterr()
 
         # Check that it returned error code
         assert exit_code == 1
@@ -261,11 +261,11 @@ def test_main_allows_safe_key(capsys):
             "material_logged": False,
         }
 
-        # Capture stdout and stderr
-        captured = capsys.readouterr()
-
         # Call main
         exit_code = main()
+
+        # Capture stdout and stderr
+        captured = capsys.readouterr()
 
         # Check that it returned success code
         assert exit_code == 0
