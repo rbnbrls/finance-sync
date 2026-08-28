@@ -5,7 +5,7 @@ Follows TDD: RED phase — write failing tests first.
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from httpx import RequestError
@@ -277,6 +277,133 @@ class TestWealthfolioClientImport:
         assert result["imported"] == 3
         assert result["skipped"] == 2
         assert result["failed"] == 0
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# HTTP 408 retry (server-side WF_REQUEST_TIMEOUT_MS cap)
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class TestWealthfolioClient408Retry:
+    """Slow snapshot/holdings POSTs are retried with backoff on HTTP 408."""
+
+    async def test_save_manual_holdings_retries_408_then_succeeds(
+        self, client: WealthfolioClient
+    ) -> None:
+        """POST /snapshots retries after a 408 and succeeds on the retry."""
+        client._is_authenticated = True
+        timeout = MagicMock()
+        timeout.status_code = 408
+        timeout.raise_for_status.side_effect = Exception("408")
+        ok = MagicMock()
+        ok.status_code = 200
+        ok.json.return_value = {"ok": True}
+        ok2 = MagicMock()
+        ok2.status_code = 200
+        ok2.json.return_value = {"ok": True}
+
+        with (
+            # First _post_with_408_retry: 408 then 200; re-save POST: 200.
+            patch.object(
+                client._client, "post", side_effect=[timeout, ok, ok2]
+            ) as p,
+            patch.object(client, "get_assets", return_value=[]),
+            patch.object(client, "get_quote_history", return_value=[]),
+            patch("asyncio.sleep", new_callable=lambda: AsyncMock()) as sleep,
+        ):
+            result = await client.save_manual_holdings(
+                [{"symbol": "AAPL", "quantity": 10, "unitPrice": 100}],
+                "acct-1",
+                snapshot_date="2026-08-29",
+            )
+
+        # 3 POSTs: 408 -> backoff -> 200 (snapshot), then 200 (re-save).
+        assert p.await_count == 3
+        sleep.assert_awaited_once()
+        assert result == {"ok": True}
+
+    async def test_retry_exhausted_raises_last_408(
+        self, client: WealthfolioClient
+    ) -> None:
+        """After retry_408_attempts 408s, the last 408 response surfaces."""
+        client._is_authenticated = True
+        # Default attempts = 3; make two responses 408 so the third attempt
+        # is the last and its 408 raise_for_status propagates.
+        timeout = MagicMock()
+        timeout.status_code = 408
+        timeout.raise_for_status.side_effect = Exception("408")
+
+        with (
+            patch.object(client._client, "post", return_value=timeout) as p,
+            patch.object(client, "get_assets", return_value=[]),
+            patch.object(client, "get_quote_history", return_value=[]),
+            patch("asyncio.sleep", new_callable=lambda: AsyncMock()),
+            pytest.raises(Exception, match="408"),
+        ):
+            await client.save_manual_holdings(
+                [{"symbol": "AAPL", "quantity": 10, "unitPrice": 100}],
+                "acct-1",
+                snapshot_date="2026-08-29",
+            )
+        # 3 attempts (retry_408_attempts default), no more.
+        assert p.await_count == 3
+
+    async def test_retry_disabled_fails_fast(
+        self, client_config: WealthfolioClientConfig
+    ) -> None:
+        """retry_408=False posts once and surfaces the 408 immediately."""
+        config = WealthfolioClientConfig(
+            base_url=client_config.base_url,
+            password=client_config.password,
+            retry_408=False,
+        )
+        no_retry_client = WealthfolioClient(config=config)
+        no_retry_client._is_authenticated = True
+        timeout = MagicMock()
+        timeout.status_code = 408
+        timeout.raise_for_status.side_effect = Exception("408")
+
+        with (
+            patch.object(
+                no_retry_client._client, "post", return_value=timeout
+            ) as p,
+            patch.object(no_retry_client, "get_assets", return_value=[]),
+            patch.object(no_retry_client, "get_quote_history", return_value=[]),
+            patch("asyncio.sleep", new_callable=lambda: AsyncMock()) as sleep,
+            pytest.raises(Exception, match="408"),
+        ):
+            await no_retry_client.save_manual_holdings(
+                [{"symbol": "AAPL", "quantity": 10, "unitPrice": 100}],
+                "acct-1",
+                snapshot_date="2026-08-29",
+            )
+        assert p.await_count == 1
+        sleep.assert_not_awaited()
+
+    async def test_check_holdings_import_retries_408(
+        self, client: WealthfolioClient
+    ) -> None:
+        """The holdings import-check POST also retries on 408."""
+        client._is_authenticated = True
+        timeout = MagicMock()
+        timeout.status_code = 408
+        timeout.raise_for_status.side_effect = Exception("408")
+        ok = MagicMock()
+        ok.status_code = 200
+        ok.json.return_value = {"validationErrors": []}
+
+        with (
+            patch.object(
+                client._client, "post", side_effect=[timeout, ok]
+            ) as p,
+            patch("asyncio.sleep", new_callable=lambda: AsyncMock()) as sleep,
+        ):
+            result = await client.check_holdings_import(
+                [{"symbol": "AAPL", "quantity": 10}], "acct-1"
+            )
+        assert result == {"validationErrors": []}
+        assert p.await_count == 2
+        sleep.assert_awaited_once()
 
 
 # ═══════════════════════════════════════════════════════════════════════

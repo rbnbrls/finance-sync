@@ -198,3 +198,25 @@ class TestExporterSettings:
         )
         assert settings.exporter_actual_budget_enabled is False
         assert settings.exporter_wealthfolio_enabled is True
+
+    def test_wealthfolio_request_timeout_default(self) -> None:
+        """The push API timeout defaults above the server-side 30s cap."""
+        settings = Settings(_env_file=None)  # type: ignore[call-arg]
+        assert settings.wealthfolio_request_timeout == 90.0
+
+    def test_wealthfolio_request_timeout_env_alias(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """WEALTHFOLIO_REQUEST_TIMEOUT maps to the settings field."""
+        monkeypatch.setenv("WEALTHFOLIO_REQUEST_TIMEOUT", "120")
+        settings = Settings(_env_file=None)  # type: ignore[call-arg]
+        assert settings.wealthfolio_request_timeout == 120.0
+
+    def test_wealthfolio_request_timeout_rejects_below_server_cap(
+        self,
+    ) -> None:
+        """A timeout below the Wealthfolio server cap (30s) is rejected."""
+        with pytest.raises(ValueError, match="wealthfolio_request_timeout"):
+            Settings(  # type: ignore[call-arg]
+                _env_file=None, wealthfolio_request_timeout=10.0
+            )
