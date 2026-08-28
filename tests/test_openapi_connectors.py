@@ -149,6 +149,26 @@ class TestMultiConnectionOpenApiPaths:
         assert operation["tags"] == ["connectors"]
         assert "secret" in operation["description"].lower()
 
+    def test_unified_file_dispatch_endpoints_are_documented(
+        self, client: TestClient
+    ) -> None:
+        paths = _paths(client)
+        dispatch = paths["/api/v1/connectors/file-uploads/dispatch"]
+        confirm = paths[
+            "/api/v1/connectors/file-uploads/dispatch/{run_id}/confirm"
+        ]
+        assert "post" in dispatch
+        assert "post" in confirm
+        assert "stable contract" in dispatch["post"]["description"]
+
+    def test_upload_history_schema_is_provider_neutral(self, client: TestClient) -> None:
+        response = _op(client, "/api/v1/connectors/file-uploads/runs", "get")
+        schema_ref = response["responses"]["200"]["content"]["application/json"]["schema"]["items"]["$ref"]
+        assert schema_ref.endswith("/FileUploadRunResponse")
+        properties = client.get("/openapi.json").json()["components"]["schemas"]["FileUploadRunResponse"]["properties"]
+        for field in ("provider_type", "profile_name", "period_start", "warnings", "retryable"):
+            assert field in properties
+
     def test_connectors_config_listing_describes_connections(
         self, client: TestClient
     ) -> None:

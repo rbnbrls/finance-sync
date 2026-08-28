@@ -167,6 +167,14 @@ class ConnectorInfo(BaseModel):
         default="user",
         description="Whether configuration is user-managed or staging-selectable.",
     )
+    ingestion_methods: list[str] = Field(
+        default_factory=lambda: ["api"],
+        description="Supported user-facing ingestion methods: api and/or file",
+    )
+    import_wizard: dict[str, object] = Field(
+        default_factory=dict,
+        description="Secret-safe provider-specific import wizard hints",
+    )
 
 
 class ConnectorCatalogInfo(BaseModel):
@@ -187,6 +195,8 @@ class ConnectorCatalogInfo(BaseModel):
     lifecycle_status: str = "available"
     feature_flag: str | None = None
     configuration_mode: str
+    ingestion_methods: list[str] = Field(default_factory=lambda: ["api"])
+    import_wizard: dict[str, object] = Field(default_factory=dict)
     metadata_incomplete: bool = False
     compatibility: ConnectorCompatibility
 
@@ -762,49 +772,9 @@ def _get_connector_credential_schema(
         "degiro_pension": (
             [],
             [
-                {
-                    "key": "watchfolder",
-                    "label": "Inkomende watchfolder",
-                    "type": "text",
-                    "required": False,
-                    "description": (
-                        "Alleen voor self-hosting; mount deze map ook in de worker"
-                    ),
-                },
-                {
-                    "key": "archive_directory",
-                    "label": "Archiefmap",
-                    "type": "text",
-                    "required": False,
-                },
-                {
-                    "key": "quarantine_directory",
-                    "label": "Quarantainemap",
-                    "type": "text",
-                    "required": False,
-                },
-                {
-                    "key": "account_key",
-                    "label": "Rekeningkenmerk",
-                    "type": "text",
-                    "required": False,
-                    "description": (
-                        "Willekeurig, blijvend kenmerk; gebruik geen "
-                        "gebruikersnaam of rekeningnummer"
-                    ),
-                },
-                {
-                    "key": "account_name",
-                    "label": "Rekeningnaam",
-                    "type": "text",
-                    "default": "DEGIRO Pensioen",
-                },
-                {
-                    "key": "snapshot_at",
-                    "label": "Portefeuillesnapshotdatum",
-                    "type": "date",
-                    "required": False,
-                },
+                # Browser uploads do not need filesystem paths or a manual
+                # snapshot override. The upload wizard supplies a stable
+                # account key and uses the profile label as account name.
             ],
         ),
         "saxo_investor": (
@@ -901,6 +871,10 @@ async def list_available_connectors(
                 option_fields=opt_fields,
                 capabilities=capabilities,
                 configuration_mode="staging_choice" if managed else "user",
+                ingestion_methods=list(meta.get("ingestion_methods", ["api"])),
+                import_wizard=cast(
+                    dict[str, object], meta.get("import_wizard", {})
+                ),
             )
         )
     return result
@@ -975,6 +949,10 @@ async def list_connector_catalog(
                 configuration_mode="staging_choice" if managed else "user",
                 metadata_incomplete=bool(
                     meta.get("metadata_incomplete", False)
+                ),
+                ingestion_methods=list(meta.get("ingestion_methods", ["api"])),
+                import_wizard=cast(
+                    dict[str, object], meta.get("import_wizard", {})
                 ),
                 compatibility=compatibility,
             )
