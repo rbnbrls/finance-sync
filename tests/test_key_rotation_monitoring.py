@@ -40,16 +40,17 @@ def test_check_key_provider_status_with_config():
 
 def test_check_key_provider_status_error():
     """Test key provider status check when config is missing."""
-    with patch.dict('os.environ', {}, clear=True):
-        with patch('os.getcwd', return_value="/nonexistent"):
-            # Mock os.path.exists to return False for the config file
-            with patch('os.path.exists', return_value=False):
-                result = check_key_provider_status()
+    with (
+        patch.dict("os.environ", {}, clear=True),
+        patch("os.getcwd", return_value="/nonexistent"),
+        patch("os.path.exists", return_value=False),
+    ):
+        result = check_key_provider_status()
 
-                # Now we expect a simulated key info (no error) because KEY_CURRENT_VERSION is not set
-                assert "error" not in result
-                assert result["current_version"] == "v2"
-                assert result["state"] == "current"
+        # Now we expect a simulated key info (no error) because KEY_CURRENT_VERSION is not set
+        assert "error" not in result
+        assert result["current_version"] == "v2"
+        assert result["state"] == "current"
 
 
 def test_check_key_rotation_status_approaching_expiry():
@@ -63,7 +64,9 @@ def test_check_key_rotation_status_approaching_expiry():
         "material_logged": False,
     }
 
-    with patch.dict('os.environ', {"KEY_ROTATION_ALERT_BEFORE_EXPIRY_HOURS": "24"}):
+    with patch.dict(
+        "os.environ", {"KEY_ROTATION_ALERT_BEFORE_EXPIRY_HOURS": "24"}
+    ):
         alerts = check_key_rotation_status(key_info)
 
         assert len(alerts) == 1
@@ -83,7 +86,9 @@ def test_check_key_rotation_status_critical_expiry():
         "material_logged": False,
     }
 
-    with patch.dict('os.environ', {"KEY_ROTATION_ALERT_BEFORE_EXPIRY_HOURS": "24"}):
+    with patch.dict(
+        "os.environ", {"KEY_ROTATION_ALERT_BEFORE_EXPIRY_HOURS": "24"}
+    ):
         alerts = check_key_rotation_status(key_info)
 
         assert len(alerts) == 1
@@ -103,7 +108,9 @@ def test_check_key_rotation_status_no_alerts():
         "material_logged": False,
     }
 
-    with patch.dict('os.environ', {"KEY_ROTATION_ALERT_BEFORE_EXPIRY_HOURS": "24"}):
+    with patch.dict(
+        "os.environ", {"KEY_ROTATION_ALERT_BEFORE_EXPIRY_HOURS": "24"}
+    ):
         alerts = check_key_rotation_status(key_info)
 
         assert len(alerts) == 0
@@ -227,7 +234,10 @@ def test_build_key_issue_body():
     assert "| Current Version | v2 |" in body
     assert "| Key State | current |" in body
     assert "### Alerts" in body
-    assert "- **key_approaching_expiry** (warning): Key version v2 expires in 720.0 hours" in body
+    assert (
+        "- **key_approaching_expiry** (warning): Key version v2 expires in 720.0 hours"
+        in body
+    )
     assert "<!-- key-rotation-monitor:2026-08-28 -->" in body
 
 
