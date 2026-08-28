@@ -124,6 +124,81 @@ def test_check_key_rotation_status_with_error():
     assert "Provider connection failed" in alerts[0]["detail"]
 
 
+def test_check_key_version_downgrade_detected():
+    """Test that key version downgrade is detected and triggers an alert."""
+    from scripts.key_rotation_monitoring import _check_key_version_downgrade
+
+    state = {"last_reported_version": "5"}
+    key_info = {"current_version": "3"}  # Downgraded from 5 to 3
+
+    alerts = _check_key_version_downgrade(state, key_info)
+
+    assert len(alerts) == 1
+    assert alerts[0]["name"] == "key_version_downgrade"
+    assert alerts[0]["severity"] == "critical"
+    assert "Key version downgraded from 5 to 3" in alerts[0]["detail"]
+
+
+def test_check_key_version_downgrade_same_version():
+    """Test that same key version does not trigger a downgrade alert."""
+    from scripts.key_rotation_monitoring import _check_key_version_downgrade
+
+    state = {"last_reported_version": "5"}
+    key_info = {"current_version": "5"}  # Same version
+
+    alerts = _check_key_version_downgrade(state, key_info)
+
+    assert len(alerts) == 0
+
+
+def test_check_key_version_downgrade_upgrade():
+    """Test that key version upgrade does not trigger a downgrade alert."""
+    from scripts.key_rotation_monitoring import _check_key_version_downgrade
+
+    state = {"last_reported_version": "3"}
+    key_info = {"current_version": "5"}  # Upgraded from 3 to 5
+
+    alerts = _check_key_version_downgrade(state, key_info)
+
+    assert len(alerts) == 0
+
+
+def test_check_key_version_downgrade_no_last_version():
+    """Test that no last reported version means no downgrade check."""
+    from scripts.key_rotation_monitoring import _check_key_version_downgrade
+
+    state = {}  # No last_reported_version
+    key_info = {"current_version": "3"}
+
+    alerts = _check_key_version_downgrade(state, key_info)
+
+    assert len(alerts) == 0
+
+
+def test_check_key_version_downgrade_non_numeric():
+    """Test that non-numeric versions are handled gracefully (no crash, no alert)."""
+    from scripts.key_rotation_monitoring import _check_key_version_downgrade
+
+    state = {"last_reported_version": "v5"}
+    key_info = {"current_version": "v3"}  # Non-numeric versions
+
+    alerts = _check_key_version_downgrade(state, key_info)
+
+    assert len(alerts) == 0  # Should not crash and should not alert
+
+
+def test_check_key_version_downgrade_missing_current_version():
+    """Test that missing current version means no downgrade check."""
+    from scripts.key_rotation_monitoring import _check_key_version_downgrade
+
+    state = {"last_reported_version": "5"}
+    key_info = {}  # No current_version
+
+    alerts = _check_key_version_downgrade(state, key_info)
+
+    assert len(alerts) == 0
+
+
 def test_build_key_issue_body():
     """Test building the key rotation issue body."""
     timestamp = "2026-08-28T12:00:00+00:00"

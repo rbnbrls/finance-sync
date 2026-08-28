@@ -168,6 +168,28 @@ def check_key_provider_status() -> dict[str, Any]:
         }
 
 
+def _check_key_version_downgrade(state: dict[str, Any], key_info: dict[str, Any]) -> list[dict[str, str]]:
+    """Check for key version downgrade by comparing with the last reported version in state."""
+    alerts = []
+    if "error" not in key_info:
+        current_version = key_info.get("current_version")
+        last_reported_version = state.get("last_reported_version")
+        if last_reported_version is not None and current_version is not None:
+            try:
+                last_int = int(last_reported_version)
+                current_int = int(current_version)
+                if current_int < last_int:
+                    alerts.append({
+                        "name": "key_version_downgrade",
+                        "severity": "critical",
+                        "detail": f"Key version downgraded from {last_reported_version} to {current_version}",
+                    })
+            except ValueError:
+                # If we cannot convert to int, we skip the downgrade check.
+                pass
+    return alerts
+
+
 def check_key_rotation_status(key_info: dict[str, Any]) -> list[dict[str, str]]:
     """Check key rotation status and return any alerts.
 
@@ -201,7 +223,7 @@ def check_key_rotation_status(key_info: dict[str, Any]) -> list[dict[str, str]]:
         )
 
     # Check for unexpected key version downgrade would require comparing with previous state
-    # This would be implemented by storing the last known version in state
+    # This is now done in _check_key_version_downgrade and called from main
 
     return alerts
 
@@ -430,6 +452,10 @@ def main() -> int:
         # Check for alerts
         alerts = check_key_rotation_status(key_info)
 
+        # Check for key version downgrade
+        downgrade_alerts = _check_key_version_downgrade(state, key_info)
+        alerts.extend(downgrade_alerts)
+
         # Build marker for deduplication
         marker = build_key_marker()
 
@@ -453,7 +479,10 @@ def main() -> int:
             if issue_url:
                 # Update state
                 state["last_alert_sent"] = timestamp
-                state["last_reported_version"] = key_info.get("current_version")
+                if "error" not in key_info:
+                    current_version = key_info.get("current_version")
+                    if current_version is not None:
+                        state["last_reported_version"] = current_version
                 save_state(state)
                 logger.info("Created key rotation alert issue: %s", issue_url)
             else:
@@ -464,8 +493,12 @@ def main() -> int:
         else:
             logger.info("No key rotation alerts to report")
 
-        # Update last checked timestamp
+        # Update last checked timestamp and last reported version (if available)
         state["last_checked"] = datetime.now(UTC).isoformat()
+        if "error" not in key_info:
+            current_version = key_info.get("current_version")
+            if current_version is not None:
+                state["last_reported_version"] = current_version
         save_state(state)
 
         # Check if we should block promotion (for use in CI/deployment pipelines)
@@ -474,7 +507,7 @@ def main() -> int:
             # In a CI context, this would exit with non-zero to block promotion
             # For monitoring script, we just log the warning
             if os.environ.get("BLOCK_PROMOTION_ON_UNSAFE_KEY", "false").lower() == "true":
-                return 1  # Exit with error to block promotion
+                return 1
 
         # Always report key status for visibility
         if "error" not in key_info:
