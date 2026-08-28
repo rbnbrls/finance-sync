@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import json
 import os
-from datetime import UTC, datetime, timedelta
-from typing import Any, Dict, Optional
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING, Any
 
-from finance_sync.services.key_provider import ManagedKeyProvider, KeyVersion
+if TYPE_CHECKING:
+    from finance_sync.services.key_provider import ManagedKeyProvider
 
 
 class KeyStatusService:
@@ -16,7 +17,7 @@ class KeyStatusService:
     def __init__(
         self,
         key_provider: ManagedKeyProvider,
-        metadata_file: Optional[str] = None,
+        metadata_file: str | None = None,
     ) -> None:
         """Initialize the key status service.
 
@@ -24,8 +25,9 @@ class KeyStatusService:
             key_provider: The managed key provider to get key version and state.
             metadata_file: Path to a JSON file containing key metadata
                 (rotation date and expiry) for each version.
-                If not provided, will look for KEY_STATUS_METADATA_FILE environment
-                variable, then default to "config/key-metadata.json".
+                If not provided, will look for KEY_STATUS_METADATA_FILE
+                environment variable, then default to
+                "config/key-metadata.json".
         """
         self.key_provider = key_provider
         if metadata_file is None:
@@ -33,7 +35,7 @@ class KeyStatusService:
                 "KEY_STATUS_METADATA_FILE", "config/key-metadata.json"
             )
         self.metadata_file = metadata_file
-        self._metadata_cache: Dict[str, Dict[str, str]] = {}
+        self._metadata_cache: dict[str, dict[str, str]] = {}
         self._load_metadata()
 
     def _load_metadata(self) -> None:
@@ -44,13 +46,13 @@ class KeyStatusService:
         except FileNotFoundError:
             # If the file doesn't exist, we'll have no metadata
             self._metadata_cache = {}
-        except json.JSONDecodeError as exc:
+        except json.JSONDecodeError:
             # If the file is invalid, we'll have no metadata
             self._metadata_cache = {}
             # In a real implementation, we might want to log this
             # but for now we'll just note it in the cache as empty
 
-    def get_key_status(self) -> Dict[str, Any]:
+    def get_key_status(self) -> dict[str, Any]:
         """Get the current key status without exposing key material.
 
         Returns:
@@ -63,8 +65,9 @@ class KeyStatusService:
                 - material_exposed: bool (always False for this service)
         """
         # Get the current version and state from the key provider
-        # Note: We cannot get the key material from the provider without exposing it,
-        # so we use the rotation_status method which only returns version and state.
+        # Note: We cannot get the key material from the provider without
+        # exposing it, so we use the rotation_status method which only
+        # returns version and state.
         provider_status = self.key_provider.rotation_status()
         current_version = provider_status.get("current_version")
         state = provider_status.get("state", "unknown")
@@ -102,7 +105,8 @@ class KeyStatusService:
         """Check if the current key is approaching expiry within the threshold.
 
         Args:
-            threshold_hours: Number of hours before expiry to consider as approaching.
+            threshold_hours: Number of hours before expiry to consider
+                as approaching.
 
         Returns:
             True if the key is approaching expiry, False otherwise.
@@ -128,12 +132,14 @@ class KeyStatusService:
         return hours_to_expiry <= 0
 
 
-def get_key_status_from_env() -> Dict[str, Any]:
-    """Convenience function to get key status from environment-configured provider.
+def get_key_status_from_env() -> dict[str, Any]:
+    """Convenience function to get key status from environment-configured
+    provider.
 
     This function expects the following environment variables:
         - KEY_STATUS_CURRENT_VERSION: The current key version
-        - KEY_STATUS_ROTATION_DATE: ISO format rotation date for the current version
+        - KEY_STATUS_ROTATION_DATE: ISO format rotation date for the
+          current version
         - KEY_STATUS_EXPIRES_AT: ISO format expiry date for the current version
         - KEY_STATUS_STATE: The key state (optional, defaults to "current")
 
@@ -141,7 +147,8 @@ def get_key_status_from_env() -> Dict[str, Any]:
         A dictionary with the key status information.
 
     Note: This function is intended for use in environments where a full
-    ManagedKeyProvider cannot be configured (e.g., in simple monitoring scripts).
+    ManagedKeyProvider cannot be configured (e.g., in simple monitoring
+    scripts).
     """
     current_version = os.environ.get("KEY_STATUS_CURRENT_VERSION")
     if not current_version:
