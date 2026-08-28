@@ -30,6 +30,15 @@ from finance_sync.models.enums import ReconciliationRunStatus
 from finance_sync.observability.logging import configure_logging
 from finance_sync.services.reconciliation import ReconciliationService
 
+# Production Wealthfolio instances.  The CLI smoke/push commands write to
+# the configured instance; these URLs require an explicit --allow-prod to
+# prevent test data from polluting production again (issue #504).
+_WF_PROD_BASE_URLS = {
+    "http://192.168.3.50:8080",
+    "https://wealthfolio.7rb.nl",
+    "http://wealthfolio.7rb.nl",
+}
+
 
 def _build_parser() -> ArgumentParser:
     """Build the top-level argument parser."""
@@ -250,13 +259,25 @@ def _build_wealthfolio_subparser(
         description=(
             "Push the selected investment accounts twice, verify that the "
             "second pass imports nothing, and check remote account/activity/"
-            "holding visibility without printing financial values."
+            "holding visibility without printing financial values.  Writes "
+            "to the configured Wealthfolio instance: pass --allow-prod when "
+            "targeting the production instance (issue #504 guard)."
         ),
     )
     smoke.add_argument("--server-url", default=None)
     smoke.add_argument("--password", default=None)
     smoke.add_argument("--account-ids", default=None)
     smoke.add_argument("--days-back", type=int, default=3650)
+    smoke.add_argument(
+        "--allow-prod",
+        action="store_true",
+        default=False,
+        help=(
+            "Allow running the smoke push against the production Wealthfolio "
+            "instance (LXC 104 / wealthfolio.7rb.nl).  Required because a "
+            "smoke push created the corrupted test account behind issue #504."
+        ),
+    )
 
     # ── export (CSV) ─────────────────────────────────────────────────
     export = wf_sub.add_parser(
@@ -1047,6 +1068,7 @@ async def _cmd_wealthfolio_push(
     wf_client_config = WealthfolioClientConfig(
         base_url=server_url,
         password=password,
+        request_timeout=container.settings.wealthfolio_request_timeout,
     )
     wf_client = WealthfolioClient(config=wf_client_config)
 
@@ -1095,6 +1117,20 @@ async def _cmd_wealthfolio_smoke(
             file=sys.stderr,
         )
         sys.exit(2)
+    # Issue #504 guard: a smoke push created the corrupted 'Smoke Test
+    # Brokerage' account in production (NULL-asset BUY row -> slow holdings
+    # recalculation -> HTTP 408).  Refuse to write to the production
+    # instance unless the operator explicitly opts in.
+    if (
+        not getattr(args, "allow_prod", False)
+        and server_url.rstrip("/") in _WF_PROD_BASE_URLS
+    ):
+        print(
+            "Refusing to run the Wealthfolio smoke push against the "
+            "production instance without --allow-prod (issue #504 guard).",
+            file=sys.stderr,
+        )
+        sys.exit(2)
     account_ids = (
         [
             value.strip()
@@ -1111,7 +1147,11 @@ async def _cmd_wealthfolio_smoke(
     )
     accounts = await exporter._load_accounts(account_ids)  # noqa: SLF001
     client = WealthfolioClient(
-        WealthfolioClientConfig(base_url=server_url, password=password)
+        WealthfolioClientConfig(
+            base_url=server_url,
+            password=password,
+            request_timeout=container.settings.wealthfolio_request_timeout,
+        )
     )
     try:
         await client.authenticate()

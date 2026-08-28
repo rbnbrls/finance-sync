@@ -18,6 +18,7 @@ Usage::
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -60,12 +61,25 @@ class WealthfolioClientConfig:
         password:        Password for authentication.
         request_timeout: HTTP request timeout in seconds (default 60).
         verify_ssl:      Whether to verify SSL certificates (default True).
+        retry_408:       Retry with backoff when the server answers HTTP
+                         408 (its own request-timeout cap aborted a slow
+                         holdings recalculation).  Default True.
+        retry_408_attempts:   Max attempts for a 408 retry (default 3).
+        retry_408_base_delay: Base backoff in seconds (default 2.0,
+                             doubled per attempt).
     """
 
     base_url: str
     password: str
     request_timeout: float = 60.0
     verify_ssl: bool = True
+    # Retry a request when Wealthfolio answers HTTP 408 (its own
+    # WF_REQUEST_TIMEOUT_MS cap aborted a slow holdings recalculation).
+    # The server keeps working after the abort, so a retry commonly
+    # succeeds (observed 17s vs 30s cap on the prod instance).
+    retry_408: bool = True
+    retry_408_attempts: int = 3
+    retry_408_base_delay: float = 2.0
 
     def __post_init__(self) -> None:
         if not self.base_url:
@@ -432,7 +446,11 @@ class WealthfolioClient:
             "cashBalances": cash_balances or {},
             "snapshotDate": snapshot_date,
         }
-        response = await self._client.post(
+        # POST /snapshots triggers a full holdings recalculation, the slow
+        # path that Wealthfolio aborts with HTTP 408 at its own
+        # WF_REQUEST_TIMEOUT_MS cap.  Retry with backoff so a legitimate
+        # slow recalculation is not surfaced as a hard sync failure.
+        response = await self._post_with_408_retry(
             f"{self.API_PREFIX}/snapshots", json=payload
         )
         response.raise_for_status()
@@ -488,7 +506,7 @@ class WealthfolioClient:
         # Re-save after quotes are present so the live account valuation is
         # recalculated immediately, including on a first-time asset import.
         if holdings:
-            response = await self._client.post(
+            response = await self._post_with_408_retry(
                 f"{self.API_PREFIX}/snapshots", json=payload
             )
             response.raise_for_status()
@@ -526,7 +544,7 @@ class WealthfolioClient:
     ) -> dict[str, Any]:
         """Validate holdings snapshots without writing them."""
         self._ensure_authenticated()
-        response = await self._client.post(
+        response = await self._post_with_408_retry(
             f"{self.API_PREFIX}/snapshots/import/check",
             json={"accountId": account_id, "snapshots": holdings},
         )
@@ -560,6 +578,35 @@ class WealthfolioClient:
         return response.json()
 
     # ── Internal helpers ────────────────────────────────────────────
+
+    async def _post_with_408_retry(
+        self,
+        url: str,
+        *,
+        json: dict[str, Any],
+    ) -> httpx.Response:
+        """POST *url*, retrying with backoff when the server answers 408.
+
+        Wealthfolio aborts slow requests at its own ``WF_REQUEST_TIMEOUT_MS``
+        cap (30s default) and answers HTTP 408 while the underlying work
+        keeps running.  A retry after a short backoff normally completes the
+        request (observed: the snapshot POST failed at 30s then succeeded at
+        17s on the production instance).  Only the slow recalculation
+        endpoints (snapshots / holdings) use this helper; ordinary fast
+        endpoints keep fail-fast semantics.
+        """
+        attempts = (
+            self._config.retry_408_attempts if self._config.retry_408 else 1
+        )
+        response: httpx.Response | None = None
+        for attempt in range(1, attempts + 1):
+            response = await self._client.post(url, json=json)
+            if response.status_code != 408 or attempt == attempts:
+                return response
+            delay = self._config.retry_408_base_delay * (2 ** (attempt - 1))
+            await asyncio.sleep(delay)
+        assert response is not None  # loop above always returns on last attempt
+        return response  # pragma: no cover - defensive for type checkers
 
     def _ensure_authenticated(self) -> None:
         """Raise if the client is not authenticated."""

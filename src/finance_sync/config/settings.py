@@ -405,6 +405,17 @@ class Settings(BaseSettings):
         validation_alias="WEALTHFOLIO_PASSWORD",
         description="Password for Wealthfolio self-hosted authentication.",
     )
+    wealthfolio_request_timeout: float = Field(
+        default=90.0,
+        ge=30.0,
+        validation_alias="WEALTHFOLIO_REQUEST_TIMEOUT",
+        description=(
+            "HTTP request timeout in seconds for the Wealthfolio push API. "
+            "Defaults above the server-side WF_REQUEST_TIMEOUT_MS cap (30s) "
+            "so a slow holdings recalculation is not cut off by the client; "
+            "raise together with the server cap for very large portfolios."
+        ),
+    )
 
     # ── Firefly III exporter ─────────────────────────────────────────
     exporter_firefly_enabled: bool = Field(
