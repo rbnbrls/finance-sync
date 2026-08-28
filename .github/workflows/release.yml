@@ -10,7 +10,7 @@
 #   release-gates  – mandatory PostgreSQL/Redis integration and API→worker→
 #                    outbox E2E tests for every release candidate
 #   migrate        – migration upgrade/downgrade round-trip against an
-#                    ephemeral PostgreSQL (\"staging DB\")
+#                    ephemeral PostgreSQL ("staging DB")
 #   deploy-staging – deploy the staging stack via the Coolify API (the
 #                    staging app also runs `alembic upgrade head` as a
 #                    pre-deployment command against its own database)
@@ -32,7 +32,7 @@ name: Release
 on:
   push:
     tags:
-      - \"v*\"
+      - "v*"
   workflow_dispatch:
     inputs:
       ref:
@@ -41,7 +41,7 @@ on:
           Tag pushes always use the pushed tag; this input only applies
           to manual runs.
         required: false
-        default: \"main\"
+        default: "main"
 
 concurrency:
   # Releases serialize: two concurrent releases must never both touch the
@@ -106,9 +106,9 @@ jobs:
         env:
           IMAGE_TAGS: ${{ steps.meta.outputs.tags }}
         run: |
-          IMAGE_TAG=$(printf '%s\\n' \"$IMAGE_TAGS\" | grep -E '^ghcr.io/rbnbrls/finance-sync:sha-' | head -1)
-          test -n \"$IMAGE_TAG\"
-          echo \"image=$IMAGE_TAG\" >> \"$GITHUB_OUTPUT\"
+          IMAGE_TAG=$(printf '%s\n' "$IMAGE_TAGS" | grep -E '^ghcr.io/rbnbrls/finance-sync:sha-' | head -1)
+          test -n "$IMAGE_TAG"
+          echo "image=$IMAGE_TAG" >> "$GITHUB_OUTPUT"
 
       - name: Build and load Docker image
         uses: docker/build-push-action@v7
@@ -148,16 +148,16 @@ jobs:
           import os
           from pathlib import Path
 
-          Path(\"trivy-provenance.json\").write_text(
+          Path("trivy-provenance.json").write_text(
               json.dumps(
                   {
-                      \"commit\": os.environ[\"COMMIT_SHA\"],
-                      \"image\": os.environ[\"IMAGE_TAG\"],
+                      "commit": os.environ["COMMIT_SHA"],
+                      "image": os.environ["IMAGE_TAG"],
                   },
                   indent=2,
               )
-              + \"\\n\",
-              encoding=\"utf-8\",
+              + "\n",
+              encoding="utf-8",
           )
 
       - name: Upload image scan results
@@ -173,8 +173,8 @@ jobs:
       - name: Push Docker image
         run: |
           while IFS= read -r tag; do
-            [ -n \"$tag\" ] && docker push \"$tag\"
-          done <<< \"${{ steps.meta.outputs.tags }}\"
+            [ -n "$tag" ] && docker push "$tag"
+          done <<< "${{ steps.meta.outputs.tags }}"
 
       - name: Sign the image with cosign (keyless)
         # Keyless signing via GitHub OIDC — the signature is bound to this
@@ -183,20 +183,20 @@ jobs:
 
       - name: Sign image digest
         run: |
-          IMG=$(echo \"${{ steps.meta.outputs.tags }}\" | head -1)
-          DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' \"$IMG\")
-          echo \"Signing ${DIGEST}\"
-          cosign sign --yes \"${DIGEST}\"
+          IMG=$(echo "${{ steps.meta.outputs.tags }}" | head -1)
+          DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "$IMG")
+          echo "Signing ${DIGEST}"
+          cosign sign --yes "${DIGEST}"
 
       - name: Verify signature
         run: |
-          IMG=$(echo \"${{ steps.meta.outputs.tags }}\" | head -1)
-          DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' \"$IMG\")
-          cosign verify \\
-            --certificate-identity-regexp \\
-            \"https://github.com/${{ github.repository }}/.github/workflows/release.yml@refs/(tags|heads)/.*\" \\
-            --certificate-oidc-issuer \"https://token.actions.githubusercontent.com\" \\
-            \"${DIGEST}\"
+          IMG=$(echo "${{ steps.meta.outputs.tags }}" | head -1)
+          DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "$IMG")
+          cosign verify \
+            --certificate-identity-regexp \
+            "https://github.com/${{ github.repository }}/.github/workflows/release.yml@refs/(tags|heads)/.*" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            "${DIGEST}"
 
   # ── Encryption key status check ────────────────────────
   key-status-check:
@@ -212,7 +212,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: \"3.12\"
+          python-version: "3.12"
 
       - name: Install dependencies
         run: |
@@ -222,17 +222,17 @@ jobs:
         id: key-status
         run: |
           # Set required environment variables
-          export COOLIFY_BASE_URL=\"${COOLIFY_BASE_URL}\"
-          export COOLIFY_TOKEN=\"${{ secrets.COOLIFY_API_TOKEN }}\"
-          export STAGING_APP_UUID=\"${STAGING_APP_UUID}\"
-          
+          export COOLIFY_BASE_URL="${COOLIFY_BASE_URL}"
+          export COOLIFY_TOKEN="${{ secrets.COOLIFY_API_TOKEN }}"
+          export STAGING_APP_UUID="${STAGING_APP_UUID}"
+
           # Run the key status check script
           python3 scripts/check_key_status_for_promotion.py
 
       - name: Fail on key status gate violations
         if: always()
         run: |
-          test \"${{ steps.key-status.outcome }}\" = success
+          test "${{ steps.key-status.outcome }}" = success
 
   # ── Reproducible security evidence for each release candidate ────────
   security-evidence:
@@ -254,7 +254,7 @@ jobs:
       - name: Install Python 3.12
         uses: actions/setup-python@v7
         with:
-          python-version: \"3.12\"
+          python-version: "3.12"
 
       - name: Install security and SBOM tooling
         run: |
@@ -310,10 +310,10 @@ jobs:
       - name: Fail on security evidence gate violations
         if: always()
         run: |
-          test \"${{ steps.trivy-policy.outcome }}\" = success
-          test \"${{ steps.pip-audit.outcome }}\" = success
-          test \"${{ steps.cyclonedx.outcome }}\" = success
-          test \"${{ steps.evidence-policy.outcome }}\" = success
+          test "${{ steps.trivy-policy.outcome }}" = success
+          test "${{ steps.pip-audit.outcome }}" = success
+          test "${{ steps.cyclonedx.outcome }}" = success
+          test "${{ steps.evidence-policy.outcome }}" = success
 
   # ── Mandatory release-candidate service gates ─────────────────────────
   # These tests deliberately run in the tag/manual release workflow as well
@@ -334,7 +334,7 @@ jobs:
         ports:
           - 5432:5432
         options: >-
-          --health-cmd \"pg_isready -U postgres\"\
+          --health-cmd "pg_isready -U postgres"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
@@ -343,7 +343,7 @@ jobs:
         ports:
           - 6379:6379
         options: >-
-          --health-cmd \"redis-cli ping\"\
+          --health-cmd "redis-cli ping"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
@@ -361,7 +361,7 @@ jobs:
       - name: Install Python 3.12
         uses: actions/setup-python@v7
         with:
-          python-version: \"3.12\"
+          python-version: "3.12"
 
       - name: Install dependencies
         run: uv sync --extra dev --frozen
@@ -372,7 +372,7 @@ jobs:
       - name: Run PostgreSQL/Redis integration gate
         run: |
           set -o pipefail
-          DEBUG=false uv run pytest -m integration -q \\
+          DEBUG=false uv run pytest -m integration -q \
             --junitxml=junit-integration.xml 2>&1 | tee integration.log
           uv run python scripts/check_junit_no_skips.py junit-integration.xml
         env:
@@ -382,7 +382,7 @@ jobs:
       - name: Run API-worker-outbox E2E gate
         run: |
           set -o pipefail
-          DEBUG=false uv run pytest -m e2e -q \\
+          DEBUG=false uv run pytest -m e2e -q \
             --junitxml=junit-e2e.xml 2>&1 | tee e2e.log
           uv run python scripts/check_junit_no_skips.py junit-e2e.xml
         env:
@@ -398,11 +398,11 @@ jobs:
 
       - name: Capture PostgreSQL service log
         if: always()
-        run: docker logs \"$(docker ps -q --filter ancestor=postgres:16 | head -1)\" > postgres-release-gates.log 2>&1 || true
+        run: docker logs "$(docker ps -q --filter ancestor=postgres:16 | head -1)" > postgres-release-gates.log 2>&1 || true
 
       - name: Capture Redis service log
         if: always()
-        run: docker logs \"$(docker ps -q --filter ancestor=redis:7 | head -1)\" > redis-release-gates.log 2>&1 || true
+        run: docker logs "$(docker ps -q --filter ancestor=redis:7 | head -1)" > redis-release-gates.log 2>&1 || true
 
       - name: Upload release gate reports and service logs
         if: always()
@@ -439,7 +439,7 @@ jobs:
         ports:
           - 5432:5432
         options: >-
-          --health-cmd \"pg_isready -U postgres\"\
+          --health-cmd "pg_isready -U postgres"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
@@ -457,7 +457,7 @@ jobs:
       - name: Install Python 3.12
         uses: actions/setup-python@v7
         with:
-          python-version: \"3.12\"
+          python-version: "3.12"
 
       - name: Install dependencies
         run: uv sync --extra dev --frozen
@@ -466,9 +466,9 @@ jobs:
         run: >-
           uv run alembic history
           | uv run python -c
-          \"import sys; lines=[l for l in sys.stdin if l.strip()];\n
-          assert len([l for l in lines if '(head)' in l]) == 1, 'expected exactly one head';\
-          print(f'linear chain OK: {len(lines)} revisions, single head')\"
+          "import sys; lines=[l for l in sys.stdin if l.strip()];
+          assert len([l for l in lines if '(head)' in l]) == 1, 'expected exactly one head';
+          print(f'linear chain OK: {len(lines)} revisions, single head')"
         env:
           ASYNC_DB_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/finance_sync_staging
 
@@ -493,27 +493,29 @@ jobs:
           from sqlalchemy.ext.asyncio import create_async_engine
 
           async def main() -> None:
-              engine = create_async_engine(os.environ[\"ASYNC_DB_URL\"])
+              engine = create_async_engine(os.environ["ASYNC_DB_URL"])
               async with engine.connect() as conn:
                   for table in (
-                      \"export_runs\",
-                      \"export_deliveries\",
-                      \"ab_account_mappings\",
-                      \"wealthfolio_deliveries\",
+                      "export_runs",
+                      "export_deliveries",
+                      "ab_account_mappings",
+                      "wealthfolio_deliveries",
                   ):
                       result = await conn.execute(
-                          text(f\"SELECT to_regclass('public.{table}')\")
+                          text(f"SELECT to_regclass('public.{table}')")
                       )
-                      assert result.scalar() == table, f\"missing table {table}\"
-                      print(f\"{table}: OK\")
+                      assert result.scalar() == table, f"missing table {table}"
+                      print(f"{table}: OK")
               await engine.dispose()
+
+          asyncio.run(main())
           PY
         env:
           ASYNC_DB_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/finance_sync_staging
 
       - name: Capture migration PostgreSQL service log
         if: always()
-        run: docker logs \"$(docker ps -q --filter ancestor=postgres:16 | head -1)\" > postgres-migration.log 2>&1 || true
+        run: docker logs "$(docker ps -q --filter ancestor=postgres:16 | head -1)" > postgres-migration.log 2>&1 || true
 
       - name: Upload migration round-trip artifact
         if: always()
@@ -538,24 +540,24 @@ jobs:
         env:
           COOLIFY_TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}
         run: |
-          echo \"📦 Deploying finance-sync staging stack (${{ needs.build.outputs.version || github.ref }})...\"
-          RESPONSE=$(curl -s -w \"\\n%{http_code}\" \\
-            -X POST \"${COOLIFY_BASE_URL}/api/v1/deploy\" \\
-            -H \"Authorization: Bearer ***\" \\
-            -H \"Content-Type: application/json\" \\
-            -d \"{\\\"uuid\\\": \\\"${STAGING_APP_UUID}\\\", \\\"force\\\": true}\")
-          HTTP_CODE=$(echo \"$RESPONSE\" | tail -1)
-          BODY=$(echo \"$RESPONSE\" | sed '$d')
-          echo \"Status: ${HTTP_CODE}\"
-          echo \"Response: ${BODY}\"
-          DEPLOY_UUID=$(echo \"$BODY\" | python3 -c \\
-            \"import sys,json;d=json.load(sys.stdin);deploys=d.get('deployments',[]);print(deploys[0].get('deployment_uuid','') if deploys else '')\" 2>/dev/null || true)
-          if [ \"$HTTP_CODE\" -lt 200 ] || [ \"$HTTP_CODE\" -ge 300 ] || [ -z \"$DEPLOY_UUID\" ]; then
-            echo \"❌ Staging deploy not queued (HTTP ${HTTP_CODE})\"
+          echo "📦 Deploying finance-sync staging stack (${{ needs.build.outputs.version || github.ref }})..."
+          RESPONSE=$(curl -s -w "\n%{http_code}" \
+            -X POST "${COOLIFY_BASE_URL}/api/v1/deploy" \
+            -H "Authorization: Bearer ${COOLIFY_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "{\"uuid\": \"${STAGING_APP_UUID}\", \"force\": true}")
+          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | sed '$d')
+          echo "Status: ${HTTP_CODE}"
+          echo "Response: ${BODY}"
+          DEPLOY_UUID=$(echo "$BODY" | python3 -c \
+            "import sys,json;d=json.load(sys.stdin);deploys=d.get('deployments',[]);print(deploys[0].get('deployment_uuid','') if deploys else '')" 2>/dev/null || true)
+          if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ] || [ -z "$DEPLOY_UUID" ]; then
+            echo "❌ Staging deploy not queued (HTTP ${HTTP_CODE})"
             exit 1
           fi
-          echo \"deployment_uuid=${DEPLOY_UUID}\" >> \"$GITHUB_OUTPUT\"
-          echo \"✅ Staging deploy queued (uuid: ${DEPLOY_UUID})\"
+          echo "deployment_uuid=${DEPLOY_UUID}" >> "$GITHUB_OUTPUT"
+          echo "✅ Staging deploy queued (uuid: ${DEPLOY_UUID})"
 
       - name: Wait for staging deployment to finish
         env:
@@ -563,17 +565,17 @@ jobs:
           DEPLOYMENT_UUID: ${{ steps.deploy.outputs.deployment_uuid }}
         run: |
           for i in $(seq 1 60); do
-            STATUS=$(curl -s -H \"Authorization: Bearer ***\" \\
-              \"${COOLIFY_BASE_URL}/api/v1/deployments/${DEPLOYMENT_UUID}\" \\
-              | python3 -c \"import sys,json; print(json.load(sys.stdin).get('status','?'))\" 2>/dev/null || true)
-            echo \"[$i] deployment status: ${STATUS}\"
-            case \"${STATUS}\" in
-              finished) echo \"✅ Staging deployment finished\"; exit 0 ;;
-              failed|error|cancelled) echo \"❌ Staging deployment ${STATUS}\"; exit 1 ;;
+            STATUS=$(curl -s -H "Authorization: Bearer ${COOLIFY_TOKEN}" \
+              "${COOLIFY_BASE_URL}/api/v1/deployments/${DEPLOYMENT_UUID}" \
+              | python3 -c "import sys,json; print(json.load(sys.stdin).get('status','?'))" 2>/dev/null || true)
+            echo "[$i] deployment status: ${STATUS}"
+            case "${STATUS}" in
+              finished) echo "✅ Staging deployment finished"; exit 0 ;;
+              failed|error|cancelled) echo "❌ Staging deployment ${STATUS}"; exit 1 ;;
             esac
             sleep 15
           done
-          echo \"❌ Timed out waiting for staging deployment\"
+          echo "❌ Timed out waiting for staging deployment"
           exit 1
 
   # ── Acceptance smoke tests (GATE) ─────────────────────────────────────
@@ -591,7 +593,7 @@ jobs:
 
       - name: Run acceptance smoke tests
         run: |
-          export SMOKE_BASE_URL=\"https://${STAGING_APP_UUID}.7rb.nl\"
+          export SMOKE_BASE_URL="https://${STAGING_APP_UUID}.7rb.nl"
           python3 scripts/release_smoke.py 2>&1 | tee staging-smoke.log
         env:
           SMOKE_ARTIFACT: staging-smoke-evidence.json
@@ -610,7 +612,7 @@ jobs:
         run: |
           test -s staging-smoke-evidence.json
           test -s staging-smoke.xml
-          test -n \"$SMOKE_IMAGE_TAG\"
+          test -n "$SMOKE_IMAGE_TAG"
 
       - name: Upload staging smoke evidence
         uses: actions/upload-artifact@v7
@@ -651,7 +653,7 @@ jobs:
           path: release-rehearsal.json
           retention-days: 30
 
-  # ── Transactional sync recovery drill ───────────────────────────────
+  # ── Transactional sync recovery drill ────────────────────────────────
   recovery-drill:
     name: Sync failure recovery drill
     needs: [release-gates, rehearsal]
@@ -667,14 +669,14 @@ jobs:
         ports:
           - 5432:5432
         options: >-
-          --health-cmd \"pg_isready -U postgres\"\
+          --health-cmd "pg_isready -U postgres"
           --health-interval 10s --health-timeout 5s --health-retries 5
       redis:
         image: redis:7
         ports:
           - 6379:6379
         options: >-
-          --health-cmd \"redis-cli ping\"\
+          --health-cmd "redis-cli ping"
           --health-interval 10s --health-timeout 5s --health-retries 5
     steps:
       - uses: actions/checkout@v7
@@ -684,11 +686,11 @@ jobs:
           cache-suffix: recovery-drill
       - uses: actions/setup-python@v7
         with:
-          python-version: \"3.12\"
+          python-version: "3.12"
       - run: uv sync --extra dev --frozen
       - name: Run PostgreSQL and Redis recovery scenarios
         run: |
-          DEBUG=false uv run pytest tests/integration/test_sync_orchestrator_pg.py \\
+          DEBUG=false uv run pytest tests/integration/test_sync_orchestrator_pg.py \
             tests/integration/test_outbox_pg.py -m integration -q
           python3 scripts/sync_recovery_drill.py
         env:
@@ -714,7 +716,7 @@ jobs:
       - name: Download release evidence
         uses: actions/download-artifact@v8
         with:
-          pattern: \"*\"
+          pattern: "*"
           merge-multiple: true
       - name: Build safe operational summary
         run: >
@@ -750,24 +752,24 @@ jobs:
         env:
           COOLIFY_TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}
         run: |
-          echo \"🚀 Promoting finance-sync (${{ needs.build.outputs.version || github.ref }}) to production...\"
-          RESPONSE=$(curl -s -w \"\\n%{http_code}\" \\
-            -X POST \"${COOLIFY_BASE_URL}/api/v1/deploy\" \\
-            -H \"Authorization: Bearer ***\" \\
-            -H \"Content-Type: application/json\" \\
-            -d \"{\\\"uuid\\\": \\\"${PROD_APP_UUID}\\\", \\\"force\\\": true}\")
-          HTTP_CODE=$(echo \"$RESPONSE\" | tail -1)
-          BODY=$(echo \"$RESPONSE\" | sed '$d')
-          echo \"Status: ${HTTP_CODE}\"
-          echo \"Response: ${BODY}\"
-          DEPLOY_UUID=$(echo \"$BODY\" | python3 -c \\
-            \"import sys,json;d=json.load(sys.stdin);deploys=d.get('deployments',[]);print(deploys[0].get('deployment_uuid','') if deploys else '')\" 2>/dev/null || true)
-          if [ \"$HTTP_CODE\" -lt 200 ] || [ \"$HTTP_CODE\" -ge 300 ] || [ -z \"$DEPLOY_UUID\" ]; then
-            echo \"❌ Production deploy not queued (HTTP ${HTTP_CODE})\"
+          echo "🚀 Promoting finance-sync (${{ needs.build.outputs.version || github.ref }}) to production..."
+          RESPONSE=$(curl -s -w "\n%{http_code}" \
+            -X POST "${COOLIFY_BASE_URL}/api/v1/deploy" \
+            -H "Authorization: Bearer ${COOLIFY_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "{\"uuid\": \"${PROD_APP_UUID}\", \"force\": true}")
+          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | sed '$d')
+          echo "Status: ${HTTP_CODE}"
+          echo "Response: ${BODY}"
+          DEPLOY_UUID=$(echo "$BODY" | python3 -c \
+            "import sys,json;d=json.load(sys.stdin);deploys=d.get('deployments',[]);print(deploys[0].get('deployment_uuid','') if deploys else '')" 2>/dev/null || true)
+          if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ] || [ -z "$DEPLOY_UUID" ]; then
+            echo "❌ Production deploy not queued (HTTP ${HTTP_CODE})"
             exit 1
           fi
-          echo \"deployment_uuid=${DEPLOY_UUID}\" >> \"$GITHUB_OUTPUT\"
-          echo \"✅ Production deploy queued (uuid: ${DEPLOY_UUID})\"
+          echo "deployment_uuid=${DEPLOY_UUID}" >> "$GITHUB_OUTPUT"
+          echo "✅ Production deploy queued (uuid: ${DEPLOY_UUID})"
 
       - name: Wait for production deployment to finish
         env:
@@ -775,15 +777,15 @@ jobs:
           DEPLOYMENT_UUID: ${{ steps.deploy.outputs.deployment_uuid }}
         run: |
           for i in $(seq 1 60); do
-            STATUS=$(curl -s -H \"Authorization: Bearer ***\" \\
-              \"${COOLIFY_BASE_URL}/api/v1/deployments/${DEPLOYMENT_UUID}\" \\
-              | python3 -c \"import sys,json; print(json.load(sys.stdin).get('status','?'))\" 2>/dev/null || true)
-            echo \"[$i] deployment status: ${STATUS}\"
-            case \"${STATUS}\" in
-              finished) echo \"✅ Production deployment finished\"; exit 0 ;;
-              failed|error|cancelled) echo \"❌ Production deployment ${STATUS}\"; exit 1 ;;
+            STATUS=$(curl -s -H "Authorization: Bearer ${COOLIFY_TOKEN}" \
+              "${COOLIFY_BASE_URL}/api/v1/deployments/${DEPLOYMENT_UUID}" \
+              | python3 -c "import sys,json; print(json.load(sys.stdin).get('status','?'))" 2>/dev/null || true)
+            echo "[$i] deployment status: ${STATUS}"
+            case "${STATUS}" in
+              finished) echo "✅ Production deployment finished"; exit 0 ;;
+              failed|error|cancelled) echo "❌ Production deployment ${STATUS}"; exit 1 ;;
             esac
             sleep 15
           done
-          echo \"❌ Timed out waiting for production deployment\"
+          echo "❌ Timed out waiting for production deployment"
           exit 1
