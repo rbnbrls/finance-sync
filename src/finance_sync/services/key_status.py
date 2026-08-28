@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import os
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
     from finance_sync.services.key_provider import ManagedKeyProvider
@@ -42,7 +42,19 @@ class KeyStatusService:
         """Load key metadata from the JSON file."""
         try:
             with open(self.metadata_file) as f:
-                self._metadata_cache = json.load(f)
+                raw: object = json.load(f)
+            if isinstance(raw, dict):
+                loaded: dict[str, dict[str, str]] = {}
+                for version, entry in cast("dict[str, Any]", raw).items():
+                    if not isinstance(entry, dict):
+                        continue
+                    loaded[version] = {
+                        str(k): str(v)
+                        for k, v in cast("dict[str, Any]", entry).items()
+                    }
+                self._metadata_cache = loaded
+            else:
+                self._metadata_cache = {}
         except FileNotFoundError:
             # If the file doesn't exist, we'll have no metadata
             self._metadata_cache = {}
@@ -73,7 +85,11 @@ class KeyStatusService:
         state = provider_status.get("state", "unknown")
 
         # Get metadata for this version
-        metadata = self._metadata_cache.get(current_version, {})
+        metadata = (
+            self._metadata_cache.get(current_version, {})
+            if current_version is not None
+            else {}
+        )
 
         rotation_date_str = metadata.get("rotation_date")
         expires_at_str = metadata.get("expires_at")
