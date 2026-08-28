@@ -119,7 +119,9 @@ async def test_file_upload_history_projects_provider_from_join() -> None:
     db = MagicMock()
     db.execute = AsyncMock(
         return_value=SimpleNamespace(
-            all=MagicMock(return_value=[(run, "saxo_investor", '{"_label":"Mijn Saxo"}')])
+            all=MagicMock(
+                return_value=[(run, "saxo_investor", '{"_label":"Mijn Saxo"}')]
+            )
         )
     )
 

@@ -174,9 +174,7 @@ class ConnectorRegistry:
             "has_rate_limit_policy": rate_limit is not None,
             "metadata_incomplete": metadata_incomplete,
         }
-        raw_methods: object = getattr(
-            connector, "ingestion_methods", ("api",)
-        )
+        raw_methods: object = getattr(connector, "ingestion_methods", ("api",))
         if not isinstance(raw_methods, (list, tuple, set, frozenset)):
             metadata_incomplete = True
             methods = ["api"]

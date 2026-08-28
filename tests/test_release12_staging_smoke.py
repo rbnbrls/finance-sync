@@ -33,7 +33,7 @@ def test_release_smoke_uploads_commit_bound_evidence() -> None:
     assert "SMOKE_COMMIT: ${{ github.sha }}" in workflow
     assert "SMOKE_IMAGE_TAG: ${{ needs.build.outputs.image }}" in workflow
     assert "release-staging-smoke-${{ github.sha }}" in workflow
-    assert "needs: [deploy-staging, build]" in workflow
+    assert "needs: [deploy-staging, build, key-status-check]" in workflow
 
 
 def test_release_docs_define_image_rollback_without_production_downgrade() -> (
