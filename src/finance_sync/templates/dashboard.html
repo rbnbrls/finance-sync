@@ -1067,6 +1067,7 @@
             <div id="data-health-summary" class="quality-grid" aria-live="polite" aria-busy="true"><div class="overview-empty"><span class="spinner"></span> Overzicht laden…</div></div>
             <div class="card control-section"><div class="card-header"><div><h2>Bronnen</h2><p class="chain-subtitle">Laatste succesvolle sync en datadekking per bron.</p></div></div><div id="data-health-sources" aria-live="polite" aria-busy="true"><div class="overview-empty">Bronnen laden…</div></div></div>
             <div class="card control-section"><div class="card-header"><div><h2>Actie vereist</h2><p class="chain-subtitle">Elke melding heeft één concrete vervolgstap.</p></div></div><div id="data-health-issues" class="issue-list" aria-live="polite" aria-busy="true"><div class="overview-empty">Issues laden…</div></div></div>
+            <div id="data-health-reconciliation-detail" class="card control-section hidden" aria-live="polite" aria-busy="false"></div>
         </div>
         <div id="section-connectors" class="hidden" role="region" aria-labelledby="connectors-title">
             <h1 class="page-title" id="connectors-title">Importers</h1>
@@ -1300,6 +1301,38 @@
             if (issues) { issues.setAttribute('aria-busy', 'false'); issues.innerHTML = (data.issues || []).length ? data.issues.map(issue => `<article class="issue-card"><div><span class="severity severity-${escapeHtml(issue.severity)}">${escapeHtml(issue.severity)}</span><h3>${escapeHtml(issue.title)}</h3><p>${escapeHtml(issue.description)}</p>${issue.provider ? `<span class="muted">Bron: ${escapeHtml(issue.provider)}</span>` : ''}${issue.impact_count ? `<span class="muted"> · Impact: ${escapeHtml(issue.impact_count)}</span>` : ''}<div class="action-result" id="health-result-${escapeHtml(issue.id)}" aria-live="polite" tabindex="-1"></div></div><div class="control-actions">${renderControlActions([issue.action], `health-result-${issue.id}`)}</div></article>`).join('') : '<div class="overview-empty">Geen open problemen. De datastroom werkt zoals verwacht.</div>'; }
         }
 
+        function reconciliationRunIdFromPath(path) {
+            const match = String(path || '').match(/\/reconciliation\/([^/?#]+)/);
+            return match ? decodeURIComponent(match[1]) : '';
+        }
+
+        async function openReconciliationDetail(path) {
+            const detail = document.getElementById('data-health-reconciliation-detail');
+            if (!detail) return;
+            const runId = reconciliationRunIdFromPath(path);
+            if (!runId) throw new Error('De reconciliatierun kon niet worden gevonden.');
+            detail.classList.remove('hidden');
+            detail.setAttribute('aria-busy', 'true');
+            detail.innerHTML = '<div class="overview-empty"><span class="spinner"></span> Finding wordt geladen…</div>';
+            detail.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            try {
+                const data = await api('GET', path);
+                const run = data.run || {};
+                const results = data.results || [];
+                detail.setAttribute('aria-busy', 'false');
+                detail.innerHTML = `<div class="card-header"><div><div class="overview-kicker">Reconciliatie</div><h2>Finding details</h2><p class="chain-subtitle">Run ${escapeHtml(run.id || runId)} · ${escapeHtml(readableStatus(run.status))} · ${escapeHtml(formatControlDate(run.completed_at || run.started_at))}</p></div><button type="button" class="btn btn-secondary btn-sm" onclick="closeReconciliationDetail()">Terug naar issues</button></div>${results.length ? `<div class="control-table-wrap"><table class="data-table control-table"><thead><tr><th>Type</th><th>Ernst</th><th>Omschrijving</th><th>Records</th></tr></thead><tbody>${results.map(result => `<tr><td>${escapeHtml(readableStatus(result.kind))}</td><td><span class="severity severity-${escapeHtml(result.severity)}">${escapeHtml(result.severity)}</span></td><td>${escapeHtml(result.description || 'Controleer de betrokken bronrecords.')}</td><td>${escapeHtml([result.transaction_id_a, result.transaction_id_b].filter(Boolean).join(' · ') || [result.external_transaction_id_a, result.external_transaction_id_b].filter(Boolean).join(' · ') || '—')}</td></tr>`).join('')}</tbody></table></div>` : '<div class="overview-empty">Deze reconciliatierun bevat geen zichtbare findings.</div>'}`;
+            } catch (error) {
+                detail.setAttribute('aria-busy', 'false');
+                detail.innerHTML = `<div class="alert alert-error inline-error" role="alert"><div class="inline-error-msg"><strong>Finding kon niet worden geladen</strong><span>${escapeHtml(error?.message || 'De details zijn tijdelijk niet beschikbaar.')}</span></div><button type="button" class="btn btn-secondary btn-sm" onclick="openReconciliationDetail(${JSON.stringify(path)})">Opnieuw proberen</button></div>`;
+            }
+        }
+
+        function closeReconciliationDetail() {
+            const detail = document.getElementById('data-health-reconciliation-detail');
+            if (detail) { detail.classList.add('hidden'); detail.innerHTML = ''; }
+            document.getElementById('data-health-issues')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+
         const controlStatusLabels = {
             healthy: 'Alles in orde', attention_required: 'Aandacht vereist',
             sync_failed: 'Synchronisatie mislukt', partial: 'Data gedeeltelijk beschikbaar',
@@ -1403,7 +1436,7 @@
             const method = button.dataset.method || 'GET'; const path = button.dataset.path || ''; const result = document.getElementById(button.dataset.resultId || '');
             if (!path) return;
             if (button.dataset.actionKey === 'map_security') { switchSection('connectors'); toast('Open de security-mappingflow vanuit de connectorgegevens.', 'info'); return; }
-            if (method === 'GET') { if (path.includes('/securities/unresolved')) switchSection('connectors'); else if (path.includes('/sync-runs')) switchSection('sync'); else if (path.includes('/destinations')) switchSection('exporters'); else window.location.href = path; return; }
+            if (method === 'GET') { if (path.includes('/securities/unresolved')) switchSection('connectors'); else if (path.includes('/sync-runs')) switchSection('sync'); else if (path.includes('/destinations')) switchSection('exporters'); else if (path.includes('/reconciliation/')) { switchSection('data-health'); openReconciliationDetail(path); } else window.location.href = path; return; }
             if (button.dataset.busy === 'true') return;
             button.dataset.busy = 'true'; button.disabled = true; button.setAttribute('aria-busy', 'true');
             const original = button.textContent; button.textContent = 'Bezig…';

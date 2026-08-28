@@ -142,6 +142,20 @@ def test_dashboard_control_plane_normalizes_api_action_paths(
     assert "Open de security-mappingflow" in html
 
 
+def test_dashboard_opens_reconciliation_findings_inside_authenticated_ui(
+    client: TestClient,
+) -> None:
+    """Reconciliation action links must keep the dashboard auth context."""
+    html = _dashboard_html(client)
+    assert 'id="data-health-reconciliation-detail"' in html
+    assert "function openReconciliationDetail" in html
+    assert "reconciliationRunIdFromPath" in html
+    assert "api('GET', path)" in html
+    assert "Finding details" in html
+    assert "else if (path.includes('/reconciliation/'))" in html
+    assert "window.location.href = path" in html
+
+
 def test_dashboard_ships_connector_list_surface(client: TestClient) -> None:
     """The page has a container the wizard renders into, plus an initial
     loading state so the user never sees a blank body."""
