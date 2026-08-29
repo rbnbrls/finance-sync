@@ -605,3 +605,34 @@ class TestWealthfolioClientIntegration:
         assert mock_post.call_args_list[1].kwargs == {
             "json": {"activities": resolved}
         }
+
+    async def test_push_activities_restores_provenance_dropped_by_check(
+        self, client: WealthfolioClient
+    ) -> None:
+        """Import keeps connector identity when check hydration drops it."""
+        client._is_authenticated = True
+        activities = [
+            {
+                "activityType": "DIVIDEND",
+                "symbol": "VWCE",
+                "sourceSystem": "FINANCE_SYNC",
+                "sourceRecordId": "source-1",
+                "idempotencyKey": "stable-1",
+            }
+        ]
+        mock_check = MagicMock(status_code=200)
+        mock_check.json.return_value = [
+            {"activityType": "DIVIDEND", "symbol": "VWCE", "assetId": "a1"}
+        ]
+        mock_import = MagicMock(status_code=200)
+        mock_import.json.return_value = {"imported": 1, "skipped": 0}
+
+        with patch.object(
+            client._client, "post", side_effect=[mock_check, mock_import]
+        ) as mock_post:
+            await client.push_activities(activities)
+
+        imported = mock_post.call_args_list[1].kwargs["json"]["activities"][0]
+        assert imported["assetId"] == "a1"
+        assert imported["sourceRecordId"] == "source-1"
+        assert imported["idempotencyKey"] == "stable-1"
