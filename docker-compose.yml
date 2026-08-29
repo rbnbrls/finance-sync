@@ -58,6 +58,8 @@ services:
       dockerfile: Dockerfile
     container_name: finance-sync-app
     restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "8000:8000"
     environment:
@@ -136,6 +138,8 @@ services:
       dockerfile: Dockerfile
     container_name: finance-sync-worker
     restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     entrypoint: ["python", "-m", "finance_sync.worker"]
     ports:
       - "9090:9090"
