@@ -20,10 +20,10 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 # Add the src directory to the path so we can import the key_status service
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
-from finance_sync.services.key_provider import ManagedKeyProvider
 from finance_sync.services.key_status import KeyStatusService
+from finance_sync.services.key_provider import ManagedKeyProvider
 
 # Configure logging
 logging.basicConfig(
@@ -99,35 +99,25 @@ def check_key_provider_status() -> dict[str, Any]:
         else:
             config = None
 
-        # Get the current version from the environment (required for the
-        # ManagedKeyProvider)
+        # Get the current version from the environment (required for the ManagedKeyProvider)
         current_version = os.environ.get("KEY_CURRENT_VERSION")
         if not current_version:
-            # If we don't have the current version, fall back to the
-            # original simulation
+            # If we don't have the current version, fall back to the original simulation
             logger.warning(
-                "KEY_CURRENT_VERSION not set, falling back to simulated "
-                "key provider status"
+                "KEY_CURRENT_VERSION not set, falling back to simulated key provider status"
             )
             # Fall back to the original simulation
             now = datetime.now(UTC)
 
-            # Simulate key information (this would come from actual
-            # key provider)
+            # Simulate key information (this would come from actual key provider)
             key_info = {
                 "current_version": "v2",
                 "state": "current",
                 "rotated_at": (now - timedelta(days=30)).isoformat(),
                 "expires_at": (now + timedelta(days=60)).isoformat(),
-                "provider": config.get("provider", "unknown")
-                if config
-                else "unknown",
-                "fail_closed": config.get("fail_closed", True)
-                if config
-                else True,
-                "material_logged": config.get("material_logged", False)
-                if config
-                else False,
+                "provider": config.get("provider", "unknown") if config else "unknown",
+                "fail_closed": config.get("fail_closed", True) if config else True,
+                "material_logged": config.get("material_logged", False) if config else False,
             }
 
             # Calculate time to expiry
@@ -137,41 +127,38 @@ def check_key_provider_status() -> dict[str, Any]:
 
             return key_info
 
-        # Dummy fetch_material that returns None (we won't use it for
-        # rotation_status)
-        def dummy_fetch_material(version: str) -> bytes | None:  # noqa: ARG001
+        # Dummy fetch_material that returns None (we won't use it for rotation_status)
+        def dummy_fetch_material(version: str) -> bytes | None:
             return None
 
-        # Initialize the ManagedKeyProvider with the current version and
-        # dummy fetch_material
+        # Initialize the ManagedKeyProvider with the current version and dummy fetch_material
         provider = ManagedKeyProvider(
             current_version=current_version,
             fetch_material=dummy_fetch_material,
             revoked_versions=frozenset(),
         )
 
-        # Use the KeyStatusService to get the full status (including
-        # rotation date and expiry)
+        # Get the rotation status from the provider (which gives us current_version and state)
+        provider_status = provider.rotation_status()
+        # provider_status returns {"current_version": ..., "state": "managed"}
+
+        # Use the KeyStatusService to get the full status (including rotation date and expiry)
         service = KeyStatusService(key_provider=provider)
         key_status = service.get_key_status()
 
         # Build the result dictionary to match the original simulation's keys
-        return {
+        result = {
             "current_version": key_status.get("current_version"),
-            "state": key_status.get(
-                "state"
-            ),  # From the provider's rotation_status ("managed")
-            "rotated_at": None,  # No rotation info without key material
+            "state": key_status.get("state"),  # This is from the provider's rotation_status, which is "managed"
+            "rotated_at": None,  # We don't have this information without fetching the key material
             "expires_at": key_status.get("expires_at"),
-            "provider": config.get("provider", "unknown")
-            if config
-            else "unknown",
+            "provider": config.get("provider", "unknown") if config else "unknown",
             "fail_closed": config.get("fail_closed", True) if config else True,
-            "material_logged": config.get("material_logged", False)
-            if config
-            else False,
+            "material_logged": config.get("material_logged", False) if config else False,
             "hours_to_expiry": key_status.get("hours_to_expiry"),
         }
+
+        return result
 
     except Exception as exc:
         logger.error("Failed to check key provider status: %s", exc)
@@ -181,12 +168,8 @@ def check_key_provider_status() -> dict[str, Any]:
         }
 
 
-def _check_key_version_downgrade(
-    state: dict[str, Any], key_info: dict[str, Any]
-) -> list[dict[str, str]]:
-    """Check for key version downgrade by comparing with the last reported
-    version in state.
-    """
+def _check_key_version_downgrade(state: dict[str, Any], key_info: dict[str, Any]) -> list[dict[str, str]]:
+    """Check for key version downgrade by comparing with the last reported version in state."""
     alerts = []
     if "error" not in key_info:
         current_version = key_info.get("current_version")
@@ -196,16 +179,11 @@ def _check_key_version_downgrade(
                 last_int = int(last_reported_version)
                 current_int = int(current_version)
                 if current_int < last_int:
-                    alerts.append(
-                        {
-                            "name": "key_version_downgrade",
-                            "severity": "critical",
-                            "detail": (
-                                f"Key version downgraded from "
-                                f"{last_reported_version} to {current_version}"
-                            ),
-                        }
-                    )
+                    alerts.append({
+                        "name": "key_version_downgrade",
+                        "severity": "critical",
+                        "detail": f"Key version downgraded from {last_reported_version} to {current_version}",
+                    })
             except ValueError:
                 # If we cannot convert to int, we skip the downgrade check.
                 pass
@@ -216,8 +194,7 @@ def check_key_rotation_status(key_info: dict[str, Any]) -> list[dict[str, str]]:
     """Check key rotation status and return any alerts.
 
     Args:
-        key_info: Dictionary containing key information from
-            check_key_provider_status
+        key_info: Dictionary containing key information from check_key_provider_status
 
     Returns:
         List of alert dictionaries
@@ -235,21 +212,18 @@ def check_key_rotation_status(key_info: dict[str, Any]) -> list[dict[str, str]]:
         return alerts
 
     # Check if we're approaching expiry
-    hours_to_expiry = key_info.get("hours_to_expiry", float("inf"))
+    hours_to_expiry = key_info.get("hours_to_expiry", float('inf'))
     if hours_to_expiry <= ALERT_BEFORE_EXPIRY_HOURS:
         alerts.append(
             {
                 "name": "key_approaching_expiry",
                 "severity": "warning" if hours_to_expiry > 1 else "critical",
-                "detail": (
-                    f"Key version {key_info['current_version']} expires "
-                    f"in {hours_to_expiry:.1f} hours"
-                ),
+                "detail": f"Key version {key_info['current_version']} expires in {hours_to_expiry:.1f} hours",
             }
         )
 
-    # Check for unexpected key version downgrade; this requires comparing
-    # with previous state (done in _check_key_version_downgrade from main)
+    # Check for unexpected key version downgrade would require comparing with previous state
+    # This is now done in _check_key_version_downgrade and called from main
 
     return alerts
 
@@ -287,7 +261,7 @@ def build_key_issue_body(
         f"| Provider | {key_info.get('provider', 'unknown')} |",
         f"| Rotated At | {key_info.get('rotated_at', 'unknown')} |",
         f"| Expires At | {key_info.get('expires_at', 'unknown')} |",
-        f"| Hours to Expiry | {key_info.get('hours_to_expiry', 'unknown')} |",
+        f"| Hours to Expiry | {key_info.get('hours_to_expiry', 'unknown'):.1f} |",
         "",
         "### Configuration",
         "",
@@ -303,10 +277,8 @@ def build_key_issue_body(
                 "",
             ]
         )
-        lines.extend(
-            f"- **{alert['name']}** ({alert['severity']}): {alert['detail']}"
-            for alert in alerts
-        )
+        for alert in alerts:
+            lines.append(f"- **{alert['name']}** ({alert['severity']}): {alert['detail']}")
         lines.append("")
 
     # Hidden dedup marker
@@ -357,9 +329,7 @@ def create_github_issue(
     import urllib.request
     from urllib.error import HTTPError, URLError
 
-    request = urllib.request.Request(
-        url, data=data, headers=headers, method="POST"
-    )
+    request = urllib.request.Request(url, data=data, headers=headers, method="POST")
 
     try:
         with urllib.request.urlopen(request, timeout=30) as response:
@@ -445,8 +415,7 @@ def check_existing_issue(marker: str) -> bool:
 
 
 def should_block_promotion(key_info: dict[str, Any]) -> bool:
-    """Determine if staging/release promotion should be blocked based on key
-    status.
+    """Determine if staging/release promotion should be blocked based on key status.
 
     Args:
         key_info: Dictionary containing key information
@@ -462,7 +431,7 @@ def should_block_promotion(key_info: dict[str, Any]) -> bool:
     if "error" in key_info:
         return True
 
-    hours_to_expiry = key_info.get("hours_to_expiry", float("inf"))
+    hours_to_expiry = key_info.get("hours_to_expiry", float('inf'))
     if hours_to_expiry < 1:  # Less than 1 hour to expiry
         return True
 
@@ -499,10 +468,7 @@ def main() -> int:
         if should_alert and not existing_issue:
             # Create GitHub issue
             timestamp = datetime.now(UTC).isoformat()
-            title = (
-                f"[Key Rotation] Alert: {len(alerts)} key rotation "
-                f"issue(s) detected"
-            )
+            title = f"[Key Rotation] Alert: {len(alerts)} key rotation issue(s) detected"
             body = build_key_issue_body(timestamp, key_info, alerts)
 
             labels = ["key-rotation", "monitoring"]
@@ -523,10 +489,7 @@ def main() -> int:
                 logger.error("Failed to create GitHub issue")
                 return 1
         elif should_alert and existing_issue:
-            logger.info(
-                "Alert conditions met but existing issue found — "
-                "skipping duplicate"
-            )
+            logger.info("Alert conditions met but existing issue found — skipping duplicate")
         else:
             logger.info("No key rotation alerts to report")
 
@@ -538,19 +501,12 @@ def main() -> int:
                 state["last_reported_version"] = current_version
         save_state(state)
 
-        # Check if we should block promotion (for use in CI/deployment
-        # pipelines)
+        # Check if we should block promotion (for use in CI/deployment pipelines)
         if should_block_promotion(key_info):
-            logger.warning(
-                "Unsafe key status detected — blocking staging/release "
-                "promotion"
-            )
+            logger.warning("Unsafe key status detected — blocking staging/release promotion")
             # In a CI context, this would exit with non-zero to block promotion
             # For monitoring script, we just log the warning
-            if (
-                os.environ.get("BLOCK_PROMOTION_ON_UNSAFE_KEY", "false").lower()
-                == "true"
-            ):
+            if os.environ.get("BLOCK_PROMOTION_ON_UNSAFE_KEY", "false").lower() == "true":
                 return 1
 
         # Always report key status for visibility
