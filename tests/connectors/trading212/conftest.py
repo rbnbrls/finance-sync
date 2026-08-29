@@ -84,6 +84,14 @@ class Trading212MockTransport(httpx.MockTransport):
             )
 
             return httpx.Response(200, json=ORDER_HISTORY_PAGE_2)
+        if "to=" in url:
+            # A date-range request: return only the first page so tests
+            # can assert the ``to`` parameter was sent.
+            from tests.connectors.fixtures.trading212_api_fixtures import (
+                ORDER_HISTORY_PAGE_1,
+            )
+
+            return httpx.Response(200, json=ORDER_HISTORY_PAGE_1)
         return httpx.Response(200, json=ORDER_HISTORY_RESPONSE)
 
     def _handle_transactions(self, url: str) -> httpx.Response:
@@ -94,6 +102,12 @@ class Trading212MockTransport(httpx.MockTransport):
             )
 
             return httpx.Response(200, json=TRANSACTION_HISTORY_PAGE_2)
+        if "to=" in url:
+            from tests.connectors.fixtures.trading212_api_fixtures import (
+                TRANSACTION_HISTORY_PAGE_1,
+            )
+
+            return httpx.Response(200, json=TRANSACTION_HISTORY_PAGE_1)
         return httpx.Response(200, json=TRANSACTION_HISTORY_RESPONSE)
 
 
