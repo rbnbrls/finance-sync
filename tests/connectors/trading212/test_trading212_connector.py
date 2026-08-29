@@ -12,6 +12,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
+import httpx
 import pytest
 
 from finance_sync.connectors.exceptions import (
@@ -21,6 +22,7 @@ from finance_sync.connectors.exceptions import (
 )
 from finance_sync.connectors.models import (
     CanonicalAccountData,
+    CanonicalHoldingData,
     CanonicalTransactionData,
     ConnectorConfig,
     RawTransaction,
@@ -33,9 +35,16 @@ from finance_sync.connectors.trading212 import (
     _parse_order,
     _parse_t212_datetime,
 )
+from tests.connectors.fixtures.trading212_api_fixtures import (
+    ACCOUNT_CASH_RESPONSE,
+    ACCOUNT_INFO_RESPONSE,
+)
 
 if TYPE_CHECKING:
     from finance_sync.connectors.trading212 import Trading212Connector
+    from tests.connectors.trading212.conftest import (
+        Trading212MockTransport,
+    )
 
 # ═══════════════════════════════════════════════════════════════════════
 # Contract tests (from ConnectorContractTest template)
@@ -836,6 +845,139 @@ class TestTrading212Mapping:
         """Transaction type mapping should be case-insensitive."""
         assert _map_transaction_type("dividend") == "dividend"
         assert _map_transaction_type("Deposit") == "deposit"
+
+
+class TestTrading212HoldingsMapping:
+    """Holdings fetch + transform into the canonical datamodel.
+
+    Acceptance criterion for the holdings step: fetching the portfolio
+    and transforming the result produces ``CanonicalHoldingData`` objects
+    matching the finance-sync Holding datamodel (ticker, quantity,
+    average price, currency, account_id, observed_at) with no data loss,
+    and missing/optional provider fields are handled gracefully.
+    """
+
+    async def test_fetch_holdings_handles_missing_and_null_fields(
+        self,
+        t212_connector: Trading212Connector,
+        t212_mock_transport: Trading212MockTransport,
+    ) -> None:
+        """Null/missing optional fields must not crash or leak "None"."""
+        from tests.connectors.fixtures.trading212_api_fixtures import (
+            PORTFOLIO_RESPONSE,
+        )
+
+        # Simulate provider quirks: null ticker, null quantity, missing
+        # averagePrice/currentPrice/frontend/currencyCode.
+        quirky_items = [
+            {
+                "ticker": None,
+                "quantity": None,
+                "averagePrice": None,
+                "currentPrice": None,
+                "frontend": None,
+            },
+            {
+                "ticker": "  ",
+                "quantity": 3.0,
+                "averagePrice": 10.0,
+                "currentPrice": 11.0,
+                "currencyCode": None,
+            },
+            dict(PORTFOLIO_RESPONSE[0]),
+        ]
+        t212_mock_transport.handler = lambda request: (  # type: ignore[attr-defined]
+            httpx.Response(
+                200,
+                json=(
+                    ACCOUNT_CASH_RESPONSE
+                    if request.url.path.endswith("/cash")
+                    else ACCOUNT_INFO_RESPONSE
+                    if request.url.path.endswith("/info")
+                    else quirky_items
+                ),
+            )
+            if request.url.path != "/api/v0/equity/portfolio"
+            else httpx.Response(200, json=quirky_items)
+        )
+
+        await t212_connector.authenticate()
+        holdings = await t212_connector.fetch_holdings(account_id="12345678")
+
+        # All three items map without crashing.
+        assert len(holdings) == 3
+
+        # Null ticker -> empty/None, never the string "None".
+        assert holdings[0].security_reference.ticker is None
+        assert holdings[0].security_reference.external_id is None
+        # Null quantity -> 0 rather than a crash.
+        assert holdings[0].quantity == Decimal(0)
+        assert holdings[0].cost_basis is None
+        assert holdings[0].market_value is None
+        # Currency falls back to the account currency.
+        assert holdings[0].currency_code == "EUR"
+
+        # Blank ticker -> None; missing currency falls back to account.
+        assert holdings[1].security_reference.ticker is None
+        assert holdings[1].currency_code == "EUR"
+        assert holdings[1].quantity == Decimal("3.0")
+        assert holdings[1].cost_basis == Decimal("30.0")
+
+        # Normal item unchanged (no data loss).
+        assert holdings[2].security_reference.ticker == "AAPL"
+        assert holdings[2].quantity == Decimal("10.0")
+        assert holdings[2].cost_basis == Decimal("1755.0")
+
+    async def test_transform_holdings_maps_full_datamodel(
+        self,
+        t212_connector: Trading212Connector,
+        t212_mock_transport: Trading212MockTransport,
+    ) -> None:
+        """transform_holdings maps every Holding datamodel field."""
+
+        await t212_connector.authenticate()
+        raw = await t212_connector.fetch_holdings(account_id="12345678")
+        assert len(raw) == 3
+
+        canonical = t212_connector.transform_holdings(raw)
+        assert len(canonical) == len(raw)
+
+        # Every canonical holding maps 1:1 from the raw fetch (no data loss).
+        for holding in canonical:
+            assert isinstance(holding, CanonicalHoldingData)
+            assert holding.provider_key == "trading212"
+            assert holding.external_account_id == "12345678"
+            assert holding.observed_at is not None
+            assert holding.source == "provider_sync"
+
+        aapl = canonical[0]
+        # Ticker lives on the security reference.
+        assert aapl.security_reference.ticker == "AAPL"
+        assert aapl.security_reference.external_id == "AAPL"
+        assert aapl.security_reference.name == "AAPL"
+        assert aapl.security_reference.currency_code == "EUR"
+        assert aapl.security_reference.security_type == "stock"
+        # Quantity, average price (cost basis / qty), currency, account.
+        assert aapl.quantity == Decimal("10.0")
+        assert aapl.cost_basis == Decimal("1755.0")
+        assert aapl.cost_basis_currency == "EUR"
+        assert aapl.market_value == Decimal("1800.0")
+        assert aapl.currency_code == "EUR"
+        assert aapl.price == Decimal("180.00")
+        assert aapl.price_currency == "EUR"
+
+        # ETF frontend maps to security_type "etf".
+        etf = canonical[2]
+        assert etf.security_reference.security_type == "etf"
+        assert etf.quantity == Decimal("50.0")
+        assert etf.cost_basis == Decimal("6250.0")
+
+    async def test_fetch_holdings_mismatched_account_returns_empty(
+        self, t212_connector: Trading212Connector
+    ) -> None:
+        """fetch_holdings for a different account returns no data."""
+        await t212_connector.authenticate()
+        assert await t212_connector.fetch_holdings(account_id="other") == []
 
 
 class TestTrading212ConnectorErrorHandling:
