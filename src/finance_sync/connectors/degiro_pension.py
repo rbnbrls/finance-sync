@@ -276,6 +276,7 @@ class DegiroPensionConnector(Connector):
                     if self._snapshot_at
                     else None,
                     "cash_included_in_current_balance": True,
+                    "supports_multi_currency_cash": False,
                 },
             )
         ]
@@ -572,8 +573,21 @@ class DegiroPensionConnector(Connector):
                         "Transactiekosten",
                         "Transactiekosten en/of",
                         "Transactiekosten en/of kosten van derden",
+                        "Transactiekosten en/of kosten van derden EUR",
                         "Transaction and/or third party fees",
                     )
+                )
+                autofx_fee = _decimal(
+                    row.get(
+                        "AutoFX Kosten",
+                        "AutoFX fees",
+                        "AutoFX costs",
+                    )
+                )
+                total_fee = (
+                    abs(fee or Decimal(0)) + abs(autofx_fee or Decimal(0))
+                    if fee is not None or autofx_fee is not None
+                    else None
                 )
                 fee_currency = _currency(
                     row.get("Valuta", "Currency", occurrence=2),
@@ -644,9 +658,9 @@ class DegiroPensionConnector(Connector):
                         status="booked",
                         quantity=quantity,
                         unit_price=price,
-                        fee_amount=abs(fee) if fee is not None else None,
+                        fee_amount=total_fee,
                         fee_currency_code=fee_currency
-                        if fee is not None
+                        if total_fee is not None
                         else None,
                         security_reference=SecurityReference(
                             external_id=isin or None,
@@ -667,6 +681,12 @@ class DegiroPensionConnector(Connector):
                             "transaction_fee": str(fee)
                             if fee is not None
                             else None,
+                            "autofx_fee": str(autofx_fee)
+                            if autofx_fee is not None
+                            else None,
+                            "total_fee": str(total_fee)
+                            if total_fee is not None
+                            else None,
                         },
                     )
                 )
@@ -681,6 +701,11 @@ class DegiroPensionConnector(Connector):
     ) -> list[RawTransaction]:
         parsed: list[RawTransaction] = []
         signatures: Counter[str] = Counter()
+        # DEGIRO records a foreign-currency dividend first, followed by a
+        # separate ``Valuta Debitering`` and EUR ``Valuta Creditering``. The
+        # technical rows are not economic transactions, but the debit carries
+        # the exact historical FX rate needed for the EUR cash projection.
+        pending_cash_fx: list[tuple[Decimal, Decimal]] = []
         latest_balance_at: datetime | None = None
         latest_balance: Decimal | None = None
         for number, values in enumerate(source.rows, start=2):
@@ -691,6 +716,23 @@ class DegiroPensionConnector(Connector):
                     continue
                 lowered = description.casefold()
                 if self._is_technical_statement_row(lowered):
+                    if "valuta debitering" in lowered:
+                        fx = _decimal(
+                            row.get("FX mutatie", "FX", "Exchange rate")
+                        )
+                        mutation_raw = row.get("Mutatie", "Change", "Amount")
+                        mutation_currency = _currency(mutation_raw, default="")
+                        if mutation_currency:
+                            mutation_raw = row.after(
+                                "Mutatie", "Change", "Amount"
+                            )
+                        mutation = _decimal(mutation_raw)
+                        if (
+                            mutation is not None
+                            and mutation_currency == "USD"
+                            and fx not in (None, 0)
+                        ):
+                            pending_cash_fx.append((abs(mutation), fx))
                     report.rows_skipped += 1
                     continue
                 occurred = _parse_datetime(
@@ -740,6 +782,31 @@ class DegiroPensionConnector(Connector):
                 transaction_type = self._statement_type(
                     lowered, amount or Decimal(0)
                 )
+                projected_fx = None
+                if currency != "EUR" and transaction_type in {
+                    "dividend",
+                    "interest",
+                    "deposit",
+                    "withdrawal",
+                    "fee",
+                    "tax",
+                }:
+                    for index, (remaining, rate) in enumerate(pending_cash_fx):
+                        # One DEGIRO FX debit can settle several dividends
+                        # together (for example USD 124.34 covering two
+                        # dividend rows). Allocate the same broker rate to
+                        # each component until the debit is consumed.
+                        if remaining < abs(amount):
+                            continue
+                        projected_fx = rate
+                        leftover = remaining - abs(amount)
+                        if leftover:
+                            pending_cash_fx[index] = (leftover, rate)
+                        else:
+                            pending_cash_fx.pop(index)
+                        break
+                    if projected_fx is not None:
+                        fx = projected_fx
                 signature = _hash(
                     "account_statement",
                     order_id,
@@ -763,6 +830,14 @@ class DegiroPensionConnector(Connector):
                         description=description,
                         transaction_type=transaction_type,
                         status="booked",
+                        amount_in_base=(
+                            amount / fx
+                            if amount is not None and fx not in (None, 0)
+                            else None
+                        ),
+                        base_currency_code="EUR"
+                        if fx not in (None, 0)
+                        else None,
                         security_reference=SecurityReference(
                             external_id=isin or None,
                             isin=isin or None,
@@ -776,6 +851,13 @@ class DegiroPensionConnector(Connector):
                         provider_metadata={
                             "report_type": "account_statement",
                             "order_id": order_id or None,
+                            "source_currency": currency,
+                            "fx_rate": str(fx) if fx is not None else None,
+                            "fx_projection_source": (
+                                "paired_valuta_debitering"
+                                if projected_fx is not None
+                                else None
+                            ),
                         },
                     )
                 )

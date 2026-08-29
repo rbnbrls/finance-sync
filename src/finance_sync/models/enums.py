@@ -34,6 +34,8 @@ class TransactionType(StrEnum):
     INTEREST = "interest"
     DIVIDEND = "dividend"
     TAX = "tax"
+    SPLIT = "split"
+    ADJUSTMENT = "adjustment"
     WITHDRAWAL = "withdrawal"
     DEPOSIT = "deposit"
     CARD_PAYMENT = "card_payment"
