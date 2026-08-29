@@ -250,6 +250,7 @@ class TransactionPersistence:
         """
         from finance_sync.sync.upserts import (
             UpsertResult,
+            _is_postgresql,
             bulk_upsert_transactions,
         )
 
@@ -328,6 +329,7 @@ class TransactionPersistence:
                 ids.append(str(getattr(entity, "id", "")))
             return UpsertResult(inserted_ids=tuple(ids), updated_ids=())
 
+        is_postgresql = _is_postgresql(uow.session)
         result = await bulk_upsert_transactions(
             uow.session,
             rows,
@@ -361,7 +363,7 @@ class TransactionPersistence:
         # per-row fallback (SQLite unit tests, mock sessions) already
         # emits ``created``/``updated`` inside :meth:`persist_transaction`,
         # so emitting again here would double-publish.
-        if result.total:
+        if is_postgresql and result.total:
             await self._emit_batch_outbox(
                 uow,
                 transactions,
@@ -577,6 +579,7 @@ class HoldingPersistence:
         """
         from finance_sync.sync.upserts import (
             UpsertResult,
+            _is_postgresql,
             bulk_upsert_holdings,
         )
 
@@ -634,6 +637,7 @@ class HoldingPersistence:
                 ids.append(str(getattr(entity, "id", "")))
             return UpsertResult(inserted_ids=tuple(ids), updated_ids=())
 
+        is_postgresql = _is_postgresql(uow.session)
         result = await bulk_upsert_holdings(
             uow.session,
             rows,
@@ -659,7 +663,7 @@ class HoldingPersistence:
         # per-row fallback (SQLite unit tests, mock sessions) already
         # emits ``created``/``updated`` inside :meth:`persist_holding`,
         # so emitting again here would double-publish.
-        if result.total:
+        if is_postgresql and result.total:
             await self._emit_batch_outbox(
                 uow,
                 holdings,
@@ -685,9 +689,7 @@ class HoldingPersistence:
         RETURNING order.
         """
         inserted_set = set(result.inserted_ids)
-        for holding, generated_id in zip(
-            holdings, generated_ids, strict=False
-        ):
+        for holding, generated_id in zip(holdings, generated_ids, strict=False):
             if generated_id not in inserted_set:
                 continue
             await outbox_entity_created(
@@ -887,9 +889,7 @@ class SyncPersistence:
                     transaction,
                     account_id,
                     security_id=(
-                        resolved[index]
-                        if index < len(resolved)
-                        else None
+                        resolved[index] if index < len(resolved) else None
                     ),
                     connection_id=connection_id,
                 )

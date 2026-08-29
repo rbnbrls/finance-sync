@@ -72,7 +72,8 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, TypeVar
+from inspect import isawaitable
+from typing import TYPE_CHECKING, Any, TypeVar, cast
 
 from sqlalchemy.dialects.postgresql import insert
 
@@ -164,10 +165,14 @@ def _upsert_stmt(
         # would flag every conflict as changed and bump the revision on
         # every re-sync even when no data column moved.
         set_[revision_column] = getattr(model, revision_column) + 1
+    # Any mutable column changing is sufficient to refresh the row.  An
+    # AND-gate would make updates impossible whenever an otherwise unchanged
+    # column is present in the batch (the normal case for partial provider
+    # payloads).
     stmt = stmt.on_conflict_do_update(
         index_elements=list(index_elements),
         set_=set_,
-        where=where[0] if len(where) == 1 else _and_(*where),
+        where=where[0] if len(where) == 1 else _or_(*where),
     )
     return stmt.returning(model.id)
 
@@ -183,11 +188,11 @@ def _coalesce(
     return func.coalesce(getattr(excluded, column), getattr(model, column))
 
 
-def _and_(*clauses: Any) -> Any:
-    """AND-combine SQL clauses without importing sqlalchemy eagerly."""
-    from sqlalchemy import and_
+def _or_(*clauses: Any) -> Any:
+    """OR-combine SQL clauses without importing sqlalchemy eagerly."""
+    from sqlalchemy import or_
 
-    return and_(*clauses)
+    return or_(*clauses)
 
 
 async def _run_upsert(
@@ -234,7 +239,15 @@ def _is_postgresql(session: AsyncSession) -> bool:
     PostgreSQL", which routes to the caller-provided fallback.
     """
     try:
-        bind = session.get_bind()
+        bind = cast(Any, session).get_bind()
+        if isawaitable(bind):
+            # AsyncMock can manufacture a coroutine here even though the
+            # real SQLAlchemy method is synchronous.  Close it so the
+            # fallback does not leak a RuntimeWarning in unit tests.
+            close = getattr(bind, "close", None)
+            if callable(close):
+                close()
+            return False
         return (
             getattr(getattr(bind, "dialect", None), "name", None)
             == "postgresql"

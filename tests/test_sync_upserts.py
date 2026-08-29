@@ -109,7 +109,9 @@ class TestUpsertStatement:
             update_columns=("amount", "currency_code", "occurred_at"),
         )
         compiled = str(
-            stmt.compile(dialect=__import__("sqlalchemy").dialects.postgresql.dialect())
+            stmt.compile(
+                dialect=__import__("sqlalchemy").dialects.postgresql.dialect()
+            )
         )
         assert "ON CONFLICT" in compiled
         assert "tenant_id" in compiled
@@ -144,7 +146,9 @@ class TestUpsertStatement:
             update_columns=("quantity", "market_value"),
         )
         compiled = str(
-            stmt.compile(dialect=__import__("sqlalchemy").dialects.postgresql.dialect())
+            stmt.compile(
+                dialect=__import__("sqlalchemy").dialects.postgresql.dialect()
+            )
         )
         assert "ON CONFLICT" in compiled
         assert "observed_at" in compiled
@@ -215,16 +219,16 @@ class TestBulkUpsertDispatch:
             {"id": fresh_id},  # conflicts → keeps existing_id
             {"id": str(uuid4())},  # inserts → keeps its own generated id
         ]
-        session = _fake_pg_session(
-            rows=[(existing_id,), (rows[1]["id"],)]
-        )
+        session = _fake_pg_session(rows=[(existing_id,), (rows[1]["id"],)])
         with patch(
             "finance_sync.sync.upserts._upsert_stmt",
             return_value=MagicMock(),
         ) as mock_stmt:
             from finance_sync.sync.upserts import _run_upsert
 
-            result = await _run_upsert(session, mock_stmt.return_value, [str(r["id"]) for r in rows])
+            result = await _run_upsert(
+                session, mock_stmt.return_value, [str(r["id"]) for r in rows]
+            )
 
         assert result.inserted == 1
         assert result.updated == 1
@@ -293,9 +297,14 @@ class TestBulkUpsertDispatch:
             revision_column="revision",
         )
         compiled = str(
-            stmt.compile(dialect=__import__("sqlalchemy").dialects.postgresql.dialect())
+            stmt.compile(
+                dialect=__import__("sqlalchemy").dialects.postgresql.dialect()
+            )
         )
         assert "IS DISTINCT FROM" in compiled
+        # Any changed mutable field must permit the update; requiring every
+        # field to differ would make normal partial updates no-ops.
+        assert " OR " in compiled
         assert "revision +" in compiled  # revision increments on change
         assert "ON CONFLICT" in compiled
         assert "DO UPDATE" in compiled
@@ -328,7 +337,9 @@ class TestBulkUpsertDispatch:
             update_columns=("quantity", "market_value"),
         )
         compiled = str(
-            stmt.compile(dialect=__import__("sqlalchemy").dialects.postgresql.dialect())
+            stmt.compile(
+                dialect=__import__("sqlalchemy").dialects.postgresql.dialect()
+            )
         )
         assert "IS DISTINCT FROM" in compiled
         assert "revision" not in compiled
@@ -342,7 +353,9 @@ class TestTransactionPersistenceBatch:
 
         return TransactionPersistence("tenant-1")
 
-    def _txn(self, external_id: str, amount: str = "1.00") -> CanonicalTransactionData:
+    def _txn(
+        self, external_id: str, amount: str = "1.00"
+    ) -> CanonicalTransactionData:
         return CanonicalTransactionData(
             provider_key="trading212",
             external_transaction_id=external_id,
@@ -374,9 +387,7 @@ class TestTransactionPersistenceBatch:
             {"id": "cccccccc-cccc-4ccc-8ccc-cccccccccccc"},
             {"id": "dddddddd-dddd-4ddd-8ddd-dddddddddddd"},
         ]
-        session = _fake_pg_session(
-            rows=[(fresh_id,), (existing_id,)]
-        )
+        session = _fake_pg_session(rows=[(fresh_id,), (existing_id,)])
         uow = SimpleNamespace(session=session)
         created = AsyncMock()
         updated = AsyncMock()
@@ -502,7 +513,9 @@ class TestTransactionPersistenceBatch:
                 persistence,
                 "persist_transaction",
                 new=AsyncMock(
-                    side_effect=lambda *a, **k: SimpleNamespace(id=f"id-{a[1].external_transaction_id}")
+                    side_effect=lambda *a, **k: SimpleNamespace(
+                        id=f"id-{a[1].external_transaction_id}"
+                    )
                 ),
             ) as per_row,
             patch(
