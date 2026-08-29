@@ -133,6 +133,54 @@ async def test_current_12_column_statement_with_blank_currency_headers() -> (
 
 
 @pytest.mark.asyncio
+async def test_statement_pairs_usd_dividend_with_degiro_fx_conversion(
+    tmp_path: Path,
+) -> None:
+    """Use DEGIRO's technical FX debit as the dividend's base value."""
+    path = tmp_path / "account_statement.csv"
+    path.write_text(
+        "Datum,Tijd,Valutadatum,Product,ISIN,Omschrijving,FX,Mutatie,,Saldo,,Order Id\n"
+        "2026-08-12,09:00,2026-08-11,,,Valuta Creditering,,EUR,106.64,EUR,100.00,\n"
+        "2026-08-12,09:00,2026-08-11,,,Valuta Debitering,1.166,USD,-124.34,USD,0.0,\n"
+        "2026-08-11,07:00,2026-08-07,Fund A,IE000U5MJOZ6,Dividend,,USD,83.0,USD,83.0,\n"
+        "2026-08-10,07:00,2026-08-07,Fund B,IE000U5MJOZ7,Dividend,,USD,41.34,USD,41.34,\n",
+        encoding="utf-8",
+    )
+    connector = _connector(str(path))
+    await connector.authenticate()
+    transactions = await connector.fetch_transactions(
+        datetime(2020, 1, 1, tzinfo=UTC)
+    )
+    dividends = [
+        transaction
+        for transaction in transactions
+        if transaction.transaction_type == "dividend"
+    ]
+    assert len(dividends) == 2
+    assert all(transaction.currency_code == "USD" for transaction in dividends)
+    assert all(
+        transaction.amount_in_base is not None for transaction in dividends
+    )
+    assert all(
+        transaction.amount_in_base == expected
+        for transaction, expected in zip(
+            dividends,
+            (
+                Decimal("35.45454545454545454545454545"),
+                Decimal("71.18353344768439108061749571"),
+            ),
+            strict=True,
+        )
+    )
+    assert all(
+        transaction.base_currency_code == "EUR" for transaction in dividends
+    )
+    assert all(
+        transaction.fx_rate == Decimal("1.166") for transaction in dividends
+    )
+
+
+@pytest.mark.asyncio
 async def test_empty_portfolio_is_a_zero_value_snapshot() -> None:
     connector = _connector("portfolio_empty_en.csv")
     await connector.authenticate()
@@ -209,6 +257,78 @@ async def test_xlsx_export_is_supported(tmp_path: Path) -> None:
     await connector.authenticate()
     assert (await connector.fetch_accounts())[0].current_balance == Decimal(50)
     assert len(await connector.fetch_holdings()) == 1
+
+
+@pytest.mark.asyncio
+async def test_current_transactions_export_keeps_trade_and_autofx_costs(
+    tmp_path: Path,
+) -> None:
+    """The current DEGIRO header includes a EUR suffix on the fee column."""
+    path = tmp_path / "Transactions.xlsx"
+    workbook = Workbook()
+    sheet = workbook.active
+    assert sheet is not None
+    sheet.append(
+        [
+            "Datum",
+            "Tijd",
+            "Product",
+            "ISIN",
+            "Beurs",
+            "Uitvoeringsplaats",
+            "Aantal",
+            "Koers",
+            "",
+            "Lokale waarde",
+            "",
+            "Waarde EUR",
+            "Wisselkoers",
+            "AutoFX Kosten",
+            "Transactiekosten en/of kosten van derden EUR",
+            "Totaal EUR",
+            "Order ID",
+        ]
+    )
+    sheet.append(
+        [
+            "25-08-2026",
+            "16:30",
+            "Test ETF",
+            "IE00B4L5Y983",
+            "TDG",
+            "XGAT",
+            100,
+            21.42,
+            "EUR",
+            -2142,
+            "EUR",
+            -2142,
+            "",
+            -0.25,
+            -1.0,
+            -2143.25,
+            "ORDER-1",
+        ]
+    )
+    workbook.save(path)
+
+    connector = DegiroPensionConnector(
+        ConnectorConfig(
+            provider_type="degiro_pension",
+            options={"export_path": str(path), "account_key": "fee-xlsx"},
+        )
+    )
+    await connector.authenticate()
+    transactions = await connector.fetch_transactions(
+        datetime(2020, 1, 1, tzinfo=UTC)
+    )
+
+    assert len(transactions) == 1
+    assert transactions[0].fee_amount == Decimal("1.25")
+    assert transactions[0].fee_currency_code == "EUR"
+    assert transactions[0].provider_metadata is not None
+    assert transactions[0].provider_metadata["transaction_fee"] == "-1"
+    assert transactions[0].provider_metadata["autofx_fee"] == "-0.25"
 
 
 @pytest.mark.asyncio
