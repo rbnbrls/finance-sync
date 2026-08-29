@@ -19,10 +19,12 @@ Usage::
 from __future__ import annotations
 
 import asyncio
+import os
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any, cast
+from urllib.parse import SplitResult, urlsplit, urlunsplit
 
 import httpx
 
@@ -90,6 +92,40 @@ class WealthfolioClientConfig:
             raise ValueError(msg)
 
 
+def resolve_wealthfolio_server_url(
+    base_url: str, *, running_in_container: bool | None = None
+) -> str:
+    """Resolve host-local Wealthfolio URLs from a Dockerized finance-sync.
+
+    The destination wizard and scheduled exporter run inside the finance-sync
+    container.  A user-entered ``localhost`` URL therefore points back to
+    finance-sync, while the browser's ``localhost`` points to the published
+    Wealthfolio port on the Docker host.  Docker Desktop provides
+    ``host.docker.internal`` for this boundary; Compose adds the equivalent
+    host-gateway mapping on Linux.
+
+    Explicit container mode is available for deterministic unit tests.  When
+    omitted, the standard ``/.dockerenv`` marker is used.
+    """
+    if running_in_container is None:
+        running_in_container = os.path.exists("/.dockerenv")
+    if not running_in_container:
+        return base_url
+
+    parsed = urlsplit(base_url)
+    if parsed.hostname not in {"localhost", "127.0.0.1", "::1"}:
+        return base_url
+
+    # Keep credentials excluded by _safe_url and preserve the configured port,
+    # path and query if a compatible caller supplies them.
+    hostname = "host.docker.internal"
+    netloc = hostname
+    if parsed.port is not None:
+        netloc = f"{hostname}:{parsed.port}"
+    resolved: SplitResult = parsed._replace(netloc=netloc)
+    return urlunsplit(resolved)
+
+
 # ═══════════════════════════════════════════════════════════════════════
 # Client
 # ═══════════════════════════════════════════════════════════════════════
@@ -125,7 +161,9 @@ class WealthfolioClient:
 
         # Build the httpx async client
         kwargs: dict[str, Any] = {
-            "base_url": config.base_url.rstrip("/"),
+            "base_url": resolve_wealthfolio_server_url(
+                config.base_url.rstrip("/")
+            ),
             "timeout": config.request_timeout,
             "verify": config.verify_ssl,
         }

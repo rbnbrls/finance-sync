@@ -14,6 +14,7 @@ from finance_sync.exporter.wealthfolio.client import (
     WealthfolioAuthError,
     WealthfolioClient,
     WealthfolioClientConfig,
+    resolve_wealthfolio_server_url,
 )
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -56,6 +57,21 @@ class TestWealthfolioClientConfig:
         """Config requires a non-empty base_url."""
         with pytest.raises(ValueError, match="base_url"):
             WealthfolioClientConfig(base_url="", password="secret")
+
+    @pytest.mark.parametrize("host", ["localhost", "127.0.0.1", "[::1]"])
+    def test_container_resolves_host_local_url(self, host: str) -> None:
+        url = resolve_wealthfolio_server_url(
+            f"http://{host}:8088", running_in_container=True
+        )
+        assert url == "http://host.docker.internal:8088"
+
+    def test_host_local_url_is_unchanged_outside_container(self) -> None:
+        assert (
+            resolve_wealthfolio_server_url(
+                "http://localhost:8088", running_in_container=False
+            )
+            == "http://localhost:8088"
+        )
 
     def test_config_requires_password(self) -> None:
         """Config requires a non-empty password."""
