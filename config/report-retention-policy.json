@@ -1,0 +1,7 @@
+{
+  "purpose": "retention-run-reports",
+  "retention_days": 90,
+  "delete_after_expiry": true,
+  "contains_personal_or_financial_values": false,
+  "identifier_policy": "sha256-without-raw-identifiers"
+}
