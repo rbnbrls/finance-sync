@@ -18,6 +18,7 @@ from argparse import (
     RawDescriptionHelpFormatter,
 )
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
@@ -1293,7 +1294,7 @@ async def _cmd_securo(args: Namespace) -> None:
             server_url=args.server_url or settings.securo_server_url,
             email=args.email or settings.securo_email,
             password=args.password or secret_value(settings.securo_password),
-            output_dir=args.output_dir or settings.securo_output_dir,
+            output_dir=Path(args.output_dir or settings.securo_output_dir),
             auto_create_accounts=settings.securo_auto_create_accounts,
         )
         result = await SecuroExporter(
