@@ -1112,7 +1112,11 @@ class WealthfolioExporter:
         for holding in holdings:
             security = security_map.get(holding.security_id)
             try:
-                row = map_holding_to_wf_row(holding, security=security)
+                row = map_holding_to_wf_row(
+                    holding,
+                    security=security,
+                    default_currency=self._wf_config.default_currency,
+                )
                 # Wealthfolio's market-data providers do not reliably resolve
                 # exchange-qualified symbols (or ISINs) for every listing.
                 # Preserve finance-sync's authoritative EUR valuation in the
