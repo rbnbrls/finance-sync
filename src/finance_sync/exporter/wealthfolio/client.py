@@ -212,7 +212,7 @@ class WealthfolioClient:
         currency: str,
         provider_account_id: str,
         account_type: str = "SECURITIES",
-        tracking_mode: str = "HOLDINGS",
+        tracking_mode: str = "TRANSACTIONS",
     ) -> dict[str, Any]:
         """Create a Wealthfolio account with the requested tracking mode."""
         self._ensure_authenticated()
@@ -280,7 +280,7 @@ class WealthfolioClient:
         currency: str,
         provider_account_id: str,
         account_type: str = "SECURITIES",
-        tracking_mode: str = "HOLDINGS",
+        tracking_mode: str = "TRANSACTIONS",
     ) -> dict[str, Any]:
         """Return the stable finance-sync account mapping, creating it once."""
         accounts = await self.get_accounts()
@@ -289,6 +289,14 @@ class WealthfolioClient:
                 str(account.get("provider") or "").upper() == "FINANCE_SYNC"
                 and account.get("providerAccountId") == provider_account_id
             ):
+                if (
+                    account.get("trackingMode")
+                    and str(account["trackingMode"]).upper()
+                    != tracking_mode.upper()
+                ):
+                    return await self.update_account_tracking_mode(
+                        account, tracking_mode
+                    )
                 return account
         return await self.create_account(
             name=name,
@@ -297,6 +305,38 @@ class WealthfolioClient:
             account_type=account_type,
             tracking_mode=tracking_mode,
         )
+
+    async def delete_account(self, account_id: str) -> None:
+        """Delete one Wealthfolio account and its account-owned data."""
+        self._ensure_authenticated()
+        response = await self._client.delete(
+            f"{self.API_PREFIX}/accounts/{account_id}"
+        )
+        response.raise_for_status()
+
+    async def delete_accounts_not_owned_by_finance_sync(
+        self,
+        provider_account_ids: set[str],
+    ) -> int:
+        """Remove accounts that are not part of the current export dataset.
+
+        Wealthfolio is a projection of finance-sync for this exporter.  The
+        provider account identity is the ownership boundary; names and the
+        broad ``FINANCE_SYNC`` provider label are not sufficient because old
+        smoke/test accounts may use a different identity format.
+        """
+        accounts = await self.get_accounts()
+        removed = 0
+        for account in accounts:
+            account_id = account.get("id")
+            if not account_id:
+                continue
+            provider_account_id = str(account.get("providerAccountId") or "")
+            if provider_account_id in provider_account_ids:
+                continue
+            await self.delete_account(str(account_id))
+            removed += 1
+        return removed
 
     # ── Public API: Activities ──────────────────────────────────────
 
@@ -379,7 +419,13 @@ class WealthfolioClient:
             Import result dict.
         """
         self._ensure_authenticated()
-        await self.check_activities_import(activities)
+        # Wealthfolio's check endpoint is not merely a validation boolean:
+        # it returns the hydrated import rows, including resolved ``assetId``
+        # and instrument metadata.  Importing the original rows loses that
+        # resolution and causes trades to be persisted as cash activities.
+        checked = await self.check_activities_import(activities)
+        if isinstance(checked, list):
+            activities = checked
         return await self.import_activities(activities)
 
     # ── Public API: Holdings / Snapshots ────────────────────────────
@@ -426,9 +472,30 @@ class WealthfolioClient:
         the contract needed for connector-owned current valuations.
         """
         self._ensure_authenticated()
+        # The manual snapshot endpoint accepts ``assetId`` (and
+        # ``averageCost``), not the CSV-only ``unitPrice`` field.  Resolve
+        # existing assets before saving so Wealthfolio updates the intended
+        # positions instead of creating anonymous snapshot assets.
+        assets = await self.get_assets()
+        by_symbol = {
+            str(
+                asset.get("displayCode") or asset.get("instrumentSymbol") or ""
+            ): asset
+            for asset in assets
+            if asset.get("id")
+        }
+        resolved_holdings: list[dict[str, Any]] = []
+        for holding in holdings:
+            resolved = dict(holding)
+            symbol = str(holding.get("symbol") or "")
+            asset = by_symbol.get(symbol)
+            if asset is not None:
+                resolved["assetId"] = asset["id"]
+            resolved.pop("unitPrice", None)
+            resolved_holdings.append(resolved)
         payload = {
             "accountId": account_id,
-            "holdings": holdings,
+            "holdings": resolved_holdings,
             "cashBalances": cash_balances or {},
             "snapshotDate": snapshot_date,
         }
@@ -440,7 +507,6 @@ class WealthfolioClient:
         # The manual snapshot records quantities; current prices come from
         # Wealthfolio's manual quote table.  Resolve the assets after the
         # snapshot so symbols newly created by this request are included.
-        assets = await self.get_assets()
         by_symbol = {
             str(asset.get("displayCode") or asset.get("symbol")): asset
             for asset in assets
@@ -469,6 +535,7 @@ class WealthfolioClient:
                 "id": f"{asset['id']}_{datetime.now(UTC).timestamp()}_MANUAL",
                 "createdAt": datetime.now(UTC).isoformat(),
                 "dataSource": "MANUAL",
+                "source": "MANUAL",
                 "timestamp": datetime.now(UTC).isoformat(),
                 "assetId": asset["id"],
                 "open": price,
@@ -512,10 +579,49 @@ class WealthfolioClient:
         )
         response.raise_for_status()
 
+    async def upsert_quote(self, asset_id: str, quote: dict[str, Any]) -> None:
+        """Store one connector-owned quote for an asset idempotently."""
+        self._ensure_authenticated()
+        quote_date = str(quote.get("timestamp", ""))[:10]
+        for existing in await self.get_quote_history(asset_id):
+            if (
+                (existing.get("source") or existing.get("dataSource"))
+                == "FINANCE_SYNC"
+                and str(existing.get("timestamp", ""))[:10] == quote_date
+                and existing.get("id")
+            ):
+                await self.delete_quote(str(existing["id"]))
+        response = await self._client.put(
+            f"{self.API_PREFIX}/market-data/quotes/{asset_id}", json=quote
+        )
+        response.raise_for_status()
+
     async def get_assets(self) -> list[dict[str, Any]]:
         """Fetch Wealthfolio assets used to attach manual quotes."""
         self._ensure_authenticated()
         response = await self._client.get(f"{self.API_PREFIX}/assets")
+        response.raise_for_status()
+        return response.json()
+
+    async def add_exchange_rate(
+        self,
+        *,
+        from_currency: str,
+        to_currency: str,
+        rate: str,
+        source: str = "FINANCE_SYNC",
+    ) -> dict[str, Any]:
+        """Create a Wealthfolio FX pair used by historical FX quotes."""
+        self._ensure_authenticated()
+        response = await self._client.post(
+            f"{self.API_PREFIX}/exchange-rates",
+            json={
+                "fromCurrency": from_currency,
+                "toCurrency": to_currency,
+                "rate": rate,
+                "source": source,
+            },
+        )
         response.raise_for_status()
         return response.json()
 
@@ -543,21 +649,93 @@ class WealthfolioClient:
         response.raise_for_status()
         return response.json()
 
+    async def get_performance_history(
+        self, account_id: str, *, start_date: str, end_date: str
+    ) -> dict[str, Any]:
+        """Trigger Wealthfolio's historical valuation/performance read."""
+        self._ensure_authenticated()
+        response = await self._client.post(
+            f"{self.API_PREFIX}/performance/history",
+            json={
+                "itemType": "account",
+                "itemId": account_id,
+                "startDate": start_date,
+                "endDate": end_date,
+            },
+        )
+        response.raise_for_status()
+        return response.json()
+
     async def search_activities(
-        self, account_id: str, *, page_size: int = 1000
+        self, account_id: str, *, page: int = 0, page_size: int = 1000
     ) -> dict[str, Any]:
         """Read activity counts for a production-safe smoke check."""
         self._ensure_authenticated()
         response = await self._client.post(
             f"{self.API_PREFIX}/activities/search",
             json={
-                "page": 0,
+                "page": page,
                 "pageSize": page_size,
                 "accountIdFilter": account_id,
             },
         )
         response.raise_for_status()
         return response.json()
+
+    async def get_all_activities(self, account_id: str) -> list[dict[str, Any]]:
+        """Read all activities for an account, not just the first page."""
+        page = 0
+        rows: list[dict[str, Any]] = []
+        while True:
+            payload = await self.search_activities(account_id, page=page)
+            page_rows = payload.get("data", payload.get("activities", []))
+            if not isinstance(page_rows, list) or not page_rows:
+                break
+            rows.extend(row for row in page_rows if isinstance(row, dict))
+            meta = payload.get("meta") or {}
+            total = (
+                meta.get("totalRowCount") if isinstance(meta, dict) else None
+            )
+            if isinstance(total, int) and len(rows) >= total:
+                break
+            if len(page_rows) < 1000:
+                break
+            page += 1
+        return rows
+
+    async def delete_activity(self, activity_id: str) -> None:
+        """Delete one activity during an explicit destination rebuild."""
+        self._ensure_authenticated()
+        response = await self._client.delete(
+            f"{self.API_PREFIX}/activities/{activity_id}"
+        )
+        response.raise_for_status()
+
+    async def delete_activities(self, account_id: str) -> int:
+        """Delete all activities belonging to one account."""
+        rows = await self.get_all_activities(account_id)
+        removed = 0
+        for row in rows:
+            if row.get("id"):
+                await self.delete_activity(str(row["id"]))
+                removed += 1
+        return removed
+
+    async def delete_activities_not_in(
+        self, account_id: str, external_transaction_ids: set[str]
+    ) -> int:
+        """Remove destination activities not present in the source dataset."""
+        rows = await self.get_all_activities(account_id)
+        removed = 0
+        for row in rows:
+            comment = str(row.get("comment") or "")
+            source_id = (
+                comment.split("ID:", 1)[-1].strip() if "ID:" in comment else ""
+            )
+            if source_id not in external_transaction_ids and row.get("id"):
+                await self.delete_activity(str(row["id"]))
+                removed += 1
+        return removed
 
     # ── Internal helpers ────────────────────────────────────────────
 

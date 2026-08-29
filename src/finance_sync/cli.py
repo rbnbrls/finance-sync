@@ -232,6 +232,18 @@ def _build_wealthfolio_subparser(
         help="Days of transaction history to push (default: 90)",
     )
     push.add_argument(
+        "--full-history",
+        action="store_true",
+        default=False,
+        help="Backfill the complete finance-sync transaction history",
+    )
+    push.add_argument(
+        "--rebuild",
+        action="store_true",
+        default=False,
+        help="Delete and rebuild the selected Wealthfolio destination data",
+    )
+    push.add_argument(
         "--max-transactions",
         type=int,
         default=None,
@@ -943,7 +955,11 @@ async def _cmd_wealthfolio_export(
     print(f"  Tenant:       {str(tenant_id)[:16]}…")
     print(f"  Days back:    {args.days_back}")
 
-    since = datetime.now(UTC) - timedelta(days=args.days_back)
+    since = (
+        None
+        if args.full_history or args.rebuild
+        else datetime.now(UTC) - timedelta(days=args.days_back)
+    )
 
     exporter = WealthfolioExporter(
         session_factory=container.session_factory,
@@ -1013,7 +1029,11 @@ async def _cmd_wealthfolio_push(
     print("Wealthfolio push starting …")
     print(f"  Server URL:   {server_url}")
     print(f"  Tenant:       {str(tenant_id)[:16]}…")
-    print(f"  Days back:    {args.days_back}")
+    print(
+        "  History:      full/rebuild"
+        if args.full_history or args.rebuild
+        else f"  Days back:    {args.days_back}"
+    )
 
     exporter = WealthfolioExporter(
         session_factory=container.session_factory,
@@ -1059,6 +1079,8 @@ async def _cmd_wealthfolio_push(
             wf_client=wf_client,
             accounts=await exporter._load_accounts(account_ids),  # noqa: SLF001
             since=since,
+            full_sync=args.full_history or args.rebuild,
+            rebuild=args.rebuild,
         )
         print("\nResult:")
         print(f"  Imported:     {result.get('imported', 0)}")
@@ -1117,7 +1139,7 @@ async def _cmd_wealthfolio_smoke(
         await client.authenticate()
         since = datetime.now(UTC) - timedelta(days=args.days_back)
         first = await exporter.push_to_wealthfolio(
-            client, accounts=accounts, since=since
+            client, accounts=accounts, since=since, full_sync=True
         )
         second = await exporter.push_to_wealthfolio(
             client, accounts=accounts, since=since

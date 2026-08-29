@@ -5,7 +5,7 @@ Follows TDD: RED phase — write failing tests first.
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from httpx import RequestError
@@ -256,6 +256,92 @@ class TestWealthfolioClientImport:
         assert result == existing
         create.assert_not_awaited()
 
+    async def test_ensure_account_migrates_holdings_tracking_mode(
+        self, client: WealthfolioClient
+    ) -> None:
+        """Existing connector accounts must calculate positions from trades."""
+        client._is_authenticated = True
+        existing = {
+            "id": "wf-brokerage",
+            "name": "Brokerage",
+            "provider": "FINANCE_SYNC",
+            "providerAccountId": "finance-sync:t:b",
+            "trackingMode": "HOLDINGS",
+        }
+        migrated = {**existing, "trackingMode": "TRANSACTIONS"}
+        with (
+            patch.object(client, "get_accounts", return_value=[existing]),
+            patch.object(
+                client,
+                "update_account_tracking_mode",
+                return_value=migrated,
+            ) as update,
+        ):
+            result = await client.ensure_account(
+                name="Brokerage",
+                currency="EUR",
+                provider_account_id="finance-sync:t:b",
+            )
+
+        update.assert_awaited_once_with(existing, "TRANSACTIONS")
+        assert result["trackingMode"] == "TRANSACTIONS"
+
+    async def test_delete_accounts_keeps_only_exact_finance_sync_dataset(
+        self, client: WealthfolioClient
+    ) -> None:
+        client._is_authenticated = True
+        accounts = [
+            {
+                "id": "owned",
+                "provider": "FINANCE_SYNC",
+                "providerAccountId": "finance-sync:tenant:acct-1",
+            },
+            {
+                "id": "old-smoke",
+                "provider": "FINANCE_SYNC",
+                "providerAccountId": "test:snap-test-f83d67",
+            },
+            {"id": "manual", "provider": "MANUAL", "providerAccountId": None},
+        ]
+        with (
+            patch.object(client, "get_accounts", return_value=accounts),
+            patch.object(client, "delete_account", new_callable=AsyncMock) as delete,
+        ):
+            removed = await client.delete_accounts_not_owned_by_finance_sync(
+                {"finance-sync:tenant:acct-1"}
+            )
+
+        assert removed == 2
+        assert [call.args[0] for call in delete.await_args_list] == [
+            "old-smoke",
+            "manual",
+        ]
+
+    async def test_delete_activities_not_in_source_dataset(
+        self, client: WealthfolioClient
+    ) -> None:
+        """Stale/manual activities are removed from the projection account."""
+        client._is_authenticated = True
+        with (
+            patch.object(
+                client,
+                "search_activities",
+                return_value={
+                    "data": [
+                        {"id": "keep", "comment": "Buy | ID: current"},
+                        {"id": "stale", "comment": "Old import"},
+                    ]
+                },
+            ),
+            patch.object(client, "delete_activity") as delete,
+        ):
+            removed = await client.delete_activities_not_in(
+                "wf-account", {"current"}
+            )
+
+        assert removed == 1
+        delete.assert_awaited_once_with("stale")
+
     async def test_current_import_response_is_normalized(
         self, client: WealthfolioClient
     ) -> None:
@@ -317,3 +403,26 @@ class TestWealthfolioClientIntegration:
 
         assert result["imported"] == 5
         assert result["failed"] == 0
+
+    async def test_push_activities_imports_wealthfolio_resolved_rows(
+        self, client: WealthfolioClient
+    ) -> None:
+        """The hydrated check response must be passed to the import call."""
+        client._is_authenticated = True
+        activities = [{"activityType": "BUY", "symbol": "VWCE"}]
+        resolved = [{**activities[0], "assetId": "asset-vwce"}]
+
+        mock_check = MagicMock()
+        mock_check.status_code = 200
+        mock_check.json.return_value = resolved
+        mock_import = MagicMock()
+        mock_import.status_code = 200
+        mock_import.json.return_value = {"imported": 1, "skipped": 0}
+
+        with patch.object(client._client, "post") as mock_post:
+            mock_post.side_effect = [mock_check, mock_import]
+            await client.push_activities(activities)
+
+        assert mock_post.call_args_list[1].kwargs == {
+            "json": {"activities": resolved}
+        }

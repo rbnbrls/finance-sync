@@ -38,6 +38,7 @@ from finance_sync.exporter.wealthfolio.transaction_mapper import (
     WF_ACTIVITY_TRANSFER_IN,
     WF_ACTIVITY_TRANSFER_OUT,
     WF_ACTIVITY_WITHDRAWAL,
+    UnresolvedCashCurrencyError,
     UnresolvedSecurityExportError,
     map_holding_to_wf_row,
     map_holdings_to_csv,
@@ -272,6 +273,53 @@ class TestTransactionMapper:
         assert row["activityType"] == WF_ACTIVITY_DIVIDEND
         assert row["symbol"] == "VOO"
         assert row["amount"] == "50.00"
+
+    def test_map_foreign_dividend_to_eur_using_base_amount(self) -> None:
+        """EUR-only accounts must not create a second USD cash ledger."""
+        sec = _make_mock_security(ticker="VOO")
+        txn = _make_mock_transaction(
+            transaction_type="dividend",
+            amount=Decimal("50.00"),
+            amount_in_base=Decimal("46.20"),
+            base_currency_code="EUR",
+            currency_code="USD",
+            security_id=sec.id,
+        )
+        row = map_transaction_to_wf_row(
+            txn,
+            security=sec,
+            account_currency="EUR",
+        )
+        assert row["currency"] == "EUR"
+        assert row["amount"] == "46.20"
+        assert row["metadata"]["financeSync"]["sourceCurrency"] == "USD"
+
+    def test_map_foreign_cash_without_fx_is_a_finding(self) -> None:
+        sec = _make_mock_security(ticker="VOO")
+        txn = _make_mock_transaction(
+            transaction_type="dividend",
+            amount=Decimal("50.00"),
+            currency_code="USD",
+            security_id=sec.id,
+        )
+        with pytest.raises(UnresolvedCashCurrencyError):
+            map_transaction_to_wf_row(txn, security=sec, account_currency="EUR")
+
+    def test_map_foreign_cash_using_provider_fx(self) -> None:
+        sec = _make_mock_security(ticker="VOO")
+        txn = _make_mock_transaction(
+            transaction_type="dividend",
+            amount=Decimal("50.00"),
+            currency_code="USD",
+            fx_rate=Decimal("1.25"),
+            security_id=sec.id,
+        )
+        row = map_transaction_to_wf_row(
+            txn, security=sec, account_currency="EUR"
+        )
+        assert row["currency"] == "EUR"
+        assert row["amount"] == "40.00"
+        assert row["fxRate"] == "1.25"
 
     def test_map_interest(self) -> None:
         txn = _make_mock_transaction(
@@ -1003,6 +1051,12 @@ class TestWealthfolioPushCursor:
         result = {"imported": 0, "skipped": 0, "failed": 0}
         result.update(push_overrides)
         client.push_activities = AsyncMock(return_value=result)
+        client.delete_accounts_not_owned_by_finance_sync = AsyncMock(
+            return_value=0
+        )
+        client.delete_activities_not_in = AsyncMock(return_value=0)
+        client.delete_activities = AsyncMock(return_value=0)
+        client.get_performance_history = AsyncMock(return_value={"series": []})
         return client
 
     def _patch_push_deps(
@@ -1034,6 +1088,9 @@ class TestWealthfolioPushCursor:
         ).start()
         patch.object(exporter, "_load_accounts", return_value=accounts).start()
         patch.object(exporter, "_load_securities", return_value={}).start()
+        patch.object(
+            exporter, "_transaction_external_ids", return_value=set()
+        ).start()
         patch.object(
             exporter,
             "_ensure_wf_account",
@@ -1124,6 +1181,26 @@ class TestWealthfolioPushCursor:
             await exporter.push_to_wealthfolio(wf_client, since=fallback)
 
         assert fetch_mock.await_args.kwargs["since"] == fallback
+
+    @pytest.mark.asyncio
+    async def test_push_cleans_accounts_outside_current_dataset(
+        self, exporter: WealthfolioExporter
+    ) -> None:
+        """Every push scopes Wealthfolio to the current finance-sync data."""
+        acct = _make_mock_account()
+        with patch.object(
+            exporter, "_get_wealthfolio_delivery", return_value=None
+        ):
+            wf_client, _fetch_mock, _complete_mock = self._patch_push_deps(
+                exporter,
+                accounts=[acct],
+                txns_by_account={},
+            )
+            await exporter.push_to_wealthfolio(wf_client)
+
+        wf_client.delete_accounts_not_owned_by_finance_sync.assert_awaited_once_with(
+            {f"finance-sync:{exporter._tenant_id}:{acct.id}"}
+        )
 
     @pytest.mark.asyncio
     async def test_push_includes_all_owner_accounts_from_explicit_list(
