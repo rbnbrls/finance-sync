@@ -97,8 +97,11 @@ def execute_retention(
 
         for index, record in enumerate(expired):
             record_id = str(record["id"])
+            # Coordinate equivalent snapshots of the same source records.  The
+            # container identity is not stable across workers, while the
+            # tenant, retention cut-off, and record identity are.
             claim_key = _identifier(
-                f"{id(records)}:{tenant_id}:{now.isoformat()}:{retention_days}:{record_id}",
+                f"{tenant_id}:{now.isoformat()}:{retention_days}:{record_id}",
                 secret=secret,
             )
             category = _safe_category(

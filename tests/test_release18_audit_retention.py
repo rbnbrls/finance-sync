@@ -74,6 +74,7 @@ def test_failure_rolls_back_and_retry_can_succeed() -> None:
         dry_run=False,
         delete=fail_after_first,
         restore=restored.append,
+        identifier_secret=b"rollback-secret",
     )
     assert failed["status"] == "rolled-back"
     assert restored == ["a-old"]
@@ -159,6 +160,7 @@ def test_execute_retries_transient_delete_and_exposes_partial_failure_without_id
         delete=flaky,
         restore=lambda _: None,
         max_retries=2,
+        identifier_secret=b"partial-failure-secret",
     )
     assert report["status"] == "partial-failure"
     assert report["retry_count"] == 2
@@ -222,6 +224,53 @@ def test_successful_retry_is_idempotent() -> None:
     assert deleted == ["a-old", "a-old-2"]
 
 
+def test_overlapping_equivalent_snapshots_claim_each_record_once() -> None:
+    now = datetime(2026, 1, 11, tzinfo=UTC)
+    first_records = _records(now)
+    second_records = [dict(record) for record in first_records]
+    deleted: list[str] = []
+    barrier = Barrier(2)
+    reports: list[dict[str, Any]] = []
+
+    def delete_from_first_run(record_id: str) -> None:
+        deleted.append(f"first:{record_id}")
+
+    def delete_from_second_run(record_id: str) -> None:
+        deleted.append(f"second:{record_id}")
+
+    def run(delete: object, run_id: str, records: list[dict[str, str]]) -> None:
+        barrier.wait()
+        reports.append(
+            execute_retention(
+                records,
+                now=now,
+                retention_days=3650,
+                tenant_id="tenant-a",
+                dry_run=False,
+                delete=delete,
+                restore=lambda _: None,
+                run_id=run_id,
+                identifier_secret=b"equivalent-snapshot-secret",
+            )
+        )
+
+    first = Thread(
+        target=run, args=(delete_from_first_run, "run-first", first_records)
+    )
+    second = Thread(
+        target=run, args=(delete_from_second_run, "run-second", second_records)
+    )
+    first.start()
+    second.start()
+    first.join()
+    second.join()
+
+    assert sorted(deleted) == ["first:a-old", "first:a-old-2"] or sorted(
+        deleted
+    ) == ["second:a-old", "second:a-old-2"]
+    assert sorted(report["deleted_count"] for report in reports) == [2, 2]
+
+
 def test_overlapping_runs_claim_each_record_once() -> None:
     now = datetime(2026, 1, 10, tzinfo=UTC)
     records = _records(now)
@@ -247,6 +296,7 @@ def test_overlapping_runs_claim_each_record_once() -> None:
                 delete=delete,
                 restore=lambda _: None,
                 run_id=run_id,
+                identifier_secret=b"same-snapshot-secret",
             )
         )
 
