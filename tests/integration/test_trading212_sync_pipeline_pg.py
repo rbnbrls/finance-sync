@@ -146,8 +146,10 @@ class TestTrading212SyncPipeline:
         )
         counts = await _counts(session_factory)
         assert counts["Account"] == 1
+        assert counts["Security"] == len(PORTFOLIO_RESPONSE)
         assert counts["Holding"] == len(PORTFOLIO_RESPONSE)
         assert counts["Transaction"] == result.transactions_synced
+        assert counts["SyncRun"] == 1
 
     async def test_authentication_failure_creates_failed_run_without_data(
         self, session_factory, tenant
