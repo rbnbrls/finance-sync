@@ -733,11 +733,18 @@ class SyncOrchestrator(CardsSyncMixin):
                     connector,
                     selected_accounts=selected_accounts,
                     connection_id=context.connection_id,
+                    persist=False,
                 )
                 canonical_accounts = account_result.accounts
                 supports_holdings = account_result.supports_holdings
                 accounts_synced = len(canonical_accounts)
                 log.debug("accounts_fetched", count=accounts_synced)
+
+                # Commit the run and account rows before processing resources.
+                # Resource writes are isolated below, one transaction per
+                # account, so a failed account cannot roll back a previously
+                # completed account (or leave this account partially written).
+                await uow.commit()
 
                 # 4. Fetch + upsert transactions per account.  Each
                 #    account resumes from its own stored cursor when one
@@ -766,58 +773,83 @@ class SyncOrchestrator(CardsSyncMixin):
                     )
                     canonical_txns = connector.transform_transactions(raw_txns)
 
-                    # Resolve the canonical account ID for FK
-                    acct = await uow.accounts.get_by_external_id(
-                        self._tenant_id,
-                        provider_type,
-                        ca.external_account_id,
-                        connection_id=connection_id,
-                    )
-                    if acct is None:
-                        log.warning(
-                            "account_not_found_for_transactions",
-                            external_account_id=ca.external_account_id,
+                    # All transaction and holding upserts for this account,
+                    # including security resolution and its sync cursor, must
+                    # share one commit boundary.  The UoW rolls this batch
+                    # back automatically when any write raises.
+                    async with _UnitOfWork(session) as account_uow:
+                        # Persisting the account is part of this account's
+                        # transaction.  Reuse the returned entity for the FK;
+                        # querying again would be redundant.
+                        acct = await persistence.persist_account(
+                            account_uow,
+                            ca,
+                            connection_id=connection_id,
                         )
-                        continue
-
-                    transaction_result = await TransactionSyncStage(
-                        persistence
-                    ).run(
-                        uow,
-                        canonical_txns,
-                        account_id=str(acct.id),
-                        provider_type=provider_type,
-                        connection_id=connection_id,
-                    )
-                    transactions_synced += transaction_result.count
-                    unresolved_keys.update(transaction_result.unresolved_keys)
-
-                    if supports_holdings:
-                        raw_holdings = (
-                            await connector._rate_limited_fetch_holdings(  # type: ignore[attr-defined]
-                                account_id=ca.external_account_id
+                        account_id = str(getattr(acct, "id", ""))
+                        if not account_id:
+                            log.warning(
+                                "account_persistence_returned_no_id",
+                                external_account_id=ca.external_account_id,
                             )
-                        )
-                        canonical_holdings = connector.transform_holdings(
-                            raw_holdings
-                        )
-                        holdings_result = await HoldingsSyncStage(
+                            continue
+                        transaction_result = await TransactionSyncStage(
                             persistence
                         ).run(
-                            uow,
-                            canonical_holdings,
-                            account_id=str(acct.id),
-                            provider_key=provider_type,
+                            account_uow,
+                            canonical_txns,
+                            account_id=account_id,
+                            provider_type=provider_type,
+                            connection_id=connection_id,
                         )
-                        holdings_synced += holdings_result.count
-                        unresolved_keys.update(holdings_result.unresolved_keys)
+                        account_transactions = transaction_result.count
+                        account_unresolved = set(
+                            transaction_result.unresolved_keys
+                        )
+
+                        account_holdings = 0
+                        account_holdings_unresolved: set[str] = set()
+                        if supports_holdings:
+                            raw_holdings = (
+                                await connector._rate_limited_fetch_holdings(  # type: ignore[attr-defined]
+                                    account_id=ca.external_account_id
+                                )
+                            )
+                            canonical_holdings = connector.transform_holdings(
+                                raw_holdings
+                            )
+                            holdings_result = await HoldingsSyncStage(
+                                persistence
+                            ).run(
+                                account_uow,
+                                canonical_holdings,
+                                account_id=account_id,
+                                provider_key=provider_type,
+                            )
+                            account_holdings = holdings_result.count
+                            account_holdings_unresolved.update(
+                                holdings_result.unresolved_keys
+                            )
+
+                        await upsert_sync_cursor(
+                            account_uow.session,
+                            tenant_id=self._tenant_id,
+                            connector=provider_type,
+                            resource=ca.external_account_id,
+                            cursor=start_ts,
+                            connection_id=connection_id,
+                        )
+
+                    transactions_synced += account_transactions
+                    holdings_synced += account_holdings
+                    unresolved_keys.update(account_unresolved)
+                    unresolved_keys.update(account_holdings_unresolved)
 
                 log.debug("transactions_fetched", count=transactions_synced)
 
-                # 5. Complete the run and advance the sync cursors —
-                #    both only happen on success, atomically inside the
-                #    same UoW transaction (a failure rolls everything
-                #    back so the next run retries the same window).
+                # 5. Complete the run and publish the aggregate sync event.
+                #    The per-account cursors were committed with their
+                #    respective resource batches above.
                 await complete_sync_run(
                     uow,
                     run,
@@ -838,16 +870,10 @@ class SyncOrchestrator(CardsSyncMixin):
                         holdings=holdings_synced,
                         unresolved_securities=len(unresolved_keys),
                     )
-                for ca in canonical_accounts:
-                    await upsert_sync_cursor(
-                        uow.session,
-                        tenant_id=self._tenant_id,
-                        connector=provider_type,
-                        resource=ca.external_account_id,
-                        cursor=start_ts,
-                        connection_id=connection_id,
-                    )
-
+                # The outer UoW committed before the account loop and marks
+                # itself as committed, so explicitly persist this final run
+                # status/event transaction.
+                await session.commit()
             # If we get here, the UoW committed successfully
             end_ts = _dt.now(UTC)
             return SyncResult(
