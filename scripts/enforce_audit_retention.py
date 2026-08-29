@@ -21,6 +21,7 @@ _REPORT_SECRET = os.environ.get("AUDIT_RETENTION_REPORT_SECRET", "").encode(
 ) or secrets.token_bytes(32)
 _RUN_LOCK = RLock()
 _RUN_STATE: dict[str, set[str]] = {}
+_CLAIMED_RECORDS: set[str] = set()
 
 
 def _identifier(value: str, *, secret: bytes) -> str:
@@ -82,6 +83,7 @@ def execute_retention(
     run_key = _identifier(f"{logical_id}:{dry_run}", secret=secret)
     with _RUN_LOCK:
         completed = _RUN_STATE.setdefault(run_key, set())
+        claimed_here: set[str] = set()
         deleted: list[str] = []
         failed: list[dict[str, Any]] = []
         retry_count = 0
@@ -95,6 +97,10 @@ def execute_retention(
 
         for index, record in enumerate(expired):
             record_id = str(record["id"])
+            claim_key = _identifier(
+                f"{id(records)}:{tenant_id}:{now.isoformat()}:{retention_days}:{record_id}",
+                secret=secret,
+            )
             category = _safe_category(
                 record.get("category", record.get("data_category", "unknown"))
             )
@@ -108,11 +114,18 @@ def execute_retention(
                 increment(category_counts, "deleted")
                 increment(result_status_counts, "deleted")
                 continue
+            if claim_key in _CLAIMED_RECORDS:
+                completed.add(record_id)
+                increment(category_counts, "deleted")
+                increment(result_status_counts, "deleted")
+                continue
             attempts = 0
             while True:
                 try:
                     delete(record_id)
                     completed.add(record_id)
+                    _CLAIMED_RECORDS.add(claim_key)
+                    claimed_here.add(claim_key)
                     deleted.append(record_id)
                     increment(category_counts, "deleted")
                     increment(result_status_counts, "deleted")
@@ -133,6 +146,7 @@ def execute_retention(
                         restore(restored_id)
                     for completed_id in deleted:
                         completed.discard(completed_id)
+                    _CLAIMED_RECORDS.difference_update(claimed_here)
                     status = "rolled-back"
                     error = type(exc).__name__
                     deleted.clear()

@@ -5,6 +5,8 @@
 import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from threading import Barrier, Thread
+from typing import Any
 
 import pytest
 
@@ -218,6 +220,47 @@ def test_successful_retry_is_idempotent() -> None:
     second = execute_retention(records, **kwargs)
     assert first == second
     assert deleted == ["a-old", "a-old-2"]
+
+
+def test_overlapping_runs_claim_each_record_once() -> None:
+    now = datetime(2026, 1, 10, tzinfo=UTC)
+    records = _records(now)
+    deleted: list[str] = []
+    barrier = Barrier(2)
+    reports: list[dict[str, Any]] = []
+
+    def delete_from_first_run(record_id: str) -> None:
+        deleted.append(f"first:{record_id}")
+
+    def delete_from_second_run(record_id: str) -> None:
+        deleted.append(f"second:{record_id}")
+
+    def run(delete: object, run_id: str) -> None:
+        barrier.wait()
+        reports.append(
+            execute_retention(
+                records,
+                now=now,
+                retention_days=3650,
+                tenant_id="tenant-a",
+                dry_run=False,
+                delete=delete,
+                restore=lambda _: None,
+                run_id=run_id,
+            )
+        )
+
+    first = Thread(target=run, args=(delete_from_first_run, "run-first"))
+    second = Thread(target=run, args=(delete_from_second_run, "run-second"))
+    first.start()
+    second.start()
+    first.join()
+    second.join()
+
+    assert sorted(deleted) == ["first:a-old", "first:a-old-2"] or sorted(
+        deleted
+    ) == ["second:a-old", "second:a-old-2"]
+    assert sorted(report["deleted_count"] for report in reports) == [2, 2]
 
 
 def test_process_failure_leaves_incomplete_report() -> None:
