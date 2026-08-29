@@ -56,8 +56,15 @@ def test_holdout_cross_tenant_leak_via_shared_cache():
     """Kruis-tenant leak: key status bevat geen velden van andere tenant."""
     result = check_key_provider_status()
     allowed = {
-        "current_version", "state", "rotated_at", "expires_at", "provider",
-        "fail_closed", "material_logged", "hours_to_expiry", "error",
+        "current_version",
+        "state",
+        "rotated_at",
+        "expires_at",
+        "provider",
+        "fail_closed",
+        "material_logged",
+        "hours_to_expiry",
+        "error",
         "status",
     }
     assert isinstance(result, dict)
