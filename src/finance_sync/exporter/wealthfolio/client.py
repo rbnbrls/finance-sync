@@ -459,15 +459,21 @@ class WealthfolioClient:
         # Wealthfolio's manual quote table.  Resolve the assets after the
         # snapshot so symbols newly created by this request are included.
         assets = await self.get_assets()
-        by_symbol = {
-            str(asset.get("displayCode") or asset.get("symbol")): asset
-            for asset in assets
-            if asset.get("id")
-        }
+        by_symbol: dict[str, dict[str, Any]] = {}
+        for asset in assets:
+            if not asset.get("id"):
+                continue
+            for raw_symbol in (asset.get("displayCode"), asset.get("symbol")):
+                if raw_symbol:
+                    symbol = str(raw_symbol)
+                    by_symbol.setdefault(symbol, asset)
+                    by_symbol.setdefault(_normalise_asset_symbol(symbol), asset)
         for holding in holdings:
             price = holding.get("unitPrice")
             symbol = str(holding.get("symbol") or "")
-            asset = by_symbol.get(symbol)
+            asset = by_symbol.get(symbol) or by_symbol.get(
+                _normalise_asset_symbol(symbol)
+            )
             if price is None or asset is None:
                 continue
             source_value = holding.get("sourceValue")
@@ -613,3 +619,11 @@ class WealthfolioClient:
         if not self._is_authenticated:
             msg = "Not authenticated. Call authenticate() first."
             raise WealthfolioAuthError(msg)
+
+
+def _normalise_asset_symbol(symbol: str) -> str:
+    """Return the comparison symbol Wealthfolio exposes for a security."""
+    value = symbol.strip().upper()
+    if len(value) == 12 and value[:2].isalpha() and value[2:].isalnum():
+        return value
+    return value.split(".", 1)[0]
