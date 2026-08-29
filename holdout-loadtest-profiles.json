@@ -1,0 +1,68 @@
+{
+  "financial_values_in_report": false,
+  "profiles": [
+    {
+      "backpressure_respected": true,
+      "database_connections_max": 12,
+      "duplicate_writes": 0,
+      "error_rate": 0.0,
+      "financial_values_in_report": false,
+      "latency_p95_ms": 28.0,
+      "name": "api_reads",
+      "overload_action": "accept",
+      "provider_rate": 20.0,
+      "provider_rate_limit_respected": true,
+      "queue_depth_max": 0,
+      "requests": 1000,
+      "worker_count_max": 2
+    },
+    {
+      "backpressure_respected": true,
+      "database_connections_max": 20,
+      "duplicate_writes": 0,
+      "error_rate": 0.0,
+      "financial_values_in_report": false,
+      "latency_p95_ms": 36.0,
+      "name": "sync_runs",
+      "overload_action": "accept",
+      "provider_rate": 2.0,
+      "provider_rate_limit_respected": true,
+      "queue_depth_max": 0,
+      "requests": 120,
+      "worker_count_max": 4
+    },
+    {
+      "backpressure_respected": true,
+      "database_connections_max": 12,
+      "duplicate_writes": 0,
+      "error_rate": 0.05,
+      "financial_values_in_report": false,
+      "latency_p95_ms": 28.0,
+      "name": "retries",
+      "overload_action": "accept",
+      "provider_rate": 4.0,
+      "provider_rate_limit_respected": true,
+      "queue_depth_max": 0,
+      "requests": 80,
+      "worker_count_max": 2
+    },
+    {
+      "backpressure_respected": true,
+      "database_connections_max": 20,
+      "duplicate_writes": 0,
+      "error_rate": 0.0,
+      "financial_values_in_report": false,
+      "latency_p95_ms": 36.0,
+      "name": "outbox_consumers",
+      "overload_action": "accept",
+      "provider_rate": 10.0,
+      "provider_rate_limit_respected": true,
+      "queue_depth_max": 0,
+      "requests": 600,
+      "worker_count_max": 4
+    }
+  ],
+  "scaling_recommendation": "Run two API workers and two sync/outbox workers; scale sync workers from 2 to 4 while queue depth is below the hard limit, and reject new work with Retry-After at the hard limit. Keep provider traffic at or below its per-tenant rate limit.",
+  "schema_version": 1,
+  "synthetic_data_only": true
+}
