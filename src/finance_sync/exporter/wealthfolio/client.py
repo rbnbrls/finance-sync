@@ -716,14 +716,22 @@ class WealthfolioClient:
             page_rows = payload.get("data", payload.get("activities", []))
             if not isinstance(page_rows, list) or not page_rows:
                 break
-            rows.extend(row for row in page_rows if isinstance(row, dict))
-            meta = payload.get("meta") or {}
-            total = (
-                meta.get("totalRowCount") if isinstance(meta, dict) else None
+            typed_page_rows = cast("list[Any]", page_rows)
+            rows.extend(
+                cast("dict[str, Any]", row)
+                for row in typed_page_rows
+                if isinstance(row, dict)
             )
+            raw_meta = payload.get("meta")
+            meta = (
+                cast("dict[str, Any]", raw_meta)
+                if isinstance(raw_meta, dict)
+                else {}
+            )
+            total = meta.get("totalRowCount")
             if isinstance(total, int) and len(rows) >= total:
                 break
-            if len(page_rows) < 1000:
+            if len(typed_page_rows) < 1000:
                 break
             page += 1
         return rows
