@@ -322,6 +322,36 @@ class TestWealthfolioClient408Retry:
         sleep.assert_awaited_once()
         assert result == {"ok": True}
 
+    async def test_save_manual_holdings_matches_exchange_qualified_symbol(
+        self, client: WealthfolioClient
+    ) -> None:
+        """Manual quotes match when WF resolves ``VWCE.DE`` to ``VWCE``."""
+        client._is_authenticated = True
+        snapshot_response = MagicMock(status_code=200)
+        snapshot_response.raise_for_status.return_value = None
+        snapshot_response.content = b'{"ok": true}'
+        quote_response = MagicMock(status_code=200)
+        quote_response.raise_for_status.return_value = None
+
+        with (
+            patch.object(client._client, "post", return_value=snapshot_response),
+            patch.object(
+                client,
+                "get_assets",
+                return_value=[{"id": "asset-vwce", "displayCode": "VWCE"}],
+            ),
+            patch.object(client, "get_quote_history", return_value=[]),
+            patch.object(client._client, "put", return_value=quote_response) as put,
+        ):
+            await client.save_manual_holdings(
+                [{"symbol": "VWCE.DE", "quantity": "10", "unitPrice": "125"}],
+                "acct-1",
+                snapshot_date="2026-08-29",
+            )
+
+        assert put.await_count == 1
+        assert put.await_args.kwargs["json"]["assetId"] == "asset-vwce"
+
     async def test_retry_exhausted_raises_last_408(
         self, client: WealthfolioClient
     ) -> None:
