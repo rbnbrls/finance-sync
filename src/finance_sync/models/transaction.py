@@ -27,6 +27,10 @@ class Transaction(TimestampMixin, Base):
             "connection_id",
             "external_transaction_id",
             name="uq_transactions_provider",
+            # NULL connection_ids must still deduplicate (re-sync without
+            # a connection scope would otherwise insert duplicates because
+            # plain UNIQUE treats NULLs as distinct).
+            postgresql_nulls_not_distinct=True,
         ),
     )
 
