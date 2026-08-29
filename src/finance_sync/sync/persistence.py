@@ -250,7 +250,7 @@ class TransactionPersistence:
         """
         from finance_sync.sync.upserts import (
             UpsertResult,
-            _is_postgresql,
+            _is_postgresql,  # pyright: ignore[reportPrivateUsage]
             bulk_upsert_transactions,
         )
 
@@ -579,7 +579,7 @@ class HoldingPersistence:
         """
         from finance_sync.sync.upserts import (
             UpsertResult,
-            _is_postgresql,
+            _is_postgresql,  # pyright: ignore[reportPrivateUsage]
             bulk_upsert_holdings,
         )
 
