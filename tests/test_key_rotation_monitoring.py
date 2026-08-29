@@ -227,7 +227,15 @@ def test_build_key_issue_body():
         }
     ]
 
-    body = build_key_issue_body(timestamp, key_info, alerts)
+    # build_key_issue_body embeds the *current* UTC date in the dedup
+    # marker, so freeze "now" to make the assertion deterministic
+    # (previously the hardcoded date went stale after midnight).
+    with patch("scripts.key_rotation_monitoring.datetime") as mock_datetime:
+        mock_datetime.now.return_value = datetime(
+            2026, 8, 28, 12, 0, 0, tzinfo=UTC
+        )
+        mock_datetime.UTC = UTC
+        body = build_key_issue_body(timestamp, key_info, alerts)
 
     assert "## 🔑 Key Rotation Monitoring — finance-sync" in body
     assert "**Detected at:** 2026-08-28T12:00:00+00:00" in body

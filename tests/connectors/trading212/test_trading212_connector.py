@@ -310,6 +310,61 @@ class TestTrading212ConnectorPagination:
 
     pytestmark = pytest.mark.asyncio
 
+    async def test_history_requests_never_exceed_api_cap(
+        self,
+        t212_connector_config: ConnectorConfig,
+        t212_mock_transport: object,
+    ) -> None:
+        """History requests must never send ``limit`` above the API cap.
+
+        Regression test for issue #505: ``_DEFAULT_PAGE_SIZE`` was 100,
+        but Trading212 rejects ``limit > 50`` with HTTP 400
+        ``{"detail": "Limit cannot be greater than 50"}``, which aborted
+        the whole sync.  Every request to /history/orders and
+        /history/transactions must carry ``limit <= 50``.
+        """
+        import httpx
+
+        from finance_sync.connectors.trading212 import (
+            _DEFAULT_PAGE_SIZE,
+            Trading212Connector,
+        )
+
+        assert _DEFAULT_PAGE_SIZE <= 50
+
+        http_client = httpx.AsyncClient(
+            base_url="https://live.trading212.com",
+            transport=t212_mock_transport,  # type: ignore[arg-type]
+        )
+        conn = Trading212Connector(
+            config=t212_connector_config,
+            http_client=http_client,
+        )
+        await conn.authenticate()
+        conn._account_id = "12345678"
+        since = datetime(2024, 1, 1, tzinfo=UTC)
+
+        # Fetch with no explicit limit -> page size must be the default (50)
+        await conn._fetch_order_history("test_t212_api_key_abc123", since, None)
+        await conn._fetch_transaction_history(
+            "test_t212_api_key_abc123", since, None
+        )
+
+        # Fetch with an explicit limit above the cap -> clamped to 50
+        await conn._fetch_order_history(
+            "test_t212_api_key_abc123", since, limit=1000
+        )
+
+        history_urls = [
+            str(call["url"])
+            for call in t212_mock_transport.call_log  # type: ignore[attr-defined]
+            if "/history/" in str(call["url"])
+        ]
+        assert history_urls, "expected history requests to be recorded"
+        for url in history_urls:
+            # httpx keeps 'limit=50' as the raw query fragment
+            assert "limit=50" in url, f"limit exceeds API cap in {url}"
+
     async def test_order_history_pagination(
         self,
         t212_connector_config: ConnectorConfig,
