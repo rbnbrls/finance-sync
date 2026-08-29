@@ -476,6 +476,69 @@ class CardTransactionRepository(Repository[CardTransaction]):
 class HoldingRepository(Repository[Holding]):
     model_class = Holding
 
+    async def upsert(
+        self,
+        tenant_id: str,
+        account_id: str,
+        security_id: str,
+        observed_at: datetime,
+        source: str,
+        *,
+        values: dict[str, object] | None = None,
+        **fields: object,
+    ) -> Holding:
+        """Insert or update one holding snapshot in the caller's transaction.
+
+        The snapshot identity is enforced by ``uq_holdings_snapshot``.  All
+        fetched holding attributes are refreshed on conflict, while the
+        method deliberately leaves commit/rollback responsibility to the
+        owning unit of work.
+        """
+        from uuid import uuid4
+
+        from sqlalchemy import func
+        from sqlalchemy.dialects.postgresql import insert
+
+        if values is None:
+            values = fields
+        row = {
+            "id": uuid4(),
+            "tenant_id": tenant_id,
+            "account_id": account_id,
+            "security_id": security_id,
+            "observed_at": observed_at,
+            "source": source,
+            **values,
+        }
+
+        stmt = insert(Holding).values(**row)
+        excluded = stmt.excluded
+        mutable_columns = (
+            "quantity",
+            "cost_basis",
+            "cost_basis_currency",
+            "market_value",
+            "currency_code",
+            "price",
+            "price_currency",
+        )
+        set_ = {column: getattr(excluded, column) for column in mutable_columns}
+        set_["updated_at"] = func.now()
+        stmt = stmt.on_conflict_do_update(
+            index_elements=[
+                "tenant_id",
+                "account_id",
+                "security_id",
+                "observed_at",
+                "source",
+            ],
+            set_=set_,
+        )
+        result = await self._session.execute(stmt.returning(Holding))
+        entity = result.scalar_one()
+        await self._session.flush()
+        return entity
+
     async def get_by_snapshot(
         self,
         tenant_id: str,
