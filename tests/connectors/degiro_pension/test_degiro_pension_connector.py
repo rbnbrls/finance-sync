@@ -167,7 +167,7 @@ async def test_statement_pairs_usd_dividend_with_degiro_fx_conversion(
             dividends,
             (
                 Decimal("35.45454545454545454545454545"),
-                    Decimal("71.18353344768439108061749571"),
+                Decimal("71.18353344768439108061749571"),
             ),
             strict=True,
         )
@@ -326,6 +326,7 @@ async def test_current_transactions_export_keeps_trade_and_autofx_costs(
     assert len(transactions) == 1
     assert transactions[0].fee_amount == Decimal("1.25")
     assert transactions[0].fee_currency_code == "EUR"
+    assert transactions[0].provider_metadata is not None
     assert transactions[0].provider_metadata["transaction_fee"] == "-1"
     assert transactions[0].provider_metadata["autofx_fee"] == "-0.25"
 
