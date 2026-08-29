@@ -483,7 +483,8 @@ class WealthfolioClient:
             # idempotency survive the check -> import round trip.
             hydrated: list[dict[str, Any]] = []
             for original, resolved in zip(activities, checked, strict=False):
-                merged = dict(resolved)
+                resolved_row = cast(dict[str, Any], resolved)
+                merged: dict[str, Any] = dict(resolved_row)
                 for key in (
                     "sourceSystem",
                     "sourceRecordId",
