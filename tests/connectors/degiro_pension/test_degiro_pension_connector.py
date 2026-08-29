@@ -326,7 +326,6 @@ async def test_current_transactions_export_keeps_trade_and_autofx_costs(
     assert len(transactions) == 1
     assert transactions[0].fee_amount == Decimal("1.25")
     assert transactions[0].fee_currency_code == "EUR"
-    assert transactions[0].provider_metadata is not None
     assert transactions[0].provider_metadata["transaction_fee"] == "-1"
     assert transactions[0].provider_metadata["autofx_fee"] == "-0.25"
 

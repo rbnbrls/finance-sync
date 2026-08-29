@@ -1609,8 +1609,7 @@ def _wealthfolio_cash_value(rows: list[dict[str, Any]]) -> Decimal:
             continue
         market_value = row.get("marketValue")
         if isinstance(market_value, dict):
-            typed_market_value = cast("dict[str, Any]", market_value)
-            total += Decimal(str(typed_market_value.get("base") or 0))
+            total += Decimal(str(market_value.get("base") or 0))
     return total
 
 
