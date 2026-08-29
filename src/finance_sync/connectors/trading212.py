@@ -242,12 +242,16 @@ class Trading212Connector(Connector):
         items = await self.fetch_portfolio()
         holdings: list[RawHolding] = []
         for item in items:
-            ticker = str(item.get("ticker", ""))
-            quantity = Decimal(str(item.get("quantity", "0")))
+            # Normalise missing/null optional fields gracefully: never
+            # let a provider-side null crash the whole holdings fetch or
+            # leak the literal string "None" into the datamodel.
+            ticker_raw = item.get("ticker")
+            ticker = str(ticker_raw).strip() if ticker_raw is not None else ""
+            quantity = _safe_quantity(item.get("quantity"))
             average_price = _optional_decimal(item.get("averagePrice"))
             current_price = _optional_decimal(item.get("currentPrice"))
             currency = str(item.get("currencyCode") or self._account_currency)
-            frontend = str(item.get("frontend", "")).upper()
+            frontend = str(item.get("frontend") or "").upper()
             security_type = "etf" if frontend == "ETF" else "stock"
             holdings.append(
                 RawHolding(
@@ -255,9 +259,9 @@ class Trading212Connector(Connector):
                     observed_at=observed_at,
                     quantity=quantity,
                     security_reference=SecurityReference(
-                        external_id=ticker,
-                        ticker=ticker,
-                        name=str(item.get("name") or ticker),
+                        external_id=ticker or None,
+                        ticker=ticker or None,
+                        name=str(item.get("name") or ticker or None),
                         currency_code=currency,
                         security_type=security_type,
                     ),
@@ -792,4 +796,16 @@ def _optional_decimal(value: Any) -> Decimal | None:
     """Parse an optional provider number without turning null into zero."""
     if value is None or value == "":
         return None
+    return Decimal(str(value))
+
+
+def _safe_quantity(value: Any) -> Decimal:
+    """Parse a holding quantity, defaulting to zero on null/missing.
+
+    Trading212 reports ``quantity`` as a number, but defensive parsing
+    keeps a malformed/null portfolio item from crashing the whole
+    holdings fetch (quantity is a required ``RawHolding`` field).
+    """
+    if value is None or value == "":
+        return Decimal(0)
     return Decimal(str(value))
