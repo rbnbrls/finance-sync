@@ -73,6 +73,14 @@ class Connector(ABC):
     #: Only documented scalar/list fields are exposed by the registry.
     catalog_metadata: ClassVar[dict[str, object]] = {}
 
+    #: Ways a user can ingest data for this connector.  API is the backwards-
+    #: compatible default; file-based connectors override this explicitly.
+    ingestion_methods: ClassVar[tuple[str, ...]] = ("api",)
+
+    #: Optional secret-safe hints consumed by the import wizard.  Complex
+    #: parsing and validation remain in the connector/API adapter.
+    import_wizard: ClassVar[dict[str, object]] = {}
+
     #: Resources implemented by this connector.  Holdings are deliberately
     #: opt-in so existing third-party connectors keep their old behaviour.
     supported_resources: frozenset[str] = frozenset(

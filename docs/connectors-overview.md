@@ -210,6 +210,25 @@ reported market value of EUR 37,007.97.
 
 ## Using connectors at runtime
 
+### Dashboard importflow
+
+De gebruikersflow start op één pagina, **Importeren**. De connectorcatalogus
+publiceert per connector de secret-safe velden `ingestion_methods` (`api`,
+`file` of beide) en optionele `import_wizard`-metadata. De UI gebruikt die
+metadata om eerst de tegenpartij en daarna de ingestiemethode te laten kiezen.
+
+Bestandsimports lopen voor nieuwe clients via:
+
+- `POST /api/v1/connectors/file-uploads/dispatch`;
+- `POST /api/v1/connectors/file-uploads/dispatch/{run_id}/confirm` voor
+  confirmable previews;
+- `GET /api/v1/connectors/file-uploads/runs` voor de tenant-scoped historie.
+
+De bestaande DEGIRO-, Saxo- en generieke endpoints blijven tijdelijk bestaan
+als backwards-compatible adapters. De connector zelf blijft verantwoordelijk
+voor provider-specifieke validatie; de dashboardflow beheert alleen de
+gemeenschappelijke wizardstappen.
+
 ```python
 from finance_sync.connectors.registry import ConnectorRegistry
 from finance_sync.connectors.models import ConnectorConfig

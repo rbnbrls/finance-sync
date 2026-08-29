@@ -301,6 +301,11 @@ async def run_export(
                     },
                 }
             )
+        wf_timeout: float = settings.wealthfolio_request_timeout
+        if target:
+            configured = target.configuration.get("request_timeout", 0.0)
+            if configured:
+                wf_timeout = float(configured)
         wf_client = WealthfolioClient(
             config=WealthfolioClientConfig(
                 base_url=(
@@ -313,6 +318,7 @@ async def run_export(
                     if target
                     else secret_value(settings.wealthfolio_password)
                 ),
+                request_timeout=wf_timeout,
             ),
         )
         await wf_client.authenticate()

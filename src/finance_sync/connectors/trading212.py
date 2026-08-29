@@ -56,7 +56,10 @@ if TYPE_CHECKING:
 
 _T212_API_BASE_LIVE = "https://live.trading212.com"
 _T212_API_BASE_DEMO = "https://demo.trading212.com"
-_DEFAULT_PAGE_SIZE = 100
+# Trading212 caps the ``limit`` query param at 50 for both
+# /history/orders and /history/transactions; anything larger returns
+# HTTP 400 "Limit cannot be greater than 50" (see issue #505).
+_DEFAULT_PAGE_SIZE = 50
 
 
 class Trading212Connector(Connector):

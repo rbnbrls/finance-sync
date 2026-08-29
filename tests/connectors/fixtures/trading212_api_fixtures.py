@@ -184,7 +184,7 @@ ORDER_HISTORY_PAGE_1: dict[str, Any] = {
         ORDER_SELL_TSLA,
     ],
     "nextPagePath": (
-        "/api/v0/equity/history/orders?cursor=page2_cursor&limit=100"
+        "/api/v0/equity/history/orders?cursor=page2_cursor&limit=50"
     ),
 }
 
@@ -277,7 +277,7 @@ TRANSACTION_HISTORY_PAGE_1: dict[str, Any] = {
         DEPOSIT_1,
     ],
     "nextPagePath": (
-        "/api/v0/equity/history/transactions?cursor=txn_page2&limit=100"
+        "/api/v0/equity/history/transactions?cursor=txn_page2&limit=50"
     ),
 }
 

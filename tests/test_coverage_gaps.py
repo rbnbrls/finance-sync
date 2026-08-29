@@ -16,11 +16,13 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from finance_sync.api.deps.auth import AuthContext
+from finance_sync.api.v1 import file_uploads as file_uploads_api
 from finance_sync.api.v1.file_uploads import (
     _csv_mapping,
     _detect,
     _inspect_path,
     _normalise,
+    list_file_upload_runs,
 )
 from finance_sync.api.v1.market_data import _live_quote, _parse_options
 from finance_sync.api.v1.webhooks import (
@@ -93,6 +95,107 @@ def test_upload_detects_manual_json_and_unknown_file(tmp_path: Path) -> None:
     unknown_markers, evidence = _inspect_path(unknown)
     assert _detect(unknown_markers)[0] is None
     assert evidence == []
+
+
+@pytest.mark.asyncio
+async def test_file_upload_history_projects_provider_from_join() -> None:
+    """The shared history endpoint returns the joined provider key."""
+    run = SimpleNamespace(
+        id="run-1",
+        created_at=datetime(2026, 8, 28, tzinfo=UTC),
+        file_names=["positions.xlsx"],
+        created_count=2,
+        updated_count=1,
+        safe_error=None,
+        rows_total=0,
+        skipped_count=0,
+        rejected_count=0,
+        warnings=[],
+        period_start=None,
+        period_end=None,
+        attempt=1,
+        status="completed",
+    )
+    db = MagicMock()
+    db.execute = AsyncMock(
+        return_value=SimpleNamespace(
+            all=MagicMock(
+                return_value=[(run, "saxo_investor", '{"_label":"Mijn Saxo"}')]
+            )
+        )
+    )
+
+    result = await list_file_upload_runs(
+        auth=SimpleNamespace(tenant_id="tenant-1"),
+        db=db,
+    )
+
+    assert [item.model_dump() for item in result] == [
+        {
+            "id": "run-1",
+            "created_at": run.created_at,
+            "file_names": ["positions.xlsx"],
+            "status": "completed",
+            "created_count": 2,
+            "updated_count": 1,
+            "provider_type": "saxo_investor",
+            "profile_name": "Mijn Saxo",
+            "period_start": None,
+            "period_end": None,
+            "rows_total": 0,
+            "skipped_count": 0,
+            "rejected_count": 0,
+            "warnings": [],
+            "error": None,
+            "attempt": 1,
+            "retryable": False,
+        }
+    ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("provider", "target"),
+    [
+        ("degiro_pension", "preview_degiro_import"),
+        ("saxo_investor", "import_saxo_files"),
+        ("csv_import", "import_generic_file"),
+        ("manual_expense", "import_generic_file"),
+    ],
+)
+async def test_file_upload_dispatch_routes_each_provider(
+    monkeypatch: pytest.MonkeyPatch, provider: str, target: str
+) -> None:
+    """The public upload contract delegates to the correct adapter."""
+    adapter = AsyncMock(return_value={"provider": provider})
+    monkeypatch.setattr(file_uploads_api, target, adapter)
+
+    result = await file_uploads_api.dispatch_file_import(
+        request=SimpleNamespace(),
+        provider_type=provider,
+        connection_id="connection-1",
+        files=[],
+        auth=SimpleNamespace(tenant_id="tenant-1"),
+        db=MagicMock(),
+    )
+
+    assert result == {"provider": provider}
+    adapter.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_file_upload_dispatch_rejects_unknown_provider() -> None:
+    with pytest.raises(file_uploads_api.HTTPException) as exc_info:
+        await file_uploads_api.dispatch_file_import(
+            request=SimpleNamespace(),
+            provider_type="unknown",
+            connection_id="connection-1",
+            files=[],
+            auth=SimpleNamespace(tenant_id="tenant-1"),
+            db=MagicMock(),
+        )
+
+    assert exc_info.value.status_code == 422
 
 
 class _AsyncContext:
@@ -2676,8 +2779,10 @@ def test_degiro_import_helpers_cover_invalid_names_and_options(
     assert staged.is_dir()
     assert staged.stat().st_mode & 0o777 == 0o700
 
-    with pytest.raises(ImportValidationError, match="formaat"):
-        _safe_name("export.txt", 1)
+    assert _safe_name("export.txt", 1)[1] == ".txt"
+    assert _safe_name("expenses.json", 1)[1] == ".json"
+    with pytest.raises(ImportValidationError, match="ondersteund"):
+        _safe_name("export.pdf", 1)
     with pytest.raises(ImportValidationError, match="ongeldig pad"):
         _safe_name("../export.csv", 1)
 

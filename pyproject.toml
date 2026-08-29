@@ -129,6 +129,7 @@ line-ending = "auto"
 "src/finance_sync/app.py" = ["SLF"]
 "src/finance_sync/cli.py" = ["T20"]
 "scripts/smoke_sync_runs.py" = ["T20"]
+"scripts/check_key_status_for_promotion.py" = ["T20"]
 "src/finance_sync/monitoring/**" = ["T20"]
 "src/finance_sync/connectors/**" = ["TC", "ASYNC", "DTZ", "T20"]
 "src/finance_sync/container.py" = ["TC"]

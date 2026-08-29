@@ -1082,6 +1082,7 @@ async def export_wealthfolio_job(container: Container) -> dict[str, Any]:
         config=WealthfolioClientConfig(
             base_url=server_url,
             password=password,
+            request_timeout=settings.wealthfolio_request_timeout,
         ),
     )
 

@@ -32,6 +32,7 @@ _CATALOG_METADATA_KEYS = frozenset(
         "lifecycle_status",
     }
 )
+_INGESTION_METHODS = frozenset({"api", "file"})
 
 
 class ConnectorRegistry:
@@ -173,6 +174,31 @@ class ConnectorRegistry:
             "has_rate_limit_policy": rate_limit is not None,
             "metadata_incomplete": metadata_incomplete,
         }
+        raw_methods: object = getattr(connector, "ingestion_methods", ("api",))
+        if not isinstance(raw_methods, (list, tuple, set, frozenset)):
+            metadata_incomplete = True
+            methods = ["api"]
+        else:
+            raw_values = list(cast("Iterable[object]", raw_methods))
+            if not all(isinstance(item, str) for item in raw_values):
+                metadata_incomplete = True
+            methods = sorted(
+                {
+                    item
+                    for item in raw_values
+                    if isinstance(item, str) and item in _INGESTION_METHODS
+                }
+            )
+            if not methods:
+                metadata_incomplete = True
+                methods = ["api"]
+        result["ingestion_methods"] = methods
+        wizard = getattr(connector, "import_wizard", {})
+        if isinstance(wizard, dict):
+            result["import_wizard"] = wizard
+        else:
+            result["import_wizard"] = {}
+            result["metadata_incomplete"] = True
         result.update(safe)
         return result
 

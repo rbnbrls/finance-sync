@@ -142,6 +142,20 @@ def test_dashboard_control_plane_normalizes_api_action_paths(
     assert "Open de security-mappingflow" in html
 
 
+def test_dashboard_opens_reconciliation_findings_inside_authenticated_ui(
+    client: TestClient,
+) -> None:
+    """Reconciliation action links must keep the dashboard auth context."""
+    html = _dashboard_html(client)
+    assert 'id="data-health-reconciliation-detail"' in html
+    assert "function openReconciliationDetail" in html
+    assert "reconciliationRunIdFromPath" in html
+    assert "api('GET', path)" in html
+    assert "Finding details" in html
+    assert "else if (path.includes('/reconciliation/'))" in html
+    assert "window.location.href = path" in html
+
+
 def test_dashboard_ships_connector_list_surface(client: TestClient) -> None:
     """The page has a container the wizard renders into, plus an initial
     loading state so the user never sees a blank body."""
@@ -173,17 +187,37 @@ def test_dashboard_ships_read_only_database_viewer(client: TestClient) -> None:
 def test_dashboard_separates_manual_uploads_from_api_connectors(
     client: TestClient,
 ) -> None:
-    """Manual DEGIRO files have a dedicated upload page, not an API card."""
+    """All file providers enter through the shared Importeren flow."""
     html = _dashboard_html(client)
     assert 'data-section="uploads"' in html
     assert 'id="section-uploads"' in html
-    assert 'id="degiro-upload-files"' in html
-    assert 'id="degiro-upload-connection"' in html
-    assert "previewDegiroUpload()" in html
-    assert "confirmDegiroUpload()" in html
-    # The API connector page filters the manual-only provider client-side.
-    assert "connectorCatalog.filter(c => c.name !== 'degiro_pension')" in html
-    assert "c.provider_type !== 'degiro_pension'" in html
+    assert "renderProviderFileWizard" in html
+    assert "setImportFlowFile" in html
+    assert "setSaxoImportFlowFile" in html
+    assert "validateGenericImportFiles" in html
+
+
+def test_dashboard_uses_one_import_entrypoint_with_provider_method_choice(
+    client: TestClient,
+) -> None:
+    """The user starts every import from Importeren and chooses the method there."""
+    html = _dashboard_html(client)
+    assert 'data-section="uploads"' in html
+    assert 'data-section="connectors"' not in html
+    assert '<h1 class="page-title" id="uploads-title">Importeren</h1>' in html
+    assert "Bestaande koppelingen beheren" in html
+    assert "function selectImportMethod" in html
+    assert "API koppelen" in html
+    assert "Bestanden uploaden" in html
+    assert "/connectors/file-uploads/dispatch" in html
+    assert "function testInlineProfile" in html
+    assert 'id="inline-profile-accounts"' in html
+    assert "openAccountsModal('${escapeHtml(String(cfg.id))}')" in html
+    assert "saxo-initial-files" not in html
+    assert 'class="card degiro-wizard"' not in html
+    assert "function renderUploadHistory" in html
+    assert "profile_name" in html
+    assert "retryFileUpload" in html
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -201,20 +235,15 @@ def test_dashboard_separates_manual_uploads_from_api_connectors(
 
 
 def test_dashboard_ships_degiro_guided_wizard(client: TestClient) -> None:
-    """The uploads section renders the DEGIRO guided import wizard."""
+    """The shared import page contains the DEGIRO provider wizard contract."""
     html = _dashboard_html(client)
-    assert 'class="card degiro-wizard"' in html
-    assert "<h2>DEGIRO importwizard</h2>" in html
-    assert '<span class="badge pending">3 bestanden</span>' in html
-    # Progress tracker, body and result regions are all present.
-    assert 'id="degiro-wizard-progress"' in html
-    assert 'id="degiro-wizard-body" aria-live="polite"' in html
-    assert 'id="degiro-wizard-result" aria-live="polite"' in html
-    # Privacy notice: files are validated and only processed after confirm.
-    assert (
-        "Je bestanden worden veilig gecontroleerd en pas na jouw "
-        "bevestiging verwerkt." in html
-    )
+    assert "DEGIRO Pensioen" in html
+    assert "Accountoverzicht" in html
+    assert "Transacties" in html
+    assert "Portefeuille" in html
+    assert 'id="import-flow-panel"' in html
+    assert "/connectors/file-uploads/dispatch" in html
+    assert "De drie bestanden zijn verwerkt" in html
 
 
 def test_degiro_wizard_defines_three_reports(client: TestClient) -> None:
@@ -246,9 +275,9 @@ def test_degiro_wizard_progress_tracking_renders_four_steps(
     assert "index + 1 === degiroWizardState.step" in html
     assert "index + 1 < degiroWizardState.step" in html
     assert "wizard-step-label" in html
-    # The wizard is initialised on page load.
-    assert "function initDegiroWizard()" in html
-    assert "initDegiroWizard();" in html
+    # The old wizard is no longer initialized or mounted in the page.
+    assert "function initDegiroWizard()" in html  # compatibility function
+    assert "initDegiroWizard();" not in html
 
 
 def test_degiro_wizard_ships_per_report_file_upload(
@@ -399,8 +428,9 @@ def test_dashboard_inline_errors_carry_retry_actions(
     a Retry action: page load, save, test connection, DEGIRO preview and
     DEGIRO confirm."""
     html = _dashboard_html(client)
-    # Page-level loader
-    assert "&#8635; Retry" in html
+    # Unified import history offers a fresh-upload retry path.
+    assert "function retryFileUpload" in html
+    assert "Selecteer de bestanden opnieuw" in html
     assert "retryLoad(" in html
     # Wizard save
     assert "Retry Save" in html
@@ -412,6 +442,7 @@ def test_dashboard_inline_errors_carry_retry_actions(
     assert "Could not confirm the import" in html
     assert "previewDegiroImport(" in html
     assert "confirmDegiroImport(" in html
+    assert "validateGenericImportFiles" in html
 
 
 def test_dashboard_saves_connect_config_with_validation(

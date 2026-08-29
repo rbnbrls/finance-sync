@@ -106,6 +106,46 @@ if TYPE_CHECKING:
 # ── Fixtures ──────────────────────────────────────────────────────────
 
 
+class _FrozenDatetime(datetime):
+    """A datetime subclass that always reports the fixed instant.
+
+    Used to freeze ``datetime.now(UTC)`` inside the service module so
+    time-dependent score factors (recency/proximity half-lives) are
+    identical across repeated builds — otherwise the deterministic
+    ranking test flakes on the last digit of the rounded score.
+    """
+
+    frozen: datetime | None = None
+
+    @classmethod
+    def now(cls, tz: Any = None) -> datetime:
+        assert cls.frozen is not None, "frozen instant not set"
+        if tz is None:
+            return cls.frozen
+        return (
+            cls.frozen.astimezone(tz)
+            if tz.utcoffset(None) is not None
+            else cls.frozen
+        )
+
+
+@pytest.fixture
+def frozen_service_clock(
+    monkeypatch: pytest.MonkeyPatch,
+) -> datetime:
+    """Freeze ``datetime.now(UTC)`` in the holding-relevance service.
+
+    Returns the frozen instant so tests can anchor relative timestamps
+    to the same clock the service observes.
+    """
+    frozen = _FrozenDatetime(2026, 8, 28, 12, 0, 0, tzinfo=UTC)
+    _FrozenDatetime.frozen = frozen
+    import finance_sync.services.holding_relevance as hr
+
+    monkeypatch.setattr(hr, "datetime", _FrozenDatetime)
+    return frozen
+
+
 @pytest.fixture
 def engine() -> AsyncEngine:
     return create_async_engine("sqlite+aiosqlite://", echo=False)
@@ -542,9 +582,17 @@ class TestCashAccountRelevance:
 
 class TestDeterministicRanking:
     async def test_ranking_is_deterministic(
-        self, session_factory: async_sessionmaker
+        self,
+        session_factory: async_sessionmaker,
+        frozen_service_clock: datetime,
     ) -> None:
-        """Same input twice → same cluster order and scores."""
+        """Same input twice → same cluster order and scores.
+
+        The clock is frozen because the ranking score decays with real
+        time (recency/proximity half-lives); two builds a few seconds
+        apart would otherwise round to slightly different scores.
+        """
+        now = frozen_service_clock
         tenant = await _new_tenant(session_factory)
         sec_a = await _new_security(session_factory, ticker="AAPL")
         sec_b = await _new_security(session_factory, ticker="MSFT")
@@ -555,7 +603,6 @@ class TestDeterministicRanking:
         await _new_holding(
             session_factory, tenant, acct, sec_b, market_value=Decimal(100)
         )
-        now = datetime.now(UTC)
         await _new_item(
             session_factory,
             tenant,
