@@ -8,12 +8,12 @@ from unittest.mock import patch
 import pytest
 
 from scripts.key_rotation_monitoring import (
+    _check_key_version_downgrade,
     build_key_issue_body,
     build_key_marker,
     check_key_provider_status,
     check_key_rotation_status,
     should_block_promotion,
-    _check_key_version_downgrade,
 )
 
 
@@ -41,16 +41,17 @@ def test_check_key_provider_status_with_config():
 
 def test_check_key_provider_status_error():
     """Test key provider status check when config is missing."""
-    with patch.dict('os.environ', {}, clear=True):
-        with patch('os.getcwd', return_value="/nonexistent"):
-            # Mock os.path.exists to return False for the config file
-            with patch('os.path.exists', return_value=False):
-                result = check_key_provider_status()
+    with (
+        patch.dict("os.environ", {}, clear=True),
+        patch("os.getcwd", return_value="/nonexistent"),
+        patch("os.path.exists", return_value=False),
+    ):
+        result = check_key_provider_status()
 
-                # Now we expect a simulated key info (no error) because KEY_CURRENT_VERSION is not set
-                assert "error" not in result
-                assert result["current_version"] == "v2"
-                assert result["state"] == "current"
+        # Now we expect a simulated key info (no error) because KEY_CURRENT_VERSION is not set
+        assert "error" not in result
+        assert result["current_version"] == "v2"
+        assert result["state"] == "current"
 
 
 def test_check_key_rotation_status_approaching_expiry():
@@ -64,7 +65,9 @@ def test_check_key_rotation_status_approaching_expiry():
         "material_logged": False,
     }
 
-    with patch.dict('os.environ', {"KEY_ROTATION_ALERT_BEFORE_EXPIRY_HOURS": "24"}):
+    with patch.dict(
+        "os.environ", {"KEY_ROTATION_ALERT_BEFORE_EXPIRY_HOURS": "24"}
+    ):
         alerts = check_key_rotation_status(key_info)
 
         assert len(alerts) == 1
@@ -84,7 +87,9 @@ def test_check_key_rotation_status_critical_expiry():
         "material_logged": False,
     }
 
-    with patch.dict('os.environ', {"KEY_ROTATION_ALERT_BEFORE_EXPIRY_HOURS": "24"}):
+    with patch.dict(
+        "os.environ", {"KEY_ROTATION_ALERT_BEFORE_EXPIRY_HOURS": "24"}
+    ):
         alerts = check_key_rotation_status(key_info)
 
         assert len(alerts) == 1
@@ -104,7 +109,9 @@ def test_check_key_rotation_status_no_alerts():
         "material_logged": False,
     }
 
-    with patch.dict('os.environ', {"KEY_ROTATION_ALERT_BEFORE_EXPIRY_HOURS": "24"}):
+    with patch.dict(
+        "os.environ", {"KEY_ROTATION_ALERT_BEFORE_EXPIRY_HOURS": "24"}
+    ):
         alerts = check_key_rotation_status(key_info)
 
         assert len(alerts) == 0
@@ -221,17 +228,27 @@ def test_build_key_issue_body():
         }
     ]
 
-    body = build_key_issue_body(timestamp, key_info, alerts)
+    # build_key_issue_body embeds the *current* UTC date in the dedup
+    # marker, so freeze "now" to make the assertion deterministic
+    # (previously the hardcoded date went stale after midnight).
+    with patch("scripts.key_rotation_monitoring.datetime") as mock_datetime:
+        mock_datetime.now.return_value = datetime(
+            2026, 8, 28, 12, 0, 0, tzinfo=UTC
+        )
+        mock_datetime.UTC = UTC
+        body = build_key_issue_body(timestamp, key_info, alerts)
 
     assert "## 🔑 Key Rotation Monitoring — finance-sync" in body
     assert "**Detected at:** 2026-08-28T12:00:00+00:00" in body
     assert "| Current Version | v2 |" in body
     assert "| Key State | current |" in body
     assert "### Alerts" in body
-    assert "- **key_approaching_expiry** (warning): Key version v2 expires in 720.0 hours" in body
+    assert (
+        "- **key_approaching_expiry** (warning): Key version v2 expires in 720.0 hours"
+        in body
+    )
     # The marker uses the current date (datetime.now(UTC)), not the timestamp date
-    from datetime import UTC, datetime
-    expected_date = datetime.now(UTC).strftime("%Y-%m-%d")
+    expected_date = "2026-08-28"
     assert f"<!-- key-rotation-monitor:{expected_date} -->" in body
 
 
@@ -291,7 +308,10 @@ def test_revoked_key_blocks_promotion():
     """Test that a revoked key version blocks promotion."""
     # This test simulates the scenario where a key version is revoked
     # The ManagedKeyProvider raises KeyProviderError when fetching a revoked version
-    from finance_sync.services.key_provider import ManagedKeyProvider, KeyProviderError
+    from finance_sync.services.key_provider import (
+        KeyProviderError,
+        ManagedKeyProvider,
+    )
 
     revoked_versions = frozenset(["v1"])
 
@@ -309,7 +329,8 @@ def test_revoked_key_blocks_promotion():
     # Should raise KeyProviderError when trying to use the revoked key
     try:
         provider.current()
-        assert False, "Expected KeyProviderError for revoked key"
+        msg = "Expected KeyProviderError for revoked key"
+        raise AssertionError(msg)
     except KeyProviderError as exc:
         assert "revoked" in str(exc).lower()
 
@@ -397,7 +418,9 @@ def test_pre_expiry_alert_at_threshold():
         "material_logged": False,
     }
 
-    with patch.dict('os.environ', {"KEY_ROTATION_ALERT_BEFORE_EXPIRY_HOURS": "24"}):
+    with patch.dict(
+        "os.environ", {"KEY_ROTATION_ALERT_BEFORE_EXPIRY_HOURS": "24"}
+    ):
         alerts = check_key_rotation_status(key_info)
 
         assert len(alerts) == 1
@@ -417,7 +440,9 @@ def test_pre_expiry_alert_critical_at_one_hour():
         "material_logged": False,
     }
 
-    with patch.dict('os.environ', {"KEY_ROTATION_ALERT_BEFORE_EXPIRY_HOURS": "24"}):
+    with patch.dict(
+        "os.environ", {"KEY_ROTATION_ALERT_BEFORE_EXPIRY_HOURS": "24"}
+    ):
         alerts = check_key_rotation_status(key_info)
 
         assert len(alerts) == 1
@@ -437,7 +462,9 @@ def test_no_alert_for_healthy_key():
         "material_logged": False,
     }
 
-    with patch.dict('os.environ', {"KEY_ROTATION_ALERT_BEFORE_EXPIRY_HOURS": "24"}):
+    with patch.dict(
+        "os.environ", {"KEY_ROTATION_ALERT_BEFORE_EXPIRY_HOURS": "24"}
+    ):
         alerts = check_key_rotation_status(key_info)
 
         assert len(alerts) == 0
@@ -481,7 +508,9 @@ def test_downgrade_alert_blocks_promotion():
     # but in the actual monitoring flow, a downgrade would trigger an alert
     # which would be part of the key status evaluation
     # For now, we verify the current logic
-    assert should_block_promotion(key_info) is False  # Not blocked by this alone
+    assert (
+        should_block_promotion(key_info) is False
+    )  # Not blocked by this alone
 
 
 if __name__ == "__main__":
