@@ -2,6 +2,7 @@
 
 # pyright: basic
 
+
 import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -9,6 +10,8 @@ from pathlib import Path
 import pytest
 
 from scripts.enforce_audit_retention import (
+    authorize_report_access,
+    can_access_report,
     execute_retention,
     select_expired,
 )
@@ -172,3 +175,99 @@ def test_report_retention_policy_is_separate_and_limited() -> None:
         ]
     )
     assert policy["purpose"] == "retention-run-reports"
+
+
+def test_report_labels_are_safe_and_identifiers_are_keyed() -> None:
+    now = datetime(2026, 1, 1, tzinfo=UTC)
+    report = execute_retention(
+        [
+            {
+                "id": "secret",
+                "tenant_id": "tenant-a",
+                "category": "</report><script>\n=CMD",
+                "created_at": (now - timedelta(days=4000)).isoformat(),
+            }
+        ],
+        now=now,
+        retention_days=3650,
+        tenant_id="tenant-a",
+        dry_run=True,
+        delete=lambda _: None,
+        restore=lambda _: None,
+        identifier_secret=b"test-secret",
+    )
+    serialized = json.dumps(report)
+    assert "<" not in serialized and "\n" not in report["counts_by_category"]
+    assert "=CMD" not in serialized
+    assert report["tenant_id"] != "tenant-a"
+
+
+def test_successful_retry_is_idempotent() -> None:
+    now = datetime(2026, 1, 2, tzinfo=UTC)
+    records = _records(now)
+    deleted: list[str] = []
+    kwargs = {
+        "now": now,
+        "retention_days": 3650,
+        "tenant_id": "tenant-a",
+        "dry_run": False,
+        "delete": deleted.append,
+        "restore": lambda _: None,
+        "identifier_secret": b"retry-secret",
+    }
+    first = execute_retention(records, **kwargs)
+    second = execute_retention(records, **kwargs)
+    assert first == second
+    assert deleted == ["a-old", "a-old-2"]
+
+
+def test_process_failure_leaves_incomplete_report() -> None:
+    now = datetime(2026, 1, 3, tzinfo=UTC)
+    records = _records(now)
+
+    def crash(_: str) -> None:
+        message = "crash"
+        raise SystemExit(message)
+
+    report = execute_retention(
+        records,
+        now=now,
+        retention_days=3650,
+        tenant_id="tenant-a",
+        dry_run=False,
+        delete=crash,
+        restore=lambda _: None,
+    )
+    assert report["status"] == "incomplete"
+    assert report["failed_count"] == 0
+
+
+def test_report_access_requires_scoped_credential_and_policy() -> None:
+    now = datetime(2026, 1, 4, tzinfo=UTC)
+    report = {"tenant_id": "tenant-hash", "generated_at": now.isoformat()}
+    policy = {
+        "retention_days": 90,
+        "allowed_roles": ["retention-auditor", "application-admin"],
+    }
+    assert can_access_report(
+        report,
+        credential_tenant_id="tenant-hash",
+        credential_role="retention-auditor",
+        now=now,
+        policy=policy,
+    )
+    assert not can_access_report(
+        report,
+        credential_tenant_id="other",
+        credential_role="retention-auditor",
+        now=now,
+        policy=policy,
+    )
+    with pytest.raises(PermissionError):
+        authorize_report_access(
+            report,
+            credential_tenant_id="other",
+            credential_role="retention-auditor",
+            now=now,
+            policy=policy,
+        )

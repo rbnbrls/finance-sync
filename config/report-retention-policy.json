@@ -3,5 +3,8 @@
   "retention_days": 90,
   "delete_after_expiry": true,
   "contains_personal_or_financial_values": false,
-  "identifier_policy": "sha256-without-raw-identifiers"
+  "identifier_policy": "keyed-hmac-without-raw-identifiers",
+  "allowed_roles": ["retention-auditor", "application-admin"],
+  "access_scope": "tenant-or-application-credential",
+  "deletion_authority": "retention-report-service-only"
 }
