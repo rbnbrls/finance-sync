@@ -230,9 +230,7 @@ def test_build_key_issue_body():
     # build_key_issue_body embeds the *current* UTC date in the dedup
     # marker, so freeze "now" to make the assertion deterministic
     # (previously the hardcoded date went stale after midnight).
-    with patch(
-        "scripts.key_rotation_monitoring.datetime"
-    ) as mock_datetime:
+    with patch("scripts.key_rotation_monitoring.datetime") as mock_datetime:
         mock_datetime.now.return_value = datetime(
             2026, 8, 28, 12, 0, 0, tzinfo=UTC
         )
