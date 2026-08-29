@@ -305,7 +305,9 @@ class TestWealthfolioClientImport:
         ]
         with (
             patch.object(client, "get_accounts", return_value=accounts),
-            patch.object(client, "delete_account", new_callable=AsyncMock) as delete,
+            patch.object(
+                client, "delete_account", new_callable=AsyncMock
+            ) as delete,
         ):
             removed = await client.delete_accounts_not_owned_by_finance_sync(
                 {"finance-sync:tenant:acct-1"}

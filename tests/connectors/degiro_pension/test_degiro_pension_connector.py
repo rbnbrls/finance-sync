@@ -167,7 +167,7 @@ async def test_statement_pairs_usd_dividend_with_degiro_fx_conversion(
             dividends,
             (
                 Decimal("35.45454545454545454545454545"),
-                    Decimal("71.18353344768439108061749571"),
+                Decimal("71.18353344768439108061749571"),
             ),
             strict=True,
         )
