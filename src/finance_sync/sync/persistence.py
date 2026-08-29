@@ -9,6 +9,7 @@ replace or test.
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from typing import TYPE_CHECKING, Any, Protocol
@@ -45,6 +46,7 @@ if TYPE_CHECKING:
         SecurityReference,
     )
     from finance_sync.db.uow import UnitOfWork
+    from finance_sync.sync.upserts import UpsertResult
 
 
 def values_differ(new_val: Any, old_val: Any) -> bool:
@@ -230,6 +232,206 @@ class TransactionPersistence:
     def __init__(self, tenant_id: str) -> None:
         self._tenant_id = tenant_id
 
+    async def persist_transactions_batch(
+        self,
+        uow: UnitOfWork,
+        transactions: Sequence[CanonicalTransactionData],
+        account_id: str,
+        *,
+        security_ids: Sequence[str | None] | None = None,
+        connection_id: str | None = None,
+    ) -> int:
+        """Bulk-upsert many transactions for one account in a single call.
+
+        Uses the PostgreSQL ``INSERT .. ON CONFLICT DO UPDATE`` path when
+        the session is bound to PostgreSQL (one round-trip, database-level
+        idempotency); falls back to the per-row :meth:`persist_transaction`
+        loop on other dialects (SQLite unit tests, mock sessions).
+        """
+        from finance_sync.sync.upserts import (
+            UpsertResult,
+            _is_postgresql,  # pyright: ignore[reportPrivateUsage]
+            bulk_upsert_transactions,
+        )
+
+        resolved_security_ids: list[str | None] = (
+            list(security_ids)
+            if security_ids is not None
+            else [None] * len(transactions)
+        )
+        if len(resolved_security_ids) != len(transactions):
+            msg = "security_ids length must match transactions length"
+            raise ValueError(msg)
+
+        rows: list[dict[str, Any]] = []
+        for index, transaction in enumerate(transactions):
+            transaction_type = (
+                TransactionType(transaction.transaction_type)
+                if transaction.transaction_type
+                in TransactionType.__members__.values()
+                else TransactionType.OTHER
+            )
+            transaction_status = (
+                TransactionStatus(transaction.status)
+                if transaction.status in TransactionStatus.__members__.values()
+                else TransactionStatus.PENDING
+            )
+            from uuid import uuid4
+
+            rows.append(
+                {
+                    "id": uuid4(),
+                    "tenant_id": self._tenant_id,
+                    "provider_key": transaction.provider_key,
+                    "connection_id": connection_id,
+                    "external_transaction_id": (
+                        transaction.external_transaction_id
+                    ),
+                    "account_id": account_id,
+                    "security_id": resolved_security_ids[index],
+                    "amount": Decimal(str(transaction.amount)),
+                    "currency_code": transaction.currency_code,
+                    "amount_in_base": (
+                        Decimal(str(transaction.amount_in_base))
+                        if transaction.amount_in_base is not None
+                        else None
+                    ),
+                    "base_currency_code": transaction.base_currency_code,
+                    "fx_rate": (
+                        Decimal(str(transaction.fx_rate))
+                        if transaction.fx_rate is not None
+                        else None
+                    ),
+                    "occurred_at": transaction.occurred_at,
+                    "booked_at": transaction.booked_at,
+                    "transaction_type": transaction_type,
+                    "description": transaction.description,
+                    "quantity": transaction.quantity,
+                    "unit_price": transaction.unit_price,
+                    "fee_amount": transaction.fee_amount,
+                    "fee_currency_code": transaction.fee_currency_code,
+                    "status": transaction_status,
+                    "provider_fingerprint": transaction.provider_fingerprint,
+                    "revision": 1,
+                }
+            )
+
+        async def fallback() -> UpsertResult:
+            ids: list[str] = []
+            for index, transaction in enumerate(transactions):
+                entity = await self.persist_transaction(
+                    uow,
+                    transaction,
+                    account_id,
+                    security_id=resolved_security_ids[index],
+                    connection_id=connection_id,
+                )
+                ids.append(str(getattr(entity, "id", "")))
+            return UpsertResult(inserted_ids=tuple(ids), updated_ids=())
+
+        is_postgresql = _is_postgresql(uow.session)
+        result = await bulk_upsert_transactions(
+            uow.session,
+            rows,
+            index_elements=(
+                "tenant_id",
+                "provider_key",
+                "connection_id",
+                "external_transaction_id",
+            ),
+            update_columns=(
+                "security_id",
+                "amount",
+                "currency_code",
+                "amount_in_base",
+                "base_currency_code",
+                "fx_rate",
+                "occurred_at",
+                "booked_at",
+                "transaction_type",
+                "description",
+                "quantity",
+                "unit_price",
+                "fee_amount",
+                "fee_currency_code",
+                "status",
+                "provider_fingerprint",
+            ),
+            fallback=fallback,
+        )
+        # Outbox events are emitted only on the PostgreSQL path.  The
+        # per-row fallback (SQLite unit tests, mock sessions) already
+        # emits ``created``/``updated`` inside :meth:`persist_transaction`,
+        # so emitting again here would double-publish.
+        if is_postgresql and result.total:
+            await self._emit_batch_outbox(
+                uow,
+                transactions,
+                result,
+                [str(row["id"]) for row in rows],
+            )
+        # Count semantics match the per-row path: every input row was
+        # processed (inserted, updated, or a no-op conflict-update), so
+        # the processed count is the input length — not the number of
+        # rows that actually changed (the WHERE-gated DO UPDATE returns
+        # only changed rows, which would undercount re-syncs).
+        return len(transactions)
+
+    async def _emit_batch_outbox(
+        self,
+        uow: UnitOfWork,
+        transactions: Sequence[CanonicalTransactionData],
+        result: UpsertResult,
+        generated_ids: Sequence[str],
+    ) -> None:
+        """Emit ``transaction.created``/``transaction.updated`` per row.
+
+        An inserted row keeps the freshly generated uuid4 we handed it
+        (``RETURNING`` returns that id), so a generated id appearing in
+        ``result.inserted_ids`` identifies exactly which input row was
+        created.  Updated rows keep their pre-existing id, so
+        ``result.updated_ids`` are the updated entity ids in RETURNING
+        (input) order; the provider key is uniform across one account's
+        batch, so it is taken from the batch.
+
+        Idempotency keys are derived from the entity id, so a re-run
+        that only updates rows emits ``*.updated`` (never a second
+        ``*.created``), and the outbox unique constraint keeps
+        re-emission safe.  Rows whose conflict-update found no change
+        are not returned by the statement and are not emitted at all.
+        """
+        inserted_set = set(result.inserted_ids)
+        for transaction, generated_id in zip(
+            transactions, generated_ids, strict=False
+        ):
+            if generated_id not in inserted_set:
+                continue
+            await outbox_entity_created(
+                uow,
+                tenant_id=self._tenant_id,
+                entity_type="transaction",
+                entity_id=generated_id,
+                entity_data={
+                    "provider_key": transaction.provider_key,
+                    "external_transaction_id": (
+                        transaction.external_transaction_id
+                    ),
+                    "amount": str(transaction.amount),
+                    "currency_code": transaction.currency_code,
+                },
+                provider_key=transaction.provider_key,
+            )
+        provider_key = transactions[0].provider_key if transactions else None
+        for entity_id in result.updated_ids:
+            await outbox_entity_updated(
+                uow,
+                tenant_id=self._tenant_id,
+                entity_type="transaction",
+                entity_id=entity_id,
+                changed_fields={"batch_upsert": True},
+                provider_key=provider_key,
+            )
+
     async def persist_transaction(
         self,
         uow: UnitOfWork,
@@ -358,6 +560,156 @@ class HoldingPersistence:
 
     def __init__(self, tenant_id: str) -> None:
         self._tenant_id = tenant_id
+
+    async def persist_holdings_batch(
+        self,
+        uow: UnitOfWork,
+        holdings: Sequence[CanonicalHoldingData],
+        account_id: str,
+        *,
+        security_ids: Sequence[str],
+    ) -> int:
+        """Bulk-upsert many holding snapshots for one account in one call.
+
+        Uses the PostgreSQL ``INSERT .. ON CONFLICT DO UPDATE`` path when
+        the session is bound to PostgreSQL (one round-trip, database-level
+        idempotency against the ``uq_holdings_snapshot`` constraint);
+        falls back to the per-row :meth:`persist_holding` loop on other
+        dialects (SQLite unit tests, mock sessions).
+        """
+        from finance_sync.sync.upserts import (
+            UpsertResult,
+            _is_postgresql,  # pyright: ignore[reportPrivateUsage]
+            bulk_upsert_holdings,
+        )
+
+        if len(security_ids) != len(holdings):
+            msg = "security_ids length must match holdings length"
+            raise ValueError(msg)
+
+        rows: list[dict[str, Any]] = []
+        for index, holding in enumerate(holdings):
+            try:
+                source = HoldingSource(holding.source)
+            except ValueError:
+                source = HoldingSource.PROVIDER_SYNC
+            from uuid import uuid4
+
+            rows.append(
+                {
+                    "id": uuid4(),
+                    "tenant_id": self._tenant_id,
+                    "account_id": account_id,
+                    "security_id": security_ids[index],
+                    "observed_at": holding.observed_at,
+                    "source": source.value,
+                    "quantity": Decimal(str(holding.quantity)),
+                    "cost_basis": (
+                        Decimal(str(holding.cost_basis))
+                        if holding.cost_basis is not None
+                        else None
+                    ),
+                    "cost_basis_currency": holding.cost_basis_currency,
+                    "market_value": (
+                        Decimal(str(holding.market_value))
+                        if holding.market_value is not None
+                        else None
+                    ),
+                    "currency_code": holding.currency_code,
+                    "price": (
+                        Decimal(str(holding.price))
+                        if holding.price is not None
+                        else None
+                    ),
+                    "price_currency": holding.price_currency,
+                }
+            )
+
+        async def fallback() -> UpsertResult:
+            ids: list[str] = []
+            for index, holding in enumerate(holdings):
+                entity = await self.persist_holding(
+                    uow,
+                    holding,
+                    account_id,
+                    security_ids[index],
+                )
+                ids.append(str(getattr(entity, "id", "")))
+            return UpsertResult(inserted_ids=tuple(ids), updated_ids=())
+
+        is_postgresql = _is_postgresql(uow.session)
+        result = await bulk_upsert_holdings(
+            uow.session,
+            rows,
+            index_elements=(
+                "tenant_id",
+                "account_id",
+                "security_id",
+                "observed_at",
+                "source",
+            ),
+            update_columns=(
+                "quantity",
+                "cost_basis",
+                "cost_basis_currency",
+                "market_value",
+                "currency_code",
+                "price",
+                "price_currency",
+            ),
+            fallback=fallback,
+        )
+        # Outbox events are emitted only on the PostgreSQL path.  The
+        # per-row fallback (SQLite unit tests, mock sessions) already
+        # emits ``created``/``updated`` inside :meth:`persist_holding`,
+        # so emitting again here would double-publish.
+        if is_postgresql and result.total:
+            await self._emit_batch_outbox(
+                uow,
+                holdings,
+                result,
+                [str(row["id"]) for row in rows],
+            )
+        # Count semantics match the per-row path (processed rows, not
+        # changed rows — see persist_transactions_batch).
+        return len(holdings)
+
+    async def _emit_batch_outbox(
+        self,
+        uow: UnitOfWork,
+        holdings: Sequence[CanonicalHoldingData],
+        result: UpsertResult,
+        generated_ids: Sequence[str],
+    ) -> None:
+        """Emit ``holding.created``/``holding.updated`` per snapshot.
+
+        Same id-membership contract as the transaction batch outbox: a
+        generated id in ``result.inserted_ids`` identifies the created
+        input row; ``result.updated_ids`` are the updated entity ids in
+        RETURNING order.
+        """
+        inserted_set = set(result.inserted_ids)
+        for holding, generated_id in zip(holdings, generated_ids, strict=False):
+            if generated_id not in inserted_set:
+                continue
+            await outbox_entity_created(
+                uow,
+                tenant_id=self._tenant_id,
+                entity_type="holding",
+                entity_id=generated_id,
+                entity_data={"observed_at": holding.observed_at.isoformat()},
+                provider_key=holding.provider_key,
+            )
+        provider_key = holdings[0].provider_key if holdings else None
+        for entity_id in result.updated_ids:
+            await outbox_entity_updated(
+                uow,
+                tenant_id=self._tenant_id,
+                entity_type="holding",
+                entity_id=entity_id,
+                changed_fields={"snapshot_updated": True},
+                provider_key=provider_key,
+            )
 
     async def persist_holding(
         self,
@@ -510,6 +862,47 @@ class SyncPersistence:
             connection_id=connection_id,
         )
 
+    async def persist_transactions_batch(
+        self,
+        uow: UnitOfWork,
+        transactions: Sequence[CanonicalTransactionData],
+        account_id: str,
+        *,
+        security_ids: Sequence[str | None] | None = None,
+        connection_id: str | None = None,
+    ) -> int:
+        """Bulk-upsert a list of transactions for one account.
+
+        Requires a context (concrete persistence); the writer-only mode
+        has no batch surface and falls back to per-row forwards.
+        """
+        if self.context is None:
+            total = 0
+            resolved: list[str | None] = (
+                list(security_ids)
+                if security_ids is not None
+                else [None] * len(transactions)
+            )
+            for index, transaction in enumerate(transactions):
+                await self._writer.persist_transaction(
+                    uow,
+                    transaction,
+                    account_id,
+                    security_id=(
+                        resolved[index] if index < len(resolved) else None
+                    ),
+                    connection_id=connection_id,
+                )
+                total += 1
+            return total
+        return await self._transaction_persistence.persist_transactions_batch(
+            uow,
+            transactions,
+            account_id,
+            security_ids=security_ids,
+            connection_id=connection_id,
+        )
+
     async def persist_holding(
         self,
         uow: UnitOfWork,
@@ -523,6 +916,33 @@ class SyncPersistence:
             )
         return await self._holding_persistence.persist_holding(
             uow, holding, account_id, security_id
+        )
+
+    async def persist_holdings_batch(
+        self,
+        uow: UnitOfWork,
+        holdings: Sequence[CanonicalHoldingData],
+        account_id: str,
+        *,
+        security_ids: Sequence[str],
+    ) -> int:
+        """Bulk-upsert a list of holding snapshots for one account."""
+        if self.context is None:
+            total = 0
+            for index, holding in enumerate(holdings):
+                await self._writer.persist_holding(
+                    uow,
+                    holding,
+                    account_id,
+                    security_ids[index] if index < len(security_ids) else "",
+                )
+                total += 1
+            return total
+        return await self._holding_persistence.persist_holdings_batch(
+            uow,
+            holdings,
+            account_id,
+            security_ids=security_ids,
         )
 
     async def resolve_security_reference(
