@@ -344,8 +344,10 @@ class Trading212Connector(Connector):
         *,
         account_id: str | None = None,
         limit: int | None = None,
+        to: datetime | None = None,
     ) -> list[RawTransaction]:
-        """Fetch orders and cash transactions since *since*.
+        """Fetch orders and cash transactions since *since* (optionally
+        up to *to*).
 
         Combines data from two Trading212 endpoints:
 
@@ -364,9 +366,14 @@ class Trading212Connector(Connector):
             account_id: If set, only return transactions matching this
                 account ID.
             limit: Maximum number of transactions to return.
+            to: Optional exclusive upper bound; only return transactions
+                occurring before this time (Trading212's ``to`` query
+                parameter).  When omitted, the provider returns all
+                transactions up to the present.
 
         Returns:
-            A combined, chronologically-sorted list of raw transactions.
+            A combined, chronologically-sorted list of raw transactions,
+            deduplicated by ``external_transaction_id``.
         """
         if not self._account_id:
             msg = "Trading212Connector not authenticated"
@@ -376,26 +383,50 @@ class Trading212Connector(Connector):
         if account_id is not None and account_id != self._account_id:
             return []
 
+        if to is not None and to <= since:
+            msg = (
+                f"Trading212 date range invalid: 'to' ({to.isoformat()}) "
+                f"must be after 'since' ({since.isoformat()})"
+            )
+            raise PermanentError(msg)
+
         api_key = self.config.credentials.get("api_key", "")
 
         # Fetch from both endpoints concurrently
-        order_txns = await self._fetch_order_history(api_key, since, limit)
-        cash_txns = await self._fetch_transaction_history(api_key, since, limit)
+        order_txns = await self._fetch_order_history(
+            api_key, since, limit, to=to
+        )
+        cash_txns = await self._fetch_transaction_history(
+            api_key, since, limit, to=to
+        )
 
         all_txns: list[RawTransaction] = list(order_txns) + list(cash_txns)
+        # Deduplicate by provider external id (orders are prefixed
+        # ``order_``, cash transactions ``txn_``; a same-id collision
+        # between the two lists would otherwise double-persist).
+        seen: set[str] = set()
+        deduped: list[RawTransaction] = []
+        for txn in all_txns:
+            key = txn.external_transaction_id
+            if key in seen:
+                continue
+            seen.add(key)
+            deduped.append(txn)
+
         # Sort chronologically by occurred_at (most recent first)
-        all_txns.sort(key=lambda t: t.occurred_at, reverse=True)
+        deduped.sort(key=lambda t: t.occurred_at, reverse=True)
 
-        if limit and len(all_txns) > limit:
-            all_txns = all_txns[:limit]
+        if limit and len(deduped) > limit:
+            deduped = deduped[:limit]
 
-        return all_txns
+        return deduped
 
     async def _fetch_order_history(
         self,
         api_key: str,
         since: datetime,
         limit: int | None,
+        to: datetime | None = None,
     ) -> list[RawTransaction]:
         """Fetch buy/sell order history with pagination."""
         items: list[RawTransaction] = []
@@ -404,6 +435,9 @@ class Trading212Connector(Connector):
         # Trading212 uses from/to query params in ISO-8601
         since_str = since.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
         path += f"&from={since_str}"
+        if to is not None:
+            to_str = to.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+            path += f"&to={to_str}"
 
         headers = _auth_headers(
             api_key, self.config.credentials.get("api_secret")
@@ -442,6 +476,7 @@ class Trading212Connector(Connector):
         api_key: str,
         since: datetime,
         limit: int | None,
+        to: datetime | None = None,
     ) -> list[RawTransaction]:
         """Fetch cash transaction history (dividends, deposits, etc.)
         with pagination."""
@@ -450,6 +485,9 @@ class Trading212Connector(Connector):
         path = f"/api/v0/equity/history/transactions?limit={ps}"
         since_str = since.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
         path += f"&from={since_str}"
+        if to is not None:
+            to_str = to.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+            path += f"&to={to_str}"
 
         headers = _auth_headers(
             api_key, self.config.credentials.get("api_secret")
@@ -640,6 +678,10 @@ def _parse_order(
     # Amount is outflow (negative) for buys, inflow (positive) for sells
     amount = -total if side.upper() == "BUY" else total
 
+    # Fees: Trading212 reports tax + stamp duty separately; both reduce
+    # the net cash flow of the order.
+    fee_total = (Decimal(str(tax or 0))) + (Decimal(str(stamp_duty or 0)))
+
     return RawTransaction(
         external_transaction_id=f"order_{order_id}",
         external_account_id=account_id,
@@ -652,6 +694,11 @@ def _parse_order(
         else f"{side} order {order_id}",
         transaction_type=_map_order_side(side),
         quantity=Decimal(str(quantity)) if quantity else None,
+        unit_price=(
+            Decimal(str(filled_price)) if filled_price is not None else None
+        ),
+        fee_amount=fee_total or None,
+        fee_currency_code=currency if fee_total else None,
         status=_map_order_status(status_raw),
         security_reference=SecurityReference(
             external_id=ticker or None,
@@ -708,6 +755,10 @@ def _parse_cash_transaction(
     if ticker:
         description = f"{ticker} {description}"
 
+    # For fee/tax cash transactions, surface the provider-reported
+    # amount as a positive fee (mirrors how orders report tax/stamp duty).
+    fee_amount = abs(amount) if canonical_type in ("fee", "tax") else None
+
     return RawTransaction(
         external_transaction_id=f"txn_{txn_id}",
         external_account_id=account_id,
@@ -718,6 +769,8 @@ def _parse_cash_transaction(
         description=description,
         transaction_type=canonical_type,
         status="booked",
+        fee_amount=fee_amount,
+        fee_currency_code=currency if fee_amount is not None else None,
         security_reference=SecurityReference(
             external_id=str(ticker),
             ticker=str(ticker),
