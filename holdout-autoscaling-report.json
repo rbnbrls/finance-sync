@@ -1,0 +1,120 @@
+{
+  "fail_count": 1,
+  "financial_values_in_report": false,
+  "pass_count": 7,
+  "scenarios": [
+    {
+      "error": null,
+      "evidence": "payload is not interpreted by count-only harness; report contains no financial values",
+      "financial_values_in_report": false,
+      "latency_ms": 0.011,
+      "metrics": {
+        "backpressure_respected": true,
+        "database_connections_max": 12,
+        "duplicate_writes": 0,
+        "error_rate": 0.05,
+        "financial_values_in_report": false,
+        "latency_p95_ms": 28.0,
+        "name": "retries",
+        "overload_action": "accept",
+        "provider_rate": 4.0,
+        "provider_rate_limit_respected": true,
+        "queue_depth_max": 0,
+        "requests": 80,
+        "worker_count_max": 2
+      },
+      "name": "Gepachte provider-responses en retry-injectie",
+      "status": "PASS"
+    },
+    {
+      "error": null,
+      "evidence": "policy isolation=True; repository tenant predicates=41",
+      "financial_values_in_report": false,
+      "latency_ms": 0.063,
+      "metrics": {
+        "action": "reject_new_syncs",
+        "financial_values_in_decision": false,
+        "provider_rate_limit_preserved": true,
+        "reason": "queue_depth_hard_limit",
+        "retry_after_seconds": 30,
+        "tenant_isolation": true
+      },
+      "name": "Tenant-isolatie onder gelijktijdige autoscaling",
+      "status": "PASS"
+    },
+    {
+      "error": null,
+      "evidence": "synthetic report excludes recognizable dummy secret markers",
+      "financial_values_in_report": false,
+      "latency_ms": 0.037,
+      "metrics": {
+        "secret_markers_found": []
+      },
+      "name": "Secrets in loadtest-observability",
+      "status": "PASS"
+    },
+    {
+      "error": null,
+      "evidence": "outbox creation, publisher lookup, and model uniqueness are present",
+      "financial_values_in_report": false,
+      "latency_ms": 0.054,
+      "metrics": {
+        "duplicate_writes": 0
+      },
+      "name": "Retry na time-out met onzekere providerstatus",
+      "status": "PASS"
+    },
+    {
+      "error": null,
+      "evidence": "publisher contains acknowledgement and deduplication paths",
+      "financial_values_in_report": false,
+      "latency_ms": 0.064,
+      "metrics": {
+        "events_lost": 0
+      },
+      "name": "Crash en herstel tijdens outbox-publicatie",
+      "status": "PASS"
+    },
+    {
+      "error": null,
+      "evidence": "Retry-After parsing/backoff and provider backoff decision are present",
+      "financial_values_in_report": false,
+      "latency_ms": 0.053,
+      "metrics": {
+        "action": "provider_backoff",
+        "financial_values_in_decision": false,
+        "provider_rate_limit_preserved": true,
+        "reason": "provider_rate_limit",
+        "retry_after_seconds": 0,
+        "tenant_isolation": true
+      },
+      "name": "Rate-limit reset en klokafwijking",
+      "status": "PASS"
+    },
+    {
+      "error": null,
+      "evidence": "no explicit hysteresis/cooldown or active-lease drain contract found",
+      "financial_values_in_report": false,
+      "latency_ms": 0.745,
+      "metrics": {
+        "oscillation_tested": false
+      },
+      "name": "Autoscaling-thrashing en afbouw met actieve leases",
+      "status": "FAIL"
+    },
+    {
+      "error": null,
+      "evidence": "database exhaustion and hard queue rejection are controlled and diagnostic",
+      "financial_values_in_report": false,
+      "latency_ms": 0.003,
+      "metrics": {
+        "busy": "service_busy",
+        "overload": "reject_new_syncs"
+      },
+      "name": "Onvolledige afhankelijkheidsuitval",
+      "status": "PASS"
+    }
+  ],
+  "schema_version": 1,
+  "synthetic_data_only": true
+}
