@@ -467,7 +467,9 @@ class TestTransactionMapper:
         assert row["status"] == "PENDING"
         assert row["needsReview"] is True
 
-    def test_api_activity_carries_native_financial_correctness_fields(self) -> None:
+    def test_api_activity_carries_native_financial_correctness_fields(
+        self,
+    ) -> None:
         txn = _make_mock_transaction(
             transaction_type="tax", amount=Decimal("-7.50")
         )
@@ -606,7 +608,8 @@ class TestTransactionMapper:
         )
 
         csv = map_security_catalog_to_csv(
-            [security], listings={security.id: listing},
+            [security],
+            listings={security.id: listing},
             metadata={security.id: [metadata]},
         )
 

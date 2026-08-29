@@ -9,7 +9,7 @@ domains are reported explicitly instead of being silently invented.
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 DATASETS = (
     "portfolios",
@@ -36,9 +36,12 @@ def build_extension_payload(
     """
     sections: dict[str, list[dict[str, Any]]] = {name: [] for name in DATASETS}
     for account in accounts:
-        provider_metadata = getattr(account, "provider_metadata", None)
-        if not isinstance(provider_metadata, dict):
-            provider_metadata = {}
+        raw_provider_metadata = getattr(account, "provider_metadata", None)
+        provider_metadata = (
+            cast("dict[str, Any]", raw_provider_metadata)
+            if isinstance(raw_provider_metadata, dict)
+            else {}
+        )
         sections["portfolios"].append(
             {
                 "sourceRecordId": str(account.id),
@@ -49,14 +52,14 @@ def build_extension_payload(
             }
         )
         for dataset in DATASETS:
-            values = provider_metadata.get(dataset)
+            values: Any = provider_metadata.get(dataset)
             if isinstance(values, dict):
                 values = [values]
             if isinstance(values, list):
-                for value in values:
+                for value in cast(list[Any], values):
                     if not isinstance(value, dict):
                         continue
-                    record = dict(value)
+                    record: dict[str, Any] = dict(cast("dict[str, Any]", value))
                     record.setdefault("accountId", str(account.id))
                     record.setdefault("sourceSystem", "FINANCE_SYNC")
                     sections[dataset].append(record)

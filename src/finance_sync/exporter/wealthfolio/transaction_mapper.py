@@ -113,8 +113,8 @@ def map_security_to_wf_asset(
 ) -> dict[str, Any]:
     """Build a complete Wealthfolio asset identity from canonical data."""
     ticker = (
-        (listing.ticker if listing is not None else None) or security.ticker
-    )
+        listing.ticker if listing is not None else None
+    ) or security.ticker
     asset: dict[str, Any] = {
         "kind": "INVESTMENT",
         "name": security.name,
@@ -155,8 +155,15 @@ def map_security_catalog_to_csv(
     import io
 
     fields = [
-        "securityId", "name", "isin", "ticker", "exchangeMic",
-        "providerId", "providerSymbol", "quoteCcy", "instrumentType",
+        "securityId",
+        "name",
+        "isin",
+        "ticker",
+        "exchangeMic",
+        "providerId",
+        "providerSymbol",
+        "quoteCcy",
+        "instrumentType",
         "metadata",
     ]
     output = io.StringIO()
@@ -312,9 +319,7 @@ def map_transaction_to_wf_row(
         "exchangeMic": getattr(security, "exchange_mic", "")
         if security is not None
         else "",
-        "providerId": (
-            getattr(security, "provider_id", "") or "FINANCE_SYNC"
-        )
+        "providerId": (getattr(security, "provider_id", "") or "FINANCE_SYNC")
         if security is not None
         else "",
         "providerSymbol": (
@@ -441,12 +446,27 @@ def map_tax_lots_to_csv(
     import io
 
     fieldnames = [
-        "lotId", "accountId", "symbol", "isin", "purchaseTransactionId",
-        "saleTransactionId", "acquiredAt", "closedAt", "quantity",
-        "remainingQuantity", "costBasisTotal", "costBasisPerUnit", "currency",
-        "costBasisMethod", "realizedPL", "realizedPLCurrency",
-        "washSaleAdjusted", "disallowedLoss", "sourceSystem",
-        "sourceRecordId", "idempotencyKey",
+        "lotId",
+        "accountId",
+        "symbol",
+        "isin",
+        "purchaseTransactionId",
+        "saleTransactionId",
+        "acquiredAt",
+        "closedAt",
+        "quantity",
+        "remainingQuantity",
+        "costBasisTotal",
+        "costBasisPerUnit",
+        "currency",
+        "costBasisMethod",
+        "realizedPL",
+        "realizedPLCurrency",
+        "washSaleAdjusted",
+        "disallowedLoss",
+        "sourceSystem",
+        "sourceRecordId",
+        "idempotencyKey",
     ]
     buf = io.StringIO()
     writer = csv.DictWriter(buf, fieldnames=fieldnames)
@@ -885,9 +905,7 @@ def _as_timestamp(dt: datetime | None) -> str:
     if dt is None:
         return ""
     value = (
-        dt.astimezone(UTC)
-        if dt.tzinfo is not None
-        else dt.replace(tzinfo=UTC)
+        dt.astimezone(UTC) if dt.tzinfo is not None else dt.replace(tzinfo=UTC)
     )
     return value.isoformat()
 

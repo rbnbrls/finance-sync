@@ -535,20 +535,18 @@ class WealthfolioClient:
             resolved_activities: list[dict[str, Any]] = []
             for activity in activities:
                 resolved = dict(activity)
-                if (
-                    not resolved.get("assetId")
-                    and resolved.get("activityType")
-                    not in {
-                        "DEPOSIT",
-                        "WITHDRAWAL",
-                        "CREDIT",
-                        "TAX",
-                        "FEE",
-                        "INTEREST",
-                        "TRANSFER_IN",
-                        "TRANSFER_OUT",
-                    }
-                ):
+                if not resolved.get("assetId") and resolved.get(
+                    "activityType"
+                ) not in {
+                    "DEPOSIT",
+                    "WITHDRAWAL",
+                    "CREDIT",
+                    "TAX",
+                    "FEE",
+                    "INTEREST",
+                    "TRANSFER_IN",
+                    "TRANSFER_OUT",
+                }:
                     candidates = (
                         resolved.get("isin"),
                         resolved.get("symbol"),
@@ -584,7 +582,8 @@ class WealthfolioClient:
                                 name=resolved.get("symbolName"),
                                 instrument_type=(
                                     requested_type
-                                    if requested_type in {
+                                    if requested_type
+                                    in {
                                         "EQUITY",
                                         "CRYPTO",
                                         "FX",
@@ -835,12 +834,15 @@ class WealthfolioClient:
                 "isActive": True,
                 "quoteMode": (
                     "MARKET"
-                    if any(identity.get(key) for key in (
-                        "isin",
-                        "instrumentExchangeMic",
-                        "providerId",
-                        "providerSymbol",
-                    ))
+                    if any(
+                        identity.get(key)
+                        for key in (
+                            "isin",
+                            "instrumentExchangeMic",
+                            "providerId",
+                            "providerSymbol",
+                        )
+                    )
                     else "MANUAL"
                 ),
                 "quoteCcy": currency.upper(),

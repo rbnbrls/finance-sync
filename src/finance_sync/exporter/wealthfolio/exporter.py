@@ -29,7 +29,7 @@ import contextlib
 import inspect
 import traceback
 from datetime import UTC, datetime
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import TYPE_CHECKING, Any, cast
 from uuid import UUID
 
@@ -690,7 +690,7 @@ class WealthfolioExporter:
                     }
                 ]
         result = await wf_client.import_holdings(rows, wf_account_id)
-        if isinstance(result, dict) and result.get("validationErrors"):
+        if result.get("validationErrors"):
             return [
                 {
                     "account_id": fs_account.id,
@@ -1708,11 +1708,10 @@ class WealthfolioExporter:
             "finance-sync cash reconciliation",
         )
         remote_rows = await wf_client.get_holdings(wf_account_id)
-        source_cash = (
-            Decimal(str(fs_account.available_balance))
-            if fs_account.available_balance is not None
-            else None
+        available_balance = cast(
+            Any, getattr(fs_account, "available_balance", None)
         )
+        source_cash = _decimal_or_none(available_balance)
         tolerance = (
             max(
                 self._wf_config.reconciliation_absolute_tolerance,
@@ -1731,7 +1730,7 @@ class WealthfolioExporter:
         if source_rows:
             snapshot = _holdings_snapshot_payload(
                 source_rows,
-                cash_balance=fs_account.available_balance,
+                cash_balance=available_balance,
                 cash_currency=fs_account.currency_code,
             )
             check = await wf_client.check_holdings_import(
@@ -1853,9 +1852,7 @@ class WealthfolioExporter:
         # Wealthfolio recalculates holdings asynchronously after a snapshot.
         # A short second read avoids declaring a financial failure while that
         # recalculation is still settling, without hiding a persistent delta.
-        portfolio_mismatch = (
-            "Portefeuillewaarde buiten ingestelde tolerantie."
-        )
+        portfolio_mismatch = "Portefeuillewaarde buiten ingestelde tolerantie."
         for _attempt in range(5):
             if not any(
                 finding.get("error") == portfolio_mismatch
@@ -2019,6 +2016,16 @@ def _supports_multi_currency_cash(account: Account) -> bool:
     ):
         return bool(metadata["supports_multi_currency_cash"])
     return False
+
+
+def _decimal_or_none(value: Any) -> Decimal | None:
+    """Convert a provider balance without allowing malformed values to leak."""
+    if value is None:
+        return None
+    try:
+        return Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError):
+        return None
 
 
 def _wealthfolio_cash_value(rows: list[dict[str, Any]]) -> Decimal:
@@ -2300,7 +2307,7 @@ def _reconcile_holdings(
         remote_value += Decimal(str(market_value.get("base") or 0))
 
     source_value: Decimal | None = None
-    if all("snapshotPrice" in row for row in source_rows):
+    if source_rows and all("snapshotPrice" in row for row in source_rows):
         source_value = sum(
             (
                 Decimal(str(row["quantity"]))
@@ -2309,14 +2316,16 @@ def _reconcile_holdings(
             ),
             Decimal(0),
         )
-        cash = getattr(account, "available_balance", None)
+        cash = _decimal_or_none(getattr(account, "available_balance", None))
         if cash is not None:
-            source_value += Decimal(str(cash))
+            source_value += cash
     elif (
         not source_rows
         and getattr(account, "current_balance", None) is not None
     ):
-        source_value = Decimal(str(account.current_balance))
+        source_value = _decimal_or_none(
+            getattr(account, "current_balance", None)
+        )
 
     for symbol, quantity in source_quantities.items():
         if remote_quantities.get(symbol) != quantity:
