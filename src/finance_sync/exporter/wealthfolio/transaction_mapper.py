@@ -20,6 +20,8 @@ Mapping rules
 
 from __future__ import annotations
 
+import hashlib
+import json
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any
@@ -55,6 +57,8 @@ DEFAULT_INSTRUMENT_TYPE_MAP: dict[str, str] = {
     "currency": "CURRENCY",
     "option": "OPTION",
     "other": "OTHER",
+    "index": "EQUITY",
+    "benchmark": "EQUITY",
 }
 
 # ── Canonical TransactionType → Wealthfolio activity type ──────────────
@@ -71,6 +75,14 @@ TRANSACTION_TYPE_MAP: dict[str, str] = {
     "card_payment": WF_ACTIVITY_FEE,
     "scheduled_payment": WF_ACTIVITY_FEE,
     "split": WF_ACTIVITY_SPLIT,
+    # Corporate actions are represented as connector transactions. Preserve
+    # their specific kind in ``subtype`` while using Wealthfolio's generic
+    # adjustment activity where no dedicated activity exists.
+    "merger": WF_ACTIVITY_ADJUSTMENT,
+    "spin_off": WF_ACTIVITY_ADJUSTMENT,
+    "return_of_capital": WF_ACTIVITY_ADJUSTMENT,
+    "ticker_change": WF_ACTIVITY_ADJUSTMENT,
+    "isin_change": WF_ACTIVITY_ADJUSTMENT,
     "adjustment": WF_ACTIVITY_ADJUSTMENT,
     # An unclassified cash adjustment must not silently become a fee.
     "other": WF_ACTIVITY_CREDIT,
@@ -86,7 +98,112 @@ class UnresolvedCashCurrencyError(ValueError):
     """Raised when a cash activity cannot be projected to account currency."""
 
 
+class InvalidFxRateError(ValueError):
+    """Raised when an FX observation has an unsafe direction or value."""
+
+
 # ── Public API ──────────────────────────────────────────────────────────
+
+
+def map_security_to_wf_asset(
+    security: FsSecurity,
+    *,
+    listing: Any | None = None,
+    metadata: list[Any] | None = None,
+) -> dict[str, Any]:
+    """Build a complete Wealthfolio asset identity from canonical data."""
+    ticker = (
+        (listing.ticker if listing is not None else None) or security.ticker
+    )
+    asset: dict[str, Any] = {
+        "kind": "INVESTMENT",
+        "name": security.name,
+        "displayCode": ticker or security.isin or security.id,
+        "instrumentType": DEFAULT_INSTRUMENT_TYPE_MAP.get(
+            str(security.security_type), "OTHER"
+        ),
+        "instrumentSymbol": ticker or security.isin or security.id,
+        "quoteCcy": (
+            listing.currency_code
+            if listing is not None
+            else security.currency_code
+        ),
+        "isin": security.isin,
+        "providerId": "FINANCE_SYNC",
+        "providerSymbol": ticker or security.isin or security.id,
+    }
+    if listing is not None:
+        asset["exchangeMic"] = listing.mic
+    if metadata:
+        asset["metadata"] = {
+            str(observation.metadata_type): observation.metadata_json
+            for observation in metadata
+        }
+    return asset
+
+
+def map_security_catalog_to_csv(
+    securities: list[FsSecurity],
+    *,
+    listings: dict[str, Any] | None = None,
+    metadata: dict[str, list[Any]] | None = None,
+) -> str:
+    """Serialize the complete canonical asset catalog for Wealthfolio."""
+    if not securities:
+        return ""
+    import csv
+    import io
+
+    fields = [
+        "securityId", "name", "isin", "ticker", "exchangeMic",
+        "providerId", "providerSymbol", "quoteCcy", "instrumentType",
+        "metadata",
+    ]
+    output = io.StringIO()
+    writer = csv.DictWriter(output, fieldnames=fields)
+    writer.writeheader()
+    listing_map = listings or {}
+    metadata_map = metadata or {}
+    for security in securities:
+        asset = map_security_to_wf_asset(
+            security,
+            listing=listing_map.get(security.id),
+            metadata=metadata_map.get(security.id),
+        )
+        writer.writerow(
+            {
+                "securityId": security.id,
+                "name": asset["name"],
+                "isin": asset.get("isin") or "",
+                "ticker": asset["displayCode"],
+                "exchangeMic": asset.get("exchangeMic") or "",
+                "providerId": asset["providerId"],
+                "providerSymbol": asset["providerSymbol"],
+                "quoteCcy": asset["quoteCcy"],
+                "instrumentType": asset["instrumentType"],
+                "metadata": json.dumps(
+                    asset.get("metadata", {}), sort_keys=True
+                ),
+            }
+        )
+    return output.getvalue()
+
+
+def validate_fx_observation(
+    *,
+    base_currency: str,
+    quote_currency: str,
+    rate: Decimal,
+) -> None:
+    """Reject invalid or ambiguous FX observations before projection."""
+    base = base_currency.upper()
+    quote = quote_currency.upper()
+    if base == quote:
+        message = "FX base- en quotevaluta mogen niet gelijk zijn."
+        raise InvalidFxRateError(message)
+    if rate <= 0:
+        message = "FX-koers moet groter dan nul zijn."
+        raise InvalidFxRateError(message)
 
 
 def map_transaction_to_wf_row(
@@ -97,6 +214,7 @@ def map_transaction_to_wf_row(
     default_currency: str = "EUR",
     account_currency: str | None = None,
     allow_multi_currency_cash: bool = False,
+    import_run_id: str | None = None,
 ) -> dict[str, Any]:
     """Convert a canonical *txn* into a Wealthfolio CSV activity row.
 
@@ -143,7 +261,12 @@ def map_transaction_to_wf_row(
     # projection instead.
     fx_rate = projected_fx_rate or _resolve_fx_rate(txn)
 
-    # Comment with external ID for dedup
+    # Wealthfolio has first-class lifecycle and provenance fields.  Keep the
+    # readable comment as a fallback for old CSV imports, but never use it as
+    # the only identity of a source transaction.
+    status, needs_review = _resolve_status(txn)
+    source_record_id = str(txn.external_transaction_id)
+    idempotency_key = _idempotency_key(txn)
     comment = _build_comment(txn)
 
     return {
@@ -157,10 +280,50 @@ def map_transaction_to_wf_row(
         "fee": _fmt_decimal(fee),
         "amount": _fmt_decimal(amount) if amount is not None else "",
         "fxRate": _fmt_decimal(fx_rate) if fx_rate is not None else "",
+        "settlementDate": _as_timestamp(txn.booked_at),
+        "status": status,
+        "needsReview": needs_review,
+        "tax": (
+            _fmt_decimal(abs(txn.amount))
+            if txn.transaction_type == "tax"
+            else ""
+        ),
+        "sourceType": _source_type(txn),
+        "subtype": _activity_subtype(txn),
+        "grossAmount": (
+            _fmt_decimal(abs(txn.amount))
+            if txn.transaction_type == "dividend"
+            else ""
+        ),
+        "netAmount": (
+            _fmt_decimal(abs(txn.amount))
+            if txn.transaction_type == "dividend"
+            else ""
+        ),
+        "sourceSystem": "FINANCE_SYNC",
+        "sourceRecordId": source_record_id,
+        "sourceGroupId": f"{txn.provider_key}:{txn.account_id}",
+        "idempotencyKey": idempotency_key,
+        "importRunId": import_run_id or "",
         "comment": comment,
         # Kept as an internal field for the JSON API.  CSV output filters it
         # out because Wealthfolio's CSV wizard has no portable ISIN column.
         "isin": security.isin if security is not None else "",
+        "exchangeMic": getattr(security, "exchange_mic", "")
+        if security is not None
+        else "",
+        "providerId": (
+            getattr(security, "provider_id", "") or "FINANCE_SYNC"
+        )
+        if security is not None
+        else "",
+        "providerSymbol": (
+            getattr(security, "provider_symbol", "")
+            or (security.ticker or security.isin)
+        )
+        if security is not None
+        else "",
+        "symbolName": security.name if security is not None else "",
         "metadata": {
             "financeSync": {
                 "externalTransactionId": txn.external_transaction_id,
@@ -232,6 +395,70 @@ def map_holding_to_wf_row(
     }
 
 
+def map_tax_lot_to_wf_row(
+    lot: Any,
+    *,
+    security: FsSecurity | None = None,
+) -> dict[str, Any]:
+    """Map a canonical tax lot to a lossless Wealthfolio sidecar row."""
+    symbol = (security.ticker or security.isin) if security is not None else ""
+    return {
+        "lotId": str(lot.id),
+        "accountId": str(lot.account_id),
+        "symbol": symbol,
+        "isin": security.isin if security is not None else "",
+        "purchaseTransactionId": str(lot.purchase_transaction_id or ""),
+        "saleTransactionId": str(lot.sale_transaction_id or ""),
+        "acquiredAt": _as_timestamp(lot.acquired_at),
+        "closedAt": _as_timestamp(lot.closed_at),
+        "quantity": _fmt_decimal(lot.quantity),
+        "remainingQuantity": _fmt_decimal(lot.remaining_quantity),
+        "costBasisTotal": _fmt_decimal(lot.cost_basis_total),
+        "costBasisPerUnit": _fmt_decimal(lot.cost_basis_per_unit),
+        "currency": lot.currency_code,
+        "costBasisMethod": str(lot.cost_basis_method),
+        "realizedPL": _fmt_decimal(lot.realized_pl),
+        "realizedPLCurrency": lot.realized_pl_currency or lot.currency_code,
+        "washSaleAdjusted": bool(lot.has_wash_sale_adjustment),
+        "disallowedLoss": _fmt_decimal(lot.disallowed_loss),
+        "sourceSystem": "FINANCE_SYNC",
+        "sourceRecordId": str(lot.id),
+        "idempotencyKey": hashlib.sha256(
+            f"finance-sync:tax-lot:{lot.id}".encode()
+        ).hexdigest(),
+    }
+
+
+def map_tax_lots_to_csv(
+    lots: list[Any],
+    *,
+    security_map: dict[str, FsSecurity] | None = None,
+) -> str:
+    """Return a lossless, connector-owned tax-lot CSV sidecar."""
+    if not lots:
+        return ""
+    import csv
+    import io
+
+    fieldnames = [
+        "lotId", "accountId", "symbol", "isin", "purchaseTransactionId",
+        "saleTransactionId", "acquiredAt", "closedAt", "quantity",
+        "remainingQuantity", "costBasisTotal", "costBasisPerUnit", "currency",
+        "costBasisMethod", "realizedPL", "realizedPLCurrency",
+        "washSaleAdjusted", "disallowedLoss", "sourceSystem",
+        "sourceRecordId", "idempotencyKey",
+    ]
+    buf = io.StringIO()
+    writer = csv.DictWriter(buf, fieldnames=fieldnames)
+    writer.writeheader()
+    sec_map = security_map or {}
+    for lot in lots:
+        writer.writerow(
+            map_tax_lot_to_wf_row(lot, security=sec_map.get(lot.security_id))
+        )
+    return buf.getvalue()
+
+
 def map_transactions_to_csv(
     transactions: list[FsTransaction],
     *,
@@ -240,6 +467,7 @@ def map_transactions_to_csv(
     default_currency: str = "EUR",
     account_currency: str | None = None,
     allow_multi_currency_cash: bool = False,
+    import_run_id: str | None = None,
 ) -> str:
     """Map multiple transactions to a Wealthfolio-compatible CSV string.
 
@@ -263,6 +491,19 @@ def map_transactions_to_csv(
         "fee",
         "amount",
         "fxRate",
+        "settlementDate",
+        "status",
+        "needsReview",
+        "tax",
+        "subtype",
+        "sourceType",
+        "grossAmount",
+        "netAmount",
+        "sourceSystem",
+        "sourceRecordId",
+        "sourceGroupId",
+        "idempotencyKey",
+        "importRunId",
         "comment",
     ]
 
@@ -280,6 +521,7 @@ def map_transactions_to_csv(
             default_currency=default_currency,
             account_currency=account_currency,
             allow_multi_currency_cash=allow_multi_currency_cash,
+            import_run_id=import_run_id,
         )
         writer.writerow({key: row.get(key, "") for key in fieldnames})
 
@@ -588,6 +830,66 @@ def _resolve_fx_rate(txn: FsTransaction) -> Decimal | None:
     if txn.fx_rate is not None and txn.currency_code != txn.base_currency_code:
         return txn.fx_rate
     return None
+
+
+def _resolve_status(txn: FsTransaction) -> tuple[str, bool]:
+    """Map canonical transaction lifecycle to Wealthfolio's lifecycle."""
+    status = str(txn.status).lower()
+    if status == "pending":
+        return "PENDING", True
+    if status in {"reversed", "cancelled"}:
+        return "VOID", True
+    return "POSTED", False
+
+
+def _source_type(txn: FsTransaction) -> str:
+    if txn.transaction_type == "tax":
+        return "WITHHOLDING_TAX"
+    return str(txn.transaction_type).upper()
+
+
+def _activity_subtype(txn: FsTransaction) -> str:
+    if txn.transaction_type == "dividend":
+        return "CASH_DIVIDEND"
+    if txn.transaction_type == "tax":
+        return "WITHHOLDING_TAX"
+    if txn.transaction_type == "split":
+        return "SPLIT"
+    if txn.transaction_type in {
+        "merger",
+        "spin_off",
+        "return_of_capital",
+        "ticker_change",
+        "isin_change",
+    }:
+        return str(txn.transaction_type).upper()
+    return ""
+
+
+def _idempotency_key(txn: FsTransaction) -> str:
+    """Build a stable key that survives provider revisions and re-syncs."""
+    identity = "|".join(
+        str(value or "")
+        for value in (
+            getattr(txn, "tenant_id", ""),
+            txn.provider_key,
+            getattr(txn, "connection_id", ""),
+            txn.account_id,
+            txn.external_transaction_id,
+        )
+    )
+    return hashlib.sha256(identity.encode("utf-8")).hexdigest()
+
+
+def _as_timestamp(dt: datetime | None) -> str:
+    if dt is None:
+        return ""
+    value = (
+        dt.astimezone(UTC)
+        if dt.tzinfo is not None
+        else dt.replace(tzinfo=UTC)
+    )
+    return value.isoformat()
 
 
 def _build_comment(txn: FsTransaction) -> str:

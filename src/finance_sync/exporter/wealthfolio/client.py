@@ -477,7 +477,142 @@ class WealthfolioClient:
         # resolution and causes trades to be persisted as cash activities.
         checked = await self.check_activities_import(activities)
         if isinstance(checked, list):
-            activities = checked
+            # The check endpoint hydrates/resolves assets but some Wealthfolio
+            # versions omit connector provenance in the returned rows. Merge
+            # back missing source fields before import so reconciliation and
+            # idempotency survive the check -> import round trip.
+            hydrated: list[dict[str, Any]] = []
+            for original, resolved in zip(activities, checked, strict=False):
+                merged = dict(resolved)
+                for key in (
+                    "sourceSystem",
+                    "sourceRecordId",
+                    "sourceGroupId",
+                    "idempotencyKey",
+                    "importRunId",
+                ):
+                    if original.get(key) not in (None, ""):
+                        merged[key] = original[key]
+                for key, value in original.items():
+                    if merged.get(key) in (None, "") and value not in (
+                        None,
+                        "",
+                    ):
+                        merged[key] = value
+                hydrated.append(merged)
+            activities = hydrated
+        # Some Wealthfolio versions return hydrated rows without ``assetId``
+        # even though the asset has already been created/resolved by the
+        # check endpoint.  The import endpoint then accepts the row but stores
+        # a blank asset id; the later portfolio snapshot fails with
+        # ``Invalid asset_id for position``.  Resolve the asset explicitly
+        # from the stable ISIN/display code before importing.
+        asset_activity_types = {
+            "BUY",
+            "SELL",
+            "DIVIDEND",
+            "CAPITAL_GAIN",
+            "REINVEST",
+        }
+        if any(
+            activity.get("activityType") in asset_activity_types
+            and not activity.get("assetId")
+            for activity in activities
+        ):
+            assets = await self.get_assets()
+            by_code: dict[str, dict[str, Any]] = {}
+            for asset in assets:
+                if not asset.get("id"):
+                    continue
+                for value in (
+                    asset.get("displayCode"),
+                    asset.get("instrumentSymbol"),
+                    asset.get("symbol"),
+                    asset.get("isin"),
+                ):
+                    if value:
+                        by_code.setdefault(str(value).strip().upper(), asset)
+            resolved_activities: list[dict[str, Any]] = []
+            for activity in activities:
+                resolved = dict(activity)
+                if (
+                    not resolved.get("assetId")
+                    and resolved.get("activityType")
+                    not in {
+                        "DEPOSIT",
+                        "WITHDRAWAL",
+                        "CREDIT",
+                        "TAX",
+                        "FEE",
+                        "INTEREST",
+                        "TRANSFER_IN",
+                        "TRANSFER_OUT",
+                    }
+                ):
+                    candidates = (
+                        resolved.get("isin"),
+                        resolved.get("symbol"),
+                    )
+                    asset = next(
+                        (
+                            by_code.get(str(candidate).strip().upper())
+                            for candidate in candidates
+                            if candidate
+                        ),
+                        None,
+                    )
+                    if asset is None:
+                        symbol = next(
+                            (
+                                str(candidate).strip().upper()
+                                for candidate in candidates
+                                if candidate
+                            ),
+                            "",
+                        )
+                        if symbol:
+                            requested_type = str(
+                                resolved.get("instrumentType") or "EQUITY"
+                            ).upper()
+                            asset = await self.create_asset(
+                                symbol=symbol,
+                                currency=str(
+                                    resolved.get("quoteCcy")
+                                    or resolved.get("currency")
+                                    or "EUR"
+                                ),
+                                name=resolved.get("symbolName"),
+                                instrument_type=(
+                                    requested_type
+                                    if requested_type in {
+                                        "EQUITY",
+                                        "CRYPTO",
+                                        "FX",
+                                        "OPTION",
+                                        "METAL",
+                                        "BOND",
+                                    }
+                                    else "EQUITY"
+                                ),
+                                isin=resolved.get("isin"),
+                                exchange_mic=resolved.get("exchangeMic"),
+                                provider_id=resolved.get("providerId"),
+                                provider_symbol=resolved.get("providerSymbol"),
+                            )
+                            for value in (
+                                asset.get("displayCode"),
+                                asset.get("instrumentSymbol"),
+                                asset.get("symbol"),
+                                asset.get("isin"),
+                            ):
+                                if value:
+                                    by_code.setdefault(
+                                        str(value).strip().upper(), asset
+                                    )
+                    if asset is not None:
+                        resolved["assetId"] = asset["id"]
+                resolved_activities.append(resolved)
+            activities = resolved_activities
         return await self.import_activities(activities)
 
     # ── Public API: Holdings / Snapshots ────────────────────────────
@@ -666,6 +801,65 @@ class WealthfolioClient:
         response.raise_for_status()
         return response.json()
 
+    async def create_asset(
+        self,
+        *,
+        symbol: str,
+        currency: str,
+        name: str | None = None,
+        instrument_type: str = "EQUITY",
+        isin: str | None = None,
+        exchange_mic: str | None = None,
+        provider_id: str | None = None,
+        provider_symbol: str | None = None,
+    ) -> dict[str, Any]:
+        """Create a missing investment asset for an imported instrument."""
+        self._ensure_authenticated()
+        display_code = symbol.strip().upper()
+        identity = {
+            key: value
+            for key, value in {
+                "isin": isin,
+                "instrumentExchangeMic": exchange_mic,
+                "providerId": provider_id,
+                "providerSymbol": provider_symbol,
+            }.items()
+            if value
+        }
+        response = await self._client.post(
+            f"{self.API_PREFIX}/assets",
+            json={
+                "kind": "INVESTMENT",
+                "name": name or display_code,
+                "displayCode": display_code,
+                "isActive": True,
+                "quoteMode": (
+                    "MARKET"
+                    if any(identity.get(key) for key in (
+                        "isin",
+                        "instrumentExchangeMic",
+                        "providerId",
+                        "providerSymbol",
+                    ))
+                    else "MANUAL"
+                ),
+                "quoteCcy": currency.upper(),
+                "instrumentType": instrument_type.upper(),
+                "instrumentSymbol": display_code,
+                "instrumentExchangeMic": None,
+                "providerId": "FINANCE_SYNC",
+                "providerSymbol": display_code,
+                **identity,
+            },
+        )
+        if response.is_error:
+            detail = (
+                "Asset creation failed "
+                f"(HTTP {response.status_code}): {response.text[:500]}"
+            )
+            raise WealthfolioAPIError(detail)
+        return response.json()
+
     async def add_exchange_rate(
         self,
         *,
@@ -804,6 +998,19 @@ class WealthfolioClient:
                 comment.split("ID:", 1)[-1].strip() if "ID:" in comment else ""
             )
             if source_id not in external_transaction_ids and row.get("id"):
+                await self.delete_activity(str(row["id"]))
+                removed += 1
+        return removed
+
+    async def delete_cash_reconciliation_activities(
+        self, account_id: str, source_prefix: str
+    ) -> int:
+        """Remove prior cash corrections before recalculation."""
+        rows = await self.get_all_activities(account_id)
+        removed = 0
+        for row in rows:
+            comment = str(row.get("comment") or "")
+            if comment.startswith(source_prefix) and row.get("id"):
                 await self.delete_activity(str(row["id"]))
                 removed += 1
         return removed
