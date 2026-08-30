@@ -15,6 +15,7 @@ from scripts.enforce_audit_retention import (
     can_access_report,
     execute_retention,
     select_expired,
+    sign_report,
 )
 
 
@@ -336,7 +337,10 @@ def test_process_failure_leaves_incomplete_report() -> None:
 
 def test_report_access_requires_scoped_credential_and_policy() -> None:
     now = datetime(2026, 1, 4, tzinfo=UTC)
-    report = {"tenant_id": "tenant-hash", "generated_at": now.isoformat()}
+    report = sign_report(
+        {"tenant_id": "tenant-hash", "generated_at": now.isoformat()},
+        secret=b"access-secret",
+    )
     policy = {
         "retention_days": 90,
         "allowed_roles": ["retention-auditor", "application-admin"],
@@ -347,6 +351,7 @@ def test_report_access_requires_scoped_credential_and_policy() -> None:
         credential_role="retention-auditor",
         now=now,
         policy=policy,
+        identifier_secret=b"access-secret",
     )
     assert not can_access_report(
         report,
@@ -354,6 +359,7 @@ def test_report_access_requires_scoped_credential_and_policy() -> None:
         credential_role="retention-auditor",
         now=now,
         policy=policy,
+        identifier_secret=b"access-secret",
     )
     with pytest.raises(PermissionError):
         authorize_report_access(
@@ -362,4 +368,35 @@ def test_report_access_requires_scoped_credential_and_policy() -> None:
             credential_role="retention-auditor",
             now=now,
             policy=policy,
+            identifier_secret=b"access-secret",
         )
+
+
+def test_report_signature_rejects_metadata_and_expiry_tampering() -> None:
+    now = datetime(2026, 1, 4, tzinfo=UTC)
+    secret = b"tamper-secret"
+    report = sign_report(
+        {"tenant_id": "tenant-hash", "generated_at": now.isoformat()},
+        secret=secret,
+    )
+    policy = {"retention_days": 90, "allowed_roles": ["application-admin"]}
+    assert can_access_report(
+        report,
+        credential_tenant_id="ignored-for-admin",
+        credential_role="application-admin",
+        now=now,
+        policy=policy,
+        identifier_secret=secret,
+    )
+    tampered = {
+        **report,
+        "generated_at": (now + timedelta(days=91)).isoformat(),
+    }
+    assert not can_access_report(
+        tampered,
+        credential_tenant_id="ignored-for-admin",
+        credential_role="application-admin",
+        now=now,
+        policy=policy,
+        identifier_secret=secret,
+    )
