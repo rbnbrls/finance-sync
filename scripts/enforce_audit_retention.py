@@ -29,6 +29,27 @@ def _identifier(value: str, *, secret: bytes) -> str:
     return hmac.new(secret, value.encode("utf-8"), hashlib.sha256).hexdigest()
 
 
+def _report_signature(report: dict[str, Any], *, secret: bytes) -> str:
+    """Sign the report so access cannot be extended by editing metadata."""
+    payload = {
+        key: value for key, value in report.items() if key != "signature"
+    }
+    encoded = json.dumps(
+        payload,
+        ensure_ascii=True,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    return hmac.new(secret, encoded, hashlib.sha256).hexdigest()
+
+
+def sign_report(report: dict[str, Any], *, secret: bytes) -> dict[str, Any]:
+    """Return a signed copy of a report without exposing the signing key."""
+    signed = deepcopy(report)
+    signed["signature"] = _report_signature(signed, secret=secret)
+    return signed
+
+
 def _safe_category(value: Any) -> str:
     """Keep labels useful while preventing markup, formulas, and newlines."""
     label = re.sub(r"[^A-Za-z0-9_.-]", "_", str(value)).strip("_")
@@ -201,7 +222,7 @@ def execute_retention(
             "dry_run": dry_run,
             "secrets_or_financial_values": False,
         }
-        return deepcopy(report)
+        return sign_report(report, secret=secret)
 
 
 def can_access_report(
@@ -211,12 +232,25 @@ def can_access_report(
     credential_role: str,
     now: datetime,
     policy: dict[str, Any],
+    identifier_secret: bytes | None = None,
 ) -> bool:
     """Enforce report-specific authorization and expiry."""
+    secret = identifier_secret or _REPORT_SECRET
+    signature = report.get("signature")
+    if not isinstance(signature, str) or not hmac.compare_digest(
+        signature, _report_signature(report, secret=secret)
+    ):
+        return False
     allowed_roles = set(cast("list[str]", policy.get("allowed_roles", [])))
     if credential_role not in allowed_roles:
         return False
-    generated = datetime.fromisoformat(str(report["generated_at"]))
+    try:
+        generated = datetime.fromisoformat(str(report["generated_at"]))
+        retention_days = int(policy["retention_days"])
+    except (KeyError, TypeError, ValueError):
+        return False
+    if generated.tzinfo is None or retention_days < 1:
+        return False
     if now > generated + timedelta(days=int(policy["retention_days"])):
         return False
     if credential_role == "application-admin":
