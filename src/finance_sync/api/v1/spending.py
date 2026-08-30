@@ -81,7 +81,10 @@ async def _load_transaction(
     )
     transaction = result.scalar_one_or_none()
     if transaction is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transaction not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Transaction not found",
+        )
     return transaction
 
 
@@ -89,14 +92,34 @@ def _dump(row: Any) -> dict[str, Any]:
     return {
         key: value
         for key in (
-            "id", "object_type", "external_ids", "provider_revisions",
-            "annotation_type", "content_hash", "mime_type", "safe_reference",
-            "owner", "retention_until", "destination_reference", "amount",
-            "currency_code", "percentage", "category_suggestion", "destination",
+            "id",
+            "object_type",
+            "external_ids",
+            "provider_revisions",
+            "annotation_type",
+            "content_hash",
+            "mime_type",
+            "safe_reference",
+            "owner",
+            "retention_until",
+            "destination_reference",
+            "amount",
+            "currency_code",
+            "percentage",
+            "category_suggestion",
+            "destination",
             "idempotency_key",
-            "provenance", "field_name", "value", "actor", "event_type",
-            "payload", "source_revision", "destination_type", "canonical_key",
-            "destination_object_id", "direction",
+            "provenance",
+            "field_name",
+            "value",
+            "actor",
+            "event_type",
+            "payload",
+            "source_revision",
+            "destination_type",
+            "canonical_key",
+            "destination_object_id",
+            "direction",
         )
         if (value := getattr(row, key, None)) is not None
     }
@@ -155,10 +178,16 @@ async def create_spending_override(
         provenance="user_override",
     )
     db.add(override)
-    if body.field_name == "classification_override" and isinstance(body.value, str):
+    if body.field_name == "classification_override" and isinstance(
+        body.value, str
+    ):
         transaction.classification_override = body.value
     await db.commit()
-    return {"id": str(override.id), "transaction_id": str(transaction.id), "field_name": body.field_name}
+    return {
+        "id": str(override.id),
+        "transaction_id": str(transaction.id),
+        "field_name": body.field_name,
+    }
 
 
 @router.delete("/{transaction_id}", response_model=dict[str, Any])

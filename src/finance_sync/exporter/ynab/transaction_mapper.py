@@ -24,7 +24,9 @@ def map_transaction(
         or transaction.description
         or transaction.transaction_type,
         "memo": transaction.description,
-        "cleared": "cleared" if str(transaction.status) == "booked" else "uncleared",
+        "cleared": "cleared"
+        if str(transaction.status) == "booked"
+        else "uncleared",
         "approved": False,
         "import_id": f"finance-sync:{transaction.provider_key}:{transaction.external_transaction_id}",
     }
@@ -37,9 +39,7 @@ def map_transaction(
     if splits:
         payload["subtransactions"] = [
             {
-                "amount": int(
-                    (Decimal(str(split.amount)) * 1000).quantize(1)
-                ),
+                "amount": int((Decimal(str(split.amount)) * 1000).quantize(1)),
                 "category_id": getattr(split, "destination", None),
                 "memo": getattr(split, "provenance", None),
             }

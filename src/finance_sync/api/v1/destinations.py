@@ -570,7 +570,9 @@ async def preview_target(
     ]
     transaction_stmt = select(Transaction).where(
         Transaction.tenant_id == auth.tenant_id,
-        Transaction.account_id.in_([account_id for account_id, _ in account_rows]),
+        Transaction.account_id.in_(
+            [account_id for account_id, _ in account_rows]
+        ),
     )
     transactions = list((await db.execute(transaction_stmt)).scalars().all())
     remote_accounts_read = False
@@ -652,7 +654,9 @@ async def reconcile_target(
         account_stmt = account_stmt.where(
             Account.id.in_(row.selected_account_ids)
         )
-    account_ids = [account_id for (account_id,) in (await db.execute(account_stmt)).all()]
+    account_ids = [
+        account_id for (account_id,) in (await db.execute(account_stmt)).all()
+    ]
     transaction_stmt = select(Transaction).where(
         Transaction.tenant_id == auth.tenant_id,
         Transaction.account_id.in_(account_ids),

@@ -19,7 +19,9 @@ def test_spending_management_routes_are_registered() -> None:
     assert ("/destinations/{target_id}/reconciliation", ("POST",)) in paths
 
 
-def test_spending_write_routes_are_guarded_by_transactions_write_permission() -> None:
+def test_spending_write_routes_are_guarded_by_transactions_write_permission() -> (
+    None
+):
     """The new spending mutations must not bypass the auth policy."""
     write_paths = {
         "/transactions/{transaction_id}/override",

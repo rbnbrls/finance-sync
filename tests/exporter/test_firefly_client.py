@@ -131,9 +131,7 @@ async def test_client_retries_rate_limits() -> None:
         return httpx.Response(200, json={"data": {"id": "ok"}})
 
     async with FireflyClient(
-        FireflyClientConfig(
-            "http://firefly.test", "token", retry_base_delay=0
-        ),
+        FireflyClientConfig("http://firefly.test", "token", retry_base_delay=0),
         transport=httpx.MockTransport(handler),
     ) as client:
         await client.store_transaction({"type": "deposit"})
@@ -157,9 +155,7 @@ async def test_client_creates_native_budget_and_bill_when_missing() -> None:
         FireflyClientConfig("http://firefly.test", "token"),
         transport=httpx.MockTransport(handler),
     ) as client:
-        budget = await client.ensure_budget(
-            "Groceries", currency_code="EUR"
-        )
+        budget = await client.ensure_budget("Groceries", currency_code="EUR")
         bill = await client.ensure_bill(
             "Rent", amount_min="1000", amount_max="1000"
         )

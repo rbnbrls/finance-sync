@@ -70,7 +70,9 @@ def _canonical() -> SimpleNamespace:
         merchant_name="Mock Shop",
         merchant_category_code="5411",
     )
-    value = _Provider.transform_transactions(_Provider.__new__(_Provider), [raw])[0]
+    value = _Provider.transform_transactions(
+        _Provider.__new__(_Provider), [raw]
+    )[0]
     return SimpleNamespace(
         id="canonical-mock-1",
         provider_key="mock-provider",
@@ -114,7 +116,9 @@ async def test_ynab_native_client_mock_is_replay_safe() -> None:
             return httpx.Response(200, json={"data": {"transaction_ids": []}})
         seen.add(import_id)
         assert import_id in body
-        return httpx.Response(200, json={"data": {"transaction_ids": ["ynab-1"]}})
+        return httpx.Response(
+            200, json={"data": {"transaction_ids": ["ynab-1"]}}
+        )
 
     config = YNABConfig("token", "budget-1")
     client = httpx.AsyncClient(
@@ -132,7 +136,9 @@ async def test_ynab_native_client_mock_is_replay_safe() -> None:
 
 
 @pytest.mark.asyncio
-async def test_firefly_native_client_mock_preserves_category_and_replay_key() -> None:
+async def test_firefly_native_client_mock_preserves_category_and_replay_key() -> (
+    None
+):
     stored: dict[str, str] = {}
 
     async def handler(request: httpx.Request) -> httpx.Response:
@@ -153,9 +159,7 @@ async def test_firefly_native_client_mock_preserves_category_and_replay_key() ->
     transaction = _canonical()
     payload = map_firefly(transaction, account_name="Checking")
     async with FireflyClient(
-        FireflyClientConfig(
-            "http://firefly.test", "token", retry_base_delay=0
-        ),
+        FireflyClientConfig("http://firefly.test", "token", retry_base_delay=0),
         transport=httpx.MockTransport(handler),
     ) as adapter:
         await adapter.ensure_category(payload["category_name"])
@@ -168,7 +172,9 @@ async def test_firefly_native_client_mock_preserves_category_and_replay_key() ->
 
 
 @pytest.mark.asyncio
-async def test_wealthfolio_native_client_mock_replays_by_idempotency_key() -> None:
+async def test_wealthfolio_native_client_mock_replays_by_idempotency_key() -> (
+    None
+):
     imports: dict[str, int] = {}
 
     async def handler(request: httpx.Request) -> httpx.Response:

@@ -839,10 +839,18 @@ class SyncOrchestrator(CardsSyncMixin):
                             resource=ca.external_account_id,
                             cursor=start_ts,
                             connection_id=connection_id,
-                    )
+                        )
                     transactions_synced += account_transactions
-                    for key in ("new", "changed", "unchanged", "classified",
-                                "unclassified", "split", "skipped", "failed"):
+                    for key in (
+                        "new",
+                        "changed",
+                        "unchanged",
+                        "classified",
+                        "unclassified",
+                        "split",
+                        "skipped",
+                        "failed",
+                    ):
                         transaction_report[key] = transaction_report.get(
                             key, 0
                         ) + int(getattr(transaction_result, key, 0))
@@ -857,10 +865,13 @@ class SyncOrchestrator(CardsSyncMixin):
                     items_processed=(
                         accounts_synced + transactions_synced + holdings_synced
                     ),
-                    report={**transaction_report, "accounts": accounts_synced,
-                            "transactions": transactions_synced,
-                            "holdings": holdings_synced,
-                            "unresolved": len(unresolved_keys)},
+                    report={
+                        **transaction_report,
+                        "accounts": accounts_synced,
+                        "transactions": transactions_synced,
+                        "holdings": holdings_synced,
+                        "unresolved": len(unresolved_keys),
+                    },
                     cursor=start_ts,
                 )
                 if supports_holdings or unresolved_keys:

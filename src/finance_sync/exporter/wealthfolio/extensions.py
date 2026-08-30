@@ -112,10 +112,7 @@ def build_extension_payload(
                 "cashflowBucket": getattr(transaction, "cashflow_bucket", None),
                 "categoryAssignment": suggestion,
                 "notes": getattr(transaction, "description", None),
-                "splits": [
-                    _split_payload(split)
-                    for split in split_values
-                ],
+                "splits": [_split_payload(split) for split in split_values],
                 "sourceSystem": "FINANCE_SYNC",
             }
         )

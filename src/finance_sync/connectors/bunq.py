@@ -495,9 +495,7 @@ class BunqConnector(Connector):
         ]
         for attachment in attachments:
             attachment_id = str(
-                attachment.get("id")
-                or attachment.get("attachment_id")
-                or ""
+                attachment.get("id") or attachment.get("attachment_id") or ""
             )
             if attachment_id:
                 source_references.append(
@@ -511,9 +509,7 @@ class BunqConnector(Connector):
         if isinstance(refund_data, dict):
             refund_details = cast("dict[str, Any]", refund_data)
             refund_amount = Decimal(str(refund_details.get("value", "0")))
-            refund_currency = str(
-                refund_details.get("currency", currency)
-            )
+            refund_currency = str(refund_details.get("currency", currency))
         elif refund_data is not None:
             refund_amount = Decimal(str(refund_data))
             refund_currency = currency
