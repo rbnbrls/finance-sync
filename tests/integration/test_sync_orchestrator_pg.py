@@ -492,14 +492,15 @@ class TestSyncPipelinePg:
         dated after run 1's watermark; the total row count stays at the
         distinct transaction set (idempotent upserts).
         """
+        test_now = datetime.now(UTC)
         shared_txns: list[RawTransaction] = [
             RawTransaction(
                 external_transaction_id="txn_old_1",
                 external_account_id="acc_12345",
                 amount=Decimal("-10.00"),
                 currency_code="EUR",
-                occurred_at=datetime(2026, 6, 1, 10, 0, tzinfo=UTC),
-                booked_at=datetime(2026, 6, 1, 12, 0, tzinfo=UTC),
+                occurred_at=test_now - timedelta(days=89),
+                booked_at=test_now - timedelta(days=89),
                 description="Old June txn",
                 transaction_type="purchase",
                 status="booked",
@@ -510,8 +511,8 @@ class TestSyncPipelinePg:
                 external_account_id="acc_12345",
                 amount=Decimal("-12.00"),
                 currency_code="EUR",
-                occurred_at=datetime.now(UTC),
-                booked_at=datetime.now(UTC),
+                occurred_at=test_now,
+                booked_at=test_now,
                 description="Current txn",
                 transaction_type="purchase",
                 status="booked",
