@@ -1012,6 +1012,9 @@
             <a href="#data-health" data-section="data-health" data-perm="sync:read" onclick="switchSection('data-health')">
                 <span class="icon mdi mdi-heart-pulse" aria-hidden="true"></span> Data health
             </a>
+            <a href="#connectors" data-section="connectors" data-perm="connectors:read" onclick="switchSection('connectors')">
+                <span class="icon mdi mdi-connection" aria-hidden="true"></span> Verbindingen
+            </a>
             <a href="#" data-section="viewer" onclick="switchSection('viewer')">
                 <span class="icon mdi mdi-eye-outline" aria-hidden="true"></span> Viewer
             </a>
@@ -1436,7 +1439,56 @@
             const method = button.dataset.method || 'GET'; const path = button.dataset.path || ''; const result = document.getElementById(button.dataset.resultId || '');
             if (!path) return;
             if (button.dataset.actionKey === 'map_security') { switchSection('connectors'); toast('Open de security-mappingflow vanuit de connectorgegevens.', 'info'); return; }
-            if (method === 'GET') { if (path.includes('/securities/unresolved')) switchSection('connectors'); else if (path.includes('/sync-runs')) switchSection('sync'); else if (path.includes('/destinations')) switchSection('exporters'); else if (path.includes('/reconciliation/')) { switchSection('data-health'); openReconciliationDetail(path); } else window.location.href = path; return; }
+            if (method === 'GET') {
+                // API links cannot be opened with window.location: the
+                // bearer token lives in localStorage and is only attached by
+                // api(). Keep connector recovery inside the authenticated UI.
+                if (path.includes('/connectors/configs')) {
+                    switchSection('connectors');
+                    await loadConnectors();
+                    const match = path.match(/\/connectors\/configs\/([^/?#]+)/);
+                    if (match) {
+                        const connectionId = decodeURIComponent(match[1]);
+                        const cfg = findConfig(connectionId);
+                        if (cfg) openConfigModal(cfg.provider_type, connectionId);
+                        else toast('De verbinding kon niet worden geladen.', 'error');
+                    } else {
+                        openCreateWizard();
+                    }
+                } else if (path.includes('/enrichment/status')) {
+                    switchSection('data-health');
+                    if (result) {
+                        result.className = 'action-result';
+                        result.textContent = 'Koersstatus wordt geladen…';
+                    }
+                    try {
+                        const status = await api('GET', path);
+                        if (result) {
+                            result.className = 'action-result success';
+                            result.innerHTML = `Koersstatus: ${escapeHtml(status.stale_securities ?? 0)} verouderd, ${escapeHtml(status.pending_securities ?? 0)} in afwachting, ${escapeHtml(status.failed_securities ?? 0)} mislukt. <button type="button" class="btn btn-secondary btn-sm" onclick="loadDataHealth()">Opnieuw controleren</button>`;
+                            result.focus?.();
+                        }
+                    } catch (error) {
+                        if (result) {
+                            result.className = 'action-result error';
+                            result.textContent = error?.message || 'De koersstatus kon niet worden geladen.';
+                        }
+                    }
+                } else if (path.includes('/securities/unresolved')) {
+                    switchSection('connectors');
+                } else if (path.includes('/accounts') || path.includes('/transactions')) {
+                    switchSection('viewer');
+                    await loadViewer();
+                } else if (path.includes('/connectors/file-uploads')) {
+                    switchSection('uploads');
+                    await loadFileUploads();
+                } else if (path.includes('/sync-runs')) switchSection('sync');
+                else if (path.includes('/destinations')) switchSection('exporters');
+                else if (path.includes('/reconciliation/')) { switchSection('data-health'); openReconciliationDetail(path); }
+                else if (path.startsWith(API_BASE)) toast('Deze actie kan niet vanuit de GUI worden geopend.', 'error');
+                else window.location.href = path;
+                return;
+            }
             if (button.dataset.busy === 'true') return;
             button.dataset.busy = 'true'; button.disabled = true; button.setAttribute('aria-busy', 'true');
             const original = button.textContent; button.textContent = 'Bezig…';
@@ -4468,7 +4520,7 @@
             const requestedSection = window.location.hash.slice(1);
             const supportedSections = new Set([
                 'overview', 'data-health', 'connectors', 'viewer', 'uploads',
-                'exporters', 'sync', 'holding-news',
+                'exporters', 'sync', 'holding-news', 'settings',
             ]);
             switchSection(supportedSections.has(requestedSection) ? requestedSection : 'overview');
         })();

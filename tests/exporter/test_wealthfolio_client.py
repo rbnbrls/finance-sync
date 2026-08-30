@@ -457,8 +457,10 @@ class TestWealthfolioClient408Retry:
                 snapshot_date="2026-08-29",
             )
 
-        assert put.await_count == 1
-        assert put.await_args.kwargs["json"]["assetId"] == "asset-vwce"
+        assert put.await_count == 2
+        assert put.await_args_list[0].args[0] == "/api/v1/assets/pricing-mode/asset-vwce"
+        assert put.await_args_list[0].kwargs["json"] == {"quoteMode": "MANUAL"}
+        assert put.await_args_list[1].kwargs["json"]["assetId"] == "asset-vwce"
 
     async def test_retry_exhausted_raises_last_408(
         self, client: WealthfolioClient
