@@ -716,6 +716,10 @@ class WealthfolioClient:
             )
             if price is None or asset is None:
                 continue
+            # Connector-owned snapshots are authoritative for the current
+            # valuation. Keep the asset in MANUAL mode so Wealthfolio does
+            # not retry remote providers for an ISIN-only symbol.
+            await self.update_quote_mode(str(asset["id"]), "MANUAL")
             source_value = holding.get("sourceValue")
             if source_value is not None:
                 quantity = Decimal(str(holding["quantity"]))
@@ -798,6 +802,18 @@ class WealthfolioClient:
         """Fetch Wealthfolio assets used to attach manual quotes."""
         self._ensure_authenticated()
         response = await self._client.get(f"{self.API_PREFIX}/assets")
+        response.raise_for_status()
+        return response.json()
+
+    async def update_quote_mode(
+        self, asset_id: str, quote_mode: str
+    ) -> dict[str, Any]:
+        """Set an asset's market-data mode (``MARKET`` or ``MANUAL``)."""
+        self._ensure_authenticated()
+        response = await self._client.put(
+            f"{self.API_PREFIX}/assets/pricing-mode/{asset_id}",
+            json={"quoteMode": quote_mode},
+        )
         response.raise_for_status()
         return response.json()
 

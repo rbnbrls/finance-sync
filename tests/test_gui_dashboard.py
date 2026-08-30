@@ -95,6 +95,9 @@ def test_dashboard_exposes_dedicated_data_health_page(
     html = _dashboard_html(client)
     assert 'data-section="data-health"' in html
     assert 'href="#data-health"' in html
+    assert 'data-section="connectors"' in html
+    assert 'href="#connectors"' in html
+    assert "'settings'" in html
     assert 'id="section-data-health"' in html
     assert "control-plane/data-health" in html
     assert "function loadDataHealth" in html
@@ -140,6 +143,25 @@ def test_dashboard_control_plane_normalizes_api_action_paths(
     html = _dashboard_html(client)
     assert "path.startsWith(API_BASE)" in html
     assert "Open de security-mappingflow" in html
+
+
+def test_dashboard_keeps_connector_recovery_inside_authenticated_ui(
+    client: TestClient,
+) -> None:
+    """Connector issue actions must not navigate to an unauthenticated API URL."""
+    html = _dashboard_html(client)
+    assert "Keep connector recovery inside the authenticated UI." in html
+    assert "await loadConnectors();" in html
+    assert "openConfigModal(cfg.provider_type, connectionId)" in html
+    assert "path.includes('/connectors/configs')" in html
+    assert "path.includes('/enrichment/status')" in html
+    assert "Koersstatus wordt geladen" in html
+    assert "api('GET', path)" in html
+    assert (
+        "path.includes('/accounts') || path.includes('/transactions')" in html
+    )
+    assert "path.includes('/connectors/file-uploads')" in html
+    assert "path.startsWith(API_BASE)" in html
 
 
 def test_dashboard_opens_reconciliation_findings_inside_authenticated_ui(
@@ -203,7 +225,7 @@ def test_dashboard_uses_one_import_entrypoint_with_provider_method_choice(
     """The user starts every import from Importeren and chooses the method there."""
     html = _dashboard_html(client)
     assert 'data-section="uploads"' in html
-    assert 'data-section="connectors"' not in html
+    assert 'data-section="connectors"' in html
     assert '<h1 class="page-title" id="uploads-title">Importeren</h1>' in html
     assert "Bestaande koppelingen beheren" in html
     assert "function selectImportMethod" in html

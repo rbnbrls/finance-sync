@@ -181,6 +181,27 @@ async def test_statement_pairs_usd_dividend_with_degiro_fx_conversion(
 
 
 @pytest.mark.asyncio
+async def test_statement_reads_dutch_exchange_rate_for_usd_cash_activity(
+    tmp_path: Path,
+) -> None:
+    """The Dutch statement export labels the FX column ``Wisselkoers``."""
+    path = tmp_path / "account_statement.csv"
+    path.write_text(
+        "Datum,Tijd,Valutadatum,Product,ISIN,Omschrijving,Wisselkoers,Mutatie,,Saldo,,Order ID\n"
+        "2026-07-17,08:00,2026-07-17,Apple Inc.,US0378331005,Dividend,1.1500,0.25,USD,0.25,USD,\n",
+        encoding="utf-8",
+    )
+    connector = _connector(str(path))
+    await connector.authenticate()
+    transactions = await connector.fetch_transactions(
+        datetime(2020, 1, 1, tzinfo=UTC)
+    )
+    assert len(transactions) == 1
+    assert transactions[0].fx_rate == Decimal("1.1500")
+    assert transactions[0].amount_in_base == Decimal("0.25") / Decimal("1.15")
+
+
+@pytest.mark.asyncio
 async def test_empty_portfolio_is_a_zero_value_snapshot() -> None:
     connector = _connector("portfolio_empty_en.csv")
     await connector.authenticate()

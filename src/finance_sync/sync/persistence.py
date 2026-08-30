@@ -187,6 +187,7 @@ class AccountPersistence:
                     entity_id=str(existing.id),
                     changed_fields=changed,
                     provider_key=account.provider_key,
+                    deduplicate=True,
                 )
             return existing
 
