@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 from datetime import UTC, date, datetime
 from typing import Any, NoReturn
 
@@ -13,13 +15,19 @@ REQUIRED_TESTS = ("contract", "retry", "idempotency", "security")
 
 def _contains_secret_like(value: str) -> bool:
     """Return True if the string looks like a secret or credential."""
-    # Match credential prefixes case-insensitively.
-    if not isinstance(value, str):
-        return False
     vlower = value.lower()
-    # Template placeholders such as ${SECRET} are inert fixture data; detect
-    # credential-shaped values without expanding or rewriting them.
-    return "sk_live_" in vlower or "-----begin private key-----" in vlower
+    return vlower.startswith("sk_") or "secret" in vlower
+
+
+def canonical_fixture_hash(entry: dict[str, Any]) -> str:
+    """Return the canonical digest for a certification fixture entry."""
+    fixture = {
+        key: entry[key]
+        for key in ("fixture_date", "test_commit")
+        if key in entry
+    }
+    encoded = json.dumps(fixture, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
 class CertificationError(ValueError):
@@ -61,7 +69,7 @@ def validate_certification(
     )
     if not isinstance(entry, dict):
         _fail("certification_missing")
-    # Reject any string field containing a secret-like pattern.
+    # Reject secret-like values before processing metadata.
     for field_value in entry.values():
         if isinstance(field_value, str) and _contains_secret_like(field_value):
             _fail("secret_detected")
@@ -77,7 +85,7 @@ def validate_certification(
         "certification_date",
         "test_commit",
         "expires_at",
-        "fixture_hash",  # <-- added for fixture drift detection
+        "fixture_hash",
     ):
         if not entry.get(field):
             _fail(f"{field}_missing")
@@ -86,13 +94,13 @@ def validate_certification(
         entry["certification_date"], "certification_date_invalid"
     )
     expires_at = _as_date(entry["expires_at"], "expires_at_invalid")
-    # Fixture hash: required to detect fixture drift.
     fixture_hash = entry.get("fixture_hash")
     if (
         not isinstance(fixture_hash, str)
-        or len(fixture_hash) != 64
-        or not all(c in "0123456789abcdefABCDEF" for c in fixture_hash)
+        or fixture_hash != fixture_hash.lower()
     ):
+        _fail("fixture_hash_invalid")
+    if fixture_hash != canonical_fixture_hash(entry):
         _fail("fixture_hash_invalid")
     current = today or datetime.now(UTC).date()
     if expires_at < current:
