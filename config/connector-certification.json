@@ -13,7 +13,8 @@
         "holdings": {"status": "certified", "tests": {"contract": true, "retry": true, "idempotency": true, "security": true}},
         "securities": {"status": "certified", "tests": {"contract": true, "retry": true, "idempotency": true, "security": true}},
         "fx": {"status": "certified", "tests": {"contract": true, "retry": true, "idempotency": true, "security": true}}
-      }
+      },
+      "fixture_hash": "c03d2f02dacf979e57109131c7a7cf02b4c9b63b4764f8affba19b2bbbfea4e1"
     },
     {
       "name": "trading212", "version": "0.1.0", "fixture_date": "2026-01-15", "certification_date": "2026-08-22", "test_commit": "synthetic-contract-matrix", "expires_at": "2027-08-22",
@@ -23,7 +24,8 @@
         "holdings": {"status": "certified", "tests": {"contract": true, "retry": true, "idempotency": true, "security": true}},
         "securities": {"status": "certified", "tests": {"contract": true, "retry": true, "idempotency": true, "security": true}},
         "fx": {"status": "certified", "tests": {"contract": true, "retry": true, "idempotency": true, "security": true}}
-      }
+      },
+      "fixture_hash": "c03d2f02dacf979e57109131c7a7cf02b4c9b63b4764f8affba19b2bbbfea4e1"
     },
     {
       "name": "degiro_pension", "version": "0.1.0", "fixture_date": "2026-01-15", "certification_date": "2026-08-22", "test_commit": "synthetic-contract-matrix", "expires_at": "2027-08-22",
@@ -33,7 +35,8 @@
         "holdings": {"status": "certified", "tests": {"contract": true, "retry": true, "idempotency": true, "security": true}},
         "securities": {"status": "certified", "tests": {"contract": true, "retry": true, "idempotency": true, "security": true}},
         "fx": {"status": "certified", "tests": {"contract": true, "retry": true, "idempotency": true, "security": true}}
-      }
+      },
+      "fixture_hash": "c03d2f02dacf979e57109131c7a7cf02b4c9b63b4764f8affba19b2bbbfea4e1"
     },
     {
       "name": "ynab", "version": "0.1.0", "fixture_date": "2026-01-15", "certification_date": "2026-08-22", "test_commit": "synthetic-contract-matrix", "expires_at": "2027-08-22",
@@ -43,7 +46,8 @@
         "holdings": {"status": "certified", "tests": {"contract": true, "retry": true, "idempotency": true, "security": true}},
         "securities": {"status": "certified", "tests": {"contract": true, "retry": true, "idempotency": true, "security": true}},
         "fx": {"status": "certified", "tests": {"contract": true, "retry": true, "idempotency": true, "security": true}}
-      }
+      },
+      "fixture_hash": "c03d2f02dacf979e57109131c7a7cf02b4c9b63b4764f8affba19b2bbbfea4e1"
     }
   ]
 }
