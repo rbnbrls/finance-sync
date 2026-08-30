@@ -558,6 +558,7 @@ jobs:
           DEBUG=false uv run pytest -q
           tests/test_release18_connector_lifecycle.py
           tests/test_connector_lifecycle_evidence.py
+          tests/test_connector_certification.py
           tests/test_connector_releases.py
           tests/test_provider_health.py
       - name: Secret-redaction and synthetic lifecycle gate
@@ -575,12 +576,17 @@ jobs:
         run: >
           uv run python scripts/connector_lifecycle_evidence.py
           --output connector-lifecycle-evidence.json
+      - name: Validate connector certification matrix
+        run: >
+          uv run python scripts/connector_certification.py
+          --output connector-certification-report.json
       - uses: actions/upload-artifact@v7
         with:
           name: connector-lifecycle-${{ github.sha }}
           path: |
             connector-lifecycle-report.json
             connector-lifecycle-evidence.json
+            connector-certification-report.json
           retention-days: 30
 
   # ── Autoscaling and backpressure policy ──────────────────────────────
