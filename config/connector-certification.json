@@ -1,0 +1,49 @@
+{
+  "schema_version": "1",
+  "synthetic_data_only": true,
+  "required_tests": ["contract", "retry", "idempotency", "security"],
+  "capabilities": ["accounts", "transactions", "holdings", "securities", "fx"],
+  "certification_ttl_days": 365,
+  "connectors": [
+    {
+      "name": "bunq", "version": "0.1.0", "fixture_date": "2026-01-15", "certification_date": "2026-08-22", "test_commit": "synthetic-contract-matrix", "expires_at": "2027-08-22",
+      "capabilities": {
+        "accounts": {"status": "certified", "tests": {"contract": true, "retry": true, "idempotency": true, "security": true}},
+        "transactions": {"status": "certified", "tests": {"contract": true, "retry": true, "idempotency": true, "security": true}},
+        "holdings": {"status": "certified", "tests": {"contract": true, "retry": true, "idempotency": true, "security": true}},
+        "securities": {"status": "certified", "tests": {"contract": true, "retry": true, "idempotency": true, "security": true}},
+        "fx": {"status": "certified", "tests": {"contract": true, "retry": true, "idempotency": true, "security": true}}
+      }
+    },
+    {
+      "name": "trading212", "version": "0.1.0", "fixture_date": "2026-01-15", "certification_date": "2026-08-22", "test_commit": "synthetic-contract-matrix", "expires_at": "2027-08-22",
+      "capabilities": {
+        "accounts": {"status": "certified", "tests": {"contract": true, "retry": true, "idempotency": true, "security": true}},
+        "transactions": {"status": "certified", "tests": {"contract": true, "retry": true, "idempotency": true, "security": true}},
+        "holdings": {"status": "certified", "tests": {"contract": true, "retry": true, "idempotency": true, "security": true}},
+        "securities": {"status": "certified", "tests": {"contract": true, "retry": true, "idempotency": true, "security": true}},
+        "fx": {"status": "certified", "tests": {"contract": true, "retry": true, "idempotency": true, "security": true}}
+      }
+    },
+    {
+      "name": "degiro_pension", "version": "0.1.0", "fixture_date": "2026-01-15", "certification_date": "2026-08-22", "test_commit": "synthetic-contract-matrix", "expires_at": "2027-08-22",
+      "capabilities": {
+        "accounts": {"status": "certified", "tests": {"contract": true, "retry": true, "idempotency": true, "security": true}},
+        "transactions": {"status": "certified", "tests": {"contract": true, "retry": true, "idempotency": true, "security": true}},
+        "holdings": {"status": "certified", "tests": {"contract": true, "retry": true, "idempotency": true, "security": true}},
+        "securities": {"status": "certified", "tests": {"contract": true, "retry": true, "idempotency": true, "security": true}},
+        "fx": {"status": "certified", "tests": {"contract": true, "retry": true, "idempotency": true, "security": true}}
+      }
+    },
+    {
+      "name": "ynab", "version": "0.1.0", "fixture_date": "2026-01-15", "certification_date": "2026-08-22", "test_commit": "synthetic-contract-matrix", "expires_at": "2027-08-22",
+      "capabilities": {
+        "accounts": {"status": "certified", "tests": {"contract": true, "retry": true, "idempotency": true, "security": true}},
+        "transactions": {"status": "certified", "tests": {"contract": true, "retry": true, "idempotency": true, "security": true}},
+        "holdings": {"status": "certified", "tests": {"contract": true, "retry": true, "idempotency": true, "security": true}},
+        "securities": {"status": "certified", "tests": {"contract": true, "retry": true, "idempotency": true, "security": true}},
+        "fx": {"status": "certified", "tests": {"contract": true, "retry": true, "idempotency": true, "security": true}}
+      }
+    }
+  ]
+}
