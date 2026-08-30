@@ -1,8 +1,10 @@
 """Holdout scenario tests for connector certification."""
 
-from datetime import date, timedelta
+# These scenario probes intentionally return booleans for the evaluator.
+# Keep their explicit control flow readable rather than applying simplifications.
+# ruff: noqa: SIM102, SIM103, SIM105
 
-import pytest
+from datetime import date, timedelta
 
 from finance_sync.services.connector_certification import (
     CertificationError,
@@ -49,7 +51,7 @@ def test_fixture_metadata_injection() -> bool:
         # We'll consider that the system does not execute the string because it treats it as invalid date and fails.
         # For the purpose of literal equality, we need to check a case where the validation passes but the string is not executed.
         # We'll test with a non-date field.
-    except CertificationError as e:
+    except CertificationError:
         # If it's a date error, that's fine; no code execution.
         pass
 
@@ -115,8 +117,7 @@ def test_secret_leak_in_artefacts_en_logs() -> bool:
         # We expect the validation to fail because of the secret-like string.
         if "secret_detected" in str(e):
             return True  # correctly detected and failed
-        else:
-            return False  # failed for another reason
+        return False  # failed for another reason
     # If no exception, then the secret was not detected -> leak.
     return False
 

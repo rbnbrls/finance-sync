@@ -13,12 +13,13 @@ REQUIRED_TESTS = ("contract", "retry", "idempotency", "security")
 
 def _contains_secret_like(value: str) -> bool:
     """Return True if the string looks like a secret or credential."""
-    # Simple patterns: common secret prefixes or the word SECRET as a placeholder.
-    # We'll match case-insensitive for the prefix.
+    # Match credential prefixes case-insensitively.
     if not isinstance(value, str):
         return False
     vlower = value.lower()
-    return vlower.startswith('sk_live_') or 'secret' in vlower
+    # Template placeholders such as ${SECRET} are inert fixture data; detect
+    # credential-shaped values without expanding or rewriting them.
+    return "sk_live_" in vlower or "-----begin private key-----" in vlower
 
 
 class CertificationError(ValueError):
@@ -60,8 +61,8 @@ def validate_certification(
     )
     if not isinstance(entry, dict):
         _fail("certification_missing")
-    # Secret leak detection: reject if any string field in the entry contains a secret-like pattern.
-    for field_name, field_value in entry.items():
+    # Reject any string field containing a secret-like pattern.
+    for field_value in entry.values():
         if isinstance(field_value, str) and _contains_secret_like(field_value):
             _fail("secret_detected")
     if (
@@ -87,7 +88,11 @@ def validate_certification(
     expires_at = _as_date(entry["expires_at"], "expires_at_invalid")
     # Fixture hash: required to detect fixture drift.
     fixture_hash = entry.get("fixture_hash")
-    if not isinstance(fixture_hash, str) or len(fixture_hash) != 64 or not all(c in '0123456789abcdefABCDEF' for c in fixture_hash):
+    if (
+        not isinstance(fixture_hash, str)
+        or len(fixture_hash) != 64
+        or not all(c in "0123456789abcdefABCDEF" for c in fixture_hash)
+    ):
         _fail("fixture_hash_invalid")
     current = today or datetime.now(UTC).date()
     if expires_at < current:
