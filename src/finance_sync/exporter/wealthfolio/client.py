@@ -805,7 +805,9 @@ class WealthfolioClient:
         response.raise_for_status()
         return response.json()
 
-    async def update_quote_mode(self, asset_id: str, quote_mode: str) -> dict[str, Any]:
+    async def update_quote_mode(
+        self, asset_id: str, quote_mode: str
+    ) -> dict[str, Any]:
         """Set an asset's market-data mode (``MARKET`` or ``MANUAL``)."""
         self._ensure_authenticated()
         response = await self._client.put(

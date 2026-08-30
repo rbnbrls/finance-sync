@@ -157,7 +157,9 @@ def test_dashboard_keeps_connector_recovery_inside_authenticated_ui(
     assert "path.includes('/enrichment/status')" in html
     assert "Koersstatus wordt geladen" in html
     assert "api('GET', path)" in html
-    assert "path.includes('/accounts') || path.includes('/transactions')" in html
+    assert (
+        "path.includes('/accounts') || path.includes('/transactions')" in html
+    )
     assert "path.includes('/connectors/file-uploads')" in html
     assert "path.startsWith(API_BASE)" in html
 

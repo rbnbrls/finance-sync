@@ -458,7 +458,10 @@ class TestWealthfolioClient408Retry:
             )
 
         assert put.await_count == 2
-        assert put.await_args_list[0].args[0] == "/api/v1/assets/pricing-mode/asset-vwce"
+        assert (
+            put.await_args_list[0].args[0]
+            == "/api/v1/assets/pricing-mode/asset-vwce"
+        )
         assert put.await_args_list[0].kwargs["json"] == {"quoteMode": "MANUAL"}
         assert put.await_args_list[1].kwargs["json"]["assetId"] == "asset-vwce"
 
