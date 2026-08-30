@@ -356,9 +356,14 @@ class ActualBudgetExporter:
                         txns_failed += len(mapped) - batch_ok
 
                         # Mark exported transactions and update delivery cursor
-                        exported_ids = delivered_ids + [
-                            str(t.id) for t in txns if t not in transfer_txns
-                        ][:batch_ok]
+                        exported_ids = (
+                            delivered_ids
+                            + [
+                                str(t.id)
+                                for t in txns
+                                if t not in transfer_txns
+                            ][:batch_ok]
+                        )
                         await self._mark_exported(session, exported_ids)
                         await self._update_export_delivery(
                             session,

@@ -131,12 +131,16 @@ async def list_spending_rules(
     db: AsyncSession = Depends(get_db),
 ) -> list[dict[str, Any]]:
     rows = (
-        await db.execute(
-            select(SpendingRule)
-            .where(SpendingRule.tenant_id == auth.tenant_id)
-            .order_by(SpendingRule.priority, SpendingRule.name)
+        (
+            await db.execute(
+                select(SpendingRule)
+                .where(SpendingRule.tenant_id == auth.tenant_id)
+                .order_by(SpendingRule.priority, SpendingRule.name)
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     return [
         {
             "id": str(row.id),

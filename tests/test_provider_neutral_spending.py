@@ -98,7 +98,9 @@ def test_equivalent_provider_transactions_share_canonical_semantics(
         async def fetch_accounts(self):
             return []
 
-        async def fetch_transactions(self, since, *, account_id=None, limit=None):
+        async def fetch_transactions(
+            self, since, *, account_id=None, limit=None
+        ):
             return []
 
     common = {
@@ -116,11 +118,15 @@ def test_equivalent_provider_transactions_share_canonical_semantics(
         "original_type": "provider-native-payment",
         "original_status": "SETTLED",
         "fee_amount": Decimal("0.10") if transaction_type == "fee" else None,
-        "refund_amount": Decimal("8.00") if transaction_type == "refund" else None,
+        "refund_amount": Decimal("8.00")
+        if transaction_type == "refund"
+        else None,
         "refund_currency_code": "EUR" if transaction_type == "refund" else None,
         "source_record_hash": "same-source-content",
         "source_references": [
-            SourceReference(object_type="transaction", external_ids=["source-1"])
+            SourceReference(
+                object_type="transaction", external_ids=["source-1"]
+            )
         ],
     }
     first = ProviderConnector("bunq").transform_transactions(
@@ -147,6 +153,7 @@ def test_equivalent_provider_transactions_share_canonical_semantics(
             item.refund_amount,
             item.source_record_hash,
         )
+
     assert projection(first) == projection(second)
 
 
@@ -162,7 +169,9 @@ def test_card_payment_and_refund_normalise_to_same_card_contract() -> None:
         async def fetch_accounts(self):
             return []
 
-        async def fetch_transactions(self, since, *, account_id=None, limit=None):
+        async def fetch_transactions(
+            self, since, *, account_id=None, limit=None
+        ):
             return []
 
     raw = RawCardTransaction(
@@ -256,7 +265,9 @@ def test_destination_projection_and_reconciliation_are_idempotency_friendly() ->
     assert any(item["kind"] == "amount_mismatch" for item in findings)
 
 
-def test_reconciliation_normalizes_ynab_milliunits_and_firefly_categories() -> None:
+def test_reconciliation_normalizes_ynab_milliunits_and_firefly_categories() -> (
+    None
+):
     transaction = SimpleNamespace(
         provider_key="ynab",
         external_transaction_id="tx-2",
@@ -330,7 +341,9 @@ async def test_destination_reference_upsert_is_tenant_scoped() -> None:
 
 
 @pytest.mark.asyncio
-async def test_destination_enrichment_preserves_user_owned_fields_on_resync() -> None:
+async def test_destination_enrichment_preserves_user_owned_fields_on_resync() -> (
+    None
+):
     from finance_sync.sync.persistence import TransactionPersistence
 
     entity = SimpleNamespace(
@@ -348,7 +361,9 @@ async def test_destination_enrichment_preserves_user_owned_fields_on_resync() ->
     with patch(
         "finance_sync.sync.persistence._add_lifecycle_event"
     ) as lifecycle:
-        result = await TransactionPersistence("tenant-1").apply_destination_enrichment(
+        result = await TransactionPersistence(
+            "tenant-1"
+        ).apply_destination_enrichment(
             uow,
             "transaction-1",
             {
@@ -451,7 +466,9 @@ async def test_second_sync_preserves_override_splits_and_appends_lifecycle_event
 
 
 @pytest.mark.asyncio
-async def test_transaction_stage_reports_exact_upsert_and_spending_counts() -> None:
+async def test_transaction_stage_reports_exact_upsert_and_spending_counts() -> (
+    None
+):
     from finance_sync.connectors.models import CanonicalTransactionData
 
     class Writer:

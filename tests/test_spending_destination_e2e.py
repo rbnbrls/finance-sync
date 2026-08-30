@@ -42,7 +42,11 @@ class _FixtureProvider(Connector):
         return []
 
     async def fetch_transactions(
-        self, since: datetime, *, account_id: str | None = None, limit: int | None = None
+        self,
+        since: datetime,
+        *,
+        account_id: str | None = None,
+        limit: int | None = None,
     ) -> list[Any]:
         return []
 
@@ -178,7 +182,9 @@ def _amount(destination: str, payload: dict[str, Any]) -> Decimal:
     return Decimal(str(payload["amount"]))
 
 
-@pytest.mark.parametrize("destination", ["actual", "firefly", "ynab", "wealthfolio"])
+@pytest.mark.parametrize(
+    "destination", ["actual", "firefly", "ynab", "wealthfolio"]
+)
 def test_full_local_destination_pipeline_is_content_and_replay_safe(
     destination: str,
 ) -> None:
@@ -201,9 +207,7 @@ def test_full_local_destination_pipeline_is_content_and_replay_safe(
     assert _amount(destination, payloads[0]) == expected_outflow
     assert _amount(destination, payloads[1]) == Decimal(100)
     expected_transfer = (
-        Decimal(-25)
-        if destination in {"actual", "ynab"}
-        else Decimal(25)
+        Decimal(-25) if destination in {"actual", "ynab"} else Decimal(25)
     )
     assert _amount(destination, payloads[2]) == expected_transfer
 
@@ -219,5 +223,8 @@ def test_full_local_destination_pipeline_is_content_and_replay_safe(
         assert first["subtransactions"][0]["category_id"] == "food"
         assert "transfer_account_id" in payloads[2]
     else:
-        assert first["metadata"]["financeSync"]["categorySuggestion"]["value"] == "groceries"
+        assert (
+            first["metadata"]["financeSync"]["categorySuggestion"]["value"]
+            == "groceries"
+        )
         assert first["metadata"]["financeSync"]["splitCount"] == 1

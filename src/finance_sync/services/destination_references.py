@@ -28,10 +28,8 @@ async def record_destination_reference(
         result = await session.execute(
             select(DestinationObjectReference).where(
                 DestinationObjectReference.tenant_id == tenant_id,
-                DestinationObjectReference.destination_type
-                == destination_type,
-                DestinationObjectReference.idempotency_key
-                == idempotency_key,
+                DestinationObjectReference.destination_type == destination_type,
+                DestinationObjectReference.idempotency_key == idempotency_key,
             )
         )
         reference = result.scalar_one_or_none()
