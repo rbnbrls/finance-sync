@@ -718,7 +718,12 @@ class DegiroPensionConnector(Connector):
                 if self._is_technical_statement_row(lowered):
                     if "valuta debitering" in lowered:
                         fx = _decimal(
-                            row.get("FX mutatie", "FX", "Exchange rate")
+                            row.get(
+                                "FX mutatie",
+                                "Wisselkoers",
+                                "FX",
+                                "Exchange rate",
+                            )
                         )
                         mutation_raw = row.get("Mutatie", "Change", "Amount")
                         mutation_currency = _currency(mutation_raw, default="")

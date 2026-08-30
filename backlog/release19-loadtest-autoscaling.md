@@ -1,6 +1,6 @@
 ---
 title: "Valideer autoscaling met reproduceerbare loadtests"
-status: todo
+status: done
 priority: 20
 ---
 
