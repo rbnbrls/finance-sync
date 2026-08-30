@@ -60,7 +60,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import sqlalchemy as sa
-from alembic import op
+from alembic import context, op
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -153,6 +153,17 @@ def _dedupe_duplicate_natural_keys(conn: Connection) -> None:
 
 def upgrade() -> None:
     """Rebuild uq_transactions_provider as NULLS NOT DISTINCT."""
+    if context.is_offline_mode():
+        op.execute(
+            f"ALTER TABLE {_TABLE} DROP CONSTRAINT IF EXISTS {_CONSTRAINT}"
+        )
+        op.execute(
+            f"ALTER TABLE {_TABLE} ADD CONSTRAINT {_CONSTRAINT} "
+            "UNIQUE NULLS NOT DISTINCT ("
+            + ", ".join(_KEY_COLUMNS)
+            + ")"
+        )
+        return
     bind = op.get_bind()
 
     # Idempotency: a schema that already has the NULLS NOT DISTINCT form
@@ -179,6 +190,16 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     """Restore the default NULLS DISTINCT semantics."""
+    if context.is_offline_mode():
+        op.execute(
+            f"ALTER TABLE {_TABLE} DROP CONSTRAINT IF EXISTS {_CONSTRAINT}"
+        )
+        op.execute(
+            f"ALTER TABLE {_TABLE} ADD CONSTRAINT {_CONSTRAINT} UNIQUE ("
+            + ", ".join(_KEY_COLUMNS)
+            + ")"
+        )
+        return
     bind = op.get_bind()
     if not _constraint_nulls_not_distinct(bind):
         return

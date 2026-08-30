@@ -345,6 +345,16 @@ def map_transaction_to_wf_row(
                 "sourceFxRate": (
                     str(txn.fx_rate) if txn.fx_rate is not None else None
                 ),
+                "merchant": getattr(txn, "merchant_name", None),
+                "merchantId": getattr(txn, "merchant_id", None),
+                "merchantCategoryCode": getattr(
+                    txn, "merchant_category_code", None
+                ),
+                "cashflowBucket": getattr(txn, "cashflow_bucket", None),
+                "categorySuggestion": _json_value(
+                    getattr(txn, "cashflow_suggestion", None)
+                ),
+                "splitCount": len(getattr(txn, "splits", ()) or ()),
             },
             **(
                 {"flow": {"is_external": False}}
@@ -357,6 +367,13 @@ def map_transaction_to_wf_row(
             ),
         },
     }
+
+
+def _json_value(value: Any) -> Any:
+    """Return a stable JSON-friendly value for optional Pydantic fields."""
+    if hasattr(value, "model_dump"):
+        return value.model_dump(mode="json")
+    return value
 
 
 def map_holding_to_wf_row(

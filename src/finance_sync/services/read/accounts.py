@@ -55,6 +55,7 @@ class AccountReadService:
             owner_user_id=account.owner_user_id,
             created_at=account.created_at,
             updated_at=account.updated_at,
+            capabilities=account.capabilities,
         )
 
     @staticmethod
@@ -76,9 +77,35 @@ class AccountReadService:
             description=transaction.description,
             transaction_type=transaction.transaction_type,
             status=str(transaction.status),
+            tombstoned_at=transaction.tombstoned_at,
             provider_key=transaction.provider_key,
             created_at=transaction.created_at,
             updated_at=transaction.updated_at,
+            provider_metadata_contract=transaction.provider_metadata_contract,
+            merchant_name=transaction.merchant_name,
+            merchant_id=transaction.merchant_id,
+            merchant_city=transaction.merchant_city,
+            merchant_country=transaction.merchant_country,
+            counterparty_name=transaction.counterparty_name,
+            counterparty_account_reference=transaction.counterparty_account_reference,
+            merchant_category_code=transaction.merchant_category_code,
+            original_type=transaction.original_type,
+            original_status=transaction.original_status,
+            authorization_status=transaction.authorization_status,
+            settlement_status=transaction.settlement_status,
+            source_record_hash=transaction.source_record_hash,
+            cashflow_bucket=transaction.cashflow_bucket,
+            cashflow_suggestion=transaction.cashflow_suggestion,
+            classification_source=transaction.classification_source,
+            classification_override=transaction.classification_override,
+            gross_amount=transaction.gross_amount,
+            gross_currency_code=transaction.gross_currency_code,
+            net_amount=transaction.net_amount,
+            net_currency_code=transaction.net_currency_code,
+            tax_amount=transaction.tax_amount,
+            tax_currency_code=transaction.tax_currency_code,
+            refund_amount=transaction.refund_amount,
+            refund_currency_code=transaction.refund_currency_code,
         )
 
     async def list_accounts(

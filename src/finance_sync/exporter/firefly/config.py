@@ -17,6 +17,14 @@ class FireflyConfig(BaseModel):
     default_currency: str = "EUR"
     import_tag: str = "finance-sync"
     account_name_overrides: dict[str, str] = Field(default_factory=dict)
+    budget_name_map: dict[str, str] = Field(
+        default_factory=dict,
+        description="Map canonical category suggestions to Firefly budgets.",
+    )
+    bill_name_map: dict[str, str] = Field(
+        default_factory=dict,
+        description="Map canonical category suggestions to Firefly bills.",
+    )
 
     model_config = {"extra": "forbid"}
 
@@ -38,4 +46,6 @@ class FireflyConfig(BaseModel):
             account_name_overrides=getattr(
                 settings, "firefly_account_name_overrides", {}
             ),
+            budget_name_map=getattr(settings, "firefly_budget_name_map", {}),
+            bill_name_map=getattr(settings, "firefly_bill_name_map", {}),
         )

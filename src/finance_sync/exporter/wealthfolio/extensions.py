@@ -11,6 +11,8 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any, cast
 
+from finance_sync.services.spending_privacy import redact_destination_metadata
+
 DATASETS = (
     "portfolios",
     "allocations",
@@ -20,6 +22,7 @@ DATASETS = (
     "alternative_assets",
     "notes",
     "tags",
+    "events",
 )
 
 
@@ -27,6 +30,7 @@ def build_extension_payload(
     *,
     accounts: list[Any],
     metadata: list[Any] | None = None,
+    transactions: list[Any] | None = None,
 ) -> dict[str, Any]:
     """Build a lossless, connector-owned extension sidecar.
 
@@ -59,7 +63,11 @@ def build_extension_payload(
                 for value in cast(list[Any], values):
                     if not isinstance(value, dict):
                         continue
-                    record: dict[str, Any] = dict(cast("dict[str, Any]", value))
+                    record = cast("dict[str, Any]", value)
+                    record = cast(
+                        "dict[str, Any]",
+                        redact_destination_metadata(record),
+                    )
                     record.setdefault("accountId", str(account.id))
                     record.setdefault("sourceSystem", "FINANCE_SYNC")
                     sections[dataset].append(record)
@@ -84,6 +92,49 @@ def build_extension_payload(
                     }
                 )
 
+    for transaction in transactions or []:
+        suggestion = getattr(transaction, "cashflow_suggestion", None)
+        if suggestion is not None and hasattr(suggestion, "model_dump"):
+            suggestion = suggestion.model_dump(mode="json")
+        split_values: list[Any] = list(
+            getattr(transaction, "splits", None) or []
+        )
+        sections["spending"].append(
+            {
+                "sourceRecordId": str(transaction.id),
+                "externalTransactionId": str(
+                    transaction.external_transaction_id
+                ),
+                "accountId": str(transaction.account_id),
+                "merchant": getattr(transaction, "merchant_name", None),
+                "merchantId": getattr(transaction, "merchant_id", None),
+                "mcc": getattr(transaction, "merchant_category_code", None),
+                "cashflowBucket": getattr(transaction, "cashflow_bucket", None),
+                "categoryAssignment": suggestion,
+                "notes": getattr(transaction, "description", None),
+                "splits": [_split_payload(split) for split in split_values],
+                "sourceSystem": "FINANCE_SYNC",
+            }
+        )
+        for event in list(getattr(transaction, "lifecycle_events", None) or []):
+            occurred_at = getattr(event, "created_at", None)
+            sections["events"].append(
+                {
+                    "sourceRecordId": str(event.id),
+                    "transactionId": str(transaction.id),
+                    "eventType": getattr(event, "event_type", None),
+                    "occurredAt": (
+                        occurred_at.astimezone(UTC).isoformat()
+                        if occurred_at is not None
+                        else None
+                    ),
+                    "actor": getattr(event, "actor", None),
+                    "payload": getattr(event, "payload", None),
+                    "provenance": getattr(event, "provenance", None),
+                    "sourceSystem": "FINANCE_SYNC",
+                }
+            )
+
     coverage = {
         dataset: {
             "status": "available" if sections[dataset] else "unavailable",
@@ -97,4 +148,14 @@ def build_extension_payload(
         "sourceSystem": "FINANCE_SYNC",
         "coverage": coverage,
         "datasets": sections,
+    }
+
+
+def _split_payload(split: Any) -> dict[str, Any]:
+    """Project an optional split without requiring a loaded ORM type."""
+    return {
+        "amount": str(getattr(split, "amount", "0")),
+        "currency": getattr(split, "currency_code", None),
+        "destination": getattr(split, "destination", None),
+        "provenance": getattr(split, "provenance", None),
     }

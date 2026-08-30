@@ -48,6 +48,7 @@ from finance_sync.models.enums import (
     SubscriptionConfidence,
     SubscriptionStatus,
     SyncRunStatus,
+    TransactionLifecycleEventType,
     TransactionStatus,
     TransactionType,
     UserRole,
@@ -96,12 +97,29 @@ from finance_sync.models.security_metadata_observation import (
     SecurityMetadataObservation,
 )
 from finance_sync.models.security_price import SecurityPrice
+from finance_sync.models.spending import (
+    MerchantIdentity,
+    TransactionAnnotation,
+    TransactionSourceReference,
+    TransactionSplit,
+)
+from finance_sync.models.spending_config import (
+    CategoryMapping,
+    DestinationObjectReference,
+    TransactionOverride,
+)
+from finance_sync.models.spending_config import (
+    MerchantMapping as StoredMerchantMapping,
+)
+from finance_sync.models.spending_policy import SpendingPrivacyPolicy
+from finance_sync.models.spending_rule import SpendingRule
 from finance_sync.models.sync_cursor import SyncCursor
 from finance_sync.models.sync_run import SyncRun
 from finance_sync.models.sync_schedule import SyncSchedule
 from finance_sync.models.tax_lot import TaxLot
 from finance_sync.models.tenant import Tenant
 from finance_sync.models.transaction import Transaction
+from finance_sync.models.transaction_event import TransactionLifecycleEvent
 from finance_sync.models.unresolved_security import UnresolvedSecurity
 from finance_sync.models.user import User
 from finance_sync.models.webhook import Webhook, WebhookDeliveryLog
@@ -180,6 +198,7 @@ __all__ = [
     "BalanceSource",
     "CardAuthorizationType",
     "CardTransaction",
+    "CategoryMapping",
     "ConnectionAuditLog",
     "ConnectorProvider",
     "ConnectorRelease",
@@ -189,6 +208,7 @@ __all__ = [
     "DataMart",
     "DataMartConsumer",
     "DataMartGrant",
+    "DestinationObjectReference",
     "DetectedSubscription",
     "DetectionMethod",
     "EnrichmentFreshness",
@@ -203,6 +223,7 @@ __all__ = [
     "MarketIntelligenceProviderState",
     "MarketIntelligenceReviewQueue",
     "MarketIntelligenceRun",
+    "MerchantIdentity",
     "OutboxMessage",
     "OutboxMessageStatus",
     "ReconciliationResult",
@@ -226,6 +247,9 @@ __all__ = [
     "SecurityMetadataObservation",
     "SecurityPrice",
     "SecurityType",
+    "SpendingPrivacyPolicy",
+    "SpendingRule",
+    "StoredMerchantMapping",
     "SubscriptionConfidence",
     "SubscriptionStatus",
     "SyncCursor",
@@ -238,6 +262,12 @@ __all__ = [
     "TenantAwareMixin",
     "TimestampMixin",
     "Transaction",
+    "TransactionAnnotation",
+    "TransactionLifecycleEvent",
+    "TransactionLifecycleEventType",
+    "TransactionOverride",
+    "TransactionSourceReference",
+    "TransactionSplit",
     "TransactionStatus",
     "TransactionType",
     "UnresolvedSecurity",

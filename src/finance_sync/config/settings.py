@@ -303,6 +303,14 @@ class Settings(BaseSettings):
         validation_alias="ACTUAL_BUDGET_BATCH_SIZE",
         description="Max transactions per export batch.",
     )
+    actual_budget_transfer_account_name_overrides: dict[str, str] = Field(
+        default_factory=dict,
+        validation_alias="ACTUAL_BUDGET_TRANSFER_ACCOUNT_NAME_OVERRIDES",
+        description=(
+            "JSON mapping from canonical counterparty account references "
+            "to Actual Budget account names."
+        ),
+    )
 
     # ── Securo exporter ─────────────────────────────────────────────
     exporter_securo_enabled: bool = Field(
@@ -448,6 +456,20 @@ class Settings(BaseSettings):
     firefly_account_name_overrides: dict[str, str] = Field(
         default_factory=dict,
         validation_alias="FIREFLY_ACCOUNT_NAME_OVERRIDES",
+    )
+    firefly_budget_name_map: dict[str, str] = Field(
+        default_factory=dict,
+        validation_alias="FIREFLY_BUDGET_NAME_MAP",
+        description=(
+            "JSON mapping from canonical categories to Firefly budgets."
+        ),
+    )
+    firefly_bill_name_map: dict[str, str] = Field(
+        default_factory=dict,
+        validation_alias="FIREFLY_BILL_NAME_MAP",
+        description=(
+            "JSON mapping from canonical categories to Firefly bills."
+        ),
     )
 
     # ── Ghostfolio exporter ──────────────────────────────────────────
