@@ -40,7 +40,11 @@ def test_fixture_metadata_injection() -> None:
     """Reject executable-looking metadata and secret placeholders literally."""
     with pytest.raises(CertificationError, match="fixture_date_invalid"):
         validate_certification(
-            {"connectors": [_entry(fixture_date="; DROP TABLE certifications;")]},
+            {
+                "connectors": [
+                    _entry(fixture_date="; DROP TABLE certifications;")
+                ]
+            },
             "demo",
             "1.2.3",
         )
@@ -61,9 +65,18 @@ def test_fixture_metadata_injection() -> None:
 
 
 def test_tenant_isolation() -> None:
-    matrix = {"connectors": [_entry(name="tenantA", version="1.0"), _entry(name="tenantB", version="2.0")]}
-    result_a = validate_certification(matrix, "tenantA", "1.0", today=date(2026, 8, 30))
-    result_b = validate_certification(matrix, "tenantB", "2.0", today=date(2026, 8, 30))
+    matrix = {
+        "connectors": [
+            _entry(name="tenantA", version="1.0"),
+            _entry(name="tenantB", version="2.0"),
+        ]
+    }
+    result_a = validate_certification(
+        matrix, "tenantA", "1.0", today=date(2026, 8, 30)
+    )
+    result_b = validate_certification(
+        matrix, "tenantB", "2.0", today=date(2026, 8, 30)
+    )
     assert (result_a["provider"], result_a["version"]) == ("tenantA", "1.0")
     assert (result_b["provider"], result_b["version"]) == ("tenantB", "2.0")
 
@@ -81,9 +94,38 @@ def test_secret_leak_in_artefacts_en_logs() -> None:
 def test_exact_expiration_boundary() -> None:
     today = date(2026, 8, 30)
     with pytest.raises(CertificationError, match="certification_expired"):
-        validate_certification({"connectors": [_entry(expires_at=(today - timedelta(days=1)).isoformat())]}, "demo", "1.2.3", today=today)
-    assert validate_certification({"connectors": [_entry(expires_at=today.isoformat())]}, "demo", "1.2.3", today=today)["status"] == "certified"
-    assert validate_certification({"connectors": [_entry(expires_at=(today + timedelta(days=1)).isoformat())]}, "demo", "1.2.3", today=today)["status"] == "certified"
+        validate_certification(
+            {
+                "connectors": [
+                    _entry(expires_at=(today - timedelta(days=1)).isoformat())
+                ]
+            },
+            "demo",
+            "1.2.3",
+            today=today,
+        )
+    assert (
+        validate_certification(
+            {"connectors": [_entry(expires_at=today.isoformat())]},
+            "demo",
+            "1.2.3",
+            today=today,
+        )["status"]
+        == "certified"
+    )
+    assert (
+        validate_certification(
+            {
+                "connectors": [
+                    _entry(expires_at=(today + timedelta(days=1)).isoformat())
+                ]
+            },
+            "demo",
+            "1.2.3",
+            today=today,
+        )["status"]
+        == "certified"
+    )
 
 
 def test_atomic_promotion_blockade() -> None:
@@ -108,14 +150,22 @@ def test_atomic_promotion_blockade() -> None:
 
 def test_concurrent_certification_updates() -> None:
     matrix = {"connectors": [_entry()]}
-    results = [validate_certification(matrix, "demo", "1.2.3", today=date(2026, 8, 30)) for _ in range(5)]
+    results = [
+        validate_certification(matrix, "demo", "1.2.3", today=date(2026, 8, 30))
+        for _ in range(5)
+    ]
     assert all(result == results[0] for result in results)
 
 
 def test_retry_after_process_interruption() -> None:
     matrix = {"connectors": [_entry()]}
-    result = validate_certification(matrix, "demo", "1.2.3", today=date(2026, 8, 30))
-    assert validate_certification(matrix, "demo", "1.2.3", today=date(2026, 8, 30)) == result
+    result = validate_certification(
+        matrix, "demo", "1.2.3", today=date(2026, 8, 30)
+    )
+    assert (
+        validate_certification(matrix, "demo", "1.2.3", today=date(2026, 8, 30))
+        == result
+    )
 
 
 def test_fixture_drift_en_versie_integriteit() -> None:
@@ -128,4 +178,6 @@ def test_fixture_drift_en_versie_integriteit() -> None:
         del entry["fixture_hash"]
         validate_certification({"connectors": [entry]}, "demo", "1.2.3")
     with pytest.raises(CertificationError, match="fixture_hash_invalid"):
-        validate_certification({"connectors": [_entry(fixture_hash="nothex")]}, "demo", "1.2.3")
+        validate_certification(
+            {"connectors": [_entry(fixture_hash="nothex")]}, "demo", "1.2.3"
+        )
