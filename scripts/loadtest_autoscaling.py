@@ -74,6 +74,7 @@ def build_report(config: dict[str, Any]) -> dict[str, Any]:
         "schema_version": 1,
         "synthetic_data_only": bool(config["synthetic_data_only"]),
         "profiles": [run_profile(config, profile) for profile in profiles],
+        "scaling_policy": config["scaling"],
         "scaling_recommendation": config["scaling_recommendation"],
         "financial_values_in_report": False,
     }
