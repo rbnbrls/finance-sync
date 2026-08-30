@@ -11,6 +11,17 @@ CAPABILITIES = ("accounts", "transactions", "holdings", "securities", "fx")
 REQUIRED_TESTS = ("contract", "retry", "idempotency", "security")
 
 
+def _contains_secret_like(value: str) -> bool:
+    """Return True if the string looks like a secret or credential."""
+    # Match credential prefixes case-insensitively.
+    if not isinstance(value, str):
+        return False
+    vlower = value.lower()
+    # Template placeholders such as ${SECRET} are inert fixture data; detect
+    # credential-shaped values without expanding or rewriting them.
+    return "sk_live_" in vlower or "-----begin private key-----" in vlower
+
+
 class CertificationError(ValueError):
     """A connector certification matrix cannot authorize promotion."""
 
@@ -50,6 +61,10 @@ def validate_certification(
     )
     if not isinstance(entry, dict):
         _fail("certification_missing")
+    # Reject any string field containing a secret-like pattern.
+    for field_value in entry.values():
+        if isinstance(field_value, str) and _contains_secret_like(field_value):
+            _fail("secret_detected")
     if (
         matrix.get("synthetic_data_only") is not True
         and entry.get("synthetic_data_only") is not True
@@ -62,6 +77,7 @@ def validate_certification(
         "certification_date",
         "test_commit",
         "expires_at",
+        "fixture_hash",  # <-- added for fixture drift detection
     ):
         if not entry.get(field):
             _fail(f"{field}_missing")
@@ -70,6 +86,14 @@ def validate_certification(
         entry["certification_date"], "certification_date_invalid"
     )
     expires_at = _as_date(entry["expires_at"], "expires_at_invalid")
+    # Fixture hash: required to detect fixture drift.
+    fixture_hash = entry.get("fixture_hash")
+    if (
+        not isinstance(fixture_hash, str)
+        or len(fixture_hash) != 64
+        or not all(c in "0123456789abcdefABCDEF" for c in fixture_hash)
+    ):
+        _fail("fixture_hash_invalid")
     current = today or datetime.now(UTC).date()
     if expires_at < current:
         _fail("certification_expired")
