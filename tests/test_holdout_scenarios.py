@@ -3,6 +3,7 @@
 # These scenario probes intentionally return booleans for the evaluator.
 # Keep their explicit control flow readable rather than applying simplifications.
 # ruff: noqa: SIM102, SIM103, SIM105
+# pyright: reportIndexIssue=false, reportArgumentType=false, reportCallIssue=false
 
 from datetime import date, timedelta
 
@@ -42,7 +43,11 @@ def test_fixture_metadata_injection() -> bool:
     # Test that SQL-like strings in date fields cause validation error (no execution)
     try:
         validate_certification(
-            {"connectors": [_entry(fixture_date="; DROP TABLE certifications;")]},
+            {
+                "connectors": [
+                    _entry(fixture_date="; DROP TABLE certifications;")
+                ]
+            },
             "demo",
             "1.2.3",
         )
@@ -83,13 +88,29 @@ def test_tenant_isolation() -> bool:
     """Tenant-isolatie van certificeringen: Matrix of tenant A not visible to B."""
     matrix = {
         "connectors": [
-            _entry(name="tenantA", version="1.0", fixture_date="2026-08-01", certification_date="2026-08-15", expires_at="2027-08-15"),
-            _entry(name="tenantB", version="2.0", fixture_date="2026-08-01", certification_date="2026-08-15", expires_at="2027-08-15"),
+            _entry(
+                name="tenantA",
+                version="1.0",
+                fixture_date="2026-08-01",
+                certification_date="2026-08-15",
+                expires_at="2027-08-15",
+            ),
+            _entry(
+                name="tenantB",
+                version="2.0",
+                fixture_date="2026-08-01",
+                certification_date="2026-08-15",
+                expires_at="2027-08-15",
+            ),
         ]
     }
     try:
-        result_a = validate_certification(matrix, "tenantA", "1.0", today=date(2026, 8, 30))
-        result_b = validate_certification(matrix, "tenantB", "2.0", today=date(2026, 8, 30))
+        result_a = validate_certification(
+            matrix, "tenantA", "1.0", today=date(2026, 8, 30)
+        )
+        result_b = validate_certification(
+            matrix, "tenantB", "2.0", today=date(2026, 8, 30)
+        )
     except CertificationError:
         return False
     if result_a["provider"] != "tenantA" or result_a["version"] != "1.0":
@@ -210,7 +231,9 @@ def test_concurrent_certification_updates() -> bool:
     results = []
     for _ in range(5):
         try:
-            result = validate_certification(matrix, "demo", "1.2.3", today=date(2026, 8, 30))
+            result = validate_certification(
+                matrix, "demo", "1.2.3", today=date(2026, 8, 30)
+            )
             results.append(result)
         except CertificationError:
             return False
@@ -221,7 +244,9 @@ def test_concurrent_certification_updates() -> bool:
     # Check consistency of test_commit and certification_date
     if not all(r["test_commit"] == first["test_commit"] for r in results):
         return False
-    if not all(r["certification_date"] == first["certification_date"] for r in results):
+    if not all(
+        r["certification_date"] == first["certification_date"] for r in results
+    ):
         return False
     return True
 
@@ -230,8 +255,12 @@ def test_retry_after_process_interruption() -> bool:
     """Retry na procesonderbreking: No side effects, identical final state."""
     matrix = {"connectors": [_entry()]}
     try:
-        result1 = validate_certification(matrix, "demo", "1.2.3", today=date(2026, 8, 30))
-        result2 = validate_certification(matrix, "demo", "1.2.3", today=date(2026, 8, 30))
+        result1 = validate_certification(
+            matrix, "demo", "1.2.3", today=date(2026, 8, 30)
+        )
+        result2 = validate_certification(
+            matrix, "demo", "1.2.3", today=date(2026, 8, 30)
+        )
     except CertificationError:
         return False
     if result1 != result2:
@@ -270,7 +299,9 @@ def test_fixture_drift_en_versie_integriteit() -> bool:
         validate_certification({"connectors": [entry]}, "demo", "1.2.3")
         return False  # should have failed
     except CertificationError as e:
-        if "fixture_hash_invalid" not in str(e) and "fixture_hash_missing" not in str(e):
+        if "fixture_hash_invalid" not in str(
+            e
+        ) and "fixture_hash_missing" not in str(e):
             # Actually, our error for missing is caught by the required fields loop, which will fail with "fixture_hash_missing"
             # We didn't change the error message for missing; it will be "fixture_hash_missing"
             # We'll check: the loop will fail with _fail(f"{field}_missing") where field is "fixture_hash".
@@ -299,12 +330,21 @@ def main():
     scenarios = [
         ("Fixture-metadata-injection", test_fixture_metadata_injection),
         ("Tenant-isolatie van certificeringen", test_tenant_isolation),
-        ("Secret-leak in artefacten en logs", test_secret_leak_in_artefacts_en_logs),
+        (
+            "Secret-leak in artefacten en logs",
+            test_secret_leak_in_artefacts_en_logs,
+        ),
         ("Exacte verloopgrens", test_exact_expiration_boundary),
         ("Atomische promotion-blokkade", test_atomic_promotion_blockade),
-        ("Concurrente certificeringsupdates", test_concurrent_certification_updates),
+        (
+            "Concurrente certificeringsupdates",
+            test_concurrent_certification_updates,
+        ),
         ("Retry na procesonderbreking", test_retry_after_process_interruption),
-        ("Fixture-drift en versie-integriteit", test_fixture_drift_en_versie_integriteit),
+        (
+            "Fixture-drift en versie-integriteit",
+            test_fixture_drift_en_versie_integriteit,
+        ),
     ]
     all_pass = True
     for name, test_func in scenarios:
