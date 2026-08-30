@@ -9,6 +9,14 @@
     "sync_concurrency_max": 4,
     "provider_requests_per_second": 20
   },
+  "scaling": {
+    "minimum_workers": 2,
+    "maximum_workers": 4,
+    "scale_up_queue_depth": 50,
+    "scale_down_queue_depth": 10,
+    "cooldown_seconds": 60,
+    "drain_timeout_seconds": 300
+  },
   "profiles": [
     {"name": "api_reads", "requests": 1000, "duration_seconds": 10, "request_rate": 100, "concurrency": 2, "provider_rate_limited": false},
     {"name": "sync_runs", "requests": 120, "duration_seconds": 60, "request_rate": 2, "concurrency": 4, "provider_rate_limited": false},

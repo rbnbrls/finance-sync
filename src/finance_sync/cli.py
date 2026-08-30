@@ -977,6 +977,7 @@ async def _cmd_wealthfolio_export(
     print(f"  Tenant:       {str(tenant_id)[:16]}…")
     print(f"  Days back:    {args.days_back}")
 
+    # ``full_history`` and ``rebuild`` belong to the push command. Export
     # ``full_history`` and ``rebuild`` belong to the push command.  Export
     # has only ``days_back`` and must not assume those Namespace attributes.
     since = datetime.now(UTC) - timedelta(days=args.days_back)

@@ -6,6 +6,7 @@ import pytest
 
 from finance_sync.services.connector_certification import (
     CertificationError,
+    canonical_fixture_hash,
     validate_certification,
 )
 
@@ -32,6 +33,8 @@ def _entry(**overrides: object) -> dict[str, object]:
         "fixture_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",  # SHA256 of empty string
     }
     value.update(overrides)
+    if "fixture_hash" not in overrides:
+        value["fixture_hash"] = canonical_fixture_hash(value)
     return value
 
 
