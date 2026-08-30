@@ -841,19 +841,7 @@ class SyncOrchestrator(CardsSyncMixin):
                             connection_id=connection_id,
                         )
                     transactions_synced += account_transactions
-                    for key in (
-                        "new",
-                        "changed",
-                        "unchanged",
-                        "classified",
-                        "unclassified",
-                        "split",
-                        "skipped",
-                        "failed",
-                    ):
-                        transaction_report[key] = transaction_report.get(
-                            key, 0
-                        ) + int(getattr(transaction_result, key, 0))
+                    transaction_result.add_to_report(transaction_report)
                     holdings_synced += account_holdings
                     unresolved_keys.update(account_unresolved)
                     unresolved_keys.update(account_holdings_unresolved)
