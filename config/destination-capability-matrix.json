@@ -1,0 +1,9 @@
+{
+  "version": "1",
+  "destinations": {
+    "wealthfolio": {"accounts": "write", "cash_activities": "write", "category_assignments": "write", "splits": "write", "events": "write", "notes": "write", "attachments": "read_only", "bidirectional": false},
+    "actual_budget": {"accounts": "write", "transactions": "write", "categories": "read_write", "transfers": "write", "splits": "write", "notes": "write", "budgets": "read_write", "bidirectional": false},
+    "ynab": {"accounts": "read_write", "transactions": "write", "categories": "read", "transfers": "write", "cleared_pending": "write", "import_ids": "write", "bidirectional": false},
+    "firefly": {"accounts": "read_write", "transactions": "write", "categories": "read_write", "tags": "write", "bills": "read_write", "budgets": "read_write", "splits": "write", "bidirectional": false}
+  }
+}

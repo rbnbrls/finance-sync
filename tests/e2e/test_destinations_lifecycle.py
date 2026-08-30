@@ -225,6 +225,7 @@ class TestEmptyInstallNoDestinationsRequired:
             "actual-budget",
             "jupyter",
             "firefly",
+            "ynab",
             "ghostfolio",
             "investbrain",
             "securo",

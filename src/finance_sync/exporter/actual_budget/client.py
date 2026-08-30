@@ -216,6 +216,107 @@ class ActualBudgetClient:
             return existing
         return await self.create_account(name, off_budget=off_budget)
 
+    async def ensure_category(
+        self, name: str, *, group_name: str | None = None
+    ) -> dict[str, Any]:
+        """Resolve or create an Actual category by its native name."""
+        import actual.queries as q
+
+        category = await asyncio.to_thread(
+            q.get_or_create_category,
+            self.session,  # type: ignore[union-attr]
+            name,
+            group_name,
+        )
+        return {"id": category.id, "name": category.name}
+
+    async def create_transfer(
+        self,
+        *,
+        date: dt.date,
+        source_account: str,
+        destination_account: str,
+        amount: int,
+        notes: str,
+    ) -> tuple[str, str] | None:
+        """Create a native Actual transfer pair and return both IDs."""
+        import actual.queries as q
+
+        pair = await asyncio.to_thread(
+            q.create_transfer,
+            self.session,  # type: ignore[union-attr]
+            date,
+            source_account,
+            destination_account,
+            amount,
+            notes=notes,
+        )
+        await self._commit()
+        if not pair:
+            return None
+        return str(pair[0].id), str(pair[1].id)
+
+    async def transfer_exists(self, reference: str) -> bool:
+        """Check Actual's local transaction store for an import reference."""
+        import actual.queries as q
+
+        matches = await asyncio.to_thread(
+            q.get_transactions,
+            self.session,  # type: ignore[union-attr]
+            notes=reference,
+            include_deleted=True,
+        )
+        return bool(matches)
+
+    async def set_budget(
+        self,
+        *,
+        month: dt.date,
+        category: str,
+        amount: int,
+        carryover: bool | None = None,
+    ) -> None:
+        """Set a native Actual budget amount in cents for a category."""
+        import actual.queries as q
+
+        category_obj = await asyncio.to_thread(
+            q.get_or_create_category,
+            self.session,  # type: ignore[union-attr]
+            category,
+        )
+        await asyncio.to_thread(
+            q.create_budget,
+            self.session,  # type: ignore[union-attr]
+            month,
+            category_obj,
+            amount=amount,
+            carryover=carryover,
+        )
+
+    async def _create_split_children(
+        self, parent: Any, splits: list[dict[str, Any]]
+    ) -> None:
+        """Attach canonical split lines to a native Actual parent."""
+        import actual.queries as q
+
+        parent.is_parent = 1
+        parent.is_child = 0
+        for split in splits:
+            child = await asyncio.to_thread(
+                q.create_transaction,
+                self.session,  # type: ignore[union-attr]
+                date=parent.get_date(),
+                account=parent.account,
+                payee=None,
+                notes=split.get("notes"),
+                category=split.get("category"),
+                amount=split.get("amount", 0),
+                cleared=parent.cleared,
+            )
+            child.parent_id = parent.id
+            child.is_parent = 0
+            child.is_child = 1
+
     # ── Transaction operations ───────────────────────────────────────
 
     async def create_transaction(
@@ -225,6 +326,7 @@ class ActualBudgetClient:
         account: str,
         payee: str | None = None,
         notes: str | None = None,
+        category: str | None = None,
         amount: float = 0,
         imported_id: str | None = None,
         cleared: bool = False,
@@ -246,6 +348,7 @@ class ActualBudgetClient:
             account=account,
             payee=payee,
             notes=notes,
+            category=category,
             amount=amount,
             imported_id=imported_id,
             cleared=cleared,
@@ -308,18 +411,23 @@ class ActualBudgetClient:
         count = 0
         for txn_data in transactions:
             try:
-                await asyncio.to_thread(
+                parent = await asyncio.to_thread(
                     q.reconcile_transaction,
                     self.session,  # type: ignore[union-attr]
                     date=txn_data["date"],
                     account=account,
                     payee=txn_data.get("payee"),
                     notes=txn_data.get("notes"),
+                    category=txn_data.get("category"),
                     amount=txn_data.get("amount", 0),
                     imported_id=txn_data.get("imported_id"),
                     cleared=txn_data.get("cleared", False),
                     imported_payee=txn_data.get("imported_payee"),
                 )
+                if txn_data.get("splits"):
+                    await self._create_split_children(
+                        parent, txn_data["splits"]
+                    )
                 count += 1
             except Exception as exc:
                 self._log.warning(

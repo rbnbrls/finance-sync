@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import traceback
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 
 from sqlalchemy import select
 
@@ -16,6 +16,9 @@ from finance_sync.exporter.firefly.client import (
 from finance_sync.exporter.firefly.transaction_mapper import map_transaction
 from finance_sync.exporter.models import ExportRun
 from finance_sync.models import Account, Transaction
+from finance_sync.services.destination_references import (
+    record_destination_reference,
+)
 from finance_sync.sync.errors import categorize_export_error
 
 if TYPE_CHECKING:
@@ -67,6 +70,17 @@ class FireflyExporter:
     the external ID and transaction notes this makes a retry after a network
     failure safe even when the remote write succeeded before the timeout.
     """
+
+    capabilities = {
+        "accounts": "read_write",
+        "transactions": "write",
+        "categories": "read_write",
+        "tags": "write",
+        "bills": "read_write",
+        "budgets": "read_write",
+        "splits": "write",
+        "bidirectional": False,
+    }
 
     def __init__(
         self,
@@ -136,9 +150,52 @@ class FireflyExporter:
                             transaction,
                             account_name=remote_name,
                             import_tag=self._config.import_tag,
+                            budget_name=self._firefly_budget_name(transaction),
                         )
                         try:
-                            await client.store_transaction(payload)
+                            budget_name = payload.get("budget_name")
+                            if isinstance(budget_name, str) and budget_name:
+                                await client.ensure_budget(
+                                    budget_name,
+                                    currency_code=str(
+                                        transaction.currency_code
+                                    ),
+                                )
+                            bill_name = self._firefly_bill_name(transaction)
+                            if bill_name:
+                                bill = await client.ensure_bill(
+                                    bill_name,
+                                    currency_code=str(
+                                        transaction.currency_code
+                                    ),
+                                )
+                                if bill.get("id"):
+                                    payload["bill_id"] = str(bill["id"])
+                            category_name = payload.get("category_name")
+                            if isinstance(category_name, str) and category_name:
+                                await client.ensure_category(category_name)
+                            await client.ensure_tag(self._config.import_tag)
+                            remote = await client.store_transaction(payload)
+                            remote_id = remote.get("id")
+                            if remote_id is not None:
+                                await record_destination_reference(
+                                    self._session_factory,
+                                    tenant_id=self._tenant_id,
+                                    destination_type="firefly",
+                                    transaction_id=str(transaction.id),
+                                    canonical_key=(
+                                        f"{transaction.provider_key}:"
+                                        f"{transaction.external_transaction_id}"
+                                    ),
+                                    destination_object_id=str(remote_id),
+                                    idempotency_key=(
+                                        f"firefly:{transaction.provider_key}:"
+                                        f"{transaction.external_transaction_id}"
+                                    ),
+                                    source_revision=getattr(
+                                        transaction, "revision", None
+                                    ),
+                                )
                             exported += 1
                         except FireflyAPIError as exc:
                             # Firefly returns 422 for a duplicate hash. A
@@ -169,6 +226,23 @@ class FireflyExporter:
             error_message=error,
             duration_s=(datetime.now(UTC) - started).total_seconds(),
             run_id=str(run.id),
+        )
+
+    def _firefly_category_key(self, transaction: Transaction) -> str:
+        suggestion: Any = getattr(transaction, "cashflow_suggestion", None)
+        if isinstance(suggestion, dict):
+            mapping = cast(dict[str, Any], suggestion)
+            suggestion = mapping.get("value") or mapping.get("category")
+        return str(getattr(suggestion, "value", suggestion) or "")
+
+    def _firefly_budget_name(self, transaction: Transaction) -> str | None:
+        return self._config.budget_name_map.get(
+            self._firefly_category_key(transaction)
+        )
+
+    def _firefly_bill_name(self, transaction: Transaction) -> str | None:
+        return self._config.bill_name_map.get(
+            self._firefly_category_key(transaction)
         )
 
     async def _load_accounts(

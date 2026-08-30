@@ -163,6 +163,10 @@ class ConnectorInfo(BaseModel):
         default_factory=list,
         description="Resources this connector can fetch",
     )
+    spending_capabilities: dict[str, dict[str, object]] = Field(
+        default_factory=dict,
+        description="Optional spending capabilities and availability",
+    )
     configuration_mode: str = Field(
         default="user",
         description="Whether configuration is user-managed or staging-selectable.",
@@ -187,6 +191,9 @@ class ConnectorCatalogInfo(BaseModel):
     plugin_version: str
     sdk_version: str
     supported_resources: list[str]
+    spending_capabilities: dict[str, dict[str, object]] = Field(
+        default_factory=dict
+    )
     credential_fields: list[dict[str, object]]
     option_fields: list[dict[str, object]]
     rate_limit_policy: dict[str, int | float] | None = None
@@ -870,6 +877,10 @@ async def list_available_connectors(
                 credential_fields=cred_fields,
                 option_fields=opt_fields,
                 capabilities=capabilities,
+                spending_capabilities=cast(
+                    dict[str, dict[str, object]],
+                    meta.get("spending_capabilities", {}),
+                ),
                 configuration_mode="staging_choice" if managed else "user",
                 ingestion_methods=list(meta.get("ingestion_methods", ["api"])),
                 import_wizard=cast(
@@ -939,6 +950,10 @@ async def list_connector_catalog(
                 plugin_version=str(meta.get("plugin_version", "0.1.0")),
                 sdk_version=str(meta.get("sdk_version", "0.1.0")),
                 supported_resources=list(meta.get("supported_resources", [])),
+                spending_capabilities=cast(
+                    dict[str, dict[str, object]],
+                    meta.get("spending_capabilities", {}),
+                ),
                 credential_fields=credential_fields,
                 option_fields=option_fields,
                 rate_limit_policy=rate_limit,

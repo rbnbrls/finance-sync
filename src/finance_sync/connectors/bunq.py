@@ -19,6 +19,7 @@ Pagination
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -33,10 +34,12 @@ from finance_sync.connectors.exceptions import (
     TransientError,
 )
 from finance_sync.connectors.models import (
+    ProviderMetadata,
     RawAccount,
     RawCardTransaction,
     RawScheduledPayment,
     RawTransaction,
+    SourceReference,
 )
 from finance_sync.connectors.rate_limiter import RateLimitPolicy
 
@@ -71,6 +74,16 @@ class BunqConnector(Connector):
 
     display_name = "Bunq"
     sdk_version = "0.1.0"
+    capabilities = {
+        "merchant_data": "partial",
+        "mcc_category": "partial",
+        "card_transactions": "partial",
+        "refunds_chargebacks": "partial",
+        "notes": "partial",
+        "attachments": "detail_only",
+        "scheduled_payments": "complete",
+        "transfer_links": "partial",
+    }
 
     rate_limit_policy = RateLimitPolicy(
         max_requests=60,
@@ -470,8 +483,43 @@ class BunqConnector(Connector):
 
         counterparty: dict[str, Any] = data.get("counterparty_alias") or {}
         counterparty_iban = counterparty.get("value", "")
+        merchant: dict[str, Any] = data.get("merchant") or {}
 
         attachments = data.get("attachment", [])
+        source_references = [
+            SourceReference(
+                object_type="payment",
+                external_ids=[payment_id],
+                provider_revisions=[str(data.get("updated", ""))],
+            )
+        ]
+        for attachment in attachments:
+            attachment_id = str(
+                attachment.get("id")
+                or attachment.get("attachment_id")
+                or ""
+            )
+            if attachment_id:
+                source_references.append(
+                    SourceReference(
+                        object_type="attachment",
+                        external_ids=[attachment_id],
+                        provider_revisions=[str(data.get("updated", ""))],
+                    )
+                )
+        refund_data = data.get("refund") or data.get("refund_amount")
+        if isinstance(refund_data, dict):
+            refund_details = cast("dict[str, Any]", refund_data)
+            refund_amount = Decimal(str(refund_details.get("value", "0")))
+            refund_currency = str(
+                refund_details.get("currency", currency)
+            )
+        elif refund_data is not None:
+            refund_amount = Decimal(str(refund_data))
+            refund_currency = currency
+        else:
+            refund_amount = None
+            refund_currency = None
 
         return RawTransaction(
             external_transaction_id=payment_id,
@@ -483,11 +531,37 @@ class BunqConnector(Connector):
             description=description,
             transaction_type=_map_transaction_type(payment_type),
             status=_map_status(status_raw),
+            original_type=str(payment_type) or None,
+            original_status=str(status_raw) or None,
+            merchant_name=(
+                data.get("merchant_name") or merchant.get("name") or None
+            ),
+            merchant_city=data.get("merchant_city") or merchant.get("city"),
+            merchant_country=(
+                data.get("merchant_country") or merchant.get("country")
+            ),
+            merchant_category_code=(
+                str(data.get("mcc")) if data.get("mcc") is not None else None
+            ),
+            counterparty_name=counterparty.get("name") or None,
+            counterparty_account_reference=counterparty_iban or None,
+            source_record_hash=hashlib.sha256(
+                json.dumps(data, sort_keys=True, default=str).encode()
+            ).hexdigest(),
+            source_references=source_references,
+            refund_amount=refund_amount,
+            refund_currency_code=refund_currency,
+            provider_metadata_contract=ProviderMetadata(
+                schema_version="bunq-payment-v1",
+                source_object_type="Payment",
+                fields={"type": payment_type, "status": status_raw},
+            ),
             provider_metadata={
                 "payment_type": payment_type,
                 "counterparty_iban": counterparty_iban,
                 "attachment_count": len(attachments),
                 "sub_type": data.get("sub_type"),
+                "note_present": bool(data.get("note") or data.get("notes")),
             },
         )
 
@@ -741,6 +815,10 @@ class BunqConnector(Connector):
 
         auth_status = data.get("authorisation_status", data.get("status", ""))
         description = data.get("description", "") or None
+        status_raw = str(data.get("status", auth_status) or "")
+        source_hash = hashlib.sha256(
+            json.dumps(data, sort_keys=True, default=str).encode()
+        ).hexdigest()
 
         return RawCardTransaction(
             external_card_transaction_id=payment_id,
@@ -759,6 +837,37 @@ class BunqConnector(Connector):
             authorization_type=_map_auth_status(auth_status),
             description=description,
             status=_map_card_payment_status(auth_status),
+            provider_metadata_contract=ProviderMetadata(
+                schema_version="bunq-card-payment-v1",
+                source_object_type="CardPayment",
+                fields={"status": status_raw, "authorization": auth_status},
+            ),
+            merchant_category_code=str(mcc) if mcc is not None else None,
+            original_status=status_raw or None,
+            authorization_status=str(auth_status) or None,
+            settlement_status=(
+                str(data.get("settlement_status"))
+                if data.get("settlement_status") is not None
+                else None
+            ),
+            source_record_hash=source_hash,
+            refund_amount=(
+                Decimal(str(data["refund_amount"]))
+                if data.get("refund_amount") is not None
+                else None
+            ),
+            refund_currency_code=(
+                str(data.get("refund_currency", currency))
+                if data.get("refund_amount") is not None
+                else None
+            ),
+            source_references=[
+                SourceReference(
+                    object_type="card_payment",
+                    external_ids=[payment_id],
+                    provider_revisions=[str(data.get("updated", ""))],
+                )
+            ],
             provider_metadata={
                 "auth_status": auth_status,
                 "original_card_id": card_id,

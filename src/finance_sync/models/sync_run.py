@@ -6,7 +6,7 @@ from datetime import datetime
 from uuid import UUID as _UUID
 
 from sqlalchemy import JSON, DateTime, String, Text
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from finance_sync.db import Base, created_at_ts, pk_uuid
@@ -92,6 +92,11 @@ class SyncRun(Base):
         String(16), nullable=True
     )
     last_http_status: Mapped[int | None] = mapped_column(nullable=True)
+    report: Mapped[dict[str, int] | None] = mapped_column(
+        JSONB,
+        nullable=True,
+        comment="Counts for new/changed/unchanged/classified/skipped/failed",
+    )
 
     created_at = created_at_ts()
 
