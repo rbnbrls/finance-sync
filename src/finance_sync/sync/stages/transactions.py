@@ -59,6 +59,20 @@ class TransactionStageResult:
     skipped: int = 0
     failed: int = 0
 
+    def add_to_report(self, report: dict[str, int]) -> None:
+        """Add this stage's counters to an aggregate sync report."""
+        for key in (
+            "new",
+            "changed",
+            "unchanged",
+            "classified",
+            "unclassified",
+            "split",
+            "skipped",
+            "failed",
+        ):
+            report[key] = report.get(key, 0) + int(getattr(self, key))
+
 
 class TransactionSyncStage:
     """Resolve and persist transactions without committing the UoW."""

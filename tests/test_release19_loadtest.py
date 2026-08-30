@@ -53,3 +53,11 @@ def test_invalid_profile_is_rejected() -> None:
     config = json.loads(CONFIG.read_text(encoding="utf-8"))
     with pytest.raises(ValueError, match="profile requests must be positive"):
         run_profile(config, {"name": "bad", "requests": 0})
+
+
+def test_report_exposes_safe_scaling_contract() -> None:
+    config = json.loads(CONFIG.read_text(encoding="utf-8"))
+    scaling = config["scaling"]
+    assert scaling["scale_down_queue_depth"] < scaling["scale_up_queue_depth"]
+    assert scaling["cooldown_seconds"] > 0
+    assert scaling["drain_timeout_seconds"] > 0
