@@ -316,7 +316,7 @@ class ControlPlaneService:
                         row.last_error or "De laatste poging is mislukt."
                     ),
                     action=action(
-                        "view_data_source",
+                        "edit_connection",
                         f"/api/v1/connectors/configs/{row.id}",
                         permissions=self._permissions,
                     ),

@@ -321,7 +321,9 @@ class TestWealthfolioClientImport:
         ]
         with (
             patch.object(client, "get_accounts", return_value=accounts),
-            patch.object(client, "delete_account", new_callable=AsyncMock) as delete,
+            patch.object(
+                client, "delete_account", new_callable=AsyncMock
+            ) as delete,
         ):
             removed = await client.delete_accounts_not_owned_by_finance_sync(
                 {"finance-sync:tenant:acct-1"}
@@ -455,8 +457,13 @@ class TestWealthfolioClient408Retry:
                 snapshot_date="2026-08-29",
             )
 
-        assert put.await_count == 1
-        assert put.await_args.kwargs["json"]["assetId"] == "asset-vwce"
+        assert put.await_count == 2
+        assert (
+            put.await_args_list[0].args[0]
+            == "/api/v1/assets/pricing-mode/asset-vwce"
+        )
+        assert put.await_args_list[0].kwargs["json"] == {"quoteMode": "MANUAL"}
+        assert put.await_args_list[1].kwargs["json"]["assetId"] == "asset-vwce"
 
     async def test_retry_exhausted_raises_last_408(
         self, client: WealthfolioClient
@@ -603,3 +610,34 @@ class TestWealthfolioClientIntegration:
         assert mock_post.call_args_list[1].kwargs == {
             "json": {"activities": resolved}
         }
+
+    async def test_push_activities_restores_provenance_dropped_by_check(
+        self, client: WealthfolioClient
+    ) -> None:
+        """Import keeps connector identity when check hydration drops it."""
+        client._is_authenticated = True
+        activities = [
+            {
+                "activityType": "DIVIDEND",
+                "symbol": "VWCE",
+                "sourceSystem": "FINANCE_SYNC",
+                "sourceRecordId": "source-1",
+                "idempotencyKey": "stable-1",
+            }
+        ]
+        mock_check = MagicMock(status_code=200)
+        mock_check.json.return_value = [
+            {"activityType": "DIVIDEND", "symbol": "VWCE", "assetId": "a1"}
+        ]
+        mock_import = MagicMock(status_code=200)
+        mock_import.json.return_value = {"imported": 1, "skipped": 0}
+
+        with patch.object(
+            client._client, "post", side_effect=[mock_check, mock_import]
+        ) as mock_post:
+            await client.push_activities(activities)
+
+        imported = mock_post.call_args_list[1].kwargs["json"]["activities"][0]
+        assert imported["assetId"] == "a1"
+        assert imported["sourceRecordId"] == "source-1"
+        assert imported["idempotencyKey"] == "stable-1"

@@ -1,0 +1,19 @@
+{
+  "synthetic_data_only": true,
+  "seed": 19,
+  "limits": {
+    "api_requests_per_second": 100,
+    "queue_depth_soft": 50,
+    "queue_depth_hard": 500,
+    "database_connections_max": 40,
+    "sync_concurrency_max": 4,
+    "provider_requests_per_second": 20
+  },
+  "profiles": [
+    {"name": "api_reads", "requests": 1000, "duration_seconds": 10, "request_rate": 100, "concurrency": 2, "provider_rate_limited": false},
+    {"name": "sync_runs", "requests": 120, "duration_seconds": 60, "request_rate": 2, "concurrency": 4, "provider_rate_limited": false},
+    {"name": "retries", "requests": 80, "duration_seconds": 20, "request_rate": 4, "concurrency": 2, "provider_rate_limited": true},
+    {"name": "outbox_consumers", "requests": 600, "duration_seconds": 60, "request_rate": 10, "concurrency": 4, "provider_rate_limited": false}
+  ],
+  "scaling_recommendation": "Run two API workers and two sync/outbox workers; scale sync workers from 2 to 4 while queue depth is below the hard limit, and reject new work with Retry-After at the hard limit. Keep provider traffic at or below its per-tenant rate limit."
+}

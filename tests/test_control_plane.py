@@ -276,7 +276,7 @@ def test_connection_and_sync_issues_include_fallback_descriptions() -> None:
         "connection-error:connection-1",
         "sync-failed:run-1",
     ]
-    assert issues[0].action.key == "view_data_source"
+    assert issues[0].action.key == "edit_connection"
     assert issues[1].action.key == "view_sync_run"
 
 

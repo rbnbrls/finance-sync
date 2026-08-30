@@ -1,6 +1,6 @@
 ---
 title: "Maak retentie- en verwijderruns controleerbaar"
-status: todo
+status: done
 priority: 20
 ---
 

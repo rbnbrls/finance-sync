@@ -558,6 +558,7 @@ jobs:
           DEBUG=false uv run pytest -q
           tests/test_release18_connector_lifecycle.py
           tests/test_connector_lifecycle_evidence.py
+          tests/test_connector_certification.py
           tests/test_connector_releases.py
           tests/test_provider_health.py
       - name: Secret-redaction and synthetic lifecycle gate
@@ -575,12 +576,17 @@ jobs:
         run: >
           uv run python scripts/connector_lifecycle_evidence.py
           --output connector-lifecycle-evidence.json
+      - name: Validate connector certification matrix
+        run: >
+          uv run python scripts/connector_certification.py
+          --output connector-certification-report.json
       - uses: actions/upload-artifact@v7
         with:
           name: connector-lifecycle-${{ github.sha }}
           path: |
             connector-lifecycle-report.json
             connector-lifecycle-evidence.json
+            connector-certification-report.json
           retention-days: 30
 
   # ── Autoscaling and backpressure policy ──────────────────────────────
@@ -608,6 +614,33 @@ jobs:
         with:
           name: autoscaling-policy-${{ github.sha }}
           path: autoscaling-decision.json
+          retention-days: 30
+
+  # ── Reproducible autoscaling loadtest baseline ─────────────────────────
+  loadtest-autoscaling:
+    name: Autoscaling loadtest
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.0.1
+        with:
+          enable-cache: true
+          cache-suffix: loadtest-autoscaling
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: uv sync --extra dev --frozen
+      - run: PYTHONPATH=. uv run pytest tests/test_release19_loadtest.py -q
+      - name: Publish synthetic loadtest baseline
+        run: >
+          uv run python scripts/loadtest_autoscaling.py
+          --config config/loadtest-profiles.json
+          --artifact loadtest-autoscaling.json
+      - uses: actions/upload-artifact@v7
+        with:
+          name: loadtest-autoscaling-${{ github.sha }}
+          path: loadtest-autoscaling.json
           retention-days: 30
 
   # ── Audit retention enforcement ───────────────────────────────────────

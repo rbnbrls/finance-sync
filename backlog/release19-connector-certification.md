@@ -1,6 +1,6 @@
 ---
 title: "Certificeer connectoren tegen versie- en capabilitycontracten"
-status: todo
+status: done
 priority: 15
 ---
 
