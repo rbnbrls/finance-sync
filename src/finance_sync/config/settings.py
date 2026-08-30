@@ -684,6 +684,31 @@ class Settings(BaseSettings):
         description="Port for the worker health HTTP server.",
     )
 
+    # ── Autoscaling safety ────────────────────────────────────────
+    # Keep scale-up and scale-down thresholds apart (hysteresis) and
+    # hold a worker count stable during cooldown. Workers with active
+    # leases are drained before they are stopped.
+    autoscaling_scale_up_queue_depth: int = Field(
+        default=50,
+        ge=1,
+        validation_alias="AUTOSCALING_SCALE_UP_QUEUE_DEPTH",
+    )
+    autoscaling_scale_down_queue_depth: int = Field(
+        default=10,
+        ge=0,
+        validation_alias="AUTOSCALING_SCALE_DOWN_QUEUE_DEPTH",
+    )
+    autoscaling_cooldown_seconds: int = Field(
+        default=60,
+        ge=0,
+        validation_alias="AUTOSCALING_COOLDOWN_SECONDS",
+    )
+    autoscaling_drain_timeout_seconds: int = Field(
+        default=300,
+        ge=1,
+        validation_alias="AUTOSCALING_DRAIN_TIMEOUT_SECONDS",
+    )
+
     # ── Worker: bunq sync job ──────────────────────────────────────
     worker_job_bunq_sync_enabled: bool = Field(
         default=True,
