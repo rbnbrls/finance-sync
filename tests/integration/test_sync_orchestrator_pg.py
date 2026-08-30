@@ -141,15 +141,16 @@ def sample_raw_account() -> RawAccount:
 
 @pytest.fixture
 def sample_raw_transactions() -> list[RawTransaction]:
-    # Within the orchestrator's default 90-day `since` window (now = 2026-08)
+    # Keep the fixture inside the orchestrator's default 90-day `since` window.
+    test_now = datetime.now(UTC)
     return [
         RawTransaction(
             external_transaction_id=f"txn_{i}",
             external_account_id="acc_12345",
             amount=Decimal("-42.50"),
             currency_code="EUR",
-            occurred_at=datetime(2026, 6, i, 12, 30, tzinfo=UTC),
-            booked_at=datetime(2026, 6, i, 14, 0, tzinfo=UTC),
+            occurred_at=test_now - timedelta(days=i),
+            booked_at=test_now - timedelta(days=i),
             description=f"Coffee {i}",
             transaction_type="purchase",
             status="booked",
