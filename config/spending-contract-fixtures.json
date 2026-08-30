@@ -1,0 +1,56 @@
+{
+  "schema_version": "1",
+  "privacy": {
+    "redacted_fields": ["iban", "pan", "raw_payload", "attachment_content"],
+    "retention_required": true
+  },
+  "cases": [
+    {
+      "name": "bunq_payment_with_merchant_and_mcc",
+      "provider": "bunq",
+      "capabilities": ["merchant_data", "mcc_category", "transfer_links"],
+      "raw": {
+        "external_transaction_id": "payment-1",
+        "external_account_id": "account-1",
+        "amount": "-42.50",
+        "currency_code": "EUR",
+        "occurred_at": "2026-01-02T12:00:00Z",
+        "transaction_type": "PAYMENT",
+        "status": "BOOKED",
+        "merchant_name": "Example Shop",
+        "merchant_category_code": "5411",
+        "provider_metadata_contract": {"schema_version": "bunq-payment-v1", "source_object_type": "Payment", "fields": {"type": "PAYMENT"}},
+        "provider_metadata": {"raw_payload": "[REDACTED]"}
+      }
+    },
+    {
+      "name": "legacy_provider_without_spending_capabilities",
+      "provider": "legacy",
+      "capabilities": [],
+      "raw": {
+        "external_transaction_id": "legacy-1",
+        "external_account_id": "account-1",
+        "amount": "10.00",
+        "currency_code": "EUR",
+        "occurred_at": "2026-01-02T12:00:00Z",
+        "transaction_type": "deposit",
+        "status": "booked"
+      }
+    },
+    {
+      "name": "redacted_attachment_reference",
+      "provider": "bunq",
+      "capabilities": ["attachments"],
+      "raw": {
+        "external_transaction_id": "attachment-1",
+        "external_account_id": "account-1",
+        "amount": "-5.00",
+        "currency_code": "EUR",
+        "occurred_at": "2026-01-02T12:00:00Z",
+        "transaction_type": "PAYMENT",
+        "status": "BOOKED",
+        "provider_metadata": {"attachment": {"hash": "sha256:fixture", "safe_reference": "vault://attachment/1"}}
+      }
+    }
+  ]
+}

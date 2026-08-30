@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from typing import TYPE_CHECKING, Any, Protocol
 
@@ -29,7 +30,13 @@ from finance_sync.models.enums import (
 from finance_sync.models.holding import Holding
 from finance_sync.models.scheduled_payment import ScheduledPayment
 from finance_sync.models.security import Security
+from finance_sync.models.spending import (
+    TransactionAnnotation,
+    TransactionSourceReference,
+    TransactionSplit,
+)
 from finance_sync.models.transaction import Transaction
+from finance_sync.models.transaction_event import TransactionLifecycleEvent
 from finance_sync.models.unresolved_security import UnresolvedSecurity
 from finance_sync.sync.outbox import (
     outbox_entity_created,
@@ -70,6 +77,127 @@ def values_differ(new_val: Any, old_val: Any) -> bool:
         except (InvalidOperation, TypeError, ValueError):
             pass
     return str(new_val) != str(old_val)
+
+
+def _transaction_extension_values(transaction: Any) -> dict[str, Any]:
+    """Return optional spending fields without breaking old connectors."""
+    values: dict[str, Any] = {}
+    for field in (
+        "provider_metadata_contract",
+        "merchant_name",
+        "merchant_id",
+        "merchant_city",
+        "merchant_country",
+        "counterparty_name",
+        "counterparty_account_reference",
+        "merchant_category_code",
+        "original_type",
+        "original_status",
+        "authorization_status",
+        "settlement_status",
+        "source_record_hash",
+        "cashflow_bucket",
+        "classification_source",
+        "classification_override",
+        "gross_amount",
+        "gross_currency_code",
+        "net_amount",
+        "net_currency_code",
+        "tax_amount",
+        "tax_currency_code",
+        "refund_amount",
+        "refund_currency_code",
+    ):
+        value = getattr(transaction, field, None)
+        if value is not None and hasattr(value, "model_dump"):
+            value = value.model_dump(mode="json")
+        if value is not None:
+            values[field] = value
+    suggestion = getattr(transaction, "cashflow_suggestion", None)
+    if suggestion is not None:
+        values["cashflow_suggestion"] = suggestion.model_dump(mode="json")
+    return values
+
+
+def _add_lifecycle_event(
+    uow: Any,
+    *,
+    tenant_id: str,
+    transaction: Transaction,
+    event_type: str,
+    payload: dict[str, Any],
+    provenance: str = "provider_sync",
+    actor: str | None = None,
+) -> None:
+    """Append a deterministic event; the DB constraint makes retries safe."""
+    provider_key = getattr(transaction, "provider_key", "unknown")
+    external_id = getattr(
+        transaction, "external_transaction_id", transaction.id
+    )
+    uow.session.add(
+        TransactionLifecycleEvent(
+            tenant_id=tenant_id,
+            transaction_id=str(transaction.id),
+            event_type=event_type,
+            idempotency_key=(
+                f"{provider_key}:{external_id}:"
+                f"{event_type}:{transaction.revision}"
+            ),
+            payload=payload,
+            provenance=provenance,
+            actor=actor,
+            source_revision=transaction.revision,
+        )
+    )
+
+
+def _add_transaction_details(
+    uow: Any, transaction: Transaction, source: Any
+) -> None:
+    """Persist non-destructive source relations and annotations on create."""
+    for reference in getattr(source, "source_references", ()):
+        uow.session.add(
+            TransactionSourceReference(
+                tenant_id=transaction.tenant_id,
+                transaction_id=transaction.id,
+                object_type=reference.object_type,
+                external_ids=list(reference.external_ids),
+                provider_revisions=list(reference.provider_revisions),
+            )
+        )
+    for split in getattr(source, "splits", ()):
+        suggestion = getattr(split, "category_suggestion", None)
+        uow.session.add(
+            TransactionSplit(
+                tenant_id=transaction.tenant_id,
+                transaction_id=transaction.id,
+                amount=Decimal(str(split.amount)),
+                currency_code=split.currency_code,
+                percentage=split.percentage,
+                category_suggestion=(
+                    suggestion.model_dump(mode="json")
+                    if suggestion is not None
+                    and hasattr(suggestion, "model_dump")
+                    else suggestion
+                ),
+                destination=split.destination,
+                provenance=split.provenance,
+            )
+        )
+    for annotation in getattr(source, "annotations", ()):
+        uow.session.add(
+            TransactionAnnotation(
+                tenant_id=transaction.tenant_id,
+                transaction_id=transaction.id,
+                annotation_type=annotation.annotation_type,
+                content_hash=annotation.content_hash,
+                mime_type=annotation.mime_type,
+                safe_reference=annotation.safe_reference,
+                owner=annotation.owner,
+                retention_until=annotation.retention_until,
+                destination_reference=annotation.destination_reference,
+            )
+        )
 
 
 class PersistenceWriter(Protocol):
@@ -167,6 +295,7 @@ class AccountPersistence:
             "available_balance",
             "iso_currency_code",
             "provider_metadata",
+            "capabilities",
             "is_active",
         )
         if existing is not None:
@@ -208,6 +337,7 @@ class AccountPersistence:
             available_balance=account.available_balance,
             iso_currency_code=account.iso_currency_code,
             provider_metadata=account.provider_metadata,
+            capabilities=getattr(account, "capabilities", None),
             is_active=account.is_active,
         )
         uow.session.add(entity)
@@ -232,6 +362,82 @@ class TransactionPersistence:
 
     def __init__(self, tenant_id: str) -> None:
         self._tenant_id = tenant_id
+        self._last_upsert_outcome: dict[str, int] = {}
+
+    @property
+    def last_upsert_outcome(self) -> dict[str, int]:
+        """Return exact counters from the most recent transaction write."""
+        return dict(self._last_upsert_outcome)
+
+    async def apply_destination_enrichment(
+        self,
+        uow: UnitOfWork,
+        transaction_id: str,
+        enrichment: dict[str, Any],
+    ) -> Transaction | None:
+        """Apply destination-owned enrichment without replacing user state."""
+        entity = await uow.session.get(Transaction, transaction_id)
+        if entity is None or str(entity.tenant_id) != self._tenant_id:
+            return None
+        protected = {
+            "classification_override",
+            "category",
+            "category_assignment",
+            "splits",
+            "events",
+            "notes",
+        }
+        changed: dict[str, object] = {}
+        for field, value in enrichment.items():
+            if (
+                field in protected
+                or value is None
+                or not hasattr(entity, field)
+            ):
+                continue
+            if values_differ(value, getattr(entity, field, None)):
+                setattr(entity, field, value)
+                changed[field] = value
+        if changed:
+            entity.revision = (entity.revision or 0) + 1
+            _add_lifecycle_event(
+                uow,
+                tenant_id=self._tenant_id,
+                transaction=entity,
+                event_type="update",
+                payload={"changed_fields": sorted(changed)},
+                provenance="destination_enrichment",
+            )
+            await uow.session.flush()
+        return entity
+
+    async def tombstone_transaction(
+        self,
+        uow: UnitOfWork,
+        transaction_id: str,
+        *,
+        actor: str | None = None,
+    ) -> Transaction | None:
+        """Soft-delete a transaction while retaining its source history."""
+        entity = await uow.session.get(Transaction, transaction_id)
+        if entity is None or str(entity.tenant_id) != self._tenant_id:
+            return None
+        if entity.tombstoned_at is not None:
+            return entity
+        entity.tombstoned_at = datetime.now(UTC)
+        entity.status = TransactionStatus.CANCELLED
+        entity.revision = (entity.revision or 0) + 1
+        _add_lifecycle_event(
+            uow,
+            tenant_id=self._tenant_id,
+            transaction=entity,
+            event_type="tombstone",
+            payload={"reason": "explicit_user_delete"},
+            provenance="user_override",
+            actor=actor,
+        )
+        await uow.session.flush()
+        return entity
 
     async def persist_transactions_batch(
         self,
@@ -263,6 +469,7 @@ class TransactionPersistence:
         if len(resolved_security_ids) != len(transactions):
             msg = "security_ids length must match transactions length"
             raise ValueError(msg)
+        self._last_upsert_outcome = {}
 
         rows: list[dict[str, Any]] = []
         for index, transaction in enumerate(transactions):
@@ -314,6 +521,7 @@ class TransactionPersistence:
                     "status": transaction_status,
                     "provider_fingerprint": transaction.provider_fingerprint,
                     "revision": 1,
+                    **_transaction_extension_values(transaction),
                 }
             )
 
@@ -357,9 +565,42 @@ class TransactionPersistence:
                 "fee_currency_code",
                 "status",
                 "provider_fingerprint",
+                "provider_metadata_contract",
+                "merchant_name",
+                "merchant_id",
+                "merchant_city",
+                "merchant_country",
+                "counterparty_name",
+                "counterparty_account_reference",
+                "merchant_category_code",
+                "original_type",
+                "original_status",
+                "authorization_status",
+                "settlement_status",
+                "source_record_hash",
+                "cashflow_bucket",
+                "cashflow_suggestion",
+                "classification_source",
+                "classification_override",
+                "gross_amount",
+                "gross_currency_code",
+                "net_amount",
+                "net_currency_code",
+                "tax_amount",
+                "tax_currency_code",
+                "refund_amount",
+                "refund_currency_code",
             ),
             fallback=fallback,
         )
+        if is_postgresql:
+            changed = len(result.updated_ids)
+            inserted = len(result.inserted_ids)
+            self._last_upsert_outcome = {
+                "new": inserted,
+                "changed": changed,
+                "unchanged": max(len(transactions) - inserted - changed, 0),
+            }
         # Outbox events are emitted only on the PostgreSQL path.  The
         # per-row fallback (SQLite unit tests, mock sessions) already
         # emits ``created``/``updated`` inside :meth:`persist_transaction`,
@@ -464,14 +705,50 @@ class TransactionPersistence:
             "base_currency_code",
             "fx_rate",
             "provider_fingerprint",
+            "provider_metadata_contract",
+            "merchant_name",
+            "merchant_id",
+            "merchant_city",
+            "merchant_country",
+            "counterparty_name",
+            "counterparty_account_reference",
+            "merchant_category_code",
+            "original_type",
+            "original_status",
+            "authorization_status",
+            "settlement_status",
+            "source_record_hash",
+            "cashflow_bucket",
+            "cashflow_suggestion",
+            "classification_source",
+            "classification_override",
+            "gross_amount",
+            "gross_currency_code",
+            "net_amount",
+            "net_currency_code",
+            "tax_amount",
+            "tax_currency_code",
+            "refund_amount",
+            "refund_currency_code",
         )
         if existing is not None:
             changed: dict[str, object] = {}
+            source_correction = False
             for field in fields:
                 value = getattr(transaction, field, None)
+                # A user classification is authoritative.  Provider sync may
+                # refresh the derived suggestion/source, but must never
+                # replace an explicit category override on a later sync.
+                if (
+                    field == "classification_override"
+                    and getattr(existing, field, None) is not None
+                ):
+                    continue
                 if value is not None and values_differ(
                     value, getattr(existing, field, None)
                 ):
+                    if field == "source_record_hash":
+                        source_correction = True
                     setattr(existing, field, value)
                     changed[field] = value
             if security_id is not None and values_differ(
@@ -480,7 +757,27 @@ class TransactionPersistence:
                 existing.security_id = security_id
                 changed["security_id"] = security_id
             if changed:
+                self._last_upsert_outcome["changed"] = (
+                    self._last_upsert_outcome.get("changed", 0) + 1
+                )
                 existing.revision = (existing.revision or 0) + 1
+                event_type = (
+                    "reverse" if transaction.status == "reversed" else "update"
+                )
+                if transaction.refund_amount is not None:
+                    event_type = "refund"
+                _add_lifecycle_event(
+                    uow,
+                    tenant_id=self._tenant_id,
+                    transaction=existing,
+                    event_type=event_type,
+                    payload={"changed_fields": sorted(changed)},
+                    provenance=(
+                        "source_correction"
+                        if source_correction
+                        else "provider_sync"
+                    ),
+                )
                 await uow.session.flush()
                 await outbox_entity_updated(
                     uow,
@@ -489,6 +786,10 @@ class TransactionPersistence:
                     entity_id=str(existing.id),
                     changed_fields=changed,
                     provider_key=transaction.provider_key,
+                )
+            else:
+                self._last_upsert_outcome["unchanged"] = (
+                    self._last_upsert_outcome.get("unchanged", 0) + 1
                 )
             return existing
 
@@ -537,8 +838,25 @@ class TransactionPersistence:
             status=transaction_status,
             provider_fingerprint=transaction.provider_fingerprint,
             revision=1,
+            **_transaction_extension_values(transaction),
         )
         uow.session.add(entity)
+        self._last_upsert_outcome["new"] = (
+            self._last_upsert_outcome.get("new", 0) + 1
+        )
+        _add_lifecycle_event(
+            uow,
+            tenant_id=self._tenant_id,
+            transaction=entity,
+            event_type="create",
+            payload={
+                "external_transaction_id": transaction.external_transaction_id,
+                "amount": str(transaction.amount),
+                "currency_code": transaction.currency_code,
+            },
+        )
+        await uow.session.flush()
+        _add_transaction_details(uow, entity, transaction)
         await uow.session.flush()
         await outbox_entity_created(
             uow,
@@ -1233,6 +1551,16 @@ class CardsPersistence:
                 "counterparty_iban",
                 "description",
                 "status",
+                "provider_metadata",
+                "provider_metadata_contract",
+                "merchant_id",
+                "merchant_category_code",
+                "original_status",
+                "authorization_status",
+                "settlement_status",
+                "source_record_hash",
+                "refund_amount",
+                "refund_currency_code",
             ):
                 new_val = getattr(csp, field, None)
                 old_val = getattr(existing, field, None)
@@ -1345,8 +1673,20 @@ class CardsPersistence:
                 "authorization_type",
                 "description",
                 "status",
+                "provider_metadata",
+                "provider_metadata_contract",
+                "merchant_id",
+                "merchant_category_code",
+                "original_status",
+                "authorization_status",
+                "settlement_status",
+                "source_record_hash",
+                "refund_amount",
+                "refund_currency_code",
             ):
                 new_val = getattr(cct, field, None)
+                if new_val is not None and hasattr(new_val, "model_dump"):
+                    new_val = new_val.model_dump(mode="json")
                 old_val = getattr(existing, field, None)
                 if new_val is not None and values_differ(new_val, old_val):
                     setattr(existing, field, new_val)
@@ -1422,6 +1762,20 @@ class CardsPersistence:
             authorization_type=auth_type,
             description=cct.description,
             status=txn_status,
+            provider_metadata=cct.provider_metadata,
+            provider_metadata_contract=(
+                cct.provider_metadata_contract.model_dump(mode="json")
+                if cct.provider_metadata_contract is not None
+                else None
+            ),
+            merchant_id=cct.merchant_id,
+            merchant_category_code=cct.merchant_category_code,
+            original_status=cct.original_status,
+            authorization_status=cct.authorization_status,
+            settlement_status=cct.settlement_status,
+            source_record_hash=cct.source_record_hash,
+            refund_amount=cct.refund_amount,
+            refund_currency_code=cct.refund_currency_code,
         )
         uow.session.add(card_txn)
         await uow.session.flush()
