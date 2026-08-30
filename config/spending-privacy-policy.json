@@ -1,0 +1,19 @@
+{
+  "version": "1",
+  "default_store_raw_payloads": false,
+  "default_store_attachment_content": false,
+  "allowed_metadata_fields": [
+    "merchant_name",
+    "merchant_id",
+    "merchant_city",
+    "merchant_country",
+    "merchant_category_code",
+    "original_type",
+    "original_status",
+    "authorization_status",
+    "settlement_status",
+    "source_record_hash"
+  ],
+  "sensitive_fields": ["iban", "account_number", "pan", "raw_payload", "attachment_content"],
+  "retention_days": 3650
+}

@@ -13,7 +13,14 @@ from decimal import Decimal
 from typing import Any, ClassVar
 from uuid import UUID as _UUID
 
-from sqlalchemy import DateTime, ForeignKey, Numeric, String, UniqueConstraint
+from sqlalchemy import (
+    JSON,
+    DateTime,
+    ForeignKey,
+    Numeric,
+    String,
+    UniqueConstraint,
+)
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -24,6 +31,8 @@ from finance_sync.models.enums import (
     TransactionType,
 )
 from finance_sync.models.mixins import TimestampMixin
+
+_JSON = JSON().with_variant(JSONB(), "postgresql")
 
 
 class CardTransaction(TimestampMixin, Base):
@@ -151,7 +160,32 @@ class CardTransaction(TimestampMixin, Base):
     )
 
     provider_metadata: Mapped[dict[str, Any] | None] = mapped_column(
-        JSONB, nullable=True, default=dict
+        _JSON, nullable=True, default=dict
+    )
+    provider_metadata_contract: Mapped[dict[str, Any] | None] = mapped_column(
+        _JSON, nullable=True
+    )
+    merchant_id: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    merchant_category_code: Mapped[str | None] = mapped_column(
+        String(8), nullable=True
+    )
+    original_status: Mapped[str | None] = mapped_column(
+        String(64), nullable=True
+    )
+    authorization_status: Mapped[str | None] = mapped_column(
+        String(32), nullable=True
+    )
+    settlement_status: Mapped[str | None] = mapped_column(
+        String(32), nullable=True
+    )
+    source_record_hash: Mapped[str | None] = mapped_column(
+        String(128), nullable=True
+    )
+    refund_amount: Mapped[Decimal | None] = mapped_column(
+        Numeric(24, 8), nullable=True
+    )
+    refund_currency_code: Mapped[str | None] = mapped_column(
+        String(3), nullable=True
     )
 
     def __repr__(self) -> str:

@@ -18,6 +18,7 @@ from collections.abc import Iterable
 from typing import TYPE_CHECKING, Any, cast
 
 from finance_sync.connectors.base import Connector
+from finance_sync.connectors.capabilities import normalize_capabilities
 from finance_sync.connectors.exceptions import PermanentError
 
 if TYPE_CHECKING:
@@ -173,6 +174,12 @@ class ConnectorRegistry:
             "rate_limit_policy": rate_limit,
             "has_rate_limit_policy": rate_limit is not None,
             "metadata_incomplete": metadata_incomplete,
+            "spending_capabilities": {
+                key: value.model_dump(mode="json")
+                for key, value in normalize_capabilities(
+                    getattr(connector, "capabilities", {})
+                ).items()
+            },
         }
         raw_methods: object = getattr(connector, "ingestion_methods", ("api",))
         if not isinstance(raw_methods, (list, tuple, set, frozenset)):

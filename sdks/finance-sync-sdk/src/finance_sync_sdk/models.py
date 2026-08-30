@@ -21,6 +21,45 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+
+class ProviderMetadata(BaseModel):
+    schema_version: str = "1"
+    source_object_type: str | None = None
+    fields: dict[str, Any] = Field(default_factory=dict)
+
+
+class SourceReference(BaseModel):
+    object_type: str
+    external_ids: list[str] = Field(default_factory=list)
+    provider_revisions: list[str] = Field(default_factory=list)
+
+
+class CategorySuggestion(BaseModel):
+    value: str
+    source: str
+    confidence: float | None = Field(default=None, ge=0, le=1)
+    taxonomy: str | None = None
+
+
+class TransactionSplitData(BaseModel):
+    amount: Decimal
+    currency_code: str
+    percentage: Decimal | None = None
+    category_suggestion: CategorySuggestion | None = None
+    destination: str | None = None
+    provenance: str = "user"
+
+
+class TransactionAnnotationData(BaseModel):
+    annotation_type: str
+    content_hash: str | None = None
+    mime_type: str | None = None
+    safe_reference: str | None = None
+    owner: str | None = None
+    retention_until: datetime | None = None
+    destination_reference: str | None = None
+
+
 # ── Raw (provider-native) models ────────────────────────────────────────
 
 
@@ -56,6 +95,7 @@ class RawAccount(BaseModel):
         default=None,
         description="Provider-specific attributes that don't fit the standard schema",
     )
+    capabilities: dict[str, bool] | None = Field(default=None)
 
 
 class SecurityReference(BaseModel):
@@ -114,6 +154,35 @@ class RawTransaction(BaseModel):
     amount_in_base: Decimal | None = None
     base_currency_code: str | None = None
     fx_rate: Decimal | None = None
+    provider_metadata: dict[str, Any] | None = Field(default=None)
+    provider_metadata_contract: ProviderMetadata | None = None
+    merchant_name: str | None = None
+    merchant_id: str | None = None
+    merchant_city: str | None = None
+    merchant_country: str | None = None
+    counterparty_name: str | None = None
+    counterparty_account_reference: str | None = None
+    merchant_category_code: str | None = None
+    original_type: str | None = None
+    original_status: str | None = None
+    authorization_status: str | None = None
+    settlement_status: str | None = None
+    source_record_hash: str | None = None
+    cashflow_bucket: str | None = None
+    cashflow_suggestion: CategorySuggestion | None = None
+    classification_source: str | None = None
+    classification_override: str | None = None
+    gross_amount: Decimal | None = None
+    gross_currency_code: str | None = None
+    net_amount: Decimal | None = None
+    net_currency_code: str | None = None
+    tax_amount: Decimal | None = None
+    tax_currency_code: str | None = None
+    refund_amount: Decimal | None = None
+    refund_currency_code: str | None = None
+    source_references: list[SourceReference] = Field(
+        default_factory=lambda: list[SourceReference]()
+    )
 
 
 class RawHolding(BaseModel):
@@ -154,6 +223,7 @@ class CanonicalAccountData(BaseModel):
     iso_currency_code: str | None = Field(default=None)
     provider_metadata: dict[str, Any] | None = Field(default=None)
     is_active: bool = Field(default=True)
+    capabilities: dict[str, bool] | None = Field(default=None)
 
 
 class CanonicalTransactionData(BaseModel):
@@ -184,6 +254,40 @@ class CanonicalTransactionData(BaseModel):
     amount_in_base: Decimal | None = None
     base_currency_code: str | None = None
     fx_rate: Decimal | None = None
+    provider_metadata_contract: ProviderMetadata | None = None
+    merchant_name: str | None = None
+    merchant_id: str | None = None
+    merchant_city: str | None = None
+    merchant_country: str | None = None
+    counterparty_name: str | None = None
+    counterparty_account_reference: str | None = None
+    merchant_category_code: str | None = None
+    original_type: str | None = None
+    original_status: str | None = None
+    authorization_status: str | None = None
+    settlement_status: str | None = None
+    source_record_hash: str | None = None
+    cashflow_bucket: str | None = None
+    cashflow_suggestion: CategorySuggestion | None = None
+    classification_source: str | None = None
+    classification_override: str | None = None
+    gross_amount: Decimal | None = None
+    gross_currency_code: str | None = None
+    net_amount: Decimal | None = None
+    net_currency_code: str | None = None
+    tax_amount: Decimal | None = None
+    tax_currency_code: str | None = None
+    refund_amount: Decimal | None = None
+    refund_currency_code: str | None = None
+    source_references: list[SourceReference] = Field(
+        default_factory=lambda: list[SourceReference]()
+    )
+    splits: list[TransactionSplitData] = Field(
+        default_factory=lambda: list[TransactionSplitData]()
+    )
+    annotations: list[TransactionAnnotationData] = Field(
+        default_factory=lambda: list[TransactionAnnotationData]()
+    )
 
 
 class CanonicalHoldingData(BaseModel):

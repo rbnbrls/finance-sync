@@ -155,6 +155,17 @@ class WealthfolioExporter:
     Thread-safe: yes (all I/O runs via asyncio file operations).
     """
 
+    capabilities = {
+        "accounts": "write",
+        "cash_activities": "write",
+        "category_assignments": "write",
+        "splits": "write",
+        "events": "write",
+        "notes": "write",
+        "attachments": "read",
+        "bidirectional": False,
+    }
+
     def __init__(
         self,
         session_factory: async_sessionmaker[AsyncSession],
@@ -206,6 +217,7 @@ class WealthfolioExporter:
         holdings_exported = 0
         accts_mapped = 0
         csv_files: list[str] = []
+        extension_transactions: list[Transaction] = []
         _since = since or await self._last_export_time()
 
         # ── Create ExportRun ──────────────────────────────────────
@@ -292,6 +304,8 @@ class WealthfolioExporter:
 
                     if max_transactions:
                         txns = txns[:max_transactions]
+
+                    extension_transactions.extend(txns)
 
                     txns_attempted += len(txns)
 
@@ -386,7 +400,7 @@ class WealthfolioExporter:
                     )
                 )
             ]
-            if extension_accounts:
+            if extension_accounts or extension_transactions:
                 import json
 
                 extension_path = self._write_csv_file(
@@ -397,7 +411,10 @@ class WealthfolioExporter:
                 )
                 extension_path.write_text(
                     json.dumps(
-                        build_extension_payload(accounts=extension_accounts),
+                        build_extension_payload(
+                            accounts=extension_accounts,
+                            transactions=extension_transactions,
+                        ),
                         indent=2,
                         default=str,
                     ),

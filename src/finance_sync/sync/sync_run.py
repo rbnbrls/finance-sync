@@ -52,6 +52,7 @@ async def complete_sync_run(
     rate_limit_attempts: int = 0,
     rate_limit_scope: str | None = None,
     last_http_status: int | None = None,
+    report: dict[str, int] | None = None,
 ) -> SyncRun:
     """Mark a ``SyncRun`` as completed / failed.
 
@@ -80,5 +81,7 @@ async def complete_sync_run(
         run.rate_limit_scope = rate_limit_scope
     if last_http_status is not None:
         run.last_http_status = last_http_status
+    if report is not None:
+        run.report = dict(report)
     await uow.session.flush()  # type: ignore[union-attr]
     return run
