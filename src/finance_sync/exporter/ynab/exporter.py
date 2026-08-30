@@ -68,9 +68,7 @@ class YNABExporter:
             )
             if not remote_account:
                 continue
-            suggestion: Any = getattr(
-                transaction, "cashflow_suggestion", None
-            )
+            suggestion: Any = getattr(transaction, "cashflow_suggestion", None)
             if isinstance(suggestion, dict):
                 mapping = cast(dict[str, Any], suggestion)
                 suggestion = mapping.get("value") or mapping.get("category")

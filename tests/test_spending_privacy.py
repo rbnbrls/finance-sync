@@ -2,7 +2,9 @@ from finance_sync.exporter.wealthfolio.extensions import build_extension_payload
 from finance_sync.services.spending_privacy import redact_destination_metadata
 
 
-def test_nested_destination_metadata_redacts_sensitive_fields_by_default() -> None:
+def test_nested_destination_metadata_redacts_sensitive_fields_by_default() -> (
+    None
+):
     value = redact_destination_metadata(
         {
             "merchant": "Shop",
