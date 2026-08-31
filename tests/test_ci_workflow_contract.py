@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).parents[1]
@@ -20,6 +21,17 @@ def test_ci_has_fast_local_contract_and_non_pr_heavy_gates() -> None:
     assert "run: make format-check lint" in workflow
     assert "run: make type" in workflow
     assert "run: make test-ci" in workflow
+
+
+def test_local_composite_action_is_checked_out_before_resolution() -> None:
+    workflow = (ROOT / ".github/workflows/ci.yml").read_text()
+    for job_block in re.split(r"\n  (?=[A-Za-z0-9_-]+:\n)", workflow):
+        if "uses: ./.github/actions/setup-python-uv" in job_block:
+            steps = job_block.split("    steps:\n", 1)[1]
+            action_position = steps.index(
+                "- uses: ./.github/actions/setup-python-uv"
+            )
+            assert "- uses: actions/checkout@v7" in steps[:action_position]
 
 
 def test_failure_workflow_is_main_only_and_supports_resolution() -> None:

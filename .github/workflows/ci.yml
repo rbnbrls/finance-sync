@@ -43,6 +43,7 @@ jobs:
       matrix:
         python-version: ["3.12"]
     steps:
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-python-uv
         with:
           python-version: ${{ matrix.python-version }}
@@ -60,6 +61,7 @@ jobs:
       matrix:
         python-version: ["3.12"]
     steps:
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-python-uv
         with:
           python-version: ${{ matrix.python-version }}
@@ -95,6 +97,7 @@ jobs:
       matrix:
         python-version: ["3.12"]
     steps:
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-python-uv
         with:
           python-version: ${{ matrix.python-version }}
@@ -149,6 +152,7 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     steps:
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-python-uv
         with:
           cache-suffix: migrations
@@ -244,6 +248,7 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     steps:
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-python-uv
         with:
           cache-suffix: integration
@@ -356,6 +361,7 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     steps:
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-python-uv
         with:
           cache-suffix: e2e
