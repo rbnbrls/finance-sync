@@ -28,7 +28,9 @@ def test_local_composite_action_is_checked_out_before_resolution() -> None:
     for job_block in re.split(r"\n  (?=[A-Za-z0-9_-]+:\n)", workflow):
         if "uses: ./.github/actions/setup-python-uv" in job_block:
             steps = job_block.split("    steps:\n", 1)[1]
-            action_position = steps.index("- uses: ./.github/actions/setup-python-uv")
+            action_position = steps.index(
+                "- uses: ./.github/actions/setup-python-uv"
+            )
             assert "- uses: actions/checkout@v7" in steps[:action_position]
 
 
