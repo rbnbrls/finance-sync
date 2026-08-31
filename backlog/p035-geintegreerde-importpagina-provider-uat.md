@@ -1,3 +1,9 @@
+---
+title: "Rond de geïntegreerde importpagina af met provider-UAT"
+status: in-progress
+priority: 35
+---
+
 # Implementatieplan — Importers en uploads samenvoegen tot één importpagina
 
 ## Status
@@ -5,6 +11,21 @@
 In uitvoering. Werkpakket 1 is gestart en de eerste UI-slice is afgerond:
 **Importeren** is de primaire gebruikersingang; de bestaande Importers-sectie
 blijft voorlopig bereikbaar als geavanceerd beheer en als compatibiliteitslaag.
+
+## Actuele status en openstaande punten
+
+De backend-, catalogus-, dispatch- en statische UI-slices zijn gerealiseerd.
+Open staat uitsluitend de gebruikersgerichte verificatie en het gecontroleerd
+afbouwen van compatibiliteitscode:
+
+- [ ] Doorloop browser/UAT voor DEGIRO (drie rapportrollen), Saxo, CSV,
+  expenses, API-connectie, profielbewerking en accountselectie.
+- [ ] Controleer retry, duplicate-confirm, tenantisolatie, permissies,
+  keyboard focus, schermlezerlabels, mobiele layout en foutstatussen.
+- [ ] Bepaal op basis van embedded-clientgebruik of resterende globale
+  legacyfuncties weg kunnen; documenteer anders hun contract en voeg tests toe.
+- [ ] Voeg redacted UAT-evidence en de laatste volledige testuitslag toe; zet
+  daarna frontmatter `status` op `done`.
 
 ### Afgerond in deze uitvoersessie
 

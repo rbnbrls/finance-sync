@@ -1,3 +1,9 @@
+---
+title: "Maak de control plane production-ready voor herstelbare datastromen"
+status: in-progress
+priority: 40
+---
+
 # Control plane voor de financiële datastroom
 
 ## Status
@@ -16,6 +22,15 @@ security- en connectorcontracttests slagen. De coveragegate is verlaagd naar
 CI-equivalente gates zijn integraal gevalideerd; alleen de GitHub Actions-run
 en de backup/restore-job met de ontbrekende lokale PostgreSQL-clienttools zijn
 niet vanuit deze werkomgeving uitgevoerd.
+
+## Actuele agent-opdracht
+
+Werk uitsluitend de resterende punten onder `Openstaande restpunten` af.
+Begin met een route-/ownershipmatrix en hergebruik bestaande tenant-loaders,
+permission dependencies en retry leases. Wijzig een punt pas naar `[x]` als
+de implementatie, gerichte test en bijbehorende API/UI-evidence aanwezig zijn.
+De story is pas `done` na de volledige herstelworkflow, PostgreSQL/Redis-
+integratie en browser/UAT-gate.
 
 ## Productbelofte
 

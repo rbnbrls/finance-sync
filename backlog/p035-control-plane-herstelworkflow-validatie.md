@@ -1,3 +1,9 @@
+---
+title: "Valideer de control-plane herstelworkflow end-to-end"
+status: in-progress
+priority: 35
+---
+
 # Implementatieplan — resterende control-plane punten
 
 ## Implementatiestatus
@@ -8,6 +14,18 @@ assignment vastgesteld, dus een persistente `control_plane_issues`-tabel is
 niet toegevoegd. De lokale control-plane-, API-, GUI- en analyticschecks zijn
 geslaagd. Een echte browserruntime was in de uitvoeromgeving niet beschikbaar;
 de interactieve browsergate blijft daarom een expliciete deployment/UAT-gate.
+
+## Openstaande punten
+
+- [ ] Voer de browserworkflow uit met keyboard-only navigatie en controleer
+  acties, loading/error states, tenantcontext en status na retry.
+- [ ] Leg de UAT vast als redacted artifact met commit, omgeving, scenario-
+  resultaten en timestamp; neem geen credentials of financiële waarden op.
+- [ ] Herhaal de bestaande contract-, API-, integratie- en E2E-gates na fixes
+  en link de artifacts in dit bestand.
+
+`status: done` mag alleen worden gezet wanneer deze punten en de Definition of
+Done van het hoofdplan aantoonbaar zijn afgerond.
 
 ## Doel en uitgangssituatie
 

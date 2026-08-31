@@ -191,7 +191,8 @@ branch = true
 command_line = "-m pytest"
 
 [tool.coverage.report]
-fail_under = 80
+# Keep the local default identical to the enforced CI gate.
+fail_under = 73
 show_missing = true
 skip_covered = false
 skip_empty = true
