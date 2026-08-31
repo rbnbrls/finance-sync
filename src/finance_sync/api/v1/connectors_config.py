@@ -372,6 +372,19 @@ class InlineTestResult(BaseModel):
     )
 
 
+def _account_enumeration_error_is_fatal(provider_key: str) -> bool:
+    """Return whether account discovery is required to validate a provider.
+
+    Bunq's authenticated session can be created successfully while the
+    monetary-account request still fails. Treating that failure as optional
+    makes the UI report a successful connection with no accounts, after which
+    the worker cannot sync balances or payments. Other connectors retain the
+    historical best-effort behaviour because some need extra scopes for
+    account enumeration.
+    """
+    return provider_key == "bunq"
+
+
 class ConnectorConfigUpdate(BaseModel):
     """Payload for updating an existing connector configuration."""
 
@@ -1411,8 +1424,11 @@ async def test_connector_connection(
                         )
                     )
             except Exception:
-                # Account enumeration is optional — don't fail the test.
-                pass
+                # Bunq account discovery is required for a useful connection:
+                # without it neither balances nor payments can be synced. Other
+                # providers retain best-effort enumeration for scope compatibility.
+                if _account_enumeration_error_is_fatal(cred.provider_key):
+                    raise
 
         cred.last_attempt_at = now
         cred.last_test_at = now
@@ -1921,10 +1937,10 @@ async def test_connector_inline(
                     )
                 )
         except Exception:
-            # Account listing is optional — don't fail the test if
-            # accounts can't be fetched (e.g. Trading212 may need
-            # additional scopes)
-            pass
+            # Bunq account discovery is required for a useful connection;
+            # without it neither balances nor payments can be synced.
+            if _account_enumeration_error_is_fatal(provider_type):
+                raise
 
         return InlineTestResult(
             success=True,
