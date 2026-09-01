@@ -27,6 +27,7 @@ from finance_sync.services.control_plane_actions import action
 from finance_sync.services.data_quality import DataQualityService
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable, Sequence
     from decimal import Decimal
 
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -645,7 +646,7 @@ class DataHealthService:
         return issues
 
     @staticmethod
-    def _transaction_detail(row: tuple[object, ...]) -> str:
+    def _transaction_detail(row: Iterable[object]) -> str:
         _transaction_id, account_name, description, occurred_at = row
         occurred_at = cast("datetime | None", occurred_at)
         date = (
@@ -657,12 +658,15 @@ class DataHealthService:
 
     @staticmethod
     def _unmatched_transfers(
-        rows: list[tuple[object, ...]],
+        rows: Sequence[Iterable[object]],
     ) -> list[tuple[object, ...]]:
         """Pair opposite transfers by date, currency and absolute amount."""
         unmatched: list[tuple[object, ...]] = []
-        available = list(rows)
-        for row in rows:
+        # SQLAlchemy returns Row objects here; normalize them once so the
+        # pairing logic remains independent of the session implementation.
+        available = [tuple(row) for row in rows]
+        normalized_rows = list(available)
+        for row in normalized_rows:
             if row not in available:
                 continue
             available.remove(row)
