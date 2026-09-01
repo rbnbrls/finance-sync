@@ -104,9 +104,15 @@ def test_dashboard_exposes_connector_lifecycle_delete_guards(
     client: TestClient,
 ) -> None:
     html = _dashboard_html(client)
-    assert "/connectors/configs/${encodeURIComponent(configId)}/deletion-preview" in html
+    assert (
+        "/connectors/configs/${encodeURIComponent(configId)}/deletion-preview"
+        in html
+    )
     assert "This cannot be undone." in html
-    assert "canonieke datalake en data op de externe bestemming blijven intact" in html
+    assert (
+        "canonieke datalake en data op de externe bestemming blijven intact"
+        in html
+    )
     assert 'id="section-data-health"' in html
     assert "control-plane/data-health" in html
     assert "function loadDataHealth" in html

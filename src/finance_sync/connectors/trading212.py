@@ -262,9 +262,7 @@ class Trading212Connector(Connector):
         )
 
         try:
-            resp = await self._get(
-                "/api/v0/equity/portfolio", headers=headers
-            )
+            resp = await self._get("/api/v0/equity/portfolio", headers=headers)
             resp.raise_for_status()
             return resp.json()  # list of portfolio items
         except httpx.HTTPStatusError as exc:
