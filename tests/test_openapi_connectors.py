@@ -74,6 +74,11 @@ class TestMultiConnectionOpenApiPaths:
 
     CONNECTOR_PATHS = {
         ("get", "/api/v1/connectors/configs", "list_connector_configs"),
+        (
+            "get",
+            "/api/v1/connectors/configs/{config_id}/deletion-preview",
+            "preview_connector_deletion",
+        ),
         ("post", "/api/v1/connectors/configs", "create_connector_config"),
         (
             "get",

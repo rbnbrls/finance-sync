@@ -70,6 +70,9 @@ from finance_sync.services.connector_compatibility import (
     evaluate_connector,
     load_json,
 )
+from finance_sync.services.connector_data_deletion import (
+    ConnectorDataDeletionService,
+)
 from finance_sync.services.connector_releases import (
     ConnectorReleaseError,
     register_candidate,
@@ -305,6 +308,20 @@ class ConnectorTestResult(BaseModel):
     )
 
 
+class ConnectorDeletionPreviewResponse(BaseModel):
+    """Impact summary shown before permanently deleting a connection."""
+
+    provider_key: str
+    connection_id: str
+    accounts: int
+    transactions: int
+    card_transactions: int
+    holdings: int
+    balances: int
+    other_records: int
+    legacy_records_warning: str | None = None
+
+
 class ConnectorAccountsUpdate(BaseModel):
     """Payload for selecting the accounts a connection should sync."""
 
@@ -418,6 +435,10 @@ _NON_SECRET_PROVIDERS = {
     "csv_import",
     "manual_expense",
 }
+
+# SaxoInvestor is a single-account file source. Its positions and
+# transactions exports belong to the same account and must share one profile.
+_SINGLE_CONNECTION_PROVIDERS = {"saxo_investor"}
 
 
 def _credential_secrets(cred: Credential, settings: Any) -> list[str]:
@@ -769,8 +790,11 @@ def _get_connector_credential_schema(
                     "label": "API Secret",
                     "type": "password",
                     "placeholder": "Enter your Trading212 API secret",
-                    "required": False,
-                    "description": "Required for current Trading212 API keys",
+                    "required": True,
+                    "description": (
+                        "Required for current Trading212 API keys. "
+                        "Your secret is encrypted and never shown again."
+                    ),
                 },
             ],
             [
@@ -1022,6 +1046,29 @@ async def get_connector_config(
     return _credential_response(cred)
 
 
+@router.get(
+    "/configs/{config_id}/deletion-preview",
+    response_model=ConnectorDeletionPreviewResponse,
+)
+async def preview_connector_deletion(
+    config_id: str,
+    request: Request,
+    auth: AuthContext = Depends(require_permission("connectors", "write")),
+    db: AsyncSession = Depends(get_db),
+) -> ConnectorDeletionPreviewResponse:
+    """Return the tenant-scoped impact of permanently deleting a connection."""
+    cred = await _load_tenant_credential(db, auth, config_id)
+    if is_staging_managed(cred.provider_key, get_container(request).settings):
+        # Kept as a separate guard in the preview so the UI cannot present a
+        # destructive action that the DELETE endpoint will reject.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This connector is staging-managed and cannot be removed",
+        )
+    preview = await ConnectorDataDeletionService(db, auth.tenant_id).preview(cred)
+    return ConnectorDeletionPreviewResponse(**preview.as_dict())
+
+
 @router.post(
     "/configs",
     response_model=ConnectorConfigResponse,
@@ -1067,8 +1114,20 @@ async def create_connector_config(
             ),
         )
 
-    # Multiple connections per provider are allowed — no uniqueness check
-    # on (tenant, provider).  Each create call adds a new connection.
+    if body.provider_type in _SINGLE_CONNECTION_PROVIDERS:
+        existing = await db.scalar(
+            select(Credential.id).where(
+                Credential.tenant_id == auth.tenant_id,
+                Credential.provider_key == body.provider_type,
+            )
+        )
+        if existing is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Er bestaat al één SaxoInvestor-account voor deze tenant.",
+            )
+
+    # Other providers intentionally allow multiple connections per tenant.
 
     # Encrypt credentials if provided
     encrypted_payload: bytes = b""
@@ -1268,9 +1327,9 @@ async def delete_connector_config(
 ) -> None:
     """Delete a connector configuration (connection).
 
-    Deleting a connection stops future syncs for it but never removes
-    already-imported accounts, transactions or holdings — history is
-    kept (with the connection id retained for traceability).
+    Deleting a connection permanently removes all canonical and derived
+    records owned by that exact connection.  Legacy records without a
+    connection id are deliberately preserved.
     """
     cred = await _load_tenant_credential(db, auth, config_id)
     settings = get_container(request).settings
@@ -1284,30 +1343,7 @@ async def delete_connector_config(
         )
     provider_key = cred.provider_key
     connection_id = str(cred.id)
-    await db.delete(cred)
-
-    # Disable any schedule for this connection atomically with the
-    # deletion: a dangling enabled schedule must never be planned by the
-    # worker against a dead source (no ghost runs, no failure rows).
-    from finance_sync.models.sync_schedule import (
-        SCOPE_INGESTION,
-        SyncSchedule,
-    )
-
-    schedule = (
-        await db.execute(
-            select(SyncSchedule).where(
-                SyncSchedule.tenant_id == auth.tenant_id,
-                SyncSchedule.scope == SCOPE_INGESTION,
-                SyncSchedule.target_id == connection_id,
-            )
-        )
-    ).scalar_one_or_none()
-    if schedule is not None:
-        schedule.enabled = False
-        schedule.next_run_at = None
-        schedule.updated_at = datetime.now(UTC)
-    await db.flush()
+    await ConnectorDataDeletionService(db, auth.tenant_id).delete(cred)
 
     await log_connection_event(
         db,

@@ -110,6 +110,29 @@ def test_connection_projection_never_decrypts_or_exposes_payload() -> None:
     assert "secret" not in projected.model_dump_json()
 
 
+def test_empty_file_import_profile_is_pending_not_connection_error() -> None:
+    row = SimpleNamespace(
+        id="saxo-connection",
+        provider_key="saxo_investor",
+        description='{"_label": "SaxoInvestor"}',
+        encrypted_payload=b"",
+        status="active",
+        last_error="Sync failed due to an internal error",
+        last_error_category="provider_unavailable",
+        last_attempt_at=None,
+        last_success_at=None,
+        last_test_at=None,
+        last_test_status=None,
+        last_test_error=None,
+    )
+
+    projected = ControlPlaneService._connection(row, None)  # type: ignore[arg-type]
+
+    assert projected.status == "pending"
+    assert projected.last_error is None
+    assert projected.last_error_category is None
+
+
 def test_action_catalog_has_the_standard_contract() -> None:
     assert {
         "test_connection",

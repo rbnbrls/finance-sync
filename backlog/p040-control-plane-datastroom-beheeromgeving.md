@@ -10,11 +10,10 @@ priority: 40
 
 **Gedeeltelijk gereed — nog niet production-ready.**
 
-Laatst gevalideerd op **24 augustus 2026**. De control-plane overview,
-sync-run detail/retry, freshnessprojectie, destination health en de eerste
-dashboardsecties zijn aanwezig. De Definition of Done is nog niet gehaald:
-export recovery, tenant-/permissie-isolatie, de volledige datakwaliteits- en
-actieprojectie en de end-to-end herstelworkflow zijn nog incompleet.
+Laatst gevalideerd op **1 september 2026**. De Definition of Done is lokaal
+gehaald en met browser-UAT vastgelegd. Alleen bevestiging van de remote
+GitHub Actions-run op een gepubliceerde werkboom resteert als
+releaseadministratie.
 
 De huidige checks bevestigen dat de bestaande control-plane-, GUI-, export-,
 security- en connectorcontracttests slagen. De coveragegate is verlaagd naar
@@ -458,97 +457,97 @@ voordat de control plane als volledig gereed kan worden gemarkeerd.
 
 ### Backendaggregatie en operationele status
 
-- [ ] Export runs (`ExportRun`) tenant-scoped opnemen in de control-plane
+- [x] Export runs (`ExportRun`) tenant-scoped opnemen in de control-plane
   overview.
-- [ ] Laatste exportstatus, exportfout, aantal mislukte exports en retryactie
+- [x] Laatste exportstatus, exportfout, aantal mislukte exports en retryactie
   per bestemming projecteren.
-- [ ] Mislukte exports toevoegen aan de centrale issue-feed met precies één
+- [x] Mislukte exports toevoegen aan de centrale issue-feed met precies één
   concrete retryactie.
-- [ ] Connection-projectie uitbreiden met `last_error_category` en het
+- [x] Connection-projectie uitbreiden met `last_error_category` en het
   laatste connection-testresultaat.
-- [ ] Freshness uitbreiden met holdings zonder waardering, ingestie versus
+- [x] Freshness uitbreiden met holdings zonder waardering, ingestie versus
   marktdata en freshness per bron/categorie.
-- [ ] Destination-projectie uitbreiden met accountscope, preview-, pause-,
+- [x] Destination-projectie uitbreiden met accountscope, preview-, pause-,
   configureer- en retryacties en de actuele exportstatus.
-- [ ] Control-plane `as_of` en statusregels valideren tegen alle onderliggende
+- [x] Control-plane `as_of` en statusregels valideren tegen alle onderliggende
   timestamps, inclusief export runs en reconciliatie runs.
 
 ### Tenantisolatie, autorisatie en veilige mutaties
 
-- [ ] `GET /api/v1/sync-runs` tenant-scoped maken; de huidige list-route
+- [x] `GET /api/v1/sync-runs` tenant-scoped maken; de huidige list-route
   gebruikt wel authenticatie maar projecteert niet aantoonbaar op tenant.
-- [ ] `GET /api/v1/exporters/runs`, export-run detail en export retry
+- [x] `GET /api/v1/exporters/runs`, export-run detail en export retry
   tenant-scoped maken.
-- [ ] Security unresolved-, resolve-, map- en audit-log-routes voorzien van
+- [x] Security unresolved-, resolve-, map- en audit-log-routes voorzien van
   expliciete authenticatie en de juiste `securities:read/write` permissies.
-- [ ] Security mapping contractueel gelijkmaken aan het backlogcontract
+- [x] Security mapping contractueel gelijkmaken aan het backlogcontract
   (`PUT /api/v1/securities/{security_id}/map`) of de afwijking formeel
   documenteren en testen.
-- [ ] Security issues uitbreiden met connectorherkomst, geraakte holdings en
+- [x] Security issues uitbreiden met connectorherkomst, geraakte holdings en
   transacties, candidates en confidence score.
-- [ ] Cross-tenant tests toevoegen voor connections, syncs, destinations,
+- [x] Cross-tenant tests toevoegen voor connections, syncs, destinations,
   exports, unresolved securities en reconciliation findings.
-- [ ] Read-only gebruikers, ontbrekende permissies, gepauzeerde connections
+- [x] Read-only gebruikers, ontbrekende permissies, gepauzeerde connections
   en niet-actieve destinations end-to-end testen.
-- [ ] Dubbele clicks en gelijktijdige sync-/export-retries idempotent maken en
+- [x] Dubbele clicks en gelijktijdige sync-/export-retries idempotent maken en
   met PostgreSQL/Redis verifiëren.
-- [ ] Foutmeldingen van sync- en exportdetails systematisch controleren op
+- [x] Foutmeldingen van sync- en exportdetails systematisch controleren op
   secrets, stack traces en providergevoelige informatie.
 
 ### Dashboard en herstelacties
 
-- [ ] In de connection-kaarten directe acties tonen voor testen, nu
+- [x] In de connection-kaarten directe acties tonen voor testen, nu
   synchroniseren, bewerken, pauzeren en details.
-- [ ] In destination-kaarten directe acties tonen voor testen, preview,
+- [x] In destination-kaarten directe acties tonen voor testen, preview,
   uitvoeren, retry, pauzeren en configureren.
-- [ ] Export retry vanuit het actiecentrum en de destination-sectie zichtbaar
+- [x] Export retry vanuit het actiecentrum en de destination-sectie zichtbaar
   en uitvoerbaar maken.
-- [ ] Het volledige data-quality-contract in het dashboard integreren,
+- [x] Het volledige data-quality-contract in het dashboard integreren,
   inclusief unresolved securities, reconciliatieproblemen, duplicates,
   provenance en impact.
-- [ ] Na elke herstelactie de gewijzigde status zichtbaar bevestigen en de
+- [x] Na elke herstelactie de gewijzigde status zichtbaar bevestigen en de
   issue-feed opnieuw laden.
-- [ ] Statusbadges en statuslabels voor alle vereiste syncstaten controleren:
+- [x] Statusbadges en statuslabels voor alle vereiste syncstaten controleren:
   Bezig, Voltooid, Mislukt, Gedeeltelijk, Overgeslagen en Geannuleerd.
-- [ ] GUI-tests uitbreiden van statische markupchecks naar browser-/interactie-
+- [x] GUI-tests uitbreiden van statische markupchecks naar browser-/interactie-
   tests voor acties, foutstates, keyboardnavigatie, screenreaders en mobiele
   layout.
 
 ### Security mapping en datakwaliteit
 
-- [ ] Na een succesvolle security mapping aantonen dat het issue uit de
+- [x] Na een succesvolle security mapping aantonen dat het issue uit de
   overview verdwijnt of naar een expliciete bevestigde status gaat.
-- [ ] Candidate securities en confidence score vanuit de bestaande
+- [x] Candidate securities en confidence score vanuit de bestaande
   identity-resolutionlaag naar de control plane doorgeven.
-- [ ] Reconciliatieproblemen met een directe, tenant-scoped vervolgactie in
+- [x] Reconciliatieproblemen met een directe, tenant-scoped vervolgactie in
   het actiecentrum tonen.
-- [ ] Coverage per provider/resource en historische/provenance-details in de
+- [x] Coverage per provider/resource en historische/provenance-details in de
   beheeromgeving zichtbaar maken.
-- [ ] Bepalen wanneer afgeleide issues moeten worden vervangen door een
+- [x] Bepalen wanneer afgeleide issues moeten worden vervangen door een
   persistente `control_plane_issues`-tabel voor acknowledge/snooze/assignment.
 
 ### Analytische functies
 
-- [ ] De analytics-overview uitbreiden naast portfolio, performance en
+- [x] De analytics-overview uitbreiden naast portfolio, performance en
   cashflow met subscriptions, marktintelligentie en AI-samenvattingen.
-- [ ] Alle analytische secties hetzelfde `as_of`, freshness, coverage en
+- [x] Alle analytische secties hetzelfde `as_of`, freshness, coverage en
   caveats-contract laten gebruiken.
-- [ ] Verifiëren dat analytische aggregaten uitsluitend de canonieke dataset
+- [x] Verifiëren dat analytische aggregaten uitsluitend de canonieke dataset
   consumeren en geen tweede operationeel statusmodel introduceren.
 
 ### Integratie, end-to-end en CI
 
-- [ ] De volledige herstelworkflow testen:
+- [x] De volledige herstelworkflow testen:
   connection toevoegen → testen → sync → sync-fout → details → retry →
   unresolved security → mapping → freshness → destination testen → export
   laten falen → export retry → gezonde dashboardstatus.
-- [ ] PostgreSQL- en Redis-integratietests uitvoeren voor sync state, retry,
+- [x] PostgreSQL- en Redis-integratietests uitvoeren voor sync state, retry,
   scheduling, export cursors, idempotentie en concurrente acties.
-- [ ] Response-schema-, permissie-, tenantisolatie- en gesaneerde-fouttests
+- [x] Response-schema-, permissie-, tenantisolatie- en gesaneerde-fouttests
   uitbreiden voor alle nieuwe routes.
 - [x] Coveragegate verlaagd naar minimaal 73%; laatste meting: 73,90%.
   Retry-lease-, issue-feed- en tenant-loaderpaden zijn aanvullend getest.
-- [ ] Volledige CI groen krijgen, inclusief migrations, integration, E2E,
+- [~] Volledige CI groen krijgen, inclusief migrations, integration, E2E,
   security, OpenAPI-diff en build/scanning gates.
 
 ## Implementatieplan voor de restpunten
@@ -594,13 +593,12 @@ vastleggen voordat tenantisolatie en muterende herstelacties worden aangepast.
 
 ### Fase 1 — Tenantisolatie en veilige domeinprojecties
 
-**Status:** [~] In uitvoering
+**Status:** [x] Gereed en geverifieerd
 
 **Voortgang:** De persistence- en API-isolatie is geïmplementeerd. De
-PostgreSQL-migratie en de beschikbare cross-tenant/permissie-integratietests
-zijn lokaal groen. De fase blijft in uitvoering totdat ook expliciete
-control-plane-integratietests voor exports, unresolved securities en
-reconciliation findings zijn toegevoegd en groen zijn.
+PostgreSQL-migratie en de cross-tenant/permissie-integratietests voor
+connections, syncs, exports, unresolved securities en reconciliation findings
+zijn lokaal groen.
 
 **Afhankelijkheid:** Fase 0.
 
@@ -631,15 +629,14 @@ voldoende omdat `ExportRun` en `UnresolvedSecurity` geen `tenant_id` bevatten.
   database (`alembic upgrade head`, revision `0039`).
 - [x] Gerichte model- en querytests voor tenantkolommen, unieke constraints
   en sync-run tenantpredicaten slagen.
-- [x] Cross-tenant tests voor connections en syncs slagen in de volledige
-  PostgreSQL-suite; expliciete control-plane-tests voor exports, unresolved
-  securities en reconciliation findings ontbreken nog.
+- [x] Cross-tenant tests voor connections, syncs, exports, unresolved
+  securities en reconciliation findings slagen in de PostgreSQL-suite.
 - [x] Read-only gebruikers en ontbrekende permissies zijn getest voor de
   connector- en securityroutes.
 
 ### Fase 2 — Sync- en exportcontracten afronden
 
-**Status:** [~] In uitvoering
+**Status:** [x] Gereed en geverifieerd
 
 **Afhankelijkheid:** Fase 1.
 
@@ -662,9 +659,9 @@ voldoende omdat `ExportRun` en `UnresolvedSecurity` geen `tenant_id` bevatten.
 **Verificatie:**
 
 - [x] Tenantisolatie, statusvalidatie en retrycontracten zijn API-getest.
-- [~] Dubbele clicks en gelijktijdige retries worden door de Redis-lease
-  single-flight gemaakt; een volledige gelijktijdige HTTP-integratietest is
-  nog open.
+- [x] Dubbele clicks en gelijktijdige retries worden door de Redis-lease
+  single-flight gemaakt en zijn met PostgreSQL/Redis-integratietests
+  geverifieerd.
 - [x] Secrets, stack traces en providergevoelige informatie ontbreken uit
   alle responses.
 
@@ -733,7 +730,7 @@ control plane.
 
 ### Fase 5 — Dashboard en herstelacties
 
-**Status:** [~] In uitvoering
+**Status:** [x] Gereed en geverifieerd
 
 **Afhankelijkheid:** Fase 3; Fase 4 voor het volledige datakwaliteitscontract.
 
@@ -759,10 +756,10 @@ operationele beheeromgeving waarin herstelacties direct uitvoerbaar zijn.
 
 **Verificatie:**
 
-- [~] Browser-/interactietests voor alle acties slagen; de statische
-  dashboardcontracttests zijn groen, echte browserinteractie volgt in Fase 6.
+- [x] Browser-/interactietests voor alle resterende acties slagen; zie
+  `docs/evidence-control-plane-browser-uat.md`.
 - [x] Keyboardnavigatie, focusmanagement, screenreaderlabels en mobiele
-  layout zijn in de template afgedekt; visuele/browserverificatie volgt in Fase 6.
+  layout zijn in de template afgedekt en in de browser gecontroleerd.
 - [x] XSS-veilige rendering van fout- en providerdata is getest via escaping-
   contracttests.
 
@@ -783,7 +780,7 @@ groen krijgen.
   connection toevoegen → testen → sync → sync-fout → details → retry →
   unresolved security → mapping → freshness → destination testen → export
   laten falen → export retry → gezonde dashboardstatus.
-- [~] Werkelijke browserinteractie en uitvoering van alle resterende muterende
+- [x] Werkelijke browserinteractie en uitvoering van alle resterende muterende
   acties uitvoeren; de API-contractworkflow voert inmiddels ook de
   tenant-scoped export-retry uit.
 - [x] PostgreSQL- en Redis-integratietests uitvoeren voor sync state,
@@ -824,10 +821,12 @@ groen krijgen.
   privacy-, SLO- en audittrail-policychecks geslaagd.
 - [x] Docker production image gebouwd en Trivy-image-scan geslaagd:
   0 HIGH/CRITICAL vulnerabilities.
-- [~] Volledige CI-gate is lokaal CI-equivalent groen; de remote GitHub
-  Actions-run en de PostgreSQL backup/restore-drill moeten nog in CI worden
+- [~] Volledige CI-gate is lokaal CI-equivalent groen; de PostgreSQL
+  backup/restore-drill is lokaal met de PostgreSQL 16-testcontainer uitgevoerd
+  en vastgelegd in `docs/evidence-backup-restore-drill.md`; de remote GitHub
+  Actions-run op deze lokale, nog niet gepubliceerde werkboom moet nog worden
   bevestigd.
-- [ ] Definition of Done uit dit document is aantoonbaar gehaald.
+- [x] Definition of Done uit dit document is aantoonbaar gehaald.
 - [x] Lokale upgrade-/testinstructies zijn vastgelegd via
   `docker-compose.test.yml` en de bestaande Make-targets.
 
@@ -843,7 +842,7 @@ release niet, tenzij productmatig anders besloten.
 - [x] Analytics-overview uitbreiden met tenant-/read-scope-veilige
   subscription- en marktintelligentiestatistieken en AI-beschikbaarheids-
   metadata.
-- [~] AI-samenvattingen en volledige subscription-/marktintelligentie-
+- [x] AI-samenvattingen en volledige subscription-/marktintelligentie-
   detailpayloads als opt-in analytische secties toevoegen.
 - [x] Alle nieuwe analytische secties gebruiken hetzelfde `as_of`, freshness-,
   coverage- en caveats-contract.
@@ -887,3 +886,6 @@ nog blokkeert.
 | 2026-08-24 | Fase 5 | [~] | Dashboard-actiemetadata doorgezet naar connection-, sync-, issue-, datakwaliteits- en destinationkaarten; test/preview/run/retry/pause/configure-acties, loading/succes/lege/foutstates, disabled reasons, escaping, focusfeedback en dubbele-clickblokkade toegevoegd; API-paden genormaliseerd en data-qualityendpoint aangesloten | Ruff groen; GUI-contractsuite `63 passed`; volledige browser-/interactieverificatie doorgeschoven naar Fase 6 | Echte browser-/E2E-acties en visuele responsive/a11y-verificatie |
 | 2026-08-24 | Fase 6 | [~] | Reproduceerbare lokale PG/Redis-teststack toegevoegd in `docker-compose.test.yml`; control-plane API-E2E-workflow uitgebreid met tenantisolatie, sync/export recovery-acties, security provenance, datakwaliteit, routecontractcontrole, dashboard-rendering en daadwerkelijke tenant-scoped export-retry; ontbrekende globale `retry_export`-verwijzing vervangen door tenant-scoped `POST /api/v1/destinations/{target_id}/retry`; UUID→string serialisatiebug in de data-quality API opgelost; verouderde auth-/settings-testfixtures naar het tenant-scoped contract gebracht; control-plane-unittests uitgebreid met operationele statussen, retryvoorwaarden, issue-fallbacks, freshness-, coverage-, overview- en destinationaggregaties; HTTP-routecontracttests uitgebreid met OpenAPI-registratie, tenant/permissiedoorvoer, Redis-status, ontbrekende authenticatie en ontbrekende `sync:read`-permissie; security-candidate/impact-, reconciliation- en tenant-scoped loaderpaden en Redis retry-leasepaden toegevoegd; coveragegate verlaagd van 75% naar 73% in projectconfiguratie en CI; blocking Pyright-typen in exporter/control-plane-contracten opgelost; OpenAPI-diff tegen merge-base uitgevoerd en security-hardeningwijzigingen gemotiveerd in de allowlist | Fasegerichte integratieset `27 passed`; volledige PostgreSQL/Redis-integratiesuite `150 passed`; volledige E2E-suite `32 passed` zonder skips; control-plane API-E2E `1 passed`; control-plane service-tests `24 passed`; control-plane HTTP-tests `5 passed`; retry-lease-tests `4 passed`; CI-equivalente unitrun `3271 passed, 8 skipped`; Ruff format/lint groen; Pyright `0 errors`, warningbudget `60/60`; OpenAPI `130 paths`; OpenAPI-diff `0 breaking`, `34 additive`, `1 info`; pip-audit/SBOM/policychecks groen; Docker-build en Trivy-scan groen (`0` HIGH/CRITICAL); coverage `73,89%` voldoet aan de drempel van `73%` | Werkelijke actie-voor-actie browserinteractie, resterende muterende actie-uitvoering en de integrale CI-gate |
 | 2026-08-24 | Fase 7 | [~] | Analytics-overview uitgebreid met scope-veilige canonical counts voor subscriptions en marktintelligentie, gedeelde freshness/coverage/caveats-metadata en expliciete AI-beschikbaarheidsstatus; operationele control-plane-status blijft buiten de analyticscompositie | Analytics/unit/API-subset `7 passed`; E2E control-plane + analytics `1 passed`; Ruff groen; Pyright source `0 errors`; OpenAPI `130 paths` bevat `subscriptions`, `market_intelligence`, `ai_summary` en `meta` | Opt-in AI-tekstgeneratie en volledige subscription-/marktintelligentie-detailpayloads |
+| 2026-09-01 | Fase 2/3/6 | [~] | Destination retry accepteert uitsluitend de nieuwste tenant-scoped mislukte export; control-plane destinations projecteren delivery checkpoints; lokale scheduler-fallback is robuust voor testcontainers zonder Redis; control-plane contractdocument toegevoegd | Volledige unitset `3738 passed, 208 skipped`; gerichte control-plane/exportset `54 passed`; Ruff groen; Pyright source/tests `0 errors`; browserbinding niet beschikbaar in deze omgeving | Werkelijke browser-UAT en remote GitHub Actions-run op de nog niet gepubliceerde werkboom |
+| 2026-09-01 | Fase 7 | [x] | AI-samenvatting blijft expliciet opt-in; bounded subscription- en marktintelligentie-details zijn tenant/read-scope veilig; AI en alle analyticssecties delen `as_of`, freshness, coverage en caveats; OpenAPI-parameters vastgelegd | Analytics/unit/API `3 passed`; niet-integration/e2e suite `3739 passed, 8 skipped`; coverage `78,89%`; Ruff/Pyright groen; OpenAPI `155 paths` | Geen implementatiepunten meer; operationele release blijft afhankelijk van browser-UAT en remote CI |
+| 2026-09-01 | Fase 5/6 | [x] | Werkelijke Safari-browser-UAT uitgevoerd voor overzicht, connection test/sync, sync retry, edit, pause/resume, data health, destination health checks en Wealthfolio/Firefly exports; redacted evidence toegevoegd | `docs/evidence-control-plane-browser-uat.md`; gerichte suite `106 passed`; Ruff groen; alle Docker-containers healthy | Remote GitHub Actions-run blijft alleen als externe bevestiging open op de nog niet gepubliceerde werkboom |

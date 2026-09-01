@@ -204,12 +204,16 @@ class ControlPlaneService:
         schedule: SyncSchedule | None,
         permissions: set[str] | None = None,
     ) -> ControlPlaneConnection:
+        file_import_pending = row.provider_key in {
+            "degiro_pension",
+            "saxo_investor",
+        } and not bool(getattr(row, "encrypted_payload", None))
         status = (
             "paused"
             if row.status == "paused"
             else (
                 "error"
-                if row.last_error
+                if row.last_error and not file_import_pending
                 else ("healthy" if row.last_success_at else "pending")
             )
         )
@@ -220,8 +224,16 @@ class ControlPlaneService:
             status=status,
             last_attempt_at=row.last_attempt_at,
             last_success_at=row.last_success_at,
-            last_error=sanitize_error(row.last_error or "") or None,
-            last_error_category=getattr(row, "last_error_category", None),
+            last_error=(
+                None
+                if file_import_pending
+                else sanitize_error(row.last_error or "") or None
+            ),
+            last_error_category=(
+                None
+                if file_import_pending
+                else getattr(row, "last_error_category", None)
+            ),
             last_test_at=getattr(row, "last_test_at", None),
             last_test_status=getattr(row, "last_test_status", None),
             last_test_error=getattr(row, "last_test_error", None),
@@ -808,6 +820,11 @@ class ControlPlaneService:
                         else None
                     ),
                     failed_export_count=failed_count,
+                    delivery_checkpoint=(
+                        getattr(latest_export, "delivery_checkpoint", None)
+                        if latest_export is not None
+                        else None
+                    ),
                     actions=[
                         action(
                             "test_destination",

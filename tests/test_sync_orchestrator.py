@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock, patch
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from sqlalchemy import MetaData, String
@@ -2405,6 +2405,33 @@ class TestConnectorStatePersistence:
             self._StatefulConnector(  # type: ignore[arg-type]
                 {"installation_token": "new"}
             ),
+        )
+
+        assert fake.added == []
+        row = fake.row
+        assert isinstance(row, self._FakeRow)
+        assert row.state == {"installation_token": "new"}
+
+    @pytest.mark.asyncio
+    async def test_persist_updates_uuid_scoped_row_when_connection_id_is_string(
+        self,
+    ) -> None:
+        fake = self._FakeSession()
+        connection_id = "0751ae20-1ea5-49d8-80ba-414457b28cbf"
+        fake.row = self._FakeRow(
+            {"installation_token": "old"},
+            connection_id=UUID(connection_id),
+        )
+        orchestrator = SyncOrchestrator(
+            session_factory=self._FakeFactory(fake),  # type: ignore[arg-type]
+            registry=MagicMock(),
+            tenant_id="tenant_1",
+        )
+
+        await orchestrator._persist_connector_state(
+            "bunq",
+            self._StatefulConnector({"installation_token": "new"}),  # type: ignore[arg-type]
+            connection_id=connection_id,
         )
 
         assert fake.added == []

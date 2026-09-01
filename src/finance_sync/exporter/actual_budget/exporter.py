@@ -232,6 +232,7 @@ class ActualBudgetExporter:
                 started_at=start_ts,
                 exporter_type="actual-budget",
                 target_id=self._target_id,
+                account_scope=list(account_ids) if account_ids else None,
             )
             session.add(run)
             await session.flush()

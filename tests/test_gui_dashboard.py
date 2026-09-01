@@ -98,6 +98,15 @@ def test_dashboard_exposes_dedicated_data_health_page(
     assert 'data-section="connectors"' in html
     assert 'href="#connectors"' in html
     assert "'settings'" in html
+
+
+def test_dashboard_exposes_connector_lifecycle_delete_guards(
+    client: TestClient,
+) -> None:
+    html = _dashboard_html(client)
+    assert "/connectors/configs/${encodeURIComponent(configId)}/deletion-preview" in html
+    assert "This cannot be undone." in html
+    assert "canonieke datalake en data op de externe bestemming blijven intact" in html
     assert 'id="section-data-health"' in html
     assert "control-plane/data-health" in html
     assert "function loadDataHealth" in html
@@ -213,10 +222,27 @@ def test_dashboard_separates_manual_uploads_from_api_connectors(
     html = _dashboard_html(client)
     assert 'data-section="uploads"' in html
     assert 'id="section-uploads"' in html
+    assert 'data-section="uploads"' in html and "> Importeren" in html
     assert "renderProviderFileWizard" in html
     assert "setImportFlowFile" in html
     assert "setSaxoImportFlowFile" in html
+    assert "Eén SaxoInvestor-account" in html
+    assert "options.account_key = 'default'" in html
+    assert "allConfigs.slice(0, 1)" in html
     assert "validateGenericImportFiles" in html
+    assert "validateSelectedFileTypes" in html
+    assert "Controle starten" in html
+    assert "Klaar voor controle" in html or "klaar voor controle" in html
+    # Selecting the last broker file must not submit immediately: the user
+    # needs an explicit, keyboard-accessible control step first.
+    saxo_handler = html.split("function setSaxoImportFlowFile", 1)[1].split(
+        "function setImportFlowFile", 1
+    )[0]
+    degiro_handler = html.split("function setImportFlowFile", 1)[1].split(
+        "function updateImportFlowSelection", 1
+    )[0]
+    assert "startSelectedFileImport()" not in saxo_handler
+    assert "startSelectedFileImport()" not in degiro_handler
 
 
 def test_dashboard_uses_one_import_entrypoint_with_provider_method_choice(
@@ -240,6 +266,8 @@ def test_dashboard_uses_one_import_entrypoint_with_provider_method_choice(
     assert "function renderUploadHistory" in html
     assert "profile_name" in html
     assert "retryFileUpload" in html
+    assert "Opnieuw proberen" in html
+    assert "confirmSelectedFileImport()" in html
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -597,6 +625,17 @@ def test_dashboard_ships_add_connection_wizard(client: TestClient) -> None:
     assert 'id="config-provider"' in html
     assert "onWizardProviderChange" in html
     assert 'id="config-desc"' in html
+
+
+def test_dashboard_exposes_trading212_key_and_secret_inputs(
+    client: TestClient,
+) -> None:
+    """Trading212's key pair can be entered in both API wizard flows."""
+    html = _dashboard_html(client)
+    assert "toggleSecretField" in html
+    assert "Trading212 API-gegevens" in html
+    assert "API Key en API Secret" in html
+    assert "versleuteld opgeslagen" in html
 
 
 def test_dashboard_renders_connections_per_provider_group(

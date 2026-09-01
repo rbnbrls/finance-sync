@@ -3,11 +3,18 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 
-from finance_sync.models import Account, ImportRun, Transaction
+from finance_sync.exporter.models import ExportRun
+from finance_sync.models import (
+    Account,
+    Holding,
+    ImportRun,
+    Security,
+    Transaction,
+)
 from finance_sync.schemas.data_health import (
     DataHealthIssue,
     DataHealthOverview,
@@ -20,6 +27,8 @@ from finance_sync.services.control_plane_actions import action
 from finance_sync.services.data_quality import DataQualityService
 
 if TYPE_CHECKING:
+    from decimal import Decimal
+
     from sqlalchemy.ext.asyncio import AsyncSession
 
     from finance_sync.schemas.control_plane import ControlPlaneIssue
@@ -85,6 +94,10 @@ class DataHealthService:
         issues.extend(self._missing_source_issues(sources, control))
         issues.extend(await self._changed_provider_issues(sources))
         issues.extend(await self._additional_issues())
+        # A few lightweight callers intentionally construct this composer
+        # without a database session; preserve the projection-only mode.
+        if getattr(self, "_session", None) is not None:
+            issues.extend(await self._canonical_data_issues())
         stale_data = {
             "securities_stale": control.freshness.securities_stale,
             "securities_without_quote": (
@@ -95,7 +108,7 @@ class DataHealthService:
             ),
         }
         return DataHealthOverview(
-            status=self._status(control.status, quality.status),
+            status=self._status(control.status, quality.status, issues),
             last_successful_sync=max(
                 (
                     source.last_success_at
@@ -184,8 +197,94 @@ class DataHealthService:
         return issues
 
     async def _additional_issues(self) -> list[DataHealthIssue]:
-        """Detect account conflicts and incomplete imports."""
+        """Detect account conflicts, incomplete imports and exports."""
         issues: list[DataHealthIssue] = []
+
+        # ExportRun is the authoritative run ledger for both legacy
+        # environment-based exports and wizard-created destinations.  The
+        # control-plane destination projection only knows wizard targets, so
+        # querying the ledger here also exposes legacy Wealthfolio failures on
+        # the Data health page.
+        export_rows = (
+            (
+                await self._session.execute(
+                    select(ExportRun)
+                    .where(ExportRun.tenant_id == self._tenant_id)
+                    .order_by(ExportRun.started_at.desc())
+                )
+            )
+            .scalars()
+            .all()
+        )
+        seen_exports: set[tuple[str, str]] = set()
+        for export_run in export_rows:
+            # Destination-backed runs are already projected by the control
+            # plane with the destination retry action. Keep this legacy
+            # ledger projection only for environment-based exports so one
+            # failed run cannot appear twice in Data health.
+            if export_run.target_id and export_run.target_id != "legacy":
+                continue
+            # A worker restart can leave a terminal cancellation newer than
+            # the actual failed attempt. Do not let that housekeeping record
+            # hide the latest actionable failed/completed export outcome.
+            if export_run.status == "cancelled":
+                continue
+            export_key = (
+                str(export_run.exporter_type),
+                str(export_run.target_id or "legacy"),
+            )
+            if export_key in seen_exports:
+                continue
+            seen_exports.add(export_key)
+            if export_run.status not in {"failed", "running"}:
+                continue
+            is_running = export_run.status == "running"
+            exporter_name = str(export_run.exporter_type).replace("-", " ")
+            issues.append(
+                DataHealthIssue(
+                    id=f"export-run:{export_run.id}",
+                    category=("export" if is_running else "failed_export"),
+                    severity="warning" if is_running else "error",
+                    title=(
+                        f"{exporter_name.title()}-export is bezig"
+                        if is_running
+                        else f"{exporter_name.title()}-export mislukt"
+                    ),
+                    description=(
+                        "Een export-run is nog actief. Controleer de run als "
+                        "deze ongewoon lang blijft lopen."
+                        if is_running
+                        else (
+                            "De laatste export-run is mislukt. Bekijk de "
+                            "runhistorie en start daarna een gecontroleerde "
+                            "retry."
+                        )
+                    ),
+                    provider=str(export_run.exporter_type),
+                    source="export_runs",
+                    action=action(
+                        "view_export" if is_running else "retry_export",
+                        (
+                            f"/api/v1/exporters/runs/{export_run.id}"
+                            if is_running
+                            else (
+                                f"/api/v1/exporters/"
+                                f"{export_run.exporter_type}/runs/"
+                                f"{export_run.id}/retry"
+                            )
+                        ),
+                        permissions=self._permissions,
+                    ),
+                    details=(
+                        [
+                            f"status={export_run.status}",
+                            f"started_at={export_run.started_at.isoformat()}",
+                        ]
+                        if export_run.started_at
+                        else []
+                    ),
+                )
+            )
 
         account_rows = (
             await self._session.execute(
@@ -290,6 +389,300 @@ class DataHealthService:
         )
         return issues
 
+    async def _canonical_data_issues(self) -> list[DataHealthIssue]:
+        """Detect source-side defects before they reach an exporter."""
+        issues: list[DataHealthIssue] = []
+        trade_types = ("purchase", "sale")
+
+        incomplete_trades = (
+            await self._session.execute(
+                select(
+                    Transaction.id,
+                    Account.name,
+                    Transaction.description,
+                    Transaction.occurred_at,
+                )
+                .join(Account, Account.id == Transaction.account_id)
+                .where(
+                    Transaction.tenant_id == self._tenant_id,
+                    Transaction.transaction_type.in_(trade_types),
+                    or_(
+                        Transaction.quantity.is_(None),
+                        Transaction.unit_price.is_(None),
+                    ),
+                )
+                .order_by(Transaction.occurred_at.desc())
+                .limit(100)
+            )
+        ).all()
+        if incomplete_trades:
+            issues.append(
+                DataHealthIssue(
+                    id="incomplete-transactions:trade-fields",
+                    category="incomplete_transaction",
+                    severity="error",
+                    title="Transacties missen handelsgegevens",
+                    description=(
+                        "Koop- of verkooptransacties zonder hoeveelheid of "
+                        "stukprijs kunnen niet betrouwbaar worden geëxporteerd."
+                    ),
+                    impact_count=len(incomplete_trades),
+                    source="transactions",
+                    details=[
+                        self._transaction_detail(row)
+                        for row in incomplete_trades[:10]
+                    ],
+                    action=action(
+                        "view_transactions",
+                        "/api/v1/transactions?status=booked",
+                        permissions=self._permissions,
+                    ),
+                )
+            )
+
+        zero_cost_trades = (
+            await self._session.execute(
+                select(
+                    Transaction.id,
+                    Account.name,
+                    Transaction.description,
+                    Transaction.occurred_at,
+                )
+                .join(Account, Account.id == Transaction.account_id)
+                .where(
+                    Transaction.tenant_id == self._tenant_id,
+                    Transaction.transaction_type.in_(trade_types),
+                    or_(
+                        Transaction.unit_price == 0,
+                        and_(
+                            Transaction.amount == 0,
+                            Transaction.quantity.is_not(None),
+                        ),
+                    ),
+                )
+                .order_by(Transaction.occurred_at.desc())
+                .limit(100)
+            )
+        ).all()
+        if zero_cost_trades:
+            issues.append(
+                DataHealthIssue(
+                    id="incomplete-transactions:zero-cost",
+                    category="zero_cost_transaction",
+                    severity="warning",
+                    title="Transacties hebben een nulprijs",
+                    description=(
+                        "Deze transacties lijken op een corporate action of "
+                        "kosteloze toekenning. Classificeer ze als Transfer In "
+                        "of leg de verkrijgingsprijs vast."
+                    ),
+                    impact_count=len(zero_cost_trades),
+                    source="transactions",
+                    details=[
+                        self._transaction_detail(row)
+                        for row in zero_cost_trades[:10]
+                    ],
+                    action=action(
+                        "view_transactions",
+                        "/api/v1/transactions?type=purchase",
+                        permissions=self._permissions,
+                    ),
+                )
+            )
+
+        negative_accounts = (
+            await self._session.execute(
+                select(Account.id, Account.name, Account.current_balance)
+                .where(
+                    Account.tenant_id == self._tenant_id,
+                    Account.is_active.is_(True),
+                    Account.current_balance < 0,
+                )
+                .order_by(Account.name)
+            )
+        ).all()
+        if negative_accounts:
+            issues.append(
+                DataHealthIssue(
+                    id="negative-balances:accounts",
+                    category="negative_balance",
+                    severity="warning",
+                    title="Accounts hebben een negatief saldo",
+                    description=(
+                        "Een negatief actueel saldo wijst meestal op een "
+                        "ontbrekende storting of Transfer In vóór een aankoop."
+                    ),
+                    impact_count=len(negative_accounts),
+                    source="accounts",
+                    details=[
+                        f"{row[1]}: {row[2]}" for row in negative_accounts
+                    ],
+                    action=action(
+                        "view_accounts",
+                        "/api/v1/accounts",
+                        permissions=self._permissions,
+                    ),
+                )
+            )
+
+        transfer_rows = (
+            await self._session.execute(
+                select(
+                    Transaction.account_id,
+                    Account.name,
+                    Transaction.amount,
+                    Transaction.currency_code,
+                    func.date(Transaction.occurred_at),
+                    Transaction.description,
+                )
+                .join(Account, Account.id == Transaction.account_id)
+                .where(
+                    Transaction.tenant_id == self._tenant_id,
+                    Transaction.transaction_type == "transfer",
+                )
+                .order_by(Transaction.occurred_at)
+            )
+        ).all()
+        unmatched_transfers = self._unmatched_transfers(transfer_rows)
+        if unmatched_transfers:
+            issues.append(
+                DataHealthIssue(
+                    id="unbalanced-transfers:canonical",
+                    category="unbalanced_transfer",
+                    severity="error",
+                    title="Transfers missen een tegenboeking",
+                    description=(
+                        "Elke interne transfer moet een uitgaande én inkomende "
+                        "kant hebben. Markeer externe geldstromen expliciet."
+                    ),
+                    impact_count=len(unmatched_transfers),
+                    source="transactions",
+                    details=[
+                        f"{row[1]}: {row[2]} {row[3]} op {row[4]}"
+                        for row in unmatched_transfers[:10]
+                    ],
+                    action=action(
+                        "view_transactions",
+                        "/api/v1/transactions?type=transfer",
+                        permissions=self._permissions,
+                    ),
+                )
+            )
+
+        incomplete_holdings = (
+            await self._session.execute(
+                select(Holding.id, Account.name, Security.name)
+                .join(Account, Account.id == Holding.account_id)
+                .join(Security, Security.id == Holding.security_id)
+                .where(
+                    Holding.tenant_id == self._tenant_id,
+                    or_(
+                        Holding.price.is_(None), Holding.market_value.is_(None)
+                    ),
+                )
+                .order_by(Holding.observed_at.desc())
+                .limit(100)
+            )
+        ).all()
+        if incomplete_holdings:
+            issues.append(
+                DataHealthIssue(
+                    id="incomplete-holdings:valuation",
+                    category="incomplete_holding",
+                    severity="warning",
+                    title="Posities missen waarderingsgegevens",
+                    description=(
+                        "Een positie mist een prijs of marktwaarde. Daardoor "
+                        "kunnen portefeuillewaarde en rendement afwijken."
+                    ),
+                    impact_count=len(incomplete_holdings),
+                    source="holdings",
+                    details=[
+                        f"{row[2]} in {row[1]}"
+                        for row in incomplete_holdings[:10]
+                    ],
+                    action=action(
+                        "view_holdings",
+                        "/api/v1/holdings",
+                        permissions=self._permissions,
+                    ),
+                )
+            )
+
+        incomplete_securities = (
+            await self._session.execute(
+                select(Security.id, Security.name)
+                .where(
+                    Security.isin.is_(None),
+                    Security.ticker.is_(None),
+                )
+                .order_by(Security.name)
+                .limit(100)
+            )
+        ).all()
+        if incomplete_securities:
+            issues.append(
+                DataHealthIssue(
+                    id="incomplete-securities:identity",
+                    category="incomplete_security_identity",
+                    severity="error",
+                    title="Securities missen een identificatie",
+                    description=(
+                        "Zonder ISIN of ticker kunnen koersproviders en "
+                        "exportbestemmingen de security niet betrouwbaar "
+                        "herkennen."
+                    ),
+                    impact_count=len(incomplete_securities),
+                    source="securities",
+                    details=[str(row[1]) for row in incomplete_securities[:10]],
+                    action=action(
+                        "view_holdings",
+                        "/api/v1/holdings",
+                        permissions=self._permissions,
+                    ),
+                )
+            )
+        return issues
+
+    @staticmethod
+    def _transaction_detail(row: tuple[object, ...]) -> str:
+        _transaction_id, account_name, description, occurred_at = row
+        occurred_at = cast("datetime | None", occurred_at)
+        date = (
+            occurred_at.strftime("%Y-%m-%d")
+            if occurred_at
+            else "onbekende datum"
+        )
+        return f"{account_name} · {date} · {description or 'Transactie'}"
+
+    @staticmethod
+    def _unmatched_transfers(
+        rows: list[tuple[object, ...]],
+    ) -> list[tuple[object, ...]]:
+        """Pair opposite transfers by date, currency and absolute amount."""
+        unmatched: list[tuple[object, ...]] = []
+        available = list(rows)
+        for row in rows:
+            if row not in available:
+                continue
+            available.remove(row)
+            match_index = next(
+                (
+                    index
+                    for index, candidate in enumerate(available)
+                    if candidate[0] != row[0]
+                    and candidate[2] == -cast("Decimal", row[2])
+                    and candidate[3] == row[3]
+                    and candidate[4] == row[4]
+                ),
+                None,
+            )
+            if match_index is None:
+                unmatched.append(row)
+            else:
+                available.pop(match_index)
+        return unmatched
+
     async def _changed_provider_issues(
         self, sources: list[DataHealthSource]
     ) -> list[DataHealthIssue]:
@@ -342,7 +735,11 @@ class DataHealthService:
         return issues
 
     @staticmethod
-    def _status(control_status: str, quality_status: str) -> DataHealthStatus:
+    def _status(
+        control_status: str,
+        quality_status: str,
+        issues: list[DataHealthIssue] | None = None,
+    ) -> DataHealthStatus:
         if control_status == "sync_failed":
             return "error"
         if control_status == "attention_required":
@@ -353,6 +750,10 @@ class DataHealthService:
             return "attention_required"
         if quality_status == "unavailable":
             return "unavailable"
+        if any(issue.severity == "error" for issue in issues or []):
+            return "error"
+        if any(issue.severity == "warning" for issue in issues or []):
+            return "attention_required"
         return "healthy"
 
     @staticmethod

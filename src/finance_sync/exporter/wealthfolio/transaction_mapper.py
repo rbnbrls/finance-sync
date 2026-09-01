@@ -411,6 +411,10 @@ def map_holding_to_wf_row(
     return {
         "date": observed.isoformat(),
         "symbol": symbol,
+        # Keep the canonical identity available to the exporter-side
+        # reconciliation. Wealthfolio may return an ISIN even when the
+        # import used the broker ticker (for example AAPL/US0378331005).
+        "isin": security.isin if security is not None else "",
         "quantity": _fmt_decimal(holding.quantity),
         "avgCost": _fmt_decimal(avg_cost) if avg_cost is not None else "",
         "currency": currency,
@@ -596,7 +600,9 @@ def map_holdings_to_csv(
             security=sec,
             default_currency=default_currency,
         )
-        writer.writerow(row)
+        # ``isin`` is retained for exporter-side reconciliation but is not a
+        # column in Wealthfolio's holdings CSV contract.
+        writer.writerow({field: row[field] for field in fieldnames})
 
     return buf.getvalue()
 

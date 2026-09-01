@@ -133,6 +133,7 @@ class ControlPlaneDestination(BaseModel):
     last_export_status: str | None = None
     last_export_at: datetime | None = None
     failed_export_count: int = 0
+    delivery_checkpoint: dict[str, Any] | None = None
 
 
 class ControlPlaneOverview(BaseModel):

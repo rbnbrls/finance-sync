@@ -426,6 +426,61 @@ class TestWealthfolioClient408Retry:
         sleep.assert_awaited_once()
         assert result == {"ok": True}
 
+    async def test_save_manual_holdings_preserves_average_cost(
+        self, client: WealthfolioClient
+    ) -> None:
+        """The live snapshots payload must retain Wealthfolio's cost basis."""
+        client._is_authenticated = True
+        snapshot_response = MagicMock(status_code=200)
+        snapshot_response.raise_for_status.return_value = None
+        snapshot_response.content = b'{"ok": true}'
+
+        with (
+            patch.object(
+                client._client, "post", return_value=snapshot_response
+            ) as post,
+            patch.object(
+                client,
+                "get_assets",
+                return_value=[{"id": "asset-aapl", "displayCode": "AAPL"}],
+            ),
+            patch.object(client, "get_quote_history", return_value=[]),
+            patch.object(
+                client._client,
+                "put",
+                return_value=MagicMock(status_code=200),
+            ),
+        ):
+            await client.save_manual_holdings(
+                [
+                    {
+                        "symbol": "AAPL",
+                        "quantity": "10",
+                        "unitPrice": "190",
+                        "averageCost": "150.50",
+                        "sourceValue": "1900",
+                        "currency": "USD",
+                    }
+                ],
+                "acct-1",
+                snapshot_date="2026-08-29",
+            )
+
+        payload = post.await_args_list[0].kwargs["json"]
+        assert payload["holdings"] == [
+            {
+                "symbol": "AAPL",
+                "quantity": "10",
+                "averageCost": "150.50",
+                "sourceValue": "1900",
+                "currency": "USD",
+                "assetId": "asset-aapl",
+            }
+        ]
+        # The quote is saved first and the same complete payload is used for
+        # the recalculation pass.
+        assert post.await_args_list[1].kwargs["json"] == payload
+
     async def test_save_manual_holdings_matches_exchange_qualified_symbol(
         self, client: WealthfolioClient
     ) -> None:
@@ -457,7 +512,9 @@ class TestWealthfolioClient408Retry:
                 snapshot_date="2026-08-29",
             )
 
-        assert put.await_count == 2
+        # One quote write happens before the final snapshot recalculation and
+        # one after it, so the manual broker quote remains authoritative.
+        assert put.await_count == 3
         assert (
             put.await_args_list[0].args[0]
             == "/api/v1/assets/pricing-mode/asset-vwce"

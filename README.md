@@ -125,6 +125,8 @@ Start at [docs/README.md](docs/README.md). The most useful references are:
 - [Market intelligence](docs/market-intelligence.md) and
   [holding relevance](docs/holding-relevance.md)
 - [MCP server](docs/mcp-server.md)
+- [Wealthfolio live delivery](docs/wealthfolio-live-runbook.md), including
+  safe deployment and two-run verification.
 - [Migrations and upgrades](docs/MIGRATIONS.md) and
   [release operations](docs/RELEASING.md)
 

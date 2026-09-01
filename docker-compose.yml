@@ -64,6 +64,7 @@ services:
       - "8000:8000"
     environment:
       APP_ENVIRONMENT: ${APP_ENVIRONMENT:-prod}
+      STAGING_CONNECTOR_BASE_URL: ${STAGING_CONNECTOR_BASE_URL:-http://app:8000/api/v1/staging-providers}
       APP_NAME: ${APP_NAME:-finance-sync}
       APP_VERSION: ${APP_VERSION:-0.7.3}
       # Keep this namespaced so an unrelated host DEBUG value cannot prevent
@@ -145,6 +146,7 @@ services:
       - "9090:9090"
     environment:
       APP_ENVIRONMENT: ${APP_ENVIRONMENT:-prod}
+      STAGING_CONNECTOR_BASE_URL: ${STAGING_CONNECTOR_BASE_URL:-http://app:8000/api/v1/staging-providers}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       GLITCHTIP_ENABLED: ${GLITCHTIP_ENABLED:-false}
       GLITCHTIP_DSN: ${GLITCHTIP_DSN:-}

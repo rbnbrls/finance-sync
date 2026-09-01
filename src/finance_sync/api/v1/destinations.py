@@ -21,6 +21,7 @@ from finance_sync.exporter.capabilities import (
     build_destination_preview,
     destination_capabilities,
 )
+from finance_sync.exporter.models import ExportRun
 from finance_sync.models import Account, ApiKey, SyncSchedule, Transaction
 from finance_sync.models.export_target import (
     TARGET_ACTIVE,
@@ -1084,6 +1085,20 @@ async def retry_target(
     db: AsyncSession = Depends(get_db),
 ) -> DestinationRunResponse:
     """Retry a failed destination through its persisted target contract."""
+    latest_run = await db.scalar(
+        select(ExportRun)
+        .where(
+            ExportRun.tenant_id == auth.tenant_id,
+            ExportRun.target_id == target_id,
+        )
+        .order_by(ExportRun.started_at.desc())
+        .limit(1)
+    )
+    if latest_run is None or latest_run.status != "failed":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Only destinations with a failed export can be retried",
+        )
     return await run_target(target_id, request, auth, db)
 
 

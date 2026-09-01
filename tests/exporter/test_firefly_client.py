@@ -12,6 +12,7 @@ from finance_sync.exporter.firefly.client import (
     FireflyClient,
     FireflyClientConfig,
 )
+from finance_sync.exporter.firefly.exporter import _has_firefly_amount
 from finance_sync.exporter.firefly.transaction_mapper import map_transaction
 
 
@@ -31,6 +32,12 @@ def test_map_negative_transaction() -> None:
     assert result["source_name"] == "Checking"
     assert result["destination_name"] == "Coffee"
     assert result["external_id"] == "bank-id"
+
+
+def test_firefly_rejects_zero_amount_before_api_call() -> None:
+    assert _has_firefly_amount(SimpleNamespace(amount=Decimal("-0.01")))
+    assert not _has_firefly_amount(SimpleNamespace(amount=Decimal(0)))
+    assert not _has_firefly_amount(SimpleNamespace(amount=None))
 
 
 def test_mapper_projects_native_budget_and_bill_links() -> None:

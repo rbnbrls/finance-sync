@@ -522,10 +522,7 @@ class SyncOrchestrator(CardsSyncMixin):
             # A tenant holds at most a handful of connections per
             # provider; select the row scoped to this connection in
             # Python instead of chaining dynamic SQL filters.
-            row = next(
-                (r for r in rows.all() if r.connection_id == connection_id),
-                None,
-            )
+            row = self._connector_state_row(rows.all(), connection_id)
         state = getattr(row, "state", None) if row is not None else None
         if not isinstance(state, dict) or not state:
             return {}
@@ -555,10 +552,7 @@ class SyncOrchestrator(CardsSyncMixin):
                     ConnectorState.provider_key == provider_key,
                 )
             )
-            row = next(
-                (r for r in rows.all() if r.connection_id == connection_id),
-                None,
-            )
+            row = self._connector_state_row(rows.all(), connection_id)
             if row is None:
                 session.add(
                     ConnectorState(
@@ -571,6 +565,28 @@ class SyncOrchestrator(CardsSyncMixin):
             else:
                 row.state = state
             await session.commit()
+
+    @staticmethod
+    def _connector_state_row(
+        rows: list[ConnectorState],
+        connection_id: str | None,
+    ) -> ConnectorState | None:
+        """Find state across PostgreSQL UUID and string representations."""
+        if connection_id is None:
+            return next(
+                (row for row in rows if row.connection_id is None),
+                None,
+            )
+        target = str(connection_id)
+        return next(
+            (
+                row
+                for row in rows
+                if row.connection_id is not None
+                and str(row.connection_id) == target
+            ),
+            None,
+        )
 
     # ── Bunq cards / scheduled payments sync ──────────────────────────
 

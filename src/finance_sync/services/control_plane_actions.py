@@ -33,6 +33,9 @@ ACTION_CATALOG: dict[str, ActionSpec] = {
     "view_transactions": ActionSpec(
         "view_transactions", "Transacties bekijken", "GET", "transactions:read"
     ),
+    "view_holdings": ActionSpec(
+        "view_holdings", "Posities bekijken", "GET", "holdings:read"
+    ),
     "view_imports": ActionSpec(
         "view_imports", "Importdetails bekijken", "GET", "connectors:read"
     ),
@@ -78,6 +81,9 @@ ACTION_CATALOG: dict[str, ActionSpec] = {
         "POST",
         "destinations:write",
         True,
+    ),
+    "view_export": ActionSpec(
+        "view_export", "Export bekijken", "GET", "destinations:read"
     ),
     "view_reconciliation": ActionSpec(
         "view_reconciliation", "Finding bekijken", "GET", "reconciliation:read"

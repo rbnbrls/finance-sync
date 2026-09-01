@@ -359,6 +359,20 @@ class TestTrading212ConnectorAuth:
         assert t212_connector._account_id == "12345678"
         assert t212_connector._account_currency == "EUR"
 
+    async def test_fetch_accounts_reuses_authenticated_cash_response(
+        self,
+        t212_connector: Trading212Connector,
+        t212_mock_transport: Trading212MockTransport,
+    ) -> None:
+        await t212_connector.authenticate()
+        await t212_connector.fetch_accounts()
+        cash_calls = [
+            call
+            for call in t212_mock_transport.call_log
+            if "/account/cash" in str(call["url"])
+        ]
+        assert len(cash_calls) == 1
+
 
 class TestTrading212ConnectorPagination:
     """Pagination for order and transaction history."""
@@ -1216,17 +1230,16 @@ class TestTrading212ConnectorErrorHandling:
     def test_rate_limit_policy_retries_transient_errors(self) -> None:
         """The Trading212 policy must retry transient failures robustly.
 
-        The observed production failure was a transient provider outage
-        that exhausted the old ``max_retries=3`` / ``backoff_base=1.0``
-        policy after ~7 seconds.  The policy now retries longer so a
-        brief outage does not surface as a sync failure.
+        The policy uses a small retry budget so a 429 does not create a
+        burst of follow-up calls against the provider.
         """
         from finance_sync.connectors.trading212 import Trading212Connector
 
         policy = Trading212Connector.rate_limit_policy
         assert policy is not None
-        assert policy.max_retries >= 5
-        assert policy.backoff_base >= 2.0
+        assert policy.max_retries == 2
+        assert policy.backoff_base >= 5.0
+        assert policy.max_requests == 6
 
     async def test_account_id_mismatch_returns_empty(
         self, t212_connector: Trading212Connector
