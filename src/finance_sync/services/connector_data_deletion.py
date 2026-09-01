@@ -105,7 +105,9 @@ class ConnectorDataDeletionService:
     async def _count_legacy(self, model: Any, provider_key: str) -> int:
         return int(
             await self.session.scalar(
-                select(func.count()).select_from(model).where(
+                select(func.count())
+                .select_from(model)
+                .where(
                     model.tenant_id == self.tenant_id,
                     model.provider_key == provider_key,
                     model.connection_id.is_(None),
@@ -114,20 +116,23 @@ class ConnectorDataDeletionService:
             or 0
         )
 
-    async def preview(
-        self, credential: Credential
-    ) -> ConnectorDeletionPreview:
+    async def preview(self, credential: Credential) -> ConnectorDeletionPreview:
         connection_id = str(credential.id)
         account_ids = await self._account_ids(connection_id)
+
         async def count_accounts_table(model: Any) -> int:
-            return int(
-                await self.session.scalar(
-                    select(func.count()).select_from(model).where(
-                        model.account_id.in_(account_ids)
+            return (
+                int(
+                    await self.session.scalar(
+                        select(func.count())
+                        .select_from(model)
+                        .where(model.account_id.in_(account_ids))
                     )
+                    or 0
                 )
-                or 0
-            ) if account_ids else 0
+                if account_ids
+                else 0
+            )
 
         async def count_transaction_table(model: Any) -> int:
             if not account_ids:
@@ -142,9 +147,9 @@ class ConnectorDataDeletionService:
                 return 0
             return int(
                 await self.session.scalar(
-                    select(func.count()).select_from(model).where(
-                        column.in_(transaction_ids)
-                    )
+                    select(func.count())
+                    .select_from(model)
+                    .where(column.in_(transaction_ids))
                 )
                 or 0
             )
@@ -187,12 +192,16 @@ class ConnectorDataDeletionService:
             ScheduledPayment,
         )
         connection_counts = sum(
-            [await self._count_connection(model, connection_id)
-             for model in connection_scoped_models]
+            [
+                await self._count_connection(model, connection_id)
+                for model in connection_scoped_models
+            ]
         )
         transaction_count = int(
             await self.session.scalar(
-                select(func.count()).select_from(Transaction).where(
+                select(func.count())
+                .select_from(Transaction)
+                .where(
                     Transaction.tenant_id == self.tenant_id,
                     (Transaction.account_id.in_(account_ids))
                     | (Transaction.connection_id == connection_id),
@@ -206,21 +215,22 @@ class ConnectorDataDeletionService:
         ]
         if account_ids:
             card_conditions[-1] = (
-                (CardTransaction.connection_id == connection_id)
-                | (CardTransaction.account_id.in_(account_ids))
-            )
+                CardTransaction.connection_id == connection_id
+            ) | (CardTransaction.account_id.in_(account_ids))
         card_count = int(
             await self.session.scalar(
-                select(func.count()).select_from(CardTransaction).where(
-                    *card_conditions
-                )
+                select(func.count())
+                .select_from(CardTransaction)
+                .where(*card_conditions)
             )
             or 0
         )
         import_runs = await self._count_connection(ImportRun, connection_id)
         schedule_count = int(
             await self.session.scalar(
-                select(func.count()).select_from(SyncSchedule).where(
+                select(func.count())
+                .select_from(SyncSchedule)
+                .where(
                     SyncSchedule.tenant_id == self.tenant_id,
                     SyncSchedule.scope == SCOPE_INGESTION,
                     SyncSchedule.target_id == connection_id,
@@ -285,7 +295,9 @@ class ConnectorDataDeletionService:
                 transaction_column = getattr(model, "transaction_id", None)
                 if transaction_ids and transaction_column is not None:
                     await self.session.execute(
-                        delete(model).where(transaction_column.in_(transaction_ids))
+                        delete(model).where(
+                            transaction_column.in_(transaction_ids)
+                        )
                     )
             for model in (
                 WealthfolioAccountMapping,

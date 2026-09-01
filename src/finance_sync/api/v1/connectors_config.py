@@ -1065,7 +1065,9 @@ async def preview_connector_deletion(
             status_code=status.HTTP_409_CONFLICT,
             detail="This connector is staging-managed and cannot be removed",
         )
-    preview = await ConnectorDataDeletionService(db, auth.tenant_id).preview(cred)
+    preview = await ConnectorDataDeletionService(db, auth.tenant_id).preview(
+        cred
+    )
     return ConnectorDeletionPreviewResponse(**preview.as_dict())
 
 
