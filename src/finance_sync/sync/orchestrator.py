@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import traceback
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any, cast
 
@@ -568,7 +569,7 @@ class SyncOrchestrator(CardsSyncMixin):
 
     @staticmethod
     def _connector_state_row(
-        rows: list[ConnectorState],
+        rows: Sequence[ConnectorState],
         connection_id: str | None,
     ) -> ConnectorState | None:
         """Find state across PostgreSQL UUID and string representations."""
