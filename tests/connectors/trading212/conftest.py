@@ -157,8 +157,7 @@ def t212_mock_transport() -> Trading212MockTransport:
 
 
 @pytest.fixture
-def t212_mock_transport_factory(
-) -> Callable[..., Trading212MockTransport]:
+def t212_mock_transport_factory() -> Callable[..., Trading212MockTransport]:
     """Build isolated transports for API, mapping, and selection scenarios."""
 
     def factory(**kwargs: Any) -> Trading212MockTransport:

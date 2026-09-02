@@ -375,7 +375,6 @@ class TestTrading212ConnectorAuth:
         ]
         assert len(cash_calls) == 1
 
-
     async def test_selected_account_response_can_be_injected(
         self,
         t212_connector_config: ConnectorConfig,
@@ -394,7 +393,9 @@ class TestTrading212ConnectorAuth:
         client = httpx.AsyncClient(
             base_url="https://live.trading212.com", transport=transport
         )
-        connector = Trading212Connector(t212_connector_config, http_client=client)
+        connector = Trading212Connector(
+            t212_connector_config, http_client=client
+        )
 
         await connector.authenticate()
 
@@ -1066,7 +1067,9 @@ class TestTrading212ConnectorErrorHandling:
         client = httpx.AsyncClient(
             base_url="https://live.trading212.com", transport=transport
         )
-        connector = Trading212Connector(t212_connector_config, http_client=client)
+        connector = Trading212Connector(
+            t212_connector_config, http_client=client
+        )
 
         with pytest.raises(TransientError):
             await connector.authenticate()
