@@ -864,8 +864,10 @@ class TestNoSecretLeakageHttpPg:
         async with session_factory() as s:
             cred = await s.get(Credential, conn_id)
             assert cred is not None
-            assert cred.last_error is not None
-            assert secret not in cred.last_error
+            # A connection test must not populate the sync error field.
+            assert cred.last_error is None
+            assert cred.last_test_error is not None
+            assert secret not in cred.last_test_error
 
 
 class TestScheduleSeedingHttpPg:
