@@ -240,7 +240,7 @@ class TestTrading212SyncPipeline:
     async def test_selected_account_filters_trading212_resources(
         self, session_factory, tenant
     ) -> None:
-        """A selection excluding the sole Trading212 account imports nothing."""
+        """A selection excluding provider accounts fails without writes."""
         result = await _orchestrator(session_factory, tenant).run_sync(
             "trading212",
             _config(),
@@ -248,7 +248,8 @@ class TestTrading212SyncPipeline:
             selected_accounts=["different-account"],
         )
 
-        assert result.status == SyncRunStatus.COMPLETED
+        assert result.status == SyncRunStatus.FAILED
+        assert result.error_category == "validation"
         assert result.accounts_synced == 0
         assert result.holdings_synced == 0
         assert result.transactions_synced == 0
@@ -322,8 +323,9 @@ class TestTrading212SyncPipeline:
 
         assert result.status == SyncRunStatus.COMPLETED
         assert result.accounts_synced == 1
-        assert result.transactions_synced == 0
-        assert result.holdings_synced == len(PORTFOLIO_RESPONSE)
+        # Orders are normalized as transactions; the transaction-history
+        # endpoint being empty does not remove those order transactions.
+        assert result.transactions_synced == len(ORDER_HISTORY_RESPONSE)
         counts = await _counts(session_factory)
         assert counts["Account"] == 1
         assert counts["Holding"] == len(PORTFOLIO_RESPONSE)
@@ -358,7 +360,9 @@ class TestTrading212SyncPipeline:
         )
 
         assert result.status == SyncRunStatus.FAILED
-        assert "database write failed" in (result.error_message or "")
+        # Internal errors are redacted in the public result; the original
+        # exception is retained by the GlitchTip event.
+        assert result.error_message == "Sync failed due to an internal error"
         counts = await _counts(session_factory)
         assert counts["Account"] == 0
         assert counts["Holding"] == 0
