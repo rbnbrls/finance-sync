@@ -14,6 +14,8 @@ from finance_sync.connectors.models import ConnectorConfig
 from finance_sync.connectors.registry import ConnectorRegistry
 from finance_sync.connectors.trading212 import Trading212Connector
 from finance_sync.db.uow import UnitOfWork
+from finance_sync.exporter.wealthfolio.config import WealthfolioConfig
+from finance_sync.exporter.wealthfolio.exporter import WealthfolioExporter
 from finance_sync.models import (
     Account,
     Holding,
@@ -23,7 +25,6 @@ from finance_sync.models import (
     Transaction,
 )
 from finance_sync.models.enums import SyncRunStatus
-from finance_sync.services.account_selection import filter_accounts
 from finance_sync.sync.orchestrator import SyncOrchestrator
 from finance_sync.sync.persistence import SyncPersistence
 from tests.connectors.fixtures.trading212_api_fixtures import (
@@ -44,17 +45,23 @@ _NO_RECONCILIATION = SimpleNamespace(
 class Trading212PipelineTransport(httpx.MockTransport):
     """Mock the endpoints used by the full Trading212 sync pipeline."""
 
+    last_instance: Trading212PipelineTransport
+
     def __init__(
         self,
         *,
         fail_transactions: bool = False,
+        retry_transactions_once: bool = False,
         empty_transactions: bool = False,
         malformed_portfolio: bool = False,
     ) -> None:
         self.fail_transactions = fail_transactions
+        self.retry_transactions_once = retry_transactions_once
         self.empty_transactions = empty_transactions
         self.malformed_portfolio = malformed_portfolio
         self.requests: list[str] = []
+        self.transaction_attempts = 0
+        type(self).last_instance = self
         super().__init__(self._handle)
 
     def _handle(self, request: httpx.Request) -> httpx.Response:
@@ -71,6 +78,11 @@ class Trading212PipelineTransport(httpx.MockTransport):
         if path == "/api/v0/equity/history/orders":
             return httpx.Response(200, json=ORDER_HISTORY_RESPONSE)
         if path == "/api/v0/equity/history/transactions":
+            self.transaction_attempts += 1
+            if self.retry_transactions_once and self.transaction_attempts == 1:
+                return httpx.Response(
+                    503, json={"error": "temporarily unavailable"}
+                )
             if self.fail_transactions:
                 return httpx.Response(
                     400, json={"error": "history unavailable"}
@@ -91,11 +103,13 @@ class PipelineTrading212Connector(Trading212Connector):
         config: ConnectorConfig,
         *,
         fail_transactions: bool = False,
+        retry_transactions_once: bool = False,
         empty_transactions: bool = False,
         malformed_portfolio: bool = False,
     ) -> None:
         self.transport = Trading212PipelineTransport(
             fail_transactions=fail_transactions,
+            retry_transactions_once=retry_transactions_once,
             empty_transactions=empty_transactions,
             malformed_portfolio=malformed_portfolio,
         )
@@ -200,6 +214,8 @@ class TestTrading212SyncPipeline:
         )
 
         assert result.status == SyncRunStatus.FAILED
+        assert "HTTP 400" in (result.error_message or "")
+        assert result.error_category == "validation"
         counts = await _counts(session_factory)
         # The account/resource unit of work is rolled back as one batch; the
         # failed resource unit of work must not leave partial account,
@@ -224,8 +240,61 @@ class TestTrading212SyncPipeline:
             accounts = list((await session.execute(select(Account))).scalars())
             assert len(accounts) == 1
             assert accounts[0].external_account_id == "12345678"
-            visible = await filter_accounts(session, str(tenant.id), accounts)
-            assert visible == accounts
+
+        exporter = WealthfolioExporter(
+            session_factory=session_factory,
+            wf_config=WealthfolioConfig(),
+            tenant_id=str(tenant.id),
+        )
+        visible = await exporter._load_accounts(None)
+        assert [account.external_account_id for account in visible] == [
+            "12345678"
+        ]
+        async with session_factory() as session:
+            account = visible[0]
+            holdings = (
+                (
+                    await session.execute(
+                        select(Holding).where(Holding.account_id == account.id)
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            transactions = (
+                (
+                    await session.execute(
+                        select(Transaction).where(
+                            Transaction.account_id == account.id
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            assert len(holdings) == len(PORTFOLIO_RESPONSE)
+            assert len(transactions) == (
+                len(ORDER_HISTORY_RESPONSE["items"])
+                + len(TRANSACTION_HISTORY_RESPONSE["items"])
+            )
+
+    async def test_transient_transaction_failure_is_retried_and_completes(
+        self, session_factory, tenant, monkeypatch
+    ) -> None:
+        monkeypatch.setattr(
+            "finance_sync.connectors.rate_limiter.RateLimiter.backoff_delay",
+            lambda self, attempt: 0.0,
+        )
+        result = await _orchestrator(
+            session_factory, tenant, retry_transactions_once=True
+        ).run_sync(
+            "trading212", _config(), since=datetime(2024, 1, 1, tzinfo=UTC)
+        )
+
+        assert result.status == SyncRunStatus.COMPLETED
+        assert result.transactions_synced > 0
+        transport = Trading212PipelineTransport.last_instance
+        assert transport.transaction_attempts == 2
 
     async def test_empty_transaction_response_still_completes_with_account_and_holdings(
         self, session_factory, tenant
@@ -254,7 +323,8 @@ class TestTrading212SyncPipeline:
         )
 
         assert result.status == SyncRunStatus.FAILED
-        assert result.error_message
+        assert "portfolio" in (result.error_message or "").lower()
+        assert "unexpected" in (result.error_message or "").lower()
         counts = await _counts(session_factory)
         assert counts["Account"] == 0
         assert counts["Holding"] == 0
