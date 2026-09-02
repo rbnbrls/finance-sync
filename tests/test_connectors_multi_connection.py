@@ -740,7 +740,10 @@ def test_acceptance_two_bunq_connections_lifecycle(monkeypatch: Any) -> None:
         assert set(by_id) == {conn_a, conn_b}
         assert by_id[conn_a]["selected_accounts"] == ["acc-a1"]
         assert by_id[conn_b]["selected_accounts"] == ["acc-b1"]
-        assert by_id[conn_a]["last_success_at"] is not None
+        # A connection test authenticates credentials but does not import data.
+        # Import success is reserved for a completed SyncRun.
+        assert by_id[conn_a]["last_success_at"] is None
+        assert by_id[conn_a]["last_test_status"] == "passed"
 
         # 5. Pause / resume one connection without affecting the other.
         resp = client.post(f"{_CONFIGS_URL}/{conn_a}/pause", json={})
