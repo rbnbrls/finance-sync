@@ -76,7 +76,9 @@ class Trading212PipelineTransport(httpx.MockTransport):
                     400, json={"error": "history unavailable"}
                 )
             if self.empty_transactions:
-                return httpx.Response(200, json={"items": [], "nextPagePath": None})
+                return httpx.Response(
+                    200, json={"items": [], "nextPagePath": None}
+                )
             return httpx.Response(200, json=TRANSACTION_HISTORY_RESPONSE)
         return httpx.Response(404, json={"error": f"unexpected path: {path}"})
 
