@@ -30,6 +30,7 @@ from finance_sync.models.credential import (
     Credential,
 )
 from finance_sync.models.import_run import ImportRun
+from finance_sync.observability.glitchtip import capture_connector_exception
 from finance_sync.services.degiro_import import (
     batch_hash,
     build_preview,
@@ -307,6 +308,12 @@ async def sync_connector_job(
             # Note: auto-reconciliation is handled inside run_sync() in
             # the orchestrator — no need to run it again here.
         except Exception as exc:
+            capture_connector_exception(
+                exc,
+                connector=provider_key,
+                operation="sync_connection",
+                connection_id=connection_id,
+            )
             tenant_result = {
                 "tenant_id": tenant.id,
                 "connection_id": connection_id,

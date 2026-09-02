@@ -27,6 +27,7 @@ from finance_sync.models.enums import (
 from finance_sync.observability.connector_metrics import (
     record_connector_operation,
 )
+from finance_sync.observability.glitchtip import capture_connector_exception
 from finance_sync.sync.cards_pipeline import (
     BunqCardsSyncResult,
     CardsSyncMixin,
@@ -707,6 +708,8 @@ class SyncOrchestrator(CardsSyncMixin):
         holdings_synced = 0
         unresolved_keys: set[str] = set()
         transaction_report: dict[str, int] = {}
+        current_operation = "start_sync_run"
+        current_account_id: str | None = None
 
         # Account selection: when the connection pins a set of provider
         # account ids, only those accounts are synced (and their
@@ -742,10 +745,12 @@ class SyncOrchestrator(CardsSyncMixin):
                     raise PermanentError(compatibility_error)
 
                 # 2. Authenticate
+                current_operation = "authenticate"
                 await connector.authenticate()
                 log.debug("authenticated")
 
                 # 3. Fetch + upsert accounts through an isolated stage.
+                current_operation = "fetch_accounts"
                 account_result = await AccountSyncStage(persistence).run(
                     uow,
                     connector,
@@ -798,7 +803,9 @@ class SyncOrchestrator(CardsSyncMixin):
                         resources=sorted(cursors),
                     )
                 for ca in canonical_accounts:
+                    current_account_id = ca.external_account_id
                     acct_since = cursors.get(ca.external_account_id, since)
+                    current_operation = "fetch_transactions"
                     raw_txns = await connector._rate_limited_fetch_transactions(  # type: ignore[attr-defined]
                         acct_since, account_id=ca.external_account_id
                     )
@@ -812,6 +819,7 @@ class SyncOrchestrator(CardsSyncMixin):
                         # Persisting the account is part of this account's
                         # transaction.  Reuse the returned entity for the FK;
                         # querying again would be redundant.
+                        current_operation = "persist_account"
                         acct = await persistence.persist_account(
                             account_uow,
                             ca,
@@ -824,6 +832,7 @@ class SyncOrchestrator(CardsSyncMixin):
                                 external_account_id=ca.external_account_id,
                             )
                             continue
+                        current_operation = "persist_transactions"
                         transaction_result = await TransactionSyncStage(
                             persistence
                         ).run(
@@ -841,6 +850,7 @@ class SyncOrchestrator(CardsSyncMixin):
                         account_holdings = 0
                         account_holdings_unresolved: set[str] = set()
                         if supports_holdings:
+                            current_operation = "fetch_holdings"
                             raw_holdings = (
                                 await connector._rate_limited_fetch_holdings(  # type: ignore[attr-defined]
                                     account_id=ca.external_account_id
@@ -849,6 +859,7 @@ class SyncOrchestrator(CardsSyncMixin):
                             canonical_holdings = connector.transform_holdings(
                                 raw_holdings
                             )
+                            current_operation = "persist_holdings"
                             holdings_result = await HoldingsSyncStage(
                                 persistence
                             ).run(
@@ -862,6 +873,7 @@ class SyncOrchestrator(CardsSyncMixin):
                                 holdings_result.unresolved_keys
                             )
 
+                        current_operation = "persist_sync_cursor"
                         await upsert_sync_cursor(
                             account_uow.session,
                             tenant_id=self._tenant_id,
@@ -920,6 +932,14 @@ class SyncOrchestrator(CardsSyncMixin):
             )
 
         except PermanentError as exc:
+            capture_connector_exception(
+                exc,
+                connector=provider_type,
+                operation=current_operation,
+                connection_id=connection_id,
+                provider_account_id=current_account_id,
+                correlation_id=str(getattr(run, "id", "")) or None,
+            )
             end_ts = _dt.now(UTC)
             await self._mark_run_failed(
                 session,
@@ -941,6 +961,14 @@ class SyncOrchestrator(CardsSyncMixin):
                 duration_s=(end_ts - start_ts).total_seconds(),
             )
         except RateLimitError as exc:
+            capture_connector_exception(
+                exc,
+                connector=provider_type,
+                operation=current_operation,
+                connection_id=connection_id,
+                provider_account_id=current_account_id,
+                correlation_id=str(getattr(run, "id", "")) or None,
+            )
             end_ts = _dt.now(UTC)
             retry_after_at = (
                 end_ts + timedelta(seconds=exc.retry_after)
@@ -976,6 +1004,14 @@ class SyncOrchestrator(CardsSyncMixin):
                 duration_s=(end_ts - start_ts).total_seconds(),
             )
         except (TransientError, ConnectorError) as exc:
+            capture_connector_exception(
+                exc,
+                connector=provider_type,
+                operation=current_operation,
+                connection_id=connection_id,
+                provider_account_id=current_account_id,
+                correlation_id=str(getattr(run, "id", "")) or None,
+            )
             end_ts = _dt.now(UTC)
             await self._mark_run_failed(
                 session,
@@ -998,6 +1034,14 @@ class SyncOrchestrator(CardsSyncMixin):
                 duration_s=(end_ts - start_ts).total_seconds(),
             )
         except Exception as exc:
+            capture_connector_exception(
+                exc,
+                connector=provider_type,
+                operation=current_operation,
+                connection_id=connection_id,
+                provider_account_id=current_account_id,
+                correlation_id=str(getattr(run, "id", "")) or None,
+            )
             end_ts = _dt.now(UTC)
             error_message = safe_sync_error_message(exc)
             log.error(
