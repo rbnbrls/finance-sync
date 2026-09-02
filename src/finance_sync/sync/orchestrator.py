@@ -27,6 +27,7 @@ from finance_sync.models.enums import (
 from finance_sync.observability.connector_metrics import (
     record_connector_operation,
 )
+from finance_sync.observability.glitchtip import capture_sync_exception
 from finance_sync.sync.cards_pipeline import (
     BunqCardsSyncResult,
     CardsSyncMixin,
@@ -707,6 +708,8 @@ class SyncOrchestrator(CardsSyncMixin):
         holdings_synced = 0
         unresolved_keys: set[str] = set()
         transaction_report: dict[str, int] = {}
+        operation = "create_sync_run"
+        account_external_id: str | None = None
 
         # Account selection: when the connection pins a set of provider
         # account ids, only those accounts are synced (and their
@@ -742,10 +745,12 @@ class SyncOrchestrator(CardsSyncMixin):
                     raise PermanentError(compatibility_error)
 
                 # 2. Authenticate
+                operation = "authenticate"
                 await connector.authenticate()
                 log.debug("authenticated")
 
                 # 3. Fetch + upsert accounts through an isolated stage.
+                operation = "fetch_accounts"
                 account_result = await AccountSyncStage(persistence).run(
                     uow,
                     connector,
@@ -785,6 +790,8 @@ class SyncOrchestrator(CardsSyncMixin):
                         resources=sorted(cursors),
                     )
                 for ca in canonical_accounts:
+                    account_external_id = ca.external_account_id
+                    operation = "fetch_transactions"
                     acct_since = cursors.get(ca.external_account_id, since)
                     raw_txns = await connector._rate_limited_fetch_transactions(  # type: ignore[attr-defined]
                         acct_since, account_id=ca.external_account_id
@@ -828,6 +835,7 @@ class SyncOrchestrator(CardsSyncMixin):
                         account_holdings = 0
                         account_holdings_unresolved: set[str] = set()
                         if supports_holdings:
+                            operation = "fetch_holdings"
                             raw_holdings = (
                                 await connector._rate_limited_fetch_holdings(  # type: ignore[attr-defined]
                                     account_id=ca.external_account_id
@@ -908,6 +916,12 @@ class SyncOrchestrator(CardsSyncMixin):
 
         except PermanentError as exc:
             end_ts = _dt.now(UTC)
+            capture_sync_exception(
+                exc, connector=provider_type, operation=operation,
+                connection_id=connection_id,
+                sync_run_id=str(getattr(run, "id", "")) or None,
+                account_id=account_external_id,
+            )
             await self._mark_run_failed(
                 session,
                 run,
@@ -929,6 +943,12 @@ class SyncOrchestrator(CardsSyncMixin):
             )
         except RateLimitError as exc:
             end_ts = _dt.now(UTC)
+            capture_sync_exception(
+                exc, connector=provider_type, operation=operation,
+                connection_id=connection_id,
+                sync_run_id=str(getattr(run, "id", "")) or None,
+                account_id=account_external_id,
+            )
             retry_after_at = (
                 end_ts + timedelta(seconds=exc.retry_after)
                 if exc.retry_after is not None
@@ -964,6 +984,12 @@ class SyncOrchestrator(CardsSyncMixin):
             )
         except (TransientError, ConnectorError) as exc:
             end_ts = _dt.now(UTC)
+            capture_sync_exception(
+                exc, connector=provider_type, operation=operation,
+                connection_id=connection_id,
+                sync_run_id=str(getattr(run, "id", "")) or None,
+                account_id=account_external_id,
+            )
             await self._mark_run_failed(
                 session,
                 run,
@@ -987,6 +1013,12 @@ class SyncOrchestrator(CardsSyncMixin):
         except Exception as exc:
             end_ts = _dt.now(UTC)
             error_message = safe_sync_error_message(exc)
+            capture_sync_exception(
+                exc, connector=provider_type, operation=operation,
+                connection_id=connection_id,
+                sync_run_id=str(getattr(run, "id", "")) or None,
+                account_id=account_external_id,
+            )
             log.error(
                 "sync_pipeline_failed",
                 error_type=type(exc).__name__,

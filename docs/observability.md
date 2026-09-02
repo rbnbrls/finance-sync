@@ -185,3 +185,30 @@ All of these are served from the **app** (`app:8000/metrics`) or the
 - **Dashboard shows "No data" for outbox/sync panels** — those metrics
   only appear after the first sync run / outbox poll.  Give the stack
   a few minutes.
+
+## 8. Trading212 failures: GlitchTip → GitHub
+
+The Trading212 sync orchestrator captures every API and processing exception
+before returning a failed `SyncResult`. The persisted `SyncRun` remains failed
+(and does not advance its cursor), while GlitchTip receives these tags:
+
+- `connector=trading212`;
+- `sync_operation` (`authenticate`, `fetch_accounts`, `fetch_transactions`, or
+  `fetch_holdings`);
+- stable hashed `connection_id`, `sync_run_id`, and provider `account_id`.
+
+The existing `scrub_event` hook removes credentials, request payloads, user
+information, and financial values. Correlation identifiers are intentionally
+hashed: use the matching hash in the connection/sync-run logs rather than
+putting account data in a GitHub issue.
+
+When the GlitchTip alert webhook is configured, the existing
+`glitchtip-github-bridge` deduplicates the event and creates an issue in the
+finance-sync repository. Trace a failure by opening the GitHub issue, copying
+the GlitchTip event link and `sync_operation`, then searching application logs
+for the `sync_run_id`/connection correlation tag. Confirm the corresponding
+`SyncRun` has `status=failed`, `error_category`, and no cursor advancement.
+
+Never use a real credential or financial payload to test this path; use a
+synthetic provider failure and close the resulting test issue after verifying
+the bridge.

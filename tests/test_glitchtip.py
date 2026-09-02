@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from typing import Any, cast
+from unittest.mock import MagicMock, patch
 
 from pydantic import SecretStr
 
 from finance_sync.config.settings import Settings
 from finance_sync.observability.glitchtip import (
+    capture_sync_exception,
     configure_glitchtip,
     scrub_event,
 )
@@ -93,3 +95,32 @@ def test_scrub_event_preserves_protocol_identifier_fields() -> None:
     assert trace["span_id"] == span_id
     assert scrubbed["release"] == "0.7.3"
     assert scrubbed["environment"] == "prod"
+
+
+def test_capture_sync_exception_adds_safe_correlation_tags() -> None:
+    scope = MagicMock()
+    scope.__enter__.return_value = scope
+    scope.__exit__.return_value = False
+    error = RuntimeError("provider token=do-not-send")
+
+    with (
+        patch("finance_sync.observability.glitchtip.sentry_sdk.push_scope", return_value=scope),
+        patch("finance_sync.observability.glitchtip.sentry_sdk.capture_exception") as capture,
+    ):
+        capture_sync_exception(
+            error,
+            connector="trading212",
+            operation="fetch_transactions",
+            connection_id="connection-123",
+            sync_run_id="run-456",
+            account_id="account-789",
+        )
+
+    assert scope.set_tag.call_args_list[0].args == ("connector", "trading212")
+    assert scope.set_tag.call_args_list[1].args == ("sync_operation", "fetch_transactions")
+    tags = {call.args[0]: call.args[1] for call in scope.set_tag.call_args_list}
+    assert tags["connection_id"] != "connection-123"
+    assert tags["sync_run_id"] != "run-456"
+    assert tags["account_id"] != "account-789"
+    assert all(error.args[0] not in tags.values() for error in [error])
+    capture.assert_called_once_with(error)
