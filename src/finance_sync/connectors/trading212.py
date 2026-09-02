@@ -735,9 +735,7 @@ def _parse_order(
     currency = data.get("currencyCode", "EUR")
     filled_time_raw = data.get("filledTime")
     filled_time = (
-        _parse_t212_datetime(filled_time_raw)
-        if filled_time_raw
-        else None
+        _parse_t212_datetime(filled_time_raw) if filled_time_raw else None
     )
     creation_time = _parse_t212_datetime(data.get("creationTime"))
     status_raw = data.get("status", "")

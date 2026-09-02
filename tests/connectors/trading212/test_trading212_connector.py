@@ -752,7 +752,9 @@ class TestTrading212OrderParsing:
         assert txn.fee_amount == Decimal("3.50")
         assert txn.fee_currency_code == "EUR"
 
-    def test_parse_order_uses_execution_time_and_pending_creation_time(self) -> None:
+    def test_parse_order_uses_execution_time_and_pending_creation_time(
+        self,
+    ) -> None:
         """Use filledTime for execution, creationTime when still pending."""
         from tests.connectors.fixtures.trading212_api_fixtures import (
             ORDER_BUY_AAPL,
@@ -766,9 +768,7 @@ class TestTrading212OrderParsing:
         assert filled.booked_at == filled.occurred_at
 
         pending = _parse_order(ORDER_PENDING, "12345678")
-        assert pending.occurred_at == datetime(
-            2025, 6, 20, 18, 0, tzinfo=UTC
-        )
+        assert pending.occurred_at == datetime(2025, 6, 20, 18, 0, tzinfo=UTC)
         assert pending.booked_at == pending.occurred_at
 
     def test_parse_order_without_fees(self) -> None:
