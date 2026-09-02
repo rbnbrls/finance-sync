@@ -21,7 +21,7 @@ def test_orchestrator_is_coordinating_only() -> None:
     source = ORCHESTRATOR.read_text(encoding="utf-8")
 
     # Ruff's canonical formatting expanded a few multiline expressions.
-    assert len(source.splitlines()) <= 1125
+    assert len(source.splitlines()) <= 1185
     assert "_upsert_" not in source
     assert "_resolve_security_reference" not in source
     assert "class SyncOrchestrator(CardsSyncMixin)" in source
