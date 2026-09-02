@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from decimal import Decimal
 from types import SimpleNamespace
 from typing import Any
 
@@ -172,6 +173,70 @@ class TestTrading212SyncPipeline:
         assert counts["Security"] == len(PORTFOLIO_RESPONSE)
         assert counts["Holding"] == len(PORTFOLIO_RESPONSE)
         assert counts["Transaction"] == result.transactions_synced
+        assert counts["SyncRun"] == 1
+
+        async with session_factory() as session:
+            account = (await session.scalars(select(Account))).one()
+            assert account.external_account_id == "12345678"
+            assert account.name == "Trading212"
+            assert account.account_type == "brokerage"
+            assert account.currency_code == "EUR"
+            assert account.current_balance == Decimal("10000.50")
+
+            holdings = (
+                await session.scalars(
+                    select(Holding).where(Holding.account_id == account.id)
+                )
+            ).all()
+            assert {h.quantity for h in holdings} == {
+                Decimal("10.0"),
+                Decimal("5.0"),
+                Decimal("50.0"),
+            }
+            assert {h.currency_code for h in holdings} == {"EUR"}
+            assert {h.source for h in holdings} == {"provider_sync"}
+
+            transactions = (
+                await session.scalars(
+                    select(Transaction).where(
+                        Transaction.account_id == account.id
+                    )
+                )
+            ).all()
+            assert {t.external_transaction_id for t in transactions} == {
+                "order_10000001",
+                "order_10000002",
+                "order_10000003",
+                "order_10000004",
+                "txn_20000001",
+                "txn_20000002",
+                "txn_20000003",
+                "txn_20000004",
+                "txn_20000005",
+                "txn_20000006",
+            }
+            assert {t.currency_code for t in transactions} == {"EUR"}
+            assert {t.status for t in transactions} == {"booked", "pending"}
+
+    async def test_selected_account_filters_trading212_resources(
+        self, session_factory, tenant
+    ) -> None:
+        """A selection excluding the sole Trading212 account imports nothing."""
+        result = await _orchestrator(session_factory, tenant).run_sync(
+            "trading212",
+            _config(),
+            since=datetime(2024, 1, 1, tzinfo=UTC),
+            selected_accounts=["different-account"],
+        )
+
+        assert result.status == SyncRunStatus.COMPLETED
+        assert result.accounts_synced == 0
+        assert result.holdings_synced == 0
+        assert result.transactions_synced == 0
+        counts = await _counts(session_factory)
+        assert counts["Account"] == 0
+        assert counts["Holding"] == 0
+        assert counts["Transaction"] == 0
         assert counts["SyncRun"] == 1
 
     async def test_authentication_failure_creates_failed_run_without_data(
