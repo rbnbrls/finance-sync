@@ -154,6 +154,25 @@ async def _counts(session_factory) -> dict[str, int]:
 
 
 class TestTrading212SyncPipeline:
+    async def test_selected_account_missing_from_provider_fails_without_writes(
+        self, session_factory, tenant
+    ) -> None:
+        result = await _orchestrator(session_factory, tenant).run_sync(
+            "trading212",
+            _config(),
+            since=datetime(2024, 1, 1, tzinfo=UTC),
+            selected_accounts=["changed-provider-account-id"],
+        )
+
+        assert result.status == SyncRunStatus.FAILED
+        assert result.error_category == "validation"
+        assert result.accounts_synced == 0
+        counts = await _counts(session_factory)
+        assert counts["Account"] == 0
+        assert counts["Holding"] == 0
+        assert counts["Transaction"] == 0
+        assert counts["SyncRun"] == 1
+
     async def test_successful_sync_persists_accounts_holdings_and_transactions(
         self, session_factory, tenant
     ) -> None:

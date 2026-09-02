@@ -758,6 +758,19 @@ class SyncOrchestrator(CardsSyncMixin):
                 accounts_synced = len(canonical_accounts)
                 log.debug("accounts_fetched", count=accounts_synced)
 
+                # A configured account selection is an import contract, not
+                # merely a best-effort filter.  If the provider no longer
+                # returns any selected account (for example after an account
+                # id changed), completing here would stamp the connection as
+                # successful while writing no data at all.
+                if selected_set is not None and not canonical_accounts:
+                    selection_error = (
+                        "Account selection validation failed: "
+                        "none of the selected accounts was returned by the "
+                        "provider"
+                    )
+                    raise PermanentError(selection_error)
+
                 # Commit the run and account rows before processing resources.
                 # Resource writes are isolated below, one transaction per
                 # account, so a failed account cannot roll back a previously
