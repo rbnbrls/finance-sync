@@ -10,7 +10,7 @@ Dit document beschrijft alle gebruikersroutes in het dashboard en de API-calls d
 | `/#data-health` | Data health | Datakwaliteit, freshness, bronnen en herstelacties |
 | `/#connectors` | Verbindingen | Connectorcatalogus, verbindingen, credentials, accounts, testen, pauzeren en synchroniseren |
 | `/#viewer` | Viewer | Read-only accounts, holdings en recente transacties |
-| `/#uploads` | Uploads | Provider kiezen, API-/bestandsimport, DEGIRO/Saxo-flow en uploadhistorie |
+| `/#uploads` | Importeren | Provider kiezen, API-/bestandsimport, DEGIRO/Saxo-flow en uploadhistorie |
 | `/#exporters` | Exporters | Bestemmingen beheren, testen, previewen, exporteren en sleutels roteren |
 | `/#sync` | Sync Runs | Schedules, filters, runhistorie, details en retry/reset-acties |
 | `/#holding-news` | Holdingnieuws | Feed, filters, kalender en gelezen/ongelezen markering |
@@ -39,7 +39,7 @@ Alle calls lopen via de dashboard-helper `api()` met de bearer-token, behalve mu
 | GET | `/enrichment/status` | Koersstatus inline tonen; daarna Data Health opnieuw controleren |
 | GET | `/accounts?limit=200` | Accountconflict naar Viewer |
 | GET | `/transactions?limit=50&sort_order=desc` | Transactieprobleem naar Viewer |
-| GET | `/connectors/file-uploads/runs` | Importprobleem naar Uploads |
+| GET | `/connectors/file-uploads/runs` | Importprobleem naar Importeren |
 | GET | `/sync-runs/{run_id}` | Sync-detail binnen Sync Runs |
 | POST | `/sync-runs/{run_id}/retry` | Mislukte sync opnieuw proberen |
 | GET | `/reconciliation/{run_id}` | Finding-detail binnen Data Health |
@@ -76,17 +76,16 @@ API-actie-URL's uit Data Health worden niet met `window.location` geopend. Onbek
 | GET | `/holdings?limit=500` |
 | GET | `/transactions?limit=50&sort_order=desc` |
 
-### Uploads
+### Importeren
 
 | Methode | Endpoint |
 | --- | --- |
 | GET | `/connectors` |
 | GET | `/connectors/configs` |
 | GET | `/connectors/file-uploads/runs` |
-| POST | `/connectors/file-uploads/inspect` of `/import` (providerafhankelijk) |
+| POST | `/connectors/file-uploads/dispatch` |
 | POST | `/connectors/file-uploads/dispatch/{run_id}/confirm` |
-| POST | `/connectors/degiro-pension/imports/preview` |
-| POST | `/connectors/degiro-pension/imports/{run_id}/confirm` |
+| POST | `/connectors/file-uploads/inspect` | Optionele providerdetectie vóór de wizard |
 
 ### Exporters
 
@@ -139,6 +138,16 @@ Bronlinks in de holdingfeed zijn externe provider-URL's en openen bewust in een 
 - Muterende acties tonen een busy-status en een succes-/foutresultaat.
 - API-actie-links uit het control plane worden eerst naar een GUI-sectie vertaald; directe navigatie naar `/api/v1/...` is geblokkeerd.
 - De GUI logt geen credentials; connectorcredentials worden alleen als gemaskeerde/stored-status weergegeven.
+
+## Tijdelijke embedded-compatibiliteit
+
+De actieve dashboardflow gebruikt uitsluitend `Importeren` en de providerneutrale
+dispatch-endpoints. De oude globale functies `openCreateWizard`,
+`openConfigModal` en `initDegiroWizard` blijven tijdelijk als JavaScript-
+compatibiliteitslaag beschikbaar voor mogelijke embedded dashboardclients. De
+DEGIRO-DOM-tree, automatische initialisatie en de oude Saxo-modal bestaan niet
+meer. Nieuwe UI-code mag deze functies niet gebruiken; wijzigingen aan hun
+contract moeten de GUI-regressietests tegelijk bijwerken.
 
 ## Auditstatus
 

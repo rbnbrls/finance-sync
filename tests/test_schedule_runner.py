@@ -75,6 +75,7 @@ from finance_sync.sync.schedule_spec import default_schedule
 from finance_sync.worker.schedule_runner import (
     CATCHUP_MAX_DELAY,
     run_due_schedules,
+    run_export,
 )
 
 if TYPE_CHECKING:
@@ -208,6 +209,32 @@ def _ensure_aware_test(value: datetime | None) -> datetime | None:
 
 
 class TestRunDueSchedules:
+    async def test_export_skips_when_same_target_is_already_running(
+        self, session_factory
+    ) -> None:
+        """A second worker cannot overlap a destination export."""
+        tenant = _tenant("t1")
+        schedule = _schedule(tenant, "wealthfolio:target-1")
+        await _seed(session_factory, [tenant, schedule])
+        container = _make_container(
+            session_factory,
+            redis_url="redis://test",
+        )
+
+        class BusyRedis:
+            async def set(self, *_args: Any, **_kwargs: Any) -> bool:
+                return False
+
+        container._redis = BusyRedis()
+        with patch(
+            "finance_sync.worker.schedule_runner._run_export_unlocked",
+            new=AsyncMock(),
+        ) as run_unlocked:
+            outcome = await run_export(container, schedule=schedule)
+
+        assert outcome == {"status": "skipped", "reason": "export_in_progress"}
+        run_unlocked.assert_not_awaited()
+
     async def test_due_schedule_runs_once_and_advances(
         self, session_factory
     ) -> None:

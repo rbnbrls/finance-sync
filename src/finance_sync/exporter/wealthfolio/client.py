@@ -659,26 +659,40 @@ class WealthfolioClient:
         the contract needed for connector-owned current valuations.
         """
         self._ensure_authenticated()
+        manual_quotes: list[tuple[str, dict[str, Any]]] = []
         # The manual snapshot endpoint accepts ``assetId`` (and
         # ``averageCost``), not the CSV-only ``unitPrice`` field.  Resolve
         # existing assets before saving so Wealthfolio updates the intended
         # positions instead of creating anonymous snapshot assets.
         assets = await self.get_assets()
         by_symbol = {
-            str(
-                asset.get("displayCode") or asset.get("instrumentSymbol") or ""
-            ): asset
+            str(value): asset
             for asset in assets
             if asset.get("id")
+            for value in (
+                asset.get("displayCode"),
+                asset.get("instrumentSymbol"),
+                asset.get("symbol"),
+                asset.get("isin"),
+            )
+            if value
         }
         resolved_holdings: list[dict[str, Any]] = []
         for holding in holdings:
             resolved = dict(holding)
             symbol = str(holding.get("symbol") or "")
-            asset = by_symbol.get(symbol)
+            asset = by_symbol.get(
+                str(holding.get("_securityIsin") or "")
+            ) or by_symbol.get(symbol)
             if asset is not None:
                 resolved["assetId"] = asset["id"]
+            resolved.pop("_securityIsin", None)
             resolved.pop("unitPrice", None)
+            # ``POST /snapshots`` uses ``averageCost`` for the cost basis.
+            # Never silently drop it: without this field Wealthfolio accepts
+            # the request but produces no security holdings on recalculation.
+            if resolved.get("averageCost") is None:
+                resolved.pop("averageCost", None)
             resolved_holdings.append(resolved)
         payload = {
             "accountId": account_id,
@@ -703,7 +717,12 @@ class WealthfolioClient:
         for asset in assets:
             if not asset.get("id"):
                 continue
-            for raw_symbol in (asset.get("displayCode"), asset.get("symbol")):
+            for raw_symbol in (
+                asset.get("displayCode"),
+                asset.get("symbol"),
+                asset.get("instrumentSymbol"),
+                asset.get("isin"),
+            ):
                 if raw_symbol:
                     symbol = str(raw_symbol)
                     by_symbol.setdefault(symbol, asset)
@@ -711,8 +730,10 @@ class WealthfolioClient:
         for holding in holdings:
             price = holding.get("unitPrice")
             symbol = str(holding.get("symbol") or "")
-            asset = by_symbol.get(symbol) or by_symbol.get(
-                _normalise_asset_symbol(symbol)
+            asset = (
+                by_symbol.get(str(holding.get("_securityIsin") or ""))
+                or by_symbol.get(symbol)
+                or by_symbol.get(_normalise_asset_symbol(symbol))
             )
             if price is None or asset is None:
                 continue
@@ -748,6 +769,7 @@ class WealthfolioClient:
                 "adjclose": price,
                 "currency": holding.get("currency") or "EUR",
             }
+            manual_quotes.append((str(asset["id"]), quote))
             quote_response = await self._client.put(
                 f"{self.API_PREFIX}/market-data/quotes/{asset['id']}",
                 json=quote,
@@ -761,6 +783,16 @@ class WealthfolioClient:
                 f"{self.API_PREFIX}/snapshots", json=payload
             )
             response.raise_for_status()
+            # A zero-price quantity correction is intentionally the latest
+            # activity, so Wealthfolio may restore its 0.01 fallback quote
+            # during the final snapshot recalculation.  Write the broker
+            # quotes once more after that recalculation.
+            for asset_id, quote in manual_quotes:
+                quote_response = await self._client.put(
+                    f"{self.API_PREFIX}/market-data/quotes/{asset_id}",
+                    json=quote,
+                )
+                quote_response.raise_for_status()
         return response.json() if response.content else {}
 
     async def get_quote_history(self, asset_id: str) -> list[dict[str, Any]]:
@@ -1006,13 +1038,22 @@ class WealthfolioClient:
         return removed
 
     async def delete_activities_not_in(
-        self, account_id: str, external_transaction_ids: set[str]
+        self,
+        account_id: str,
+        external_transaction_ids: set[str],
+        *,
+        preserved_comment_prefixes: tuple[str, ...] = (),
     ) -> int:
         """Remove destination activities not present in the source dataset."""
         rows = await self.get_all_activities(account_id)
         removed = 0
         for row in rows:
             comment = str(row.get("comment") or "")
+            if any(
+                comment.startswith(prefix)
+                for prefix in preserved_comment_prefixes
+            ):
+                continue
             source_id = (
                 comment.split("ID:", 1)[-1].strip() if "ID:" in comment else ""
             )
@@ -1030,6 +1071,20 @@ class WealthfolioClient:
         for row in rows:
             comment = str(row.get("comment") or "")
             if comment.startswith(source_prefix) and row.get("id"):
+                await self.delete_activity(str(row["id"]))
+                removed += 1
+        return removed
+
+    async def delete_activities_by_comment_prefix(
+        self, account_id: str, source_prefix: str
+    ) -> int:
+        """Remove connector-owned activities identified by a comment prefix."""
+        rows = await self.get_all_activities(account_id)
+        removed = 0
+        for row in rows:
+            if str(row.get("comment") or "").startswith(
+                source_prefix
+            ) and row.get("id"):
                 await self.delete_activity(str(row["id"]))
                 removed += 1
         return removed

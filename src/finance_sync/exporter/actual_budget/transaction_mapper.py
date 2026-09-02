@@ -36,6 +36,7 @@ def map_transaction(
     *,
     ab_account_name: str,
     fallback_payee: str = "Imported transaction",
+    category_name: str | None = None,
 ) -> dict[str, Any]:
     """Convert a canonical *txn* into an actualpy-compatible dict.
 
@@ -60,7 +61,7 @@ def map_transaction(
     imported_id = _build_imported_id(txn)
     amount = _cents(txn.amount)
 
-    return {
+    result: dict[str, Any] = {
         "date": occurred,
         "account": ab_account_name,
         "payee": payee,
@@ -70,6 +71,23 @@ def map_transaction(
         "cleared": txn.status == "booked",
         "imported_payee": _build_imported_payee(txn),
     }
+    if category_name and txn.transaction_type != "transfer":
+        result["category"] = category_name
+    split_values = list(getattr(txn, "splits", None) or [])
+    if split_values:
+        result["splits"] = [
+            {
+                "amount": _cents(split.amount),
+                "category": getattr(
+                    getattr(split, "category_suggestion", None),
+                    "value",
+                    getattr(split, "category_suggestion", None),
+                ),
+                "notes": getattr(split, "destination", None),
+            }
+            for split in split_values
+        ]
+    return result
 
 
 def map_transaction_to_csv_row(txn: FsTransaction) -> dict[str, str | None]:
@@ -99,6 +117,8 @@ def _build_payee(
     fallback: str,
 ) -> str:
     """Derive a payee name from the transaction."""
+    if getattr(txn, "merchant_name", None):
+        return str(txn.merchant_name)
     if txn.description:
         return txn.description
 
@@ -127,6 +147,10 @@ def _build_notes(txn: FsTransaction) -> str | None:
 
     if txn.description:
         parts.append(txn.description)
+    if getattr(txn, "merchant_category_code", None):
+        parts.append(f"MCC: {txn.merchant_category_code}")
+    if getattr(txn, "original_type", None):
+        parts.append(f"Provider type: {txn.original_type}")
 
     # FX conversion info
     if txn.amount_in_base is not None and txn.base_currency_code:

@@ -6,6 +6,7 @@ import ipaddress
 import json
 from collections.abc import Sequence
 from datetime import UTC, datetime
+from typing import Any
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -16,7 +17,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from finance_sync.api.deps.auth import AuthContext, require_role
 from finance_sync.dependencies import get_container, get_db
-from finance_sync.models import Account, ApiKey, SyncSchedule
+from finance_sync.exporter.capabilities import (
+    build_destination_preview,
+    destination_capabilities,
+)
+from finance_sync.exporter.models import ExportRun
+from finance_sync.models import Account, ApiKey, SyncSchedule, Transaction
 from finance_sync.models.export_target import (
     TARGET_ACTIVE,
     TARGET_ACTUAL_BUDGET,
@@ -27,6 +33,7 @@ from finance_sync.models.export_target import (
     TARGET_PAUSED,
     TARGET_SECURO,
     TARGET_TYPES,
+    TARGET_YNAB,
     ExportTarget,
 )
 from finance_sync.models.sync_schedule import SCOPE_EXPORT
@@ -34,6 +41,9 @@ from finance_sync.services.auth import (
     decrypt_credential,
     encrypt_credential,
     generate_api_key,
+)
+from finance_sync.services.destination_reconciliation import (
+    reconcile_destination,
 )
 from finance_sync.services.sync_schedule import (
     SyncScheduleService,
@@ -125,6 +135,15 @@ class PreviewResponse(BaseModel):
     datasets: list[str]
     writes_remote_data: bool = False
     remote_accounts_read: bool = False
+    spending: dict[str, object] = Field(default_factory=dict)
+
+
+class ReconciliationRequest(BaseModel):
+    """Native destination records returned by an adapter read operation."""
+
+    records: list[dict[str, Any]] = Field(
+        default_factory=lambda: list[dict[str, Any]]()
+    )
 
 
 class JupyterBootstrapResponse(BaseModel):
@@ -332,6 +351,13 @@ async def list_types(_auth: AuthContext = _Admin) -> list[dict[str, object]]:
     """Return metadata used by step one of the wizard."""
     return [
         {
+            "key": TARGET_YNAB,
+            "name": "YNAB",
+            "needs_server": True,
+            "secret_label": "Personal access token",
+            "datasets": ["accounts", "transactions", "categories"],
+        },
+        {
             "key": "wealthfolio",
             "name": "Wealthfolio",
             "needs_server": True,
@@ -378,6 +404,23 @@ async def list_types(_auth: AuthContext = _Admin) -> list[dict[str, object]]:
             "datasets": ["accounts", "transactions", "holdings"],
         },
     ]
+
+
+@router.get("/capabilities")
+async def list_destination_capabilities(
+    _auth: AuthContext = _Admin,
+) -> dict[str, dict[str, dict[str, object]]]:
+    """Expose destination semantics without leaking destination secrets."""
+    return {
+        target: {
+            name: {
+                "mode": capability.mode,
+                "bidirectional": capability.bidirectional,
+            }
+            for name, capability in destination_capabilities(target).items()
+        }
+        for target in ("wealthfolio", "actual-budget", "ynab", "firefly")
+    }
 
 
 @router.get("", response_model=list[TargetResponse])
@@ -526,6 +569,13 @@ async def preview_target(
     preview_accounts: list[dict[str, object]] = [
         {"id": account_id, "name": name} for account_id, name in account_rows
     ]
+    transaction_stmt = select(Transaction).where(
+        Transaction.tenant_id == auth.tenant_id,
+        Transaction.account_id.in_(
+            [account_id for account_id, _ in account_rows]
+        ),
+    )
+    transactions = list((await db.execute(transaction_stmt)).scalars().all())
     remote_accounts_read = False
     if (
         row.target_type == TARGET_ACTUAL_BUDGET
@@ -580,7 +630,52 @@ async def preview_target(
         account_count=len(accounts),
         datasets=list(row.datasets or []),
         remote_accounts_read=remote_accounts_read,
+        spending=build_destination_preview(
+            row.target_type, transactions, preview_accounts
+        ),
     )
+
+
+@router.post("/{target_id}/reconciliation")
+async def reconcile_target(
+    target_id: str,
+    body: ReconciliationRequest,
+    auth: AuthContext = _Admin,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, object]:
+    """Compare adapter-provided native records with tenant canonical data.
+
+    Reading a destination is deliberately adapter-owned.  The endpoint
+    accepts that read result and performs only a tenant-scoped, side-effect
+    free comparison; it never treats destination IDs as source IDs.
+    """
+    row = await _target(db, auth.tenant_id, target_id)
+    account_stmt = select(Account.id).where(Account.tenant_id == auth.tenant_id)
+    if row.selected_account_ids:
+        account_stmt = account_stmt.where(
+            Account.id.in_(row.selected_account_ids)
+        )
+    account_ids = [
+        account_id for (account_id,) in (await db.execute(account_stmt)).all()
+    ]
+    transaction_stmt = select(Transaction).where(
+        Transaction.tenant_id == auth.tenant_id,
+        Transaction.account_id.in_(account_ids),
+    )
+    canonical = list((await db.execute(transaction_stmt)).scalars().all())
+    findings = reconcile_destination(
+        canonical,
+        body.records,
+        destination_type=row.target_type,
+    )
+    return {
+        "target_id": str(row.id),
+        "destination": row.target_type,
+        "canonical_count": len(canonical),
+        "destination_count": len(body.records),
+        "finding_count": len(findings),
+        "findings": findings,
+    }
 
 
 @router.post(
@@ -990,6 +1085,20 @@ async def retry_target(
     db: AsyncSession = Depends(get_db),
 ) -> DestinationRunResponse:
     """Retry a failed destination through its persisted target contract."""
+    latest_run = await db.scalar(
+        select(ExportRun)
+        .where(
+            ExportRun.tenant_id == auth.tenant_id,
+            ExportRun.target_id == target_id,
+        )
+        .order_by(ExportRun.started_at.desc())
+        .limit(1)
+    )
+    if latest_run is None or latest_run.status != "failed":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Only destinations with a failed export can be retried",
+        )
     return await run_target(target_id, request, auth, db)
 
 

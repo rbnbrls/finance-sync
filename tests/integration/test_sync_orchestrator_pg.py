@@ -141,16 +141,16 @@ def sample_raw_account() -> RawAccount:
 
 @pytest.fixture
 def sample_raw_transactions() -> list[RawTransaction]:
-    # Keep the fixture inside the orchestrator's default 90-day `since` window.
-    test_now = datetime.now(UTC)
+    # Keep fixture dates safely inside the orchestrator's default 90-day window.
+    now = datetime.now(UTC)
     return [
         RawTransaction(
             external_transaction_id=f"txn_{i}",
             external_account_id="acc_12345",
             amount=Decimal("-42.50"),
             currency_code="EUR",
-            occurred_at=test_now - timedelta(days=i),
-            booked_at=test_now - timedelta(days=i),
+            occurred_at=now - timedelta(days=30 - i),
+            booked_at=now - timedelta(days=30 - i),
             description=f"Coffee {i}",
             transaction_type="purchase",
             status="booked",
@@ -493,15 +493,15 @@ class TestSyncPipelinePg:
         dated after run 1's watermark; the total row count stays at the
         distinct transaction set (idempotent upserts).
         """
-        test_now = datetime.now(UTC)
+        now = datetime.now(UTC)
         shared_txns: list[RawTransaction] = [
             RawTransaction(
                 external_transaction_id="txn_old_1",
                 external_account_id="acc_12345",
                 amount=Decimal("-10.00"),
                 currency_code="EUR",
-                occurred_at=test_now - timedelta(days=89),
-                booked_at=test_now - timedelta(days=89),
+                occurred_at=now - timedelta(days=1),
+                booked_at=now - timedelta(days=1),
                 description="Old June txn",
                 transaction_type="purchase",
                 status="booked",
@@ -512,8 +512,8 @@ class TestSyncPipelinePg:
                 external_account_id="acc_12345",
                 amount=Decimal("-12.00"),
                 currency_code="EUR",
-                occurred_at=test_now,
-                booked_at=test_now,
+                occurred_at=now,
+                booked_at=now,
                 description="Current txn",
                 transaction_type="purchase",
                 status="booked",

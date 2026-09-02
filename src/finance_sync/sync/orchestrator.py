@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import traceback
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any, cast
 
@@ -522,10 +523,7 @@ class SyncOrchestrator(CardsSyncMixin):
             # A tenant holds at most a handful of connections per
             # provider; select the row scoped to this connection in
             # Python instead of chaining dynamic SQL filters.
-            row = next(
-                (r for r in rows.all() if r.connection_id == connection_id),
-                None,
-            )
+            row = self._connector_state_row(rows.all(), connection_id)
         state = getattr(row, "state", None) if row is not None else None
         if not isinstance(state, dict) or not state:
             return {}
@@ -555,10 +553,7 @@ class SyncOrchestrator(CardsSyncMixin):
                     ConnectorState.provider_key == provider_key,
                 )
             )
-            row = next(
-                (r for r in rows.all() if r.connection_id == connection_id),
-                None,
-            )
+            row = self._connector_state_row(rows.all(), connection_id)
             if row is None:
                 session.add(
                     ConnectorState(
@@ -571,6 +566,28 @@ class SyncOrchestrator(CardsSyncMixin):
             else:
                 row.state = state
             await session.commit()
+
+    @staticmethod
+    def _connector_state_row(
+        rows: Sequence[ConnectorState],
+        connection_id: str | None,
+    ) -> ConnectorState | None:
+        """Find state across PostgreSQL UUID and string representations."""
+        if connection_id is None:
+            return next(
+                (row for row in rows if row.connection_id is None),
+                None,
+            )
+        target = str(connection_id)
+        return next(
+            (
+                row
+                for row in rows
+                if row.connection_id is not None
+                and str(row.connection_id) == target
+            ),
+            None,
+        )
 
     # ── Bunq cards / scheduled payments sync ──────────────────────────
 
@@ -689,6 +706,7 @@ class SyncOrchestrator(CardsSyncMixin):
         transactions_synced = 0
         holdings_synced = 0
         unresolved_keys: set[str] = set()
+        transaction_report: dict[str, int] = {}
 
         # Account selection: when the connection pins a set of provider
         # account ids, only those accounts are synced (and their
@@ -839,17 +857,12 @@ class SyncOrchestrator(CardsSyncMixin):
                             cursor=start_ts,
                             connection_id=connection_id,
                         )
-
                     transactions_synced += account_transactions
+                    transaction_result.add_to_report(transaction_report)
                     holdings_synced += account_holdings
                     unresolved_keys.update(account_unresolved)
                     unresolved_keys.update(account_holdings_unresolved)
-
                 log.debug("transactions_fetched", count=transactions_synced)
-
-                # 5. Complete the run and publish the aggregate sync event.
-                #    The per-account cursors were committed with their
-                #    respective resource batches above.
                 await complete_sync_run(
                     uow,
                     run,
@@ -857,6 +870,13 @@ class SyncOrchestrator(CardsSyncMixin):
                     items_processed=(
                         accounts_synced + transactions_synced + holdings_synced
                     ),
+                    report={
+                        **transaction_report,
+                        "accounts": accounts_synced,
+                        "transactions": transactions_synced,
+                        "holdings": holdings_synced,
+                        "unresolved": len(unresolved_keys),
+                    },
                     cursor=start_ts,
                 )
                 if supports_holdings or unresolved_keys:

@@ -9,12 +9,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).parents[1]
 BACKLOG = ROOT / "backlog"
-STORIES = (
-    "release14-analytics-history-component.md",
-    "release14-scheduled-card-persistence.md",
-    "release14-openapi-contract-artifact.md",
-    "release14-release-smoke-evidence.md",
-)
+# Release 14 stories were archived after their evidence was merged.  Keep this
+# tuple as the compatibility surface for callers; the active backlog is
+# intentionally not required to retain historical release story files.
+STORIES: tuple[str, ...] = ()
 
 
 def audit() -> list[str]:

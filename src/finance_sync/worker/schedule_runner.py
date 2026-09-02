@@ -51,6 +51,7 @@ from finance_sync.models.sync_schedule import (
     SCOPE_INGESTION,
 )
 from finance_sync.services.auth import decrypt_credential
+from finance_sync.services.retry_lock import retry_lease
 from finance_sync.services.sync_schedule import (
     CATCHUP_MAX_DELAY_DAYS,
     compute_next_run,
@@ -233,7 +234,7 @@ async def _run_ingestion(
     }
 
 
-async def run_export(
+async def _run_export_unlocked(
     container: Container,
     *,
     schedule: SyncSchedule,
@@ -413,6 +414,7 @@ async def run_export(
             session_factory=container.session_factory,
             firefly_config=config,
             tenant_id=str(schedule.tenant_id),
+            target_id=str(target.id),
         ).run_export(account_ids=target.selected_account_ids or None)
         return {"status": result.status, "error": result.error_message}
 
@@ -523,6 +525,45 @@ async def run_export(
         return {"status": result.status, "error": result.error_message}
 
     return {"status": "skipped", "reason": "unknown_exporter"}
+
+
+async def run_export(
+    container: Container,
+    *,
+    schedule: SyncSchedule,
+) -> dict[str, Any]:
+    """Run one export while preventing overlapping runs for one target.
+
+    The schedule claim is intentionally short-lived so a stuck schedule can
+    recover.  It is not sufficient to serialize long-running exports: a
+    second tick could otherwise start a destructive second projection while
+    the first one is still writing.  Redis is already a worker dependency;
+    when it is configured, this lease covers scheduled and API-triggered
+    exports alike.  SQLite/unit-test containers keep the historical
+    single-process behaviour.
+    """
+    settings: Settings = container.settings
+    lease = None
+    if getattr(settings, "redis_url", None) is not None:
+        lease = retry_lease(
+            container.redis_client,
+            tenant_id=str(schedule.tenant_id),
+            kind="destination-export",
+            item_id=schedule.target_id,
+        )
+
+    if lease is None:
+        return await _run_export_unlocked(container, schedule=schedule)
+
+    async with lease:
+        if not lease.acquired:
+            logger.info(
+                "destination_export_skipped_overlap",
+                tenant_id=str(schedule.tenant_id),
+                target=schedule.target_id,
+            )
+            return {"status": "skipped", "reason": "export_in_progress"}
+        return await _run_export_unlocked(container, schedule=schedule)
 
 
 async def run_due_schedules(container: Container) -> dict[str, Any]:

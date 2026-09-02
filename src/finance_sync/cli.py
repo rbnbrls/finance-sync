@@ -17,6 +17,7 @@ from argparse import (
     Namespace,
     RawDescriptionHelpFormatter,
 )
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
@@ -30,6 +31,7 @@ from finance_sync.db.uow import UnitOfWork
 from finance_sync.models.enums import ReconciliationRunStatus
 from finance_sync.observability.logging import configure_logging
 from finance_sync.services.reconciliation import ReconciliationService
+from finance_sync.services.retry_lock import retry_lease
 
 # Production Wealthfolio instances.  The CLI smoke/push commands write to
 # the configured instance; these URLs require an explicit --allow-prod to
@@ -39,6 +41,24 @@ _WF_PROD_BASE_URLS = {
     "https://wealthfolio.7rb.nl",
     "http://wealthfolio.7rb.nl",
 }
+
+
+@asynccontextmanager
+async def _wealthfolio_export_lease(container: Container, tenant_id: str):
+    """Serialize CLI pushes with scheduled/API Wealthfolio exports."""
+    if container.settings.redis_url is None:
+        yield
+        return
+    async with retry_lease(
+        container.redis_client,
+        tenant_id=str(tenant_id),
+        kind="destination-export",
+        item_id="legacy",
+    ) as lease:
+        if not lease.acquired:
+            message = "Another Wealthfolio export is in progress"
+            raise RuntimeError(message)
+        yield
 
 
 def _build_parser() -> ArgumentParser:
@@ -977,6 +997,7 @@ async def _cmd_wealthfolio_export(
     print(f"  Tenant:       {str(tenant_id)[:16]}…")
     print(f"  Days back:    {args.days_back}")
 
+    # ``full_history`` and ``rebuild`` belong to the push command. Export
     # ``full_history`` and ``rebuild`` belong to the push command.  Export
     # has only ``days_back`` and must not assume those Namespace attributes.
     since = datetime.now(UTC) - timedelta(days=args.days_back)
@@ -1096,13 +1117,14 @@ async def _cmd_wealthfolio_push(
         await wf_client.authenticate()
         print("  ✓ Authenticated")
 
-        result = await exporter.push_to_wealthfolio(
-            wf_client=wf_client,
-            accounts=await exporter._load_accounts(account_ids),  # noqa: SLF001
-            since=since,
-            full_sync=args.full_history or args.rebuild,
-            rebuild=args.rebuild,
-        )
+        async with _wealthfolio_export_lease(container, tenant_id):
+            result = await exporter.push_to_wealthfolio(
+                wf_client=wf_client,
+                accounts=await exporter._load_accounts(account_ids),  # noqa: SLF001
+                since=since,
+                full_sync=args.full_history or args.rebuild,
+                rebuild=args.rebuild,
+            )
         print("\nResult:")
         print(f"  Imported:     {result.get('imported', 0)}")
         print(f"  Skipped:     {result.get('skipped', 0)}")
@@ -1177,12 +1199,13 @@ async def _cmd_wealthfolio_smoke(
     try:
         await client.authenticate()
         since = datetime.now(UTC) - timedelta(days=args.days_back)
-        first = await exporter.push_to_wealthfolio(
-            client, accounts=accounts, since=since, full_sync=True
-        )
-        second = await exporter.push_to_wealthfolio(
-            client, accounts=accounts, since=since
-        )
+        async with _wealthfolio_export_lease(container, tenant_id):
+            first = await exporter.push_to_wealthfolio(
+                client, accounts=accounts, since=since, full_sync=True
+            )
+            second = await exporter.push_to_wealthfolio(
+                client, accounts=accounts, since=since
+            )
         visible = 0
         activity_count = 0
         holding_count = 0

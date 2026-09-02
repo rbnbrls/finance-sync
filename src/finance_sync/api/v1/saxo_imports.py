@@ -16,13 +16,14 @@ from fastapi import (
     status,
 )
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from finance_sync.api.deps.auth import AuthContext, require_permission
 from finance_sync.connectors.exceptions import PermanentError
 from finance_sync.connectors.models import ConnectorConfig
 from finance_sync.connectors.registry import ConnectorRegistry
+from finance_sync.connectors.saxo_investor import SaxoInvestorConnector
 from finance_sync.dependencies import get_container, get_db
 from finance_sync.models.credential import Credential
 from finance_sync.models.import_run import ImportRun
@@ -78,7 +79,7 @@ async def import_files(
     auth: AuthContext = Depends(require_permission("connectors", "write")),
     db: AsyncSession = Depends(get_db),
 ) -> SaxoImportResponse:
-    """Import one positions file, one transactions file, or both at once."""
+    """Import exactly one positions file and one transactions file."""
     connection = await _connection(db, connection_id, auth.tenant_id)
     container = get_container(request)
     run_id = str(uuid4())
@@ -95,6 +96,32 @@ async def import_files(
         if any(path.suffix.casefold() != ".xlsx" for path in staged):
             message = "SaxoInvestor ondersteunt alleen XLSX-bestanden."
             raise PermanentError(message)
+        if len(staged) != 2:
+            message = (
+                "Upload precies twee SaxoInvestor-bestanden: één Posities-"
+                "bestand en één Transacties-bestand."
+            )
+            raise PermanentError(message)
+        validator = SaxoInvestorConnector(
+            ConnectorConfig(
+                provider_type="saxo_investor",
+                options={"export_paths": [str(path) for path in staged]},
+            )
+        )
+        await validator.authenticate()
+        if set(validator.export_roles) != {"positions", "transactions"}:
+            message = (
+                "Upload één herkenbaar Posities-bestand en één herkenbaar "
+                "Transacties-bestand van SaxoInvestor."
+            )
+            raise PermanentError(message)
+        previous_attempt = await db.scalar(
+            select(func.max(ImportRun.attempt)).where(
+                ImportRun.tenant_id == auth.tenant_id,
+                ImportRun.connection_id == connection.id,
+                ImportRun.batch_hash == batch_hash(hashes),
+            )
+        )
         import_run = ImportRun(
             id=run_id,
             tenant_id=auth.tenant_id,
@@ -102,7 +129,11 @@ async def import_files(
             source="upload",
             status="running",
             batch_hash=batch_hash(hashes),
-            attempt=1,
+            # Re-uploading the same two files is a new auditable attempt, not
+            # a duplicate-key failure. This is especially important for the
+            # wizard: an operator must be able to retry after fixing a parser
+            # or downstream sync error without changing the files.
+            attempt=(previous_attempt or 0) + 1,
             report_types=["positions", "transactions"],
             content_hashes=hashes,
             file_names=names,

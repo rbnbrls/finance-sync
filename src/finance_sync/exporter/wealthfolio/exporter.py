@@ -155,6 +155,17 @@ class WealthfolioExporter:
     Thread-safe: yes (all I/O runs via asyncio file operations).
     """
 
+    capabilities = {
+        "accounts": "write",
+        "cash_activities": "write",
+        "category_assignments": "write",
+        "splits": "write",
+        "events": "write",
+        "notes": "write",
+        "attachments": "read",
+        "bidirectional": False,
+    }
+
     def __init__(
         self,
         session_factory: async_sessionmaker[AsyncSession],
@@ -206,6 +217,7 @@ class WealthfolioExporter:
         holdings_exported = 0
         accts_mapped = 0
         csv_files: list[str] = []
+        extension_transactions: list[Transaction] = []
         _since = since or await self._last_export_time()
 
         # ── Create ExportRun ──────────────────────────────────────
@@ -216,6 +228,7 @@ class WealthfolioExporter:
                 started_at=start_ts,
                 exporter_type="wealthfolio",
                 target_id=self._target_id,
+                account_scope=list(account_ids) if account_ids else None,
             )
             session.add(run)
             await session.flush()
@@ -292,6 +305,8 @@ class WealthfolioExporter:
 
                     if max_transactions:
                         txns = txns[:max_transactions]
+
+                    extension_transactions.extend(txns)
 
                     txns_attempted += len(txns)
 
@@ -386,7 +401,7 @@ class WealthfolioExporter:
                     )
                 )
             ]
-            if extension_accounts:
+            if extension_accounts or extension_transactions:
                 import json
 
                 extension_path = self._write_csv_file(
@@ -397,7 +412,10 @@ class WealthfolioExporter:
                 )
                 extension_path.write_text(
                     json.dumps(
-                        build_extension_payload(accounts=extension_accounts),
+                        build_extension_payload(
+                            accounts=extension_accounts,
+                            transactions=extension_transactions,
+                        ),
                         indent=2,
                         default=str,
                     ),
@@ -446,6 +464,21 @@ class WealthfolioExporter:
                 run_id=str(run.id),
             )
 
+        except asyncio.CancelledError:
+            # A worker shutdown/cancellation must not leave an export looking
+            # active forever.  Persist the terminal state before propagating
+            # cancellation so health checks and operators can distinguish an
+            # interrupted run from an in-flight one.
+            await self._complete_run(
+                run,
+                status="cancelled",
+                error_message="Export cancelled",
+                attempted=txns_attempted,
+                exported=txns_exported,
+                _skipped=txns_skipped,
+                failed=txns_failed,
+            )
+            raise
         except Exception:
             end_ts = datetime.now(UTC)
             tb = traceback.format_exc()
@@ -1284,11 +1317,16 @@ class WealthfolioExporter:
                 f"finance-sync:{self._tenant_id}:{account.id}"
                 for account in fs_accounts
             }
-            accounts_removed = (
-                await wf_client.delete_accounts_not_owned_by_finance_sync(
-                    allowed_provider_ids
+            # Account deletion is only safe for the legacy projection. A
+            # named destination can share the same Wealthfolio instance with
+            # another destination; pruning there would delete accounts owned
+            # by the other projection (which caused only Saxo to remain).
+            if self._target_id == "legacy":
+                accounts_removed = (
+                    await wf_client.delete_accounts_not_owned_by_finance_sync(
+                        allowed_provider_ids
+                    )
                 )
-            )
             if accounts_removed:
                 log.info(
                     "wealthfolio_unmanaged_accounts_removed",
@@ -1330,6 +1368,11 @@ class WealthfolioExporter:
                         await wf_client.delete_activities_not_in(
                             wf_account_id,
                             allowed_activity_ids,
+                            preserved_comment_prefixes=(
+                                _holdings_correction_comment_prefix(
+                                    self._tenant_id, fs_acct.id
+                                ),
+                            ),
                         )
                     # Resume from the per-account delivery cursor when
                     # one exists (idempotent resume after partial failure).
@@ -1541,11 +1584,23 @@ class WealthfolioExporter:
 
             if full_sync or rebuild:
                 for account_id in performance_account_ids:
-                    history = await wf_client.get_performance_history(
-                        account_id,
-                        start_date="1970-01-01",
-                        end_date=datetime.now(UTC).date().isoformat(),
-                    )
+                    try:
+                        history = await wf_client.get_performance_history(
+                            account_id,
+                            start_date="1970-01-01",
+                            end_date=datetime.now(UTC).date().isoformat(),
+                        )
+                    except Exception as exc:
+                        # Performance history is a diagnostic/read endpoint,
+                        # not part of the transaction or holdings projection.
+                        # Some Wealthfolio versions reject the broad date
+                        # range even though the account projection is valid.
+                        log.warning(
+                            "wealthfolio_performance_history_unavailable",
+                            account_id=account_id,
+                            error=str(exc)[:256],
+                        )
+                        continue
                     log.info(
                         "wealthfolio_performance_history_checked",
                         account_id=account_id,
@@ -1593,6 +1648,17 @@ class WealthfolioExporter:
                 "run_id": str(run.id),
                 "errors": errors,
             }
+        except asyncio.CancelledError:
+            await self._complete_run(
+                run,
+                status="cancelled",
+                error_message="Export cancelled",
+                attempted=txns_attempted,
+                exported=txns_imported,
+                _skipped=txns_skipped,
+                failed=txns_failed,
+            )
+            raise
         except Exception:
             tb = traceback.format_exc()
             await self._complete_run(
@@ -1672,6 +1738,7 @@ class WealthfolioExporter:
         holdings = await self._fetch_current_holdings(account_id=fs_account.id)
         source_rows: list[dict[str, Any]] = []
         findings: list[dict[str, str]] = []
+        snapshot: dict[str, Any] | None = None
         for holding in holdings:
             security = security_map.get(holding.security_id)
             try:
@@ -1707,9 +1774,28 @@ class WealthfolioExporter:
             wf_account_id,
             "finance-sync cash reconciliation",
         )
+        # These are connector-owned, zero-price quantity corrections.  They
+        # must be replaced on every run so a new broker snapshot can close a
+        # position which disappeared from the current positions file.
+        removed_corrections = (
+            await wf_client.delete_activities_by_comment_prefix(
+                wf_account_id,
+                _holdings_correction_comment_prefix(
+                    self._tenant_id, fs_account.id
+                ),
+            )
+        )
+        if removed_corrections:
+            await asyncio.sleep(1)
         remote_rows = await wf_client.get_holdings(wf_account_id)
+        # Saxo's positions export exposes the brokerage cash balance as
+        # current_balance and leaves available_balance empty.  Prefer the
+        # latter when present, but never omit the former from the authoritative
+        # portfolio snapshot.
         available_balance = cast(
-            Any, getattr(fs_account, "available_balance", None)
+            Any,
+            getattr(fs_account, "available_balance", None)
+            or getattr(fs_account, "current_balance", None),
         )
         source_cash = _decimal_or_none(available_balance)
         tolerance = (
@@ -1792,6 +1878,45 @@ class WealthfolioExporter:
                                 wf_account_id
                             )
 
+        corrections = _holdings_quantity_corrections(
+            source_rows=source_rows,
+            remote_rows=remote_rows,
+            account_id=wf_account_id,
+            account_currency=fs_account.currency_code,
+            tenant_id=self._tenant_id,
+            finance_sync_account_id=fs_account.id,
+        )
+        if corrections:
+            correction_result = await wf_client.push_activities(corrections)
+            if correction_result.get("failed", 0):
+                findings.append(
+                    {
+                        "account_id": fs_account.id,
+                        "account_name": fs_account.name,
+                        "error": (
+                            "Wealthfolio kon de holdingsnapshot-correctie "
+                            "niet opslaan."
+                        ),
+                    }
+                )
+            else:
+                await asyncio.sleep(1)
+                remote_rows = await wf_client.get_holdings(wf_account_id)
+                # Wealthfolio uses the zero-price correction as the latest
+                # activity quote and can consequently expose 0.01 until the
+                # manual broker quote is written again.  The positions file
+                # remains authoritative for current prices and valuation.
+                if source_rows:
+                    if snapshot is not None:
+                        await wf_client.save_manual_holdings(
+                            _manual_holdings_payload(snapshot),
+                            wf_account_id,
+                            cash_balances=snapshot["cashBalances"],
+                            snapshot_date=snapshot["date"],
+                        )
+                    await asyncio.sleep(20)
+                    remote_rows = await wf_client.get_holdings(wf_account_id)
+
         # Bank accounts have no securities rows, but their current balance is
         # still part of the downstream portfolio state.  A cash snapshot
         # preserves an opening balance that is not represented by the fetched
@@ -1852,12 +1977,8 @@ class WealthfolioExporter:
         # Wealthfolio recalculates holdings asynchronously after a snapshot.
         # A short second read avoids declaring a financial failure while that
         # recalculation is still settling, without hiding a persistent delta.
-        portfolio_mismatch = "Portefeuillewaarde buiten ingestelde tolerantie."
         for _attempt in range(5):
-            if not any(
-                finding.get("error") == portfolio_mismatch
-                for finding in holdings_findings
-            ):
+            if not holdings_findings:
                 break
             await asyncio.sleep(5)
             settled_rows = await wf_client.get_holdings(wf_account_id)
@@ -2079,6 +2200,156 @@ def _cash_reconciliation_external_id(
     )
 
 
+def _holdings_correction_comment_prefix(
+    tenant_id: UUID | str, finance_sync_account_id: UUID | str
+) -> str:
+    return (
+        "finance-sync holdings snapshot reconciliation:"
+        f"{tenant_id}:{finance_sync_account_id}:"
+    )
+
+
+def _holdings_quantity_corrections(
+    *,
+    source_rows: list[dict[str, Any]],
+    remote_rows: list[dict[str, Any]],
+    account_id: str,
+    account_currency: str,
+    tenant_id: UUID | str,
+    finance_sync_account_id: UUID | str,
+) -> list[dict[str, Any]]:
+    """Create idempotent zero-price activities for the authoritative snapshot.
+
+    Wealthfolio derives holdings from activities.  A broker positions file is
+    nevertheless the authority for *current quantity*: it can contain an
+    opening position without a BUY in the imported history and it can omit a
+    closed position.  BUY/SELL with a zero price changes quantity without
+    changing cash (unlike ADJUSTMENT, which the live API ignores for holdings).
+    """
+    precision = Decimal("0.01")
+    prefix = _holdings_correction_comment_prefix(
+        tenant_id, finance_sync_account_id
+    )
+
+    def aliases(row: dict[str, Any]) -> set[str]:
+        instrument = row.get("instrument")
+        instrument = (
+            cast(dict[str, Any], instrument)
+            if isinstance(instrument, dict)
+            else {}
+        )
+        values = (
+            row.get("symbol"),
+            row.get("isin"),
+            row.get("displayCode"),
+            instrument.get("symbol"),
+            instrument.get("isin"),
+            instrument.get("displayCode"),
+        )
+        return {
+            _normalise_wealthfolio_symbol(str(value))
+            for value in values
+            if value
+        }
+
+    source: list[tuple[dict[str, Any], set[str], Decimal]] = []
+    for row in source_rows:
+        identity = aliases(row)
+        if identity:
+            source.append(
+                (
+                    row,
+                    identity,
+                    Decimal(str(row["quantity"])).quantize(precision),
+                )
+            )
+
+    remote: list[tuple[dict[str, Any], set[str], Decimal]] = []
+    for row in remote_rows:
+        if _is_cash_wealthfolio_holding(row):
+            continue
+        identity = aliases(row)
+        if identity:
+            remote.append(
+                (
+                    row,
+                    identity,
+                    Decimal(str(row.get("quantity") or 0)).quantize(precision),
+                )
+            )
+
+    used_remote: set[int] = set()
+    targets: list[tuple[str, dict[str, Any], Decimal, Decimal]] = []
+    for source_row, source_aliases, target in source:
+        match_index = next(
+            (
+                index
+                for index, (_, remote_aliases, _) in enumerate(remote)
+                if index not in used_remote and source_aliases & remote_aliases
+            ),
+            None,
+        )
+        current = Decimal(0)
+        correction_row = source_row
+        if match_index is not None:
+            used_remote.add(match_index)
+            current = remote[match_index][2]
+            correction_row = {**source_row, **remote[match_index][0]}
+        stable_id = next(iter(sorted(source_aliases)))
+        targets.append((stable_id, correction_row, target, current))
+
+    # Any remote position not represented by today's positions file is
+    # closed/stale and must be driven to zero.  No quote is created for it.
+    for index, (remote_row, remote_aliases, current) in enumerate(remote):
+        if index in used_remote:
+            continue
+        stable_id = next(iter(sorted(remote_aliases)))
+        targets.append((stable_id, remote_row, Decimal(0), current))
+
+    corrections: list[dict[str, Any]] = []
+    for stable_id, row, target, current in targets:
+        delta = target - current
+        if delta == 0:
+            continue
+        instrument = row.get("instrument")
+        instrument = (
+            cast(dict[str, Any], instrument)
+            if isinstance(instrument, dict)
+            else {}
+        )
+        symbol = str(row.get("symbol") or instrument.get("symbol") or "")
+        isin = str(row.get("isin") or instrument.get("isin") or "")
+        currency = str(row.get("currency") or account_currency)
+        correction_id = f"{prefix}{stable_id}"
+        corrections.append(
+            {
+                "activityType": "BUY" if delta > 0 else "SELL",
+                "date": datetime.now(UTC).date().isoformat(),
+                "accountId": account_id,
+                "assetId": instrument.get("id") or row.get("assetId"),
+                "symbol": symbol,
+                "isin": isin,
+                "instrumentType": str(
+                    instrument.get("instrumentType") or "EQUITY"
+                ),
+                "quantity": float(abs(delta)),
+                "unitPrice": 0.0,
+                "currency": currency,
+                "quoteCcy": currency,
+                "comment": f"{correction_id} TARGET:{target}",
+                "sourceSystem": "FINANCE_SYNC",
+                "sourceRecordId": correction_id,
+                "sourceGroupId": (
+                    f"finance-sync:holdings:{finance_sync_account_id}"
+                ),
+                "idempotencyKey": correction_id,
+                "isDraft": False,
+                "isValid": True,
+            }
+        )
+    return corrections
+
+
 def _default_since() -> datetime:
     """Return 90 days before now (UTC)."""
     from datetime import timedelta
@@ -2195,6 +2466,7 @@ def _holdings_snapshot_payload(
     positions = [
         {
             "symbol": row["symbol"],
+            "isin": row.get("isin", ""),
             "quantity": row["quantity"],
             "avgCost": row["avgCost"] or None,
             "currency": row["currency"],
@@ -2220,7 +2492,13 @@ def _manual_holdings_payload(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
     return [
         {
             "symbol": position["symbol"],
+            "_securityIsin": position.get("isin", ""),
             "quantity": str(position["quantity"]),
+            # The live snapshots endpoint expects the cost basis per unit
+            # under ``averageCost``.  ``unitPrice`` is the current valuation
+            # price used by the manual quote projection and is not a valid
+            # replacement for the lot cost basis.
+            "averageCost": position["avgCost"] or None,
             # Wealthfolio stores manual quantities at two decimal places.
             # Recalculate the manual unit price against that quantity so the
             # displayed market value remains the finance-sync source value.
@@ -2271,12 +2549,24 @@ def _reconcile_holdings(
 ) -> list[dict[str, str]]:
     """Return visible, path-free reconciliation findings."""
     findings: list[dict[str, str]] = []
-    source_quantities = {
-        _normalise_wealthfolio_symbol(str(row["symbol"])): Decimal(
-            str(row["quantity"])
-        )
-        for row in source_rows
-    }
+    source_positions: list[tuple[set[str], Decimal, str]] = []
+    source_identities: set[str] = set()
+    for row in source_rows:
+        quantity = Decimal(str(row["quantity"]))
+        # The import payload is ticker-first, while Wealthfolio commonly
+        # resolves the same instrument to its ISIN in holdings/list. Compare
+        # both stable identities so this is a representation difference, not
+        # a false position mismatch.
+        identities = {
+            _normalise_wealthfolio_symbol(str(identity))
+            for identity in (row.get("symbol"), row.get("isin"))
+            if identity
+        }
+        if identities:
+            source_positions.append(
+                (identities, quantity, str(row.get("symbol") or ""))
+            )
+            source_identities.update(identities)
     remote_quantities: dict[str, Decimal] = {}
     remote_value = Decimal(0)
     for row in remote_rows:
@@ -2293,11 +2583,20 @@ def _reconcile_holdings(
         # holdings row — it must not count as a position outside the source
         # snapshot (the live Wealthfolio instance returns a holdingType
         # "cash" row with the currency code as its symbol).
-        symbol = str(instrument.get("isin") or instrument.get("symbol") or "")
-        if symbol and not is_cash:
-            remote_quantities[_normalise_wealthfolio_symbol(symbol)] = Decimal(
-                str(row.get("quantity") or 0)
-            )
+        if not is_cash:
+            quantity = Decimal(str(row.get("quantity") or 0))
+            # Wealthfolio can expose both the resolved ISIN and the original
+            # ticker. Retain both aliases so reconciliation is independent of
+            # which representation the remote resolver chose.
+            for identity in (
+                instrument.get("isin"),
+                instrument.get("symbol"),
+                instrument.get("displayCode"),
+            ):
+                if identity:
+                    remote_quantities[
+                        _normalise_wealthfolio_symbol(str(identity))
+                    ] = quantity
         raw_market_value = row.get("marketValue")
         market_value: dict[str, Any] = (
             cast("dict[str, Any]", raw_market_value)
@@ -2316,7 +2615,10 @@ def _reconcile_holdings(
             ),
             Decimal(0),
         )
-        cash = _decimal_or_none(getattr(account, "available_balance", None))
+        cash = _decimal_or_none(
+            getattr(account, "available_balance", None)
+            or getattr(account, "current_balance", None)
+        )
         if cash is not None:
             source_value += cash
     elif (
@@ -2327,18 +2629,35 @@ def _reconcile_holdings(
             getattr(account, "current_balance", None)
         )
 
-    for symbol, quantity in source_quantities.items():
-        if remote_quantities.get(symbol) != quantity:
+    for identities, quantity, display_symbol in source_positions:
+        remote_quantity = next(
+            (
+                remote_quantities[identity]
+                for identity in identities
+                if identity in remote_quantities
+            ),
+            None,
+        )
+        quantity_tolerance = max(
+            absolute_tolerance,
+            abs(quantity) * percentage_tolerance,
+            Decimal("0.01"),
+        )
+        if (
+            remote_quantity is None
+            or abs(remote_quantity - quantity) > quantity_tolerance
+        ):
             findings.append(
                 {
                     "account_id": account.id,
                     "account_name": account.name,
                     "error": (
-                        f"Positie-afwijking voor opgeloste security {symbol}."
+                        "Positie-afwijking voor opgeloste security "
+                        f"{display_symbol}."
                     ),
                 }
             )
-    extra = set(remote_quantities) - set(source_quantities)
+    extra = set(remote_quantities) - source_identities
     if extra:
         findings.append(
             {

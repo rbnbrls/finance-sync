@@ -1,7 +1,8 @@
 # =============================================================================
 # CI Pipeline — finance-sync
 # =============================================================================
-# Runs on push/PR to main.  Nine independent jobs:
+# Fast gates run on PRs and pushes to main. Heavy operational gates run on
+# pushes/manual/scheduled runs so PR feedback stays bounded and actionable.
 #
 #   lint         – Ruff check + format check
 #   types        – Pyright strict mode
@@ -24,6 +25,9 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
+  schedule:
+    - cron: "17 4 * * 1-5"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -40,26 +44,13 @@ jobs:
         python-version: ["3.12"]
     steps:
       - uses: actions/checkout@v7
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v10.0.1
-        with:
-          enable-cache: true
-          cache-suffix: lint-${{ matrix.python-version }}
-
-      - name: Install Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v7
+      - uses: ./.github/actions/setup-python-uv
         with:
           python-version: ${{ matrix.python-version }}
+          cache-suffix: lint-${{ matrix.python-version }}
 
-      - name: Install dependencies
-        run: uv sync --extra dev --frozen
-
-      - name: Ruff lint check
-        run: uv run ruff check src tests
-
-      - name: Ruff format check
-        run: uv run ruff format --check src tests
+      - name: Ruff lint and format checks
+        run: make format-check lint
 
   # ── Type check ────────────────────────────────────────────────────────
   types:
@@ -71,20 +62,10 @@ jobs:
         python-version: ["3.12"]
     steps:
       - uses: actions/checkout@v7
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v10.0.1
-        with:
-          enable-cache: true
-          cache-suffix: types-${{ matrix.python-version }}
-
-      - name: Install Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v7
+      - uses: ./.github/actions/setup-python-uv
         with:
           python-version: ${{ matrix.python-version }}
-
-      - name: Install dependencies
-        run: uv sync --extra dev --frozen
+          cache-suffix: types-${{ matrix.python-version }}
 
       - name: Restore Pyright cache
         uses: actions/cache@v6
@@ -100,9 +81,7 @@ jobs:
         # G-11: src/ checked strict (pyproject.toml [tool.pyright]); tests/
         # checked at basic via its own config. Two invocations so each uses
         # its declared typeCheckingMode.
-        run: |
-          uv run pyright -p pyproject.toml src
-          uv run pyright -p pyrightconfig.tests.json tests
+        run: make type
 
       - name: Enforce Pyright warning budget
         run: >-
@@ -119,20 +98,10 @@ jobs:
         python-version: ["3.12"]
     steps:
       - uses: actions/checkout@v7
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v10.0.1
-        with:
-          enable-cache: true
-          cache-suffix: test-${{ matrix.python-version }}
-
-      - name: Install Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v7
+      - uses: ./.github/actions/setup-python-uv
         with:
           python-version: ${{ matrix.python-version }}
-
-      - name: Install dependencies
-        run: uv sync --extra dev --frozen
+          cache-suffix: test-${{ matrix.python-version }}
 
       - name: Restore pytest cache
         uses: actions/cache@v6
@@ -145,13 +114,7 @@ jobs:
             pytest-${{ runner.os }}-${{ matrix.python-version }}-
 
       - name: Run unit tests with coverage (≥73%)
-        run: >-
-          uv run pytest -m "not integration and not e2e"
-          --cov=finance_sync
-          --cov-report=term
-          --cov-report=xml
-          --cov-fail-under=73
-          --junitxml=junit.xml
+        run: make test-ci
 
       - name: Upload coverage report
         uses: actions/upload-artifact@v7
@@ -190,20 +153,9 @@ jobs:
           --health-retries 5
     steps:
       - uses: actions/checkout@v7
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v10.0.1
+      - uses: ./.github/actions/setup-python-uv
         with:
-          enable-cache: true
           cache-suffix: migrations
-
-      - name: Install Python 3.12
-        uses: actions/setup-python@v7
-        with:
-          python-version: "3.12"
-
-      - name: Install dependencies
-        run: uv sync --extra dev --frozen
 
       - name: Check migration chain is linear
         run: >
@@ -297,20 +249,9 @@ jobs:
           --health-retries 5
     steps:
       - uses: actions/checkout@v7
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v10.0.1
+      - uses: ./.github/actions/setup-python-uv
         with:
-          enable-cache: true
           cache-suffix: integration
-
-      - name: Install Python 3.12
-        uses: actions/setup-python@v7
-        with:
-          python-version: "3.12"
-
-      - name: Install dependencies
-        run: uv sync --extra dev --frozen
 
       - name: Run integration tests (real PostgreSQL + Redis)
         run: |
@@ -421,20 +362,9 @@ jobs:
           --health-retries 5
     steps:
       - uses: actions/checkout@v7
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v10.0.1
+      - uses: ./.github/actions/setup-python-uv
         with:
-          enable-cache: true
           cache-suffix: e2e
-
-      - name: Install Python 3.12
-        uses: actions/setup-python@v7
-        with:
-          python-version: "3.12"
-
-      - name: Install dependencies
-        run: uv sync --extra dev --frozen
 
       - name: Run e2e tests (API → worker exactly-once, real PG + Redis)
         run: |
@@ -489,6 +419,7 @@ jobs:
 
   # ── Provider contract refresh ─────────────────────────────────────────
   provider-contracts:
+    if: github.event_name != 'pull_request'
     name: Provider contract refresh
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -515,6 +446,7 @@ jobs:
 
   # ── Capacity-limit measurements ──────────────────────────────────────
   capacity-limits:
+    if: github.event_name != 'pull_request'
     name: Capacity limits
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -541,6 +473,7 @@ jobs:
 
   # ── Connector version lifecycle ───────────────────────────────────────
   connector-lifecycle:
+    if: github.event_name != 'pull_request'
     name: Connector lifecycle
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -591,6 +524,7 @@ jobs:
 
   # ── Autoscaling and backpressure policy ──────────────────────────────
   autoscaling-policy:
+    if: github.event_name != 'pull_request'
     name: Autoscaling policy
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -618,6 +552,7 @@ jobs:
 
   # ── Reproducible autoscaling loadtest baseline ─────────────────────────
   loadtest-autoscaling:
+    if: github.event_name != 'pull_request'
     name: Autoscaling loadtest
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -645,6 +580,7 @@ jobs:
 
   # ── Audit retention enforcement ───────────────────────────────────────
   audit-retention:
+    if: github.event_name != 'pull_request'
     name: Audit retention enforcement
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -673,6 +609,7 @@ jobs:
 
   # ── Managed key provider contract ─────────────────────────────────────
   managed-key-provider:
+    if: github.event_name != 'pull_request'
     name: Managed key provider
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -690,6 +627,7 @@ jobs:
 
   # ── Automated disaster-recovery runbook ──────────────────────────────
   automated-dr:
+    if: github.event_name != 'pull_request'
     name: Automated DR runbook
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -717,6 +655,7 @@ jobs:
 
   # ── Periodic DR SLA (RPO/RTO) monitoring ────────────────────────────
   dr-sla-monitoring:
+    if: github.event_name != 'pull_request'
     name: DR SLA monitoring
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -754,6 +693,7 @@ jobs:
 
   # ── Encryption key-rotation drill ────────────────────────────────────
   key-rotation:
+    if: github.event_name != 'pull_request'
     name: Encryption key rotation
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -780,6 +720,7 @@ jobs:
 
   # ── Disaster-recovery game day ────────────────────────────────────────
   dr-game-day:
+    if: github.event_name != 'pull_request'
     name: Disaster-recovery game day
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -806,6 +747,7 @@ jobs:
 
   # ── PostgreSQL backup/restore drill ───────────────────────────────────
   backup-restore:
+    if: github.event_name != 'pull_request'
     name: Backup and restore drill
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -843,6 +785,7 @@ jobs:
 
   # ── Connector retry/rate-limit chaos matrix ──────────────────────────
   connector-chaos:
+    if: github.event_name != 'pull_request'
     name: Connector chaos and retry tests
     runs-on: ubuntu-latest
     timeout-minutes: 10

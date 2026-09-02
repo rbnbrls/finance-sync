@@ -50,6 +50,28 @@ class TransactionStageResult:
 
     count: int
     unresolved_keys: frozenset[str]
+    new: int = 0
+    changed: int = 0
+    unchanged: int = 0
+    classified: int = 0
+    unclassified: int = 0
+    split: int = 0
+    skipped: int = 0
+    failed: int = 0
+
+    def add_to_report(self, report: dict[str, int]) -> None:
+        """Add this stage's counters to an aggregate sync report."""
+        for key in (
+            "new",
+            "changed",
+            "unchanged",
+            "classified",
+            "unclassified",
+            "split",
+            "skipped",
+            "failed",
+        ):
+            report[key] = report.get(key, 0) + int(getattr(self, key))
 
 
 class TransactionSyncStage:
@@ -112,4 +134,32 @@ class TransactionSyncStage:
         return TransactionStageResult(
             count=count,
             unresolved_keys=frozenset(unresolved),
+            new=int(
+                getattr(self._writer, "last_upsert_outcome", {}).get("new", 0)
+            ),
+            changed=int(
+                getattr(self._writer, "last_upsert_outcome", {}).get(
+                    "changed", 0
+                )
+            ),
+            unchanged=int(
+                getattr(self._writer, "last_upsert_outcome", {}).get(
+                    "unchanged", 0
+                )
+            ),
+            classified=sum(
+                1
+                for transaction in transactions
+                if transaction.classification_override
+                or transaction.cashflow_suggestion is not None
+            ),
+            unclassified=sum(
+                1
+                for transaction in transactions
+                if not transaction.classification_override
+                and transaction.cashflow_suggestion is None
+            ),
+            split=sum(1 for transaction in transactions if transaction.splits),
+            skipped=max(len(transactions) - count, 0),
+            failed=0,
         )
