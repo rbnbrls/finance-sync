@@ -733,7 +733,12 @@ def _parse_order(
     side = data.get("side", "")
     total = Decimal(str(data.get("total", "0")))
     currency = data.get("currencyCode", "EUR")
-    filled_time = _parse_t212_datetime(data.get("filledTime"))
+    filled_time_raw = data.get("filledTime")
+    filled_time = (
+        _parse_t212_datetime(filled_time_raw)
+        if filled_time_raw
+        else None
+    )
     creation_time = _parse_t212_datetime(data.get("creationTime"))
     status_raw = data.get("status", "")
     filled_price = data.get("filledPrice")
@@ -755,7 +760,10 @@ def _parse_order(
         external_account_id=account_id,
         amount=amount,
         currency_code=currency,
-        occurred_at=creation_time,
+        # A filled order occurred at execution time. For pending orders
+        # Trading212 leaves filledTime null; retain creation time instead of
+        # converting the missing timestamp to the Unix epoch.
+        occurred_at=filled_time or creation_time,
         booked_at=filled_time or creation_time,
         description=f"{side} {quantity} x {ticker}"
         if ticker
