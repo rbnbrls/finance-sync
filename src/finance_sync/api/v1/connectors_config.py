@@ -254,8 +254,11 @@ class ConnectorConfigResponse(BaseModel):
     )
     last_error: str | None = Field(
         default=None,
-        description="Sanitised error of the last failed sync / connection test",
+        description="Sanitised error of the last failed sync",
     )
+    last_test_at: datetime | None = None
+    last_test_status: str | None = None
+    last_test_error: str | None = None
     credential_status: str = "unknown"
     last_authenticated_at: datetime | None = None
     expires_at: datetime | None = None
@@ -486,6 +489,9 @@ def _credential_response(row: Credential) -> ConnectorConfigResponse:
         last_attempt_at=row.last_attempt_at,
         last_success_at=row.last_success_at,
         last_error=row.last_error,
+        last_test_at=getattr(row, "last_test_at", None),
+        last_test_status=getattr(row, "last_test_status", None),
+        last_test_error=getattr(row, "last_test_error", None),
         credential_status=getattr(row, "credential_status", None) or "unknown",
         last_authenticated_at=getattr(row, "last_authenticated_at", None),
         expires_at=getattr(row, "expires_at", None),
@@ -1369,10 +1375,12 @@ async def test_connector_connection(
     """Test a connection by calling the connector's ``health`` method.
 
     On success the returned payload includes the accounts the provider
-    offers so the frontend can drive account selection.  The connection's
-    ``last_attempt_at`` / ``last_success_at`` / ``last_error`` fields
-    are updated and the attempt is recorded in the tenant audit log.
-    Error messages are sanitised before being stored or returned.
+    offers so the frontend can drive account selection.  Test metadata is
+    stored separately from sync metadata: ``last_success_at`` is reserved
+    for a completed import, and ``last_attempt_at`` / ``last_error`` are
+    not changed by this authentication check. The attempt is recorded in
+    the tenant audit log, and error messages are sanitised before being
+    stored or returned.
     """
     container = get_container(request)
     settings = container.settings
@@ -1468,40 +1476,36 @@ async def test_connector_connection(
                 if _account_enumeration_error_is_fatal(cred.provider_key):
                     raise
 
-        cred.last_attempt_at = now
         cred.last_test_at = now
         cred.updated_at = now
         if health.healthy:
-            cred.last_success_at = now
             cred.credential_status = "verified"
             cred.last_authenticated_at = now
             cred.reauth_required_at = None
             cred.last_auth_error_code = None
-            cred.last_error = None
-            cred.last_error_category = None
             cred.last_test_status = "passed"
             cred.last_test_error = None
             message = health.message or "Connection successful"
         else:
             from finance_sync.sync.errors import categorize_export_error
 
-            cred.last_error = sanitize_error(
+            test_error = sanitize_error(
                 health.message or "Connection test failed", secrets
             )
-            cred.last_error_category = categorize_export_error(
+            test_error_category = categorize_export_error(
                 health.message or "Connection test failed"
             )
             cred.credential_status = (
                 "reauth_required"
-                if cred.last_error_category == "reauth_required"
+                if test_error_category == "reauth_required"
                 else "unknown"
             )
             if cred.credential_status == "reauth_required":
                 cred.reauth_required_at = now
-                cred.last_auth_error_code = cred.last_error_category
+                cred.last_auth_error_code = test_error_category
             cred.last_test_status = "failed"
-            cred.last_test_error = cred.last_error
-            message = cred.last_error or "Connection test failed"
+            cred.last_test_error = test_error
+            message = test_error or "Connection test failed"
         await db.flush()
         await log_connection_event(
             db,
@@ -1523,17 +1527,15 @@ async def test_connector_connection(
         failure = sanitize_error(str(exc), secrets)
         from finance_sync.sync.errors import categorize_export_error
 
-        cred.last_attempt_at = now
-        cred.last_error = failure
-        cred.last_error_category = categorize_export_error(str(exc))
+        test_error_category = categorize_export_error(str(exc))
         cred.credential_status = (
             "reauth_required"
-            if cred.last_error_category == "reauth_required"
+            if test_error_category == "reauth_required"
             else "unknown"
         )
         if cred.credential_status == "reauth_required":
             cred.reauth_required_at = now
-            cred.last_auth_error_code = cred.last_error_category
+            cred.last_auth_error_code = test_error_category
         cred.last_test_at = now
         cred.last_test_status = "failed"
         cred.last_test_error = failure
