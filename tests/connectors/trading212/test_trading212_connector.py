@@ -38,6 +38,8 @@ from finance_sync.connectors.trading212 import (
 from tests.connectors.fixtures.trading212_api_fixtures import (
     ACCOUNT_CASH_RESPONSE,
     ACCOUNT_INFO_RESPONSE,
+    SELECTED_ACCOUNT_IDS,
+    SELECTED_ACCOUNT_INFO_RESPONSE,
 )
 
 if TYPE_CHECKING:
@@ -372,6 +374,32 @@ class TestTrading212ConnectorAuth:
             if "/account/cash" in str(call["url"])
         ]
         assert len(cash_calls) == 1
+
+    async def test_selected_account_response_can_be_injected(
+        self,
+        t212_connector_config: ConnectorConfig,
+        t212_mock_transport_factory,
+    ) -> None:
+        """The shared transport supports selected-account scenarios."""
+        import httpx
+
+        from finance_sync.connectors.trading212 import Trading212Connector
+
+        transport = t212_mock_transport_factory(
+            response_overrides={
+                "/api/v0/equity/account/info": SELECTED_ACCOUNT_INFO_RESPONSE
+            }
+        )
+        client = httpx.AsyncClient(
+            base_url="https://live.trading212.com", transport=transport
+        )
+        connector = Trading212Connector(
+            t212_connector_config, http_client=client
+        )
+
+        await connector.authenticate()
+
+        assert connector._account_id in SELECTED_ACCOUNT_IDS
 
 
 class TestTrading212ConnectorPagination:
@@ -1021,6 +1049,30 @@ class TestTrading212ConnectorErrorHandling:
 
         with pytest.raises(RateLimitError):
             await conn.authenticate()
+
+    async def test_targeted_api_error_fixture(
+        self,
+        t212_connector_config: ConnectorConfig,
+        t212_mock_transport_factory,
+    ) -> None:
+        """The shared transport can fail one endpoint without network I/O."""
+        import httpx
+
+        from finance_sync.connectors.trading212 import Trading212Connector
+
+        transport = t212_mock_transport_factory(
+            error_status=503,
+            error_paths={"/api/v0/equity/account/cash"},
+        )
+        client = httpx.AsyncClient(
+            base_url="https://live.trading212.com", transport=transport
+        )
+        connector = Trading212Connector(
+            t212_connector_config, http_client=client
+        )
+
+        with pytest.raises(TransientError):
+            await connector.authenticate()
 
     async def test_authentication_error(
         self,
