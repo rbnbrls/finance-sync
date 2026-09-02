@@ -325,7 +325,9 @@ class TestTrading212SyncPipeline:
         assert result.accounts_synced == 1
         # Orders are normalized as transactions; the transaction-history
         # endpoint being empty does not remove those order transactions.
-        assert result.transactions_synced == len(ORDER_HISTORY_RESPONSE["items"])
+        assert result.transactions_synced == len(
+            ORDER_HISTORY_RESPONSE["items"]
+        )
         counts = await _counts(session_factory)
         assert counts["Account"] == 1
         assert counts["Holding"] == len(PORTFOLIO_RESPONSE)
