@@ -33,7 +33,7 @@ RUN uv sync --no-dev --frozen
 
 
 # Production stage — minimal runtime image (identical base to Dockerfile)
-FROM python:3.12-slim-bookworm AS production
+FROM python:3.12-slim-trixie AS production
 
 # curl + wget: curl backs the HEALTHCHECK; wget keeps Coolify's default
 # injected probe working (issue #233).
