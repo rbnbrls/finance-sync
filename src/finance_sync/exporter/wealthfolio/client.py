@@ -405,7 +405,7 @@ class WealthfolioClient:
             Validation result with ``valid`` and ``issues`` keys.
         """
         self._ensure_authenticated()
-        response = await self._client.post(
+        response = await self._post_with_408_retry(
             f"{self.API_PREFIX}/activities/import/check",
             json={"activities": activities},
         )
@@ -1103,9 +1103,9 @@ class WealthfolioClient:
         cap (30s default) and answers HTTP 408 while the underlying work
         keeps running.  A retry after a short backoff normally completes the
         request (observed: the snapshot POST failed at 30s then succeeded at
-        17s on the production instance).  Only the slow recalculation
-        endpoints (snapshots / holdings) use this helper; ordinary fast
-        endpoints keep fail-fast semantics.
+        17s on the production instance).  Only slow Wealthfolio POST
+        endpoints use this helper; ordinary fast endpoints keep fail-fast
+        semantics.
         """
         attempts = (
             self._config.retry_408_attempts if self._config.retry_408 else 1

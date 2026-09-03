@@ -232,6 +232,63 @@ class TestWealthfolioClientImport:
 
         assert result["valid"] is True
 
+    async def test_check_import_retries_408(
+        self, client: WealthfolioClient
+    ) -> None:
+        """Activity validation retries a transient Wealthfolio timeout."""
+        client._is_authenticated = True
+        timeout = MagicMock(status_code=408)
+        ok = MagicMock(status_code=200)
+        ok.json.return_value = {"valid": True, "issues": []}
+        with (
+            patch.object(
+                client._client, "post", side_effect=[timeout, ok]
+            ) as post,
+            patch("asyncio.sleep", new_callable=AsyncMock) as sleep,
+        ):
+            result = await client.check_activities_import([])
+        assert result["valid"] is True
+        assert post.await_count == 2
+        sleep.assert_awaited_once()
+
+    async def test_check_import_408_exhaustion_raises_last_response(
+        self, client: WealthfolioClient
+    ) -> None:
+        """Exhausted activity-validation retries surface the final 408."""
+        client._is_authenticated = True
+        timeout = MagicMock(status_code=408)
+        timeout.raise_for_status.side_effect = Exception("408")
+        with (
+            patch.object(client._client, "post", return_value=timeout) as post,
+            patch("asyncio.sleep", new_callable=AsyncMock),
+            pytest.raises(Exception, match="408"),
+        ):
+            await client.check_activities_import([])
+        assert post.await_count == client._config.retry_408_attempts
+
+    async def test_check_import_retry_disabled_fails_fast(
+        self, client_config: WealthfolioClientConfig
+    ) -> None:
+        """Disabled retries preserve fail-fast activity validation behavior."""
+        client = WealthfolioClient(
+            WealthfolioClientConfig(
+                base_url=client_config.base_url,
+                password=client_config.password,
+                retry_408=False,
+            )
+        )
+        client._is_authenticated = True
+        timeout = MagicMock(status_code=408)
+        timeout.raise_for_status.side_effect = Exception("408")
+        with (
+            patch.object(client._client, "post", return_value=timeout) as post,
+            patch("asyncio.sleep", new_callable=AsyncMock) as sleep,
+            pytest.raises(Exception, match="408"),
+        ):
+            await client.check_activities_import([])
+        assert post.await_count == 1
+        sleep.assert_not_awaited()
+
     async def test_get_accounts(self, client: WealthfolioClient) -> None:
         """Fetch accounts from Wealthfolio."""
         client._is_authenticated = True
