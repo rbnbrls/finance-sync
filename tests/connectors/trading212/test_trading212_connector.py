@@ -38,6 +38,8 @@ from finance_sync.connectors.trading212 import (
 from tests.connectors.fixtures.trading212_api_fixtures import (
     ACCOUNT_CASH_RESPONSE,
     ACCOUNT_INFO_RESPONSE,
+    SELECTED_ACCOUNT_IDS,
+    SELECTED_ACCOUNT_INFO_RESPONSE,
 )
 
 if TYPE_CHECKING:
@@ -372,6 +374,32 @@ class TestTrading212ConnectorAuth:
             if "/account/cash" in str(call["url"])
         ]
         assert len(cash_calls) == 1
+
+    async def test_selected_account_response_can_be_injected(
+        self,
+        t212_connector_config: ConnectorConfig,
+        t212_mock_transport_factory,
+    ) -> None:
+        """The shared transport supports selected-account scenarios."""
+        import httpx
+
+        from finance_sync.connectors.trading212 import Trading212Connector
+
+        transport = t212_mock_transport_factory(
+            response_overrides={
+                "/api/v0/equity/account/info": SELECTED_ACCOUNT_INFO_RESPONSE
+            }
+        )
+        client = httpx.AsyncClient(
+            base_url="https://live.trading212.com", transport=transport
+        )
+        connector = Trading212Connector(
+            t212_connector_config, http_client=client
+        )
+
+        await connector.authenticate()
+
+        assert connector._account_id in SELECTED_ACCOUNT_IDS
 
 
 class TestTrading212ConnectorPagination:
@@ -724,6 +752,25 @@ class TestTrading212OrderParsing:
         assert txn.fee_amount == Decimal("3.50")
         assert txn.fee_currency_code == "EUR"
 
+    def test_parse_order_uses_execution_time_and_pending_creation_time(
+        self,
+    ) -> None:
+        """Use filledTime for execution, creationTime when still pending."""
+        from tests.connectors.fixtures.trading212_api_fixtures import (
+            ORDER_BUY_AAPL,
+            ORDER_PENDING,
+        )
+
+        filled = _parse_order(ORDER_BUY_AAPL, "12345678")
+        assert filled.occurred_at == datetime(
+            2024, 1, 15, 10, 0, 30, tzinfo=UTC
+        )
+        assert filled.booked_at == filled.occurred_at
+
+        pending = _parse_order(ORDER_PENDING, "12345678")
+        assert pending.occurred_at == datetime(2025, 6, 20, 18, 0, tzinfo=UTC)
+        assert pending.booked_at == pending.occurred_at
+
     def test_parse_order_without_fees(self) -> None:
         """Orders without tax/stamp duty should have no fee_amount."""
         from tests.connectors.fixtures.trading212_api_fixtures import (
@@ -1021,6 +1068,30 @@ class TestTrading212ConnectorErrorHandling:
 
         with pytest.raises(RateLimitError):
             await conn.authenticate()
+
+    async def test_targeted_api_error_fixture(
+        self,
+        t212_connector_config: ConnectorConfig,
+        t212_mock_transport_factory,
+    ) -> None:
+        """The shared transport can fail one endpoint without network I/O."""
+        import httpx
+
+        from finance_sync.connectors.trading212 import Trading212Connector
+
+        transport = t212_mock_transport_factory(
+            error_status=503,
+            error_paths={"/api/v0/equity/account/cash"},
+        )
+        client = httpx.AsyncClient(
+            base_url="https://live.trading212.com", transport=transport
+        )
+        connector = Trading212Connector(
+            t212_connector_config, http_client=client
+        )
+
+        with pytest.raises(TransientError):
+            await connector.authenticate()
 
     async def test_authentication_error(
         self,
