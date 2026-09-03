@@ -96,7 +96,9 @@ def test_scrub_event_preserves_protocol_identifier_fields() -> None:
     assert scrubbed["environment"] == "prod"
 
 
-def test_capture_connector_exception_adds_safe_context_and_original_error() -> None:
+def test_capture_connector_exception_adds_safe_context_and_original_error() -> (
+    None
+):
     from finance_sync.observability.glitchtip import capture_connector_exception
 
     scope = MagicMock()
@@ -105,12 +107,15 @@ def test_capture_connector_exception_adds_safe_context_and_original_error() -> N
     scope_context.__exit__.return_value = False
     error = ValueError("provider payload contained api_key=secret-value")
 
-    with patch(
-        "finance_sync.observability.glitchtip.sentry_sdk.push_scope",
-        return_value=scope_context,
-    ), patch(
-        "finance_sync.observability.glitchtip.sentry_sdk.capture_exception"
-    ) as capture:
+    with (
+        patch(
+            "finance_sync.observability.glitchtip.sentry_sdk.push_scope",
+            return_value=scope_context,
+        ),
+        patch(
+            "finance_sync.observability.glitchtip.sentry_sdk.capture_exception"
+        ) as capture,
+    ):
         capture_connector_exception(
             error,
             connector="trading212",

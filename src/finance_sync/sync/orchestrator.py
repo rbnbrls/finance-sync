@@ -703,6 +703,7 @@ class SyncOrchestrator(CardsSyncMixin):
 
         uow = _UnitOfWork(session)
         run = None
+        run_id: str | None = None
         accounts_synced = 0
         transactions_synced = 0
         holdings_synced = 0
@@ -739,7 +740,8 @@ class SyncOrchestrator(CardsSyncMixin):
                     connector=provider_type,
                     connection_id=connection_id,
                 )
-                log = log.bind(sync_run_id=str(run.id))
+                run_id = str(run.id)
+                log = log.bind(sync_run_id=run_id)
 
                 if compatibility_error:
                     raise PermanentError(compatibility_error)
@@ -762,6 +764,19 @@ class SyncOrchestrator(CardsSyncMixin):
                 supports_holdings = account_result.supports_holdings
                 accounts_synced = len(canonical_accounts)
                 log.debug("accounts_fetched", count=accounts_synced)
+
+                # A configured account selection is an import contract, not
+                # merely a best-effort filter.  If the provider no longer
+                # returns any selected account (for example after an account
+                # id changed), completing here would stamp the connection as
+                # successful while writing no data at all.
+                if selected_set is not None and not canonical_accounts:
+                    selection_error = (
+                        "Account selection validation failed: "
+                        "none of the selected accounts was returned by the "
+                        "provider"
+                    )
+                    raise PermanentError(selection_error)
 
                 # Commit the run and account rows before processing resources.
                 # Resource writes are isolated below, one transaction per
@@ -925,7 +940,7 @@ class SyncOrchestrator(CardsSyncMixin):
                 operation=current_operation,
                 connection_id=connection_id,
                 provider_account_id=current_account_id,
-                correlation_id=str(getattr(run, "id", "")) or None,
+                correlation_id=run_id,
             )
             end_ts = _dt.now(UTC)
             await self._mark_run_failed(
@@ -944,6 +959,7 @@ class SyncOrchestrator(CardsSyncMixin):
                 unresolved_securities=len(unresolved_keys),
                 error_message=str(exc),
                 error_type=type(exc).__name__,
+                error_category=categorize_sync_error(exc),
                 error_kind=classify_sync_error(exc).value,
                 duration_s=(end_ts - start_ts).total_seconds(),
             )
@@ -954,7 +970,7 @@ class SyncOrchestrator(CardsSyncMixin):
                 operation=current_operation,
                 connection_id=connection_id,
                 provider_account_id=current_account_id,
-                correlation_id=str(getattr(run, "id", "")) or None,
+                correlation_id=run_id,
             )
             end_ts = _dt.now(UTC)
             retry_after_at = (
@@ -997,7 +1013,7 @@ class SyncOrchestrator(CardsSyncMixin):
                 operation=current_operation,
                 connection_id=connection_id,
                 provider_account_id=current_account_id,
-                correlation_id=str(getattr(run, "id", "")) or None,
+                correlation_id=run_id,
             )
             end_ts = _dt.now(UTC)
             await self._mark_run_failed(
@@ -1027,13 +1043,14 @@ class SyncOrchestrator(CardsSyncMixin):
                 operation=current_operation,
                 connection_id=connection_id,
                 provider_account_id=current_account_id,
-                correlation_id=str(getattr(run, "id", "")) or None,
+                correlation_id=run_id,
             )
             end_ts = _dt.now(UTC)
             error_message = safe_sync_error_message(exc)
             log.error(
                 "sync_pipeline_failed",
                 error_type=type(exc).__name__,
+                error_category=categorize_sync_error(exc),
                 error_kind=classify_sync_error(exc).value,
                 error=str(exc)[:500],
             )
@@ -1053,6 +1070,7 @@ class SyncOrchestrator(CardsSyncMixin):
                 unresolved_securities=len(unresolved_keys),
                 error_message=error_message,
                 error_type=type(exc).__name__,
+                error_category=categorize_sync_error(exc),
                 error_kind=classify_sync_error(exc).value,
                 duration_s=(end_ts - start_ts).total_seconds(),
             )

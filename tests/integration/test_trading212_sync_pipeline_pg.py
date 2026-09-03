@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from decimal import Decimal
 from types import SimpleNamespace
 from typing import Any
 
@@ -25,6 +26,7 @@ from finance_sync.models import (
     Transaction,
 )
 from finance_sync.models.enums import SyncRunStatus
+from finance_sync.services.account_selection import filter_accounts
 from finance_sync.sync.orchestrator import SyncOrchestrator
 from finance_sync.sync.persistence import SyncPersistence
 from tests.connectors.fixtures.trading212_api_fixtures import (
@@ -167,6 +169,25 @@ async def _counts(session_factory) -> dict[str, int]:
 
 
 class TestTrading212SyncPipeline:
+    async def test_selected_account_missing_from_provider_fails_without_writes(
+        self, session_factory, tenant
+    ) -> None:
+        result = await _orchestrator(session_factory, tenant).run_sync(
+            "trading212",
+            _config(),
+            since=datetime(2024, 1, 1, tzinfo=UTC),
+            selected_accounts=["changed-provider-account-id"],
+        )
+
+        assert result.status == SyncRunStatus.FAILED
+        assert result.error_category == "validation"
+        assert result.accounts_synced == 0
+        counts = await _counts(session_factory)
+        assert counts["Account"] == 0
+        assert counts["Holding"] == 0
+        assert counts["Transaction"] == 0
+        assert counts["SyncRun"] == 1
+
     async def test_successful_sync_persists_accounts_holdings_and_transactions(
         self, session_factory, tenant
     ) -> None:
@@ -186,6 +207,71 @@ class TestTrading212SyncPipeline:
         assert counts["Security"] == len(PORTFOLIO_RESPONSE)
         assert counts["Holding"] == len(PORTFOLIO_RESPONSE)
         assert counts["Transaction"] == result.transactions_synced
+        assert counts["SyncRun"] == 1
+
+        async with session_factory() as session:
+            account = (await session.scalars(select(Account))).one()
+            assert account.external_account_id == "12345678"
+            assert account.name == "Trading212"
+            assert account.account_type == "brokerage"
+            assert account.currency_code == "EUR"
+            assert account.current_balance == Decimal("10000.50")
+
+            holdings = (
+                await session.scalars(
+                    select(Holding).where(Holding.account_id == account.id)
+                )
+            ).all()
+            assert {h.quantity for h in holdings} == {
+                Decimal("10.0"),
+                Decimal("5.0"),
+                Decimal("50.0"),
+            }
+            assert {h.currency_code for h in holdings} == {"EUR"}
+            assert {h.source for h in holdings} == {"provider_sync"}
+
+            transactions = (
+                await session.scalars(
+                    select(Transaction).where(
+                        Transaction.account_id == account.id
+                    )
+                )
+            ).all()
+            assert {t.external_transaction_id for t in transactions} == {
+                "order_10000001",
+                "order_10000002",
+                "order_10000003",
+                "order_10000004",
+                "txn_20000001",
+                "txn_20000002",
+                "txn_20000003",
+                "txn_20000004",
+                "txn_20000005",
+                "txn_20000006",
+            }
+            assert {t.currency_code for t in transactions} == {"EUR"}
+            assert {t.status for t in transactions} == {"booked", "pending"}
+
+    async def test_selected_account_filters_trading212_resources(
+        self, session_factory, tenant
+    ) -> None:
+        """A selection excluding provider accounts fails without writes."""
+        result = await _orchestrator(session_factory, tenant).run_sync(
+            "trading212",
+            _config(),
+            since=datetime(2024, 1, 1, tzinfo=UTC),
+            selected_accounts=["different-account"],
+        )
+
+        assert result.status == SyncRunStatus.FAILED
+        assert result.error_category == "validation"
+        assert result.accounts_synced == 0
+        assert result.holdings_synced == 0
+        assert result.transactions_synced == 0
+        counts = await _counts(session_factory)
+        assert counts["Account"] == 0
+        assert counts["Holding"] == 0
+        assert counts["Transaction"] == 0
         assert counts["SyncRun"] == 1
 
     async def test_authentication_failure_creates_failed_run_without_data(
@@ -240,7 +326,8 @@ class TestTrading212SyncPipeline:
             accounts = list((await session.execute(select(Account))).scalars())
             assert len(accounts) == 1
             assert accounts[0].external_account_id == "12345678"
-
+            visible = await filter_accounts(session, str(tenant.id), accounts)
+            assert visible == accounts
         exporter = WealthfolioExporter(
             session_factory=session_factory,
             wf_config=WealthfolioConfig(),
@@ -307,8 +394,11 @@ class TestTrading212SyncPipeline:
 
         assert result.status == SyncRunStatus.COMPLETED
         assert result.accounts_synced == 1
-        assert result.transactions_synced == 0
-        assert result.holdings_synced == len(PORTFOLIO_RESPONSE)
+        # Orders are normalized as transactions; the transaction-history
+        # endpoint being empty does not remove those order transactions.
+        assert result.transactions_synced == len(
+            ORDER_HISTORY_RESPONSE["items"]
+        )
         counts = await _counts(session_factory)
         assert counts["Account"] == 1
         assert counts["Holding"] == len(PORTFOLIO_RESPONSE)
@@ -344,7 +434,9 @@ class TestTrading212SyncPipeline:
         )
 
         assert result.status == SyncRunStatus.FAILED
-        assert "database write failed" in (result.error_message or "")
+        # Internal errors are redacted in the public result; the original
+        # exception is retained by the GlitchTip event.
+        assert result.error_message == "Sync failed due to an internal error"
         counts = await _counts(session_factory)
         assert counts["Account"] == 0
         assert counts["Holding"] == 0
