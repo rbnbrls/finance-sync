@@ -967,6 +967,8 @@
         .issue-card h3 { font-size:.92rem; margin:6px 0 4px; }
         .issue-card p { color:var(--text-muted); font-size:.8rem; line-height:1.45; }
         .issue-card .btn { flex:0 0 auto; }
+        .health-details { margin:10px 0 0; padding-left:18px; color:var(--text-muted); font-size:.78rem; line-height:1.5; }
+        .health-details li + li { margin-top:3px; }
         .control-actions { display:flex; flex-wrap:wrap; gap:6px; }
         .action-result { min-height:1.2em; margin-top:6px; color:var(--text-muted); font-size:.78rem; }
         .action-result.success { color:var(--green); }
@@ -1019,7 +1021,7 @@
                 <span class="icon mdi mdi-eye-outline" aria-hidden="true"></span> Viewer
             </a>
             <a href="#" data-section="uploads" data-perm="connectors:read" onclick="switchSection('uploads')">
-                <span class="icon mdi mdi-cloud-upload-outline" aria-hidden="true"></span> Uploads
+                <span class="icon mdi mdi-cloud-upload-outline" aria-hidden="true"></span> Importeren
             </a>
             <a href="#" data-section="exporters" onclick="switchSection('exporters')">
                 <span class="icon mdi mdi-export-variant" aria-hidden="true"></span> Exporters
@@ -1049,7 +1051,7 @@
             </div>
             <div id="control-status" class="control-status" data-status="loading" aria-live="polite" aria-busy="true"><div><h2 class="control-status-label">Control plane laden…</h2><p>De laatste controle wordt opgehaald.</p></div><span class="spinner" aria-hidden="true"></span></div>
             <div class="overview-grid" id="overview-status-grid" aria-live="polite" aria-busy="true">
-                <div class="overview-card"><div class="overview-card-top"><span class="overview-card-label">Importers</span><span class="overview-icon mdi mdi-download-outline"></span></div><div class="overview-value">—</div><p class="overview-detail">Status wordt geladen…</p></div>
+                <div class="overview-card"><div class="overview-card-top"><span class="overview-card-label">Importeren</span><span class="overview-icon mdi mdi-download-outline"></span></div><div class="overview-value">—</div><p class="overview-detail">Status wordt geladen…</p></div>
                 <div class="overview-card database"><div class="overview-card-top"><span class="overview-card-label">Centrale database</span><span class="overview-icon mdi mdi-database-outline"></span></div><div class="overview-value">—</div><p class="overview-detail">Status wordt geladen…</p></div>
                 <div class="overview-card export"><div class="overview-card-top"><span class="overview-card-label">Exporters</span><span class="overview-icon mdi mdi-export-variant"></span></div><div class="overview-value">—</div><p class="overview-detail">Status wordt geladen…</p></div>
                 <div class="overview-card overview-runs"><div class="overview-card-top"><div><span class="overview-card-label">Sync Runs</span><p class="chain-subtitle">De laatste synchronisaties in één oogopslag.</p></div><span class="overview-status">Systeem actief</span></div><div class="run-summary"><div class="run-stat success"><strong>—</strong><span>Voltooid</span></div><div class="run-stat active"><strong>—</strong><span>Bezig</span></div><div class="run-stat failure"><strong>—</strong><span>Mislukt</span></div><div class="run-stat"><strong>—</strong><span>Totaal bekeken</span></div></div></div>
@@ -1302,6 +1304,20 @@
             if (sources) { sources.setAttribute('aria-busy', 'false'); sources.innerHTML = sourceRows ? `<div class="control-table-wrap"><table class="data-table control-table"><thead><tr><th>Bron</th><th>Status</th><th>Laatste succesvolle sync</th><th>Dekking</th></tr></thead><tbody>${sourceRows}</tbody></table></div>` : '<div class="overview-empty">Nog geen bronnen geconfigureerd.</div>'; }
             const issues = document.getElementById('data-health-issues');
             if (issues) { issues.setAttribute('aria-busy', 'false'); issues.innerHTML = (data.issues || []).length ? data.issues.map(issue => `<article class="issue-card"><div><span class="severity severity-${escapeHtml(issue.severity)}">${escapeHtml(issue.severity)}</span><h3>${escapeHtml(issue.title)}</h3><p>${escapeHtml(issue.description)}</p>${issue.provider ? `<span class="muted">Bron: ${escapeHtml(issue.provider)}</span>` : ''}${issue.impact_count ? `<span class="muted"> · Impact: ${escapeHtml(issue.impact_count)}</span>` : ''}<div class="action-result" id="health-result-${escapeHtml(issue.id)}" aria-live="polite" tabindex="-1"></div></div><div class="control-actions">${renderControlActions([issue.action], `health-result-${issue.id}`)}</div></article>`).join('') : '<div class="overview-empty">Geen open problemen. De datastroom werkt zoals verwacht.</div>'; }
+            if (issues && Array.isArray(data.issues)) {
+                issues.querySelectorAll('.issue-card').forEach((card, index) => {
+                    const details = data.issues[index]?.details || [];
+                    if (!details.length) return;
+                    const list = document.createElement('ul');
+                    list.className = 'health-details';
+                    details.forEach(detail => {
+                        const item = document.createElement('li');
+                        item.textContent = detail;
+                        list.appendChild(item);
+                    });
+                    card.querySelector('div')?.appendChild(list);
+                });
+            }
         }
 
         function reconciliationRunIdFromPath(path) {
@@ -1476,7 +1492,7 @@
                     }
                 } else if (path.includes('/securities/unresolved')) {
                     switchSection('connectors');
-                } else if (path.includes('/accounts') || path.includes('/transactions')) {
+                } else if (path.includes('/accounts') || path.includes('/transactions') || path.includes('/holdings')) {
                     switchSection('viewer');
                     await loadViewer();
                 } else if (path.includes('/connectors/file-uploads')) {
@@ -2427,7 +2443,7 @@
                 connectorCatalog = catalog || [];
                 fileUploadState.configs = saved || [];
                 renderImportProviders();
-            } catch (e) { choice.innerHTML = `<div class="alert alert-error">Importers konden niet worden geladen. ${escapeHtml(e.message || '')}</div>`; }
+            } catch (e) { choice.innerHTML = `<div class="alert alert-error" role="alert">Importeren kon niet worden geladen. ${escapeHtml(e.message || '')} <button type="button" class="btn btn-secondary btn-sm" onclick="loadImportFlow()">Opnieuw proberen</button></div>`; }
             choice.setAttribute('aria-busy', 'false');
         }
 
@@ -2478,7 +2494,10 @@
             fileUploadState.method = method;
             fileUploadState.inlineTested = false;
             fileUploadState.inlineAccounts = [];
-            const configs = fileUploadState.configs.filter(x => x.provider_type === provider);
+            const allConfigs = fileUploadState.configs.filter(x => x.provider_type === provider);
+            // SaxoInvestor represents one account, so legacy duplicate
+            // profiles must not turn into multiple selectable upload targets.
+            const configs = provider === 'saxo_investor' ? allConfigs.slice(0, 1) : allConfigs;
             if (!configs.length) { renderInlineProfileSetup(provider); return; }
             if (method === 'file') renderProviderFileWizard(provider);
             else renderInlineApiFlow(provider);
@@ -2490,19 +2509,39 @@
             if (!panel || !c) return;
             const copy = importWizardDefinition(provider);
             const isApi = fileUploadState.method === 'api';
+            const isSaxoFile = provider === 'saxo_investor' && !isApi;
             const fields = [...(c.credential_fields || []).map(f => ({ ...f, group: 'credential' })), ...(c.option_fields || []).map(f => ({ ...f, group: 'option' }))];
             const fieldHtml = fields.map(f => {
                 if (f.type === 'boolean') return `<label class="checkbox-wrap"><input class="inline-profile-field" data-group="${f.group}" data-key="${escapeHtml(String(f.key))}" type="checkbox" ${f.default ? 'checked' : ''}> ${escapeHtml(String(f.label || f.key))}</label>`;
                 const required = f.required ? ' required aria-required="true"' : '';
-                return `<div class="form-group"><label for="inline-profile-${escapeHtml(String(f.key))}">${escapeHtml(String(f.label || f.key))}${f.required ? ' <span style="color:var(--red)">*</span>' : ''}</label><input class="inline-profile-field" data-group="${f.group}" data-key="${escapeHtml(String(f.key))}" id="inline-profile-${escapeHtml(String(f.key))}" type="${f.type === 'password' ? 'password' : 'text'}" placeholder="${escapeHtml(String(f.placeholder || ''))}"${required}>${f.description ? `<div class="field-hint">${escapeHtml(String(f.description))}</div>` : ''}</div>`;
+                const inputId = `inline-profile-${escapeHtml(String(f.key))}`;
+                const isSecret = f.type === 'password';
+                const toggle = isSecret ? `<button type="button" class="btn btn-secondary btn-sm" style="margin-top:8px;" onclick="toggleSecretField('${inputId}', this)" aria-controls="${inputId}" aria-label="Show secret">Show</button>` : '';
+                return `<div class="form-group"><label for="${inputId}">${escapeHtml(String(f.label || f.key))}${f.required ? ' <span style="color:var(--red)">*</span>' : ''}</label><input class="inline-profile-field" data-group="${f.group}" data-key="${escapeHtml(String(f.key))}" id="${inputId}" type="${isSecret ? 'password' : 'text'}" autocomplete="${isSecret ? 'new-password' : 'off'}" placeholder="${escapeHtml(String(f.placeholder || ''))}"${required}>${toggle}${f.description ? `<div class="field-hint">${escapeHtml(String(f.description))}</div>` : ''}</div>`;
             }).join('');
+            const profileFields = isSaxoFile ? '' : fieldHtml;
+            const profileName = isSaxoFile
+                ? '<div class="alert alert-info"><strong>Eén SaxoInvestor-account</strong><span style="display:block;margin-top:4px;">Je hebt geen inloggegevens of technische instellingen nodig. Upload straks één Posities-bestand en één Transacties-bestand.</span></div>'
+                : `<div class="form-group"><label for="inline-profile-name">Naam van deze koppeling</label><input id="inline-profile-name" type="text" value="${escapeHtml(String(c.display_name || provider))}" required aria-required="true"><div class="field-hint">Deze naam wordt gebruikt om de koppeling later terug te vinden.</div></div>`;
             panel.classList.remove('hidden');
             document.getElementById('import-flow-step').textContent = 'Stap 2 van 2';
-            const profileHeading = isApi ? 'API-gegevens' : 'Profielgegevens';
+            const profileHeading = isApi ? 'Trading212 API-gegevens' : 'Profielgegevens';
+            const apiHelp = isApi && provider === 'trading212'
+                ? '<div class="alert alert-info" role="note"><strong>Gebruik beide Trading212-gegevens.</strong><span style="display:block;margin-top:4px;">Vul je API Key en API Secret in uit Trading212. Deze worden versleuteld opgeslagen en nooit teruggetoond.</span></div>'
+                : '';
             const testButton = isApi ? '<button type="button" class="btn btn-secondary" id="inline-profile-test" onclick="testInlineProfile(\'' + escapeHtml(provider) + '\')">Verbinding testen</button>' : '';
             const saveDisabled = isApi ? ' disabled' : '';
-            panel.innerHTML = `<div class="degiro-wizard-progress"><div class="wizard-step active"><div class="wizard-step-line"></div><div class="wizard-step-label">${escapeHtml(String(c.display_name || provider))}</div></div><div class="wizard-step active"><div class="wizard-step-line"></div><div class="wizard-step-label">${isApi ? 'API testen en opslaan' : 'Profiel instellen'}</div></div></div><p class="degiro-wizard-copy">Maak eerst een profiel aan voor ${escapeHtml(String(c.display_name || provider))}. ${isApi ? 'Test de gegevens en kies daarna de accounts die je wilt synchroniseren.' : 'Daarna kun je direct bestanden importeren.'}</p><div class="form-group"><label for="inline-profile-name">Naam van deze koppeling</label><input id="inline-profile-name" type="text" value="${escapeHtml(String(c.display_name || provider))}" required aria-required="true"><div class="field-hint">Deze naam wordt gebruikt om de koppeling later terug te vinden.</div></div>${fieldHtml ? `<h3 style="font-size:.9rem;font-weight:600;margin:16px 0 12px;">${profileHeading}</h3>${fieldHtml}` : ''}<div id="inline-profile-test-result" aria-live="polite"></div><div id="inline-profile-accounts" class="wizard-accounts hidden"></div><div id="inline-profile-error" class="hidden alert alert-error" role="alert"></div><div class="degiro-wizard-actions"><button type="button" class="btn btn-secondary" onclick="resetImportFlow()">Andere tegenpartij</button><div class="degiro-wizard-actions-right">${testButton}<button type="button" class="btn btn-primary" id="inline-profile-save" onclick="saveInlineProfile('${escapeHtml(provider)}')"${saveDisabled}>Koppeling opslaan</button></div></div>`;
+            panel.innerHTML = `<div class="degiro-wizard-progress"><div class="wizard-step active"><div class="wizard-step-line"></div><div class="wizard-step-label">${escapeHtml(String(c.display_name || provider))}</div></div><div class="wizard-step active"><div class="wizard-step-line"></div><div class="wizard-step-label">${isApi ? 'API testen en opslaan' : 'Profiel instellen'}</div></div></div><p class="degiro-wizard-copy">Maak eerst een profiel aan voor ${escapeHtml(String(c.display_name || provider))}. ${isApi ? 'Test de gegevens en kies daarna de accounts die je wilt synchroniseren.' : 'Daarna kun je direct bestanden importeren.'}</p>${profileName}${apiHelp}${profileFields ? `<h3 style="font-size:.9rem;font-weight:600;margin:16px 0 12px;">${profileHeading}</h3>${profileFields}` : ''}<div id="inline-profile-test-result" aria-live="polite"></div><div id="inline-profile-accounts" class="wizard-accounts hidden"></div><div id="inline-profile-error" class="hidden alert alert-error" role="alert"></div><div class="degiro-wizard-actions"><button type="button" class="btn btn-secondary" onclick="resetImportFlow()">Andere tegenpartij</button><div class="degiro-wizard-actions-right">${testButton}<button type="button" class="btn btn-primary" id="inline-profile-save" onclick="saveInlineProfile('${escapeHtml(provider)}')"${saveDisabled}>Koppeling opslaan</button></div></div>`;
             document.getElementById('import-provider-choice').classList.add('hidden');
+        }
+
+        function toggleSecretField(fieldId, button) {
+            const field = document.getElementById(fieldId);
+            if (!field) return;
+            const visible = field.type === 'text';
+            field.type = visible ? 'password' : 'text';
+            button.textContent = visible ? 'Show' : 'Hide';
+            button.setAttribute('aria-label', visible ? 'Show secret' : 'Hide secret');
         }
 
         function readInlineProfile(provider) {
@@ -2559,7 +2598,9 @@
         async function saveInlineProfile(provider) {
             const c = connectorCatalog.find(x => x.name === provider);
             const isApi = fileUploadState.method === 'api';
-            const name = String(document.getElementById('inline-profile-name')?.value || '').trim();
+            const name = provider === 'saxo_investor' && !isApi
+                ? 'SaxoInvestor'
+                : String(document.getElementById('inline-profile-name')?.value || '').trim();
             const error = document.getElementById('inline-profile-error');
             const button = document.getElementById('inline-profile-save');
             if (!name) { error.textContent = 'Vul een naam voor de koppeling in.'; error.classList.remove('hidden'); return; }
@@ -2568,6 +2609,7 @@
             if (payload.missing.length) { error.textContent = `Vul in: ${payload.missing.join(', ')}.`; error.classList.remove('hidden'); return; }
             const { credentials, options } = payload;
             if (provider === 'degiro_pension') { options.account_key = crypto.randomUUID(); options.account_name = name; }
+            if (provider === 'saxo_investor' && !isApi) { options.account_key = 'default'; options.account_name = 'SaxoInvestor'; }
             if (button) { button.disabled = true; button.innerHTML = '<span class="spinner"></span> Opslaan…'; }
             try {
                 const result = await api('POST', '/connectors/configs', { provider_type: provider, credentials, options, description: name });
@@ -2584,7 +2626,8 @@
         function renderProviderFileWizard(provider) {
             const panel = document.getElementById('import-flow-panel');
             const copy = importWizardDefinition(provider);
-            const configs = fileUploadState.configs.filter(x => x.provider_type === provider);
+            const allConfigs = fileUploadState.configs.filter(x => x.provider_type === provider);
+            const configs = provider === 'saxo_investor' ? allConfigs.slice(0, 1) : allConfigs;
             panel.classList.remove('hidden');
             document.getElementById('import-flow-step').textContent = 'Stap 2 van 2';
             const selected = fileUploadState.flow?.connection_id || configs[0]?.id || '';
@@ -2595,8 +2638,9 @@
                 ? renderSaxoUploadFields()
                 : `<label class="upload-dropzone" for="import-flow-files"><span class="upload-dropzone-icon mdi mdi-cloud-upload-outline"></span><strong>${escapeHtml(copy.fileDefinitions[0]?.label || 'Bestand selecteren')}</strong><span class="field-hint">${escapeHtml(copy.accept)} · één bestand</span><input id="import-flow-files" type="file" accept="${escapeHtml(copy.accept)}" onchange="setImportFlowFiles(this.files)"></label>`;
             const fileSummary = importFileLabels(provider) || copy.files;
-            panel.innerHTML = `<div class="degiro-wizard-progress"><div class="wizard-step active"><div class="wizard-step-line"></div><div class="wizard-step-label">${escapeHtml(copy.label)} kiezen</div></div><div class="wizard-step active"><div class="wizard-step-line"></div><div class="wizard-step-label">Bestanden verwerken</div></div></div><p class="degiro-wizard-copy">${escapeHtml(fileSummary)}. ${escapeHtml(copy.required)}</p>${profileStep}${uploadStep}<div id="import-flow-selection" class="field-hint" style="margin-top:10px;"></div><div class="degiro-wizard-actions"><button type="button" class="btn btn-secondary" onclick="resetImportFlow()">Andere tegenpartij</button><button type="button" class="btn btn-primary" id="import-flow-start" onclick="startSelectedFileImport()" disabled>Controle starten</button></div>`;
+            panel.innerHTML = `<div class="degiro-wizard-progress" aria-label="Importstappen"><div class="wizard-step active"><div class="wizard-step-line"></div><div class="wizard-step-label">${escapeHtml(copy.label)} kiezen</div></div><div class="wizard-step active"><div class="wizard-step-line"></div><div class="wizard-step-label">Bestanden verwerken</div></div></div><p class="degiro-wizard-copy">${escapeHtml(fileSummary)}. ${escapeHtml(copy.required)}</p>${profileStep}${uploadStep}<div id="import-flow-selection" class="field-hint" style="margin-top:10px;"></div><div class="degiro-wizard-actions"><button type="button" class="btn btn-secondary" onclick="resetImportFlow()">Andere tegenpartij</button><button type="button" class="btn btn-primary" id="import-flow-start" onclick="startSelectedFileImport()" disabled>Controle starten</button></div>`;
             updateImportFlowSelection();
+            panel.querySelector('input, select, button')?.focus();
         }
 
         function resetImportFlow() { fileUploadState = { provider: '', method: '', files: [], flow: null, runId: null, configs: fileUploadState.configs, processing: false, inlineTested: false, inlineAccounts: [] }; document.getElementById('import-flow-step').textContent = 'Stap 1 van 2'; document.getElementById('import-flow-result').innerHTML = ''; renderImportProviders(); }
@@ -2628,7 +2672,6 @@
             Object.defineProperty(file, '_saxoKind', { value: kind, enumerable: false });
             fileUploadState.files.push(file);
             updateImportFlowSelection();
-            if (fileUploadState.files.length === saxoWizardFiles.length && document.getElementById('import-flow-connection')?.value) startSelectedFileImport();
         }
         function setImportFlowFile(kind, input) {
             const file = input.files?.[0];
@@ -2641,9 +2684,15 @@
             if (name) name.textContent = file.name;
             if (card) card.classList.add('is-uploaded');
             updateImportFlowSelection();
-            if (fileUploadState.files.length === 3 && document.getElementById('import-flow-connection')?.value) startSelectedFileImport();
         }
-        function updateImportFlowSelection() { const el = document.getElementById('import-flow-selection'); const btn = document.getElementById('import-flow-start'); const isDegiro = fileUploadState.provider === 'degiro_pension'; const isSaxo = fileUploadState.provider === 'saxo_investor'; if (el) el.textContent = isDegiro ? `${fileUploadState.files.length}/3 bestanden geselecteerd${fileUploadState.files.length === 3 ? ' · controle wordt gestart…' : ' · selecteer Accountoverzicht, Transacties en Portefeuille'}` : isSaxo ? `${fileUploadState.files.length}/2 bestanden geselecteerd${fileUploadState.files.length === 2 ? ' · controle wordt gestart…' : ' · selecteer Posities en Transacties'}` : (fileUploadState.files.length ? `${fileUploadState.files.length} bestand(en): ${fileUploadState.files.map(f => f.name).join(', ')}` : 'Nog geen bestanden geselecteerd.'); if (btn) btn.disabled = !fileUploadState.files.length || (isDegiro && fileUploadState.files.length < 3) || (isSaxo && fileUploadState.files.length < 2) || !document.getElementById('import-flow-connection')?.value; }
+        function updateImportFlowSelection() { const el = document.getElementById('import-flow-selection'); const btn = document.getElementById('import-flow-start'); const isDegiro = fileUploadState.provider === 'degiro_pension'; const isSaxo = fileUploadState.provider === 'saxo_investor'; const required = isDegiro ? 3 : isSaxo ? 2 : 1; const complete = fileUploadState.files.length >= required; if (el) { el.textContent = isDegiro ? `${fileUploadState.files.length}/3 bestanden geselecteerd${complete ? ' · klaar voor controle' : ' · selecteer Accountoverzicht, Transacties en Portefeuille'}` : isSaxo ? `${fileUploadState.files.length}/2 bestanden geselecteerd${complete ? ' · klaar voor controle' : ' · selecteer Posities en Transacties'}` : (fileUploadState.files.length ? `${fileUploadState.files.length} bestand(en): ${fileUploadState.files.map(f => f.name).join(', ')}` : 'Nog geen bestanden geselecteerd.'); el.setAttribute('aria-live', 'polite'); } if (btn) btn.disabled = !complete || !document.getElementById('import-flow-connection')?.value; }
+
+        function validateSelectedFileTypes() {
+            const provider = fileUploadState.provider;
+            const allowed = provider === 'saxo_investor' ? ['.xlsx'] : provider === 'degiro_pension' ? ['.csv', '.xlsx', '.xls'] : provider === 'manual_expense' ? ['.json'] : ['.csv', '.txt'];
+            const invalid = fileUploadState.files.find(file => !allowed.includes(String(file.name || '').toLowerCase().slice(String(file.name || '').lastIndexOf('.'))));
+            if (invalid) throw new Error(`${invalid.name} heeft een ongeldig bestandstype. Gebruik ${allowed.join(', ')}.`);
+        }
 
         async function validateGenericImportFiles() {
             const provider = fileUploadState.provider;
@@ -2699,6 +2748,7 @@
             showImportProcessing();
             const button = document.getElementById('import-flow-start'); if (button) { button.disabled = true; button.innerHTML = '<span class="spinner"></span> Bezig…'; }
             try {
+                validateSelectedFileTypes();
                 await validateGenericImportFiles();
                 const endpoint = '/connectors/file-uploads/dispatch';
                 const response = await fetch(`${API_BASE}${endpoint}`, { method: 'POST', headers, body: form }); const data = await response.json(); if (!response.ok) throw new Error(data.detail || 'Import mislukt.');
@@ -2709,20 +2759,21 @@
                     result.setAttribute('aria-busy', 'false');
                     await loadFileUploads();
                     setTimeout(() => { switchSection('viewer'); }, 700);
-                } else { result.innerHTML = `<div class="alert alert-success"><strong>Import voltooid.</strong> ${escapeHtml(data.message || '')}</div>`; await loadFileUploads(); }
+                } else { fileUploadState.processing = false; result.innerHTML = `<div class="alert alert-success" role="status"><strong>Import voltooid.</strong> ${escapeHtml(data.message || '')}</div><button type="button" class="btn btn-secondary btn-sm" style="margin-top:10px;" onclick="resetImportFlow()">Nieuwe import starten</button>`; await loadFileUploads(); }
                 result.setAttribute('aria-busy', 'false');
-            } catch (e) { fileUploadState.processing = false; result.innerHTML = `<div class="alert alert-error" role="alert"><strong>Import mislukt.</strong> ${escapeHtml(e.message || '')}</div>`; result.setAttribute('aria-busy', 'false'); if (button) { button.disabled = false; button.textContent = 'Opnieuw proberen'; } }
+            } catch (e) { fileUploadState.processing = false; result.innerHTML = `<div class="alert alert-error inline-error" role="alert"><div class="inline-error-msg"><strong>Import mislukt.</strong><span>${escapeHtml(e.message || '')}</span></div><button type="button" class="btn btn-secondary btn-sm" onclick="startSelectedFileImport()"><span class="mdi mdi-refresh"></span> Opnieuw proberen</button></div>`; result.setAttribute('aria-busy', 'false'); if (button) { button.disabled = false; button.textContent = 'Controle opnieuw starten'; } }
         }
 
         async function confirmSelectedFileImport() {
             if (!fileUploadState.runId) return;
             try {
                 const result = await api('POST', `/connectors/file-uploads/dispatch/${fileUploadState.runId}/confirm`, {});
-                document.getElementById('import-flow-result').innerHTML = `<div class="alert alert-success"><strong>Import voltooid.</strong> ${escapeHtml(String(result.created_count ?? 0))} nieuwe items, ${escapeHtml(String(result.updated_count ?? 0))} bijgewerkte items.</div>`;
+                document.getElementById('import-flow-result').innerHTML = `<div class="alert alert-success" role="status"><strong>Import voltooid.</strong> ${escapeHtml(String(result.created_count ?? 0))} nieuwe items, ${escapeHtml(String(result.updated_count ?? 0))} bijgewerkte items.</div><button type="button" class="btn btn-secondary btn-sm" style="margin-top:10px;" onclick="resetImportFlow()">Nieuwe import starten</button>`;
                 fileUploadState.runId = null;
+                fileUploadState.processing = false;
                 await loadFileUploads();
             } catch (e) {
-                document.getElementById('import-flow-result').innerHTML = `<div class="alert alert-error" role="alert">${escapeHtml(e.message || 'Bevestigen mislukt.')}</div>`;
+                document.getElementById('import-flow-result').innerHTML = `<div class="alert alert-error inline-error" role="alert"><div class="inline-error-msg"><strong>Bevestigen mislukt.</strong><span>${escapeHtml(e.message || '')}</span></div><button type="button" class="btn btn-secondary btn-sm" onclick="confirmSelectedFileImport()"><span class="mdi mdi-refresh"></span> Opnieuw proberen</button></div>`;
             }
         }
 
@@ -2785,11 +2836,15 @@
                     const maskedHint = isEdit && isPassword
                         ? '<div class="field-hint" id="cred-mask-hint">Stored credentials are never shown — enter new values only to replace them.</div>'
                         : '';
+                    const secretToggle = isPassword
+                        ? `<button type="button" class="btn btn-secondary btn-sm" style="margin-top:8px;" onclick="toggleSecretField('cred-${escapeHtml(String(f.key))}', this)" aria-controls="cred-${escapeHtml(String(f.key))}" aria-label="Show secret">Show</button>`
+                        : '';
                     const describedBy = ((hintFor ? 'cred-hint-' + escapeHtml(String(f.key)) : '') + (maskedHint ? ' cred-mask-hint' : '')).trim();
                     fieldsHtml += `
                         <div class="form-group">
                             <label for="cred-${escapeHtml(String(f.key))}">${label}${(f.required && required) ? ' <span style="color:var(--red)">*</span>' : ''}</label>
                             <input type="${isPassword ? 'password' : escapeHtml(String(f.type))}" id="cred-${escapeHtml(String(f.key))}"${placeholder}${requiredStr}${autoComplete}${describedBy ? ` aria-describedby="${describedBy}"` : ''}>
+                            ${secretToggle}
                             ${maskedHint}
                             ${descHtml}
                         </div>`;
@@ -3459,14 +3514,21 @@
 
         // ── Delete connection ───────────────────────────────────────────
         async function deleteConfig(configId, providerName) {
-            if (!confirm(`Delete the ${providerName} connection? Already-imported history is kept.`)) return;
             try {
+                const impact = await api('GET', `/connectors/configs/${encodeURIComponent(configId)}/deletion-preview`);
+                const warning = impact.legacy_records_warning ? `\n\n${impact.legacy_records_warning}` : '';
+                const message = `Delete the ${providerName} connection permanently?\n\n` +
+                    `Accounts: ${impact.accounts}\nTransactions: ${impact.transactions}\n` +
+                    `Card transactions: ${impact.card_transactions}\nHoldings: ${impact.holdings}\n` +
+                    `Balances: ${impact.balances}\nOther linked records: ${impact.other_records}` + warning +
+                    `\n\nThis cannot be undone.`;
+                if (!confirm(message)) return;
                 await api('DELETE', `/connectors/configs/${configId}`);
-                toast(`Connection removed for ${providerName}`, 'info');
+                toast(`Connection and linked data removed for ${providerName}`, 'info');
                 delete connTestAccounts[configId];
                 await loadConnectors();
             } catch (e) {
-                toast(`Failed to remove: ${e.message}`, 'error');
+                toast(`Failed to remove connection: ${e.message}`, 'error');
             }
         }
 
@@ -3608,7 +3670,7 @@
         async function rotateJupyterKey(id) { if (!confirm('De huidige Jupyter-sleutel stopt direct. Doorgaan?')) return; try { const result = await api('POST', `/destinations/${id}/jupyter-key/rotate`); const modal = document.createElement('div'); modal.className = 'modal-overlay'; modal.innerHTML = `<div class="modal" role="dialog" aria-modal="true"><h2>Nieuwe Jupyter-sleutel</h2><p>Bewaar deze sleutel nu; hij wordt nooit opnieuw getoond.</p><textarea readonly style="width:100%;min-height:80px;">${escapeHtml(result.api_key)}</textarea><div class="modal-footer"><button class="btn btn-primary" onclick="closeModal()">Ik heb de sleutel bewaard</button></div></div>`; document.getElementById('modal-container').appendChild(modal); openModal(modal); } catch (e) { toast(e.message || 'Sleutel roteren mislukt.', 'error'); } }
         async function downloadJupyterNotebook(id) { try { const response = await fetch(`${API_BASE}/destinations/${encodeURIComponent(id)}/jupyter-notebook`, { headers: authHeaders() }); if (!response.ok) throw new Error((await response.json().catch(() => ({}))).detail || 'Notebook downloaden mislukt.'); const blob = await response.blob(); const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = 'finance-sync-datalake-starter.py'; link.click(); URL.revokeObjectURL(link.href); } catch (e) { toast(e.message || 'Notebook downloaden mislukt.', 'error'); } }
         async function destinationAction(id, action) { try { const result = await api('POST', `/destinations/${id}/${action}`); if (result.jupiter_bootstrap) toast('Jupyter-sleutel is eenmalig aangemaakt; bewaar hem direct.', 'info'); await loadExporters(); } catch (e) { toast(e.message || 'Wijziging mislukt.', 'error'); } }
-        async function deleteDestination(id) { if (!confirm('Deze bestemming verwijderen? Je canonieke datalake blijft intact.')) return; try { await api('DELETE', `/destinations/${id}`); await loadExporters(); } catch (e) { toast(e.message || 'Verwijderen mislukt.', 'error'); } }
+        async function deleteDestination(id) { if (!confirm('Deze exportbestemming lokaal verwijderen? Je canonieke datalake en data op de externe bestemming blijven intact.')) return; try { await api('DELETE', `/destinations/${id}`); await loadExporters(); } catch (e) { toast(e.message || 'Verwijderen mislukt.', 'error'); } }
 
         // ── Feedback button event wiring ────────────────────────────────
         document.addEventListener('DOMContentLoaded', function () {

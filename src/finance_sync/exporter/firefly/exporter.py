@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 import traceback
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING
+from decimal import Decimal, InvalidOperation
+from typing import TYPE_CHECKING, Any, cast
 
+import structlog
 from sqlalchemy import select
 
 from finance_sync.exporter.firefly.client import (
@@ -16,7 +19,24 @@ from finance_sync.exporter.firefly.client import (
 from finance_sync.exporter.firefly.transaction_mapper import map_transaction
 from finance_sync.exporter.models import ExportRun
 from finance_sync.models import Account, Transaction
+from finance_sync.services.destination_references import (
+    record_destination_reference,
+)
 from finance_sync.sync.errors import categorize_export_error
+
+logger = structlog.get_logger("finance_sync.exporter.firefly")
+
+
+def _has_firefly_amount(transaction: Transaction) -> bool:
+    """Return whether Firefly can represent the transaction amount."""
+    raw_amount = getattr(transaction, "amount", None)
+    if raw_amount is None:
+        return False
+    try:
+        return Decimal(str(raw_amount)) != 0
+    except (InvalidOperation, TypeError, ValueError):
+        return False
+
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -68,15 +88,28 @@ class FireflyExporter:
     failure safe even when the remote write succeeded before the timeout.
     """
 
+    capabilities = {
+        "accounts": "read_write",
+        "transactions": "write",
+        "categories": "read_write",
+        "tags": "write",
+        "bills": "read_write",
+        "budgets": "read_write",
+        "splits": "write",
+        "bidirectional": False,
+    }
+
     def __init__(
         self,
         session_factory: async_sessionmaker[AsyncSession],
         firefly_config: FireflyConfig,
         tenant_id: str,
+        target_id: str = "legacy",
     ) -> None:
         self._session_factory = session_factory
         self._config = firefly_config
         self._tenant_id = tenant_id
+        self._target_id = target_id
 
     async def run_export(
         self,
@@ -91,6 +124,8 @@ class FireflyExporter:
             status="running",
             started_at=started,
             exporter_type="firefly",
+            target_id=self._target_id,
+            account_scope=list(account_ids) if account_ids else None,
         )
         async with self._session_factory() as session:
             session.add(run)
@@ -131,14 +166,66 @@ class FireflyExporter:
                     if max_transactions is not None:
                         transactions = transactions[:max_transactions]
                     for transaction in transactions:
+                        if not _has_firefly_amount(transaction):
+                            # Firefly rejects zero-valued transactions with
+                            # HTTP 422.  They are valid canonical records
+                            # (for example bookkeeping-only trade events),
+                            # but cannot be represented as a Firefly
+                            # transaction.  Keep the export healthy and make
+                            # the omission observable in the structured log.
+                            self._log_skip_zero_amount(transaction, account)
+                            continue
                         attempted += 1
                         payload = map_transaction(
                             transaction,
                             account_name=remote_name,
                             import_tag=self._config.import_tag,
+                            budget_name=self._firefly_budget_name(transaction),
                         )
                         try:
-                            await client.store_transaction(payload)
+                            budget_name = payload.get("budget_name")
+                            if isinstance(budget_name, str) and budget_name:
+                                await client.ensure_budget(
+                                    budget_name,
+                                    currency_code=str(
+                                        transaction.currency_code
+                                    ),
+                                )
+                            bill_name = self._firefly_bill_name(transaction)
+                            if bill_name:
+                                bill = await client.ensure_bill(
+                                    bill_name,
+                                    currency_code=str(
+                                        transaction.currency_code
+                                    ),
+                                )
+                                if bill.get("id"):
+                                    payload["bill_id"] = str(bill["id"])
+                            category_name = payload.get("category_name")
+                            if isinstance(category_name, str) and category_name:
+                                await client.ensure_category(category_name)
+                            await client.ensure_tag(self._config.import_tag)
+                            remote = await client.store_transaction(payload)
+                            remote_id = remote.get("id")
+                            if remote_id is not None:
+                                await record_destination_reference(
+                                    self._session_factory,
+                                    tenant_id=self._tenant_id,
+                                    destination_type="firefly",
+                                    transaction_id=str(transaction.id),
+                                    canonical_key=(
+                                        f"{transaction.provider_key}:"
+                                        f"{transaction.external_transaction_id}"
+                                    ),
+                                    destination_object_id=str(remote_id),
+                                    idempotency_key=(
+                                        f"firefly:{transaction.provider_key}:"
+                                        f"{transaction.external_transaction_id}"
+                                    ),
+                                    source_revision=getattr(
+                                        transaction, "revision", None
+                                    ),
+                                )
                             exported += 1
                         except FireflyAPIError as exc:
                             # Firefly returns 422 for a duplicate hash. A
@@ -153,6 +240,16 @@ class FireflyExporter:
                                 raise
             status = "completed"
             error = None
+        except asyncio.CancelledError:
+            await self._finish_run(
+                run,
+                "cancelled",
+                attempted,
+                exported,
+                failed,
+                "Export cancelled",
+            )
+            raise
         except Exception as exc:
             status = "failed"
             error = f"{exc}\n{traceback.format_exc(limit=3)}"
@@ -169,6 +266,34 @@ class FireflyExporter:
             error_message=error,
             duration_s=(datetime.now(UTC) - started).total_seconds(),
             run_id=str(run.id),
+        )
+
+    @staticmethod
+    def _log_skip_zero_amount(
+        transaction: Transaction, account: Account
+    ) -> None:
+        logger.warning(
+            "firefly_transaction_skipped_zero_amount",
+            account=account.name,
+            transaction_id=str(transaction.id),
+            external_transaction_id=str(transaction.external_transaction_id),
+        )
+
+    def _firefly_category_key(self, transaction: Transaction) -> str:
+        suggestion: Any = getattr(transaction, "cashflow_suggestion", None)
+        if isinstance(suggestion, dict):
+            mapping = cast(dict[str, Any], suggestion)
+            suggestion = mapping.get("value") or mapping.get("category")
+        return str(getattr(suggestion, "value", suggestion) or "")
+
+    def _firefly_budget_name(self, transaction: Transaction) -> str | None:
+        return self._config.budget_name_map.get(
+            self._firefly_category_key(transaction)
+        )
+
+    def _firefly_bill_name(self, transaction: Transaction) -> str | None:
+        return self._config.bill_name_map.get(
+            self._firefly_category_key(transaction)
         )
 
     async def _load_accounts(

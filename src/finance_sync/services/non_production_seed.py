@@ -11,7 +11,7 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 from finance_sync.models import Account, Balance, Holding, Security, Transaction
 from finance_sync.models.enums import (
@@ -35,6 +35,17 @@ async def seed_non_production_dataset(
     session: AsyncSession, tenant_id: Any, owner_user_id: Any | None = None
 ) -> bool:
     """Insert the synthetic dataset once, returning whether rows were added."""
+    bind = session.get_bind()
+    if bind.dialect.name == "postgresql":
+        # App and worker run this seed in separate sessions during a
+        # concurrent staging startup.  The marker check alone is not enough:
+        # both transactions can pass it before either commits.
+        await session.execute(
+            text(
+                "SELECT pg_advisory_xact_lock("
+                "hashtext('finance-sync:non-production-seed'))"
+            )
+        )
     marker = await session.scalar(
         select(Account.id).where(
             Account.tenant_id == tenant_id,
@@ -113,8 +124,39 @@ async def seed_non_production_dataset(
             "EUR",
         ),
     ]
+    isins = [item[0] for item in securities_data]
+    tickers = [item[1] for item in securities_data]
+    existing = list(
+        await session.scalars(
+            select(Security).where(
+                Security.isin.in_(isins) | Security.ticker.in_(tickers)
+            )
+        )
+    )
+    existing_by_isin = {
+        security.isin: security for security in existing if security.isin
+    }
+    existing_by_ticker = {
+        security.ticker: security
+        for security in existing
+        if security.ticker and security.isin
+    }
     securities: dict[str, Security] = {}
     for isin, ticker, name, kind, currency in securities_data:
+        existing_security = existing_by_isin.get(
+            isin
+        ) or existing_by_ticker.get(ticker)
+        if existing_security is not None:
+            # A previous interrupted seed could have inserted the security
+            # before the transaction rolled back.  Complete that row instead
+            # of reusing an incomplete record (notably a missing ticker),
+            # otherwise Wealthfolio cannot reconcile the holding identity.
+            existing_security.ticker = ticker
+            existing_security.name = name
+            existing_security.security_type = kind
+            existing_security.currency_code = currency
+            securities[ticker] = existing_security
+            continue
         security = Security(
             isin=isin,
             ticker=ticker,
@@ -139,6 +181,7 @@ async def seed_non_production_dataset(
         quantity: str | None = None,
         unit_price: str | None = None,
         currency: str = "EUR",
+        fx_rate: str | None = None,
     ) -> Transaction:
         return Transaction(
             tenant_id=tenant_id,
@@ -149,8 +192,19 @@ async def seed_non_production_dataset(
             security_id=security.id if security else None,
             amount=Decimal(amount),
             currency_code=currency,
-            amount_in_base=Decimal(amount) if currency == "EUR" else None,
-            base_currency_code="EUR" if currency == "EUR" else None,
+            amount_in_base=(
+                Decimal(amount)
+                if currency == "EUR"
+                else (
+                    Decimal(amount) / Decimal(fx_rate)
+                    if fx_rate is not None
+                    else None
+                )
+            ),
+            base_currency_code="EUR"
+            if fx_rate is not None or currency == "EUR"
+            else None,
+            fx_rate=Decimal(fx_rate) if fx_rate is not None else None,
             quantity=Decimal(quantity) if quantity else None,
             unit_price=Decimal(unit_price) if unit_price else None,
             occurred_at=when,
@@ -255,6 +309,7 @@ async def seed_non_production_dataset(
             "Synthetic dividend",
             security=securities["AAPL"],
             currency="USD",
+            fx_rate="1.10",
         )
     )
 

@@ -5,10 +5,9 @@ The API key is sent directly as the ``Authorization`` header value
 (without a ``Bearer`` prefix, per Trading212's convention).
 
 Rate limit
-    Trading212's free-tier API allows 10 requests per minute per API key.
-    The connector's built-in
-    :class:`~finance_sync.connectors.rate_limiter.RateLimiter` enforces
-    this globally.
+    Trading212 applies endpoint-specific limits per account.  The connector
+    uses a conservative six-request/minute HTTP throttle and honours the
+    provider's reset headers when the account is rate limited.
 
 Pagination
     Trading212 uses cursor-based pagination via a ``nextPagePath`` field
@@ -33,6 +32,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from decimal import Decimal
+from time import time
 from typing import TYPE_CHECKING, Any
 
 import httpx
@@ -49,7 +49,7 @@ from finance_sync.connectors.models import (
     RawTransaction,
     SecurityReference,
 )
-from finance_sync.connectors.rate_limiter import RateLimitPolicy
+from finance_sync.connectors.rate_limiter import RateLimiter, RateLimitPolicy
 
 if TYPE_CHECKING:
     from finance_sync.connectors.models import ConnectorConfig
@@ -92,10 +92,10 @@ class Trading212Connector(Connector):
     supported_resources = frozenset({"accounts", "transactions", "holdings"})
 
     rate_limit_policy = RateLimitPolicy(
-        max_requests=10,
+        max_requests=6,
         window_seconds=60,
-        max_retries=5,
-        backoff_base=2.0,
+        max_retries=2,
+        backoff_base=5.0,
     )
 
     def __init__(
@@ -123,8 +123,48 @@ class Trading212Connector(Connector):
             base_url=base_url,
             timeout=httpx.Timeout(30.0),
         )
+        # Injected transports are used by deterministic unit tests; real
+        # clients get endpoint-aware throttling.
+        throttle_requests = 1 if http_client is None else 0
+        self._http_rate_limiters = {
+            "account": RateLimiter(
+                RateLimitPolicy(
+                    max_requests=throttle_requests,
+                    window_seconds=5,
+                    max_retries=0,
+                )
+            ),
+            "portfolio": RateLimiter(
+                RateLimitPolicy(
+                    max_requests=throttle_requests,
+                    window_seconds=1,
+                    max_retries=0,
+                )
+            ),
+            "history": RateLimiter(
+                RateLimitPolicy(
+                    max_requests=6 if http_client is None else 0,
+                    window_seconds=60,
+                    max_retries=0,
+                )
+            ),
+        }
         self._account_id: str | None = None
         self._account_currency: str = "EUR"
+        self._cash_data: dict[str, Any] | None = None
+
+    async def _get(
+        self, url: str, *, headers: dict[str, str]
+    ) -> httpx.Response:
+        """Make a request after acquiring the endpoint's provider slot."""
+        if "/equity/account/" in url:
+            limiter = self._http_rate_limiters["account"]
+        elif "/equity/portfolio" in url:
+            limiter = self._http_rate_limiters["portfolio"]
+        else:
+            limiter = self._http_rate_limiters["history"]
+        await limiter.acquire()
+        return await self._http.get(url, headers=headers)
 
     @property
     def name(self) -> str:
@@ -133,6 +173,14 @@ class Trading212Connector(Connector):
     # ── Authentication ──────────────────────────────────────────────────
 
     async def authenticate(self) -> None:
+        """Authenticate with operation-level retry and reset-aware backoff."""
+        self._cash_data = None
+        if self._rate_limiter is not None:
+            await self._rate_limiter.retry(self._authenticate_once)
+        else:
+            await self._authenticate_once()
+
+    async def _authenticate_once(self) -> None:
         """Validate the Trading212 API key by calling
         ``GET /api/v0/equity/account/cash``.
 
@@ -151,11 +199,12 @@ class Trading212Connector(Connector):
         )
 
         try:
-            resp = await self._http.get(
+            resp = await self._get(
                 "/api/v0/equity/account/cash", headers=headers
             )
             resp.raise_for_status()
             data = resp.json()
+            self._cash_data = data
             self._account_currency = data.get("currencyCode", "EUR")
             # Account info for a more stable account identifier
             await self._load_account_info(api_key)
@@ -174,7 +223,7 @@ class Trading212Connector(Connector):
             api_key, self.config.credentials.get("api_secret")
         )
         try:
-            resp = await self._http.get(
+            resp = await self._get(
                 "/api/v0/equity/account/info", headers=headers
             )
             resp.raise_for_status()
@@ -213,9 +262,7 @@ class Trading212Connector(Connector):
         )
 
         try:
-            resp = await self._http.get(
-                "/api/v0/equity/portfolio", headers=headers
-            )
+            resp = await self._get("/api/v0/equity/portfolio", headers=headers)
             resp.raise_for_status()
             return resp.json()  # list of portfolio items
         except httpx.HTTPStatusError as exc:
@@ -294,9 +341,9 @@ class Trading212Connector(Connector):
             msg = "Trading212Connector not authenticated"
             raise PermanentError(msg)
 
-        # Fetch fresh cash balance
+        # Reuse the cash response from authenticate() for this sync run.
         api_key = self.config.credentials.get("api_key", "")
-        cash_data = await self._fetch_cash(api_key)
+        cash_data = self._cash_data or await self._fetch_cash(api_key)
 
         return [
             RawAccount(
@@ -325,11 +372,13 @@ class Trading212Connector(Connector):
             api_key, self.config.credentials.get("api_secret")
         )
         try:
-            resp = await self._http.get(
+            resp = await self._get(
                 "/api/v0/equity/account/cash", headers=headers
             )
             resp.raise_for_status()
-            return resp.json()
+            data = resp.json()
+            self._cash_data = data
+            return data
         except httpx.HTTPStatusError as exc:
             _raise_for_status(exc.response)
             raise  # unreachable
@@ -450,7 +499,7 @@ class Trading212Connector(Connector):
         while path:
             url = path
             try:
-                resp = await self._http.get(url, headers=headers)
+                resp = await self._get(url, headers=headers)
                 resp.raise_for_status()
                 data = resp.json()
             except httpx.HTTPStatusError as exc:
@@ -500,7 +549,7 @@ class Trading212Connector(Connector):
         while path:
             url = path
             try:
-                resp = await self._http.get(url, headers=headers)
+                resp = await self._get(url, headers=headers)
                 resp.raise_for_status()
                 data = resp.json()
             except httpx.HTTPStatusError as exc:
@@ -566,6 +615,10 @@ def _raise_for_status(response: httpx.Response) -> None:
     status = response.status_code
     if status == 429:
         retry_after = _parse_retry_after(response)
+        reset_at = _parse_rate_limit_reset(response)
+        if reset_at is not None:
+            reset_delay = max(0.0, reset_at - time()) + 1.0
+            retry_after = max(retry_after or 0.0, reset_delay)
         msg = "Trading212 rate limit exceeded"
         raise RateLimitError(msg, retry_after=retry_after)
     if status in (401, 403):
@@ -581,6 +634,17 @@ def _raise_for_status(response: httpx.Response) -> None:
 def _parse_retry_after(response: httpx.Response) -> float | None:
     """Extract ``Retry-After`` header value in seconds."""
     value = response.headers.get("Retry-After")
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except ValueError:
+        return None
+
+
+def _parse_rate_limit_reset(response: httpx.Response) -> float | None:
+    """Return the provider's reset epoch from ``x-ratelimit-reset``."""
+    value = response.headers.get("x-ratelimit-reset")
     if value is None:
         return None
     try:
@@ -669,7 +733,10 @@ def _parse_order(
     side = data.get("side", "")
     total = Decimal(str(data.get("total", "0")))
     currency = data.get("currencyCode", "EUR")
-    filled_time = _parse_t212_datetime(data.get("filledTime"))
+    filled_time_raw = data.get("filledTime")
+    filled_time = (
+        _parse_t212_datetime(filled_time_raw) if filled_time_raw else None
+    )
     creation_time = _parse_t212_datetime(data.get("creationTime"))
     status_raw = data.get("status", "")
     filled_price = data.get("filledPrice")
@@ -691,7 +758,10 @@ def _parse_order(
         external_account_id=account_id,
         amount=amount,
         currency_code=currency,
-        occurred_at=creation_time,
+        # A filled order occurred at execution time. For pending orders
+        # Trading212 leaves filledTime null; retain creation time instead of
+        # converting the missing timestamp to the Unix epoch.
+        occurred_at=filled_time or creation_time,
         booked_at=filled_time or creation_time,
         description=f"{side} {quantity} x {ticker}"
         if ticker

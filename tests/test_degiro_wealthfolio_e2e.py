@@ -13,7 +13,9 @@ import pytest
 from finance_sync.connectors.degiro_pension import DegiroPensionConnector
 from finance_sync.connectors.models import ConnectorConfig
 from finance_sync.exporter.wealthfolio.exporter import (
+    _holdings_quantity_corrections,
     _holdings_snapshot_payload,
+    _manual_holdings_payload,
     _reconcile_holdings,
     _wf_row_to_api_activity,
 )
@@ -170,6 +172,9 @@ async def test_degiro_exports_reach_exact_wealthfolio_payload() -> None:
     )
     assert len(snapshot["positions"]) == 2
     assert snapshot["cashBalances"] == {"EUR": "20.95"}
+    manual_rows = _manual_holdings_payload(snapshot)
+    assert all("averageCost" in row for row in manual_rows)
+    assert all(row["averageCost"] is not None for row in manual_rows)
 
     remote_rows = [
         {
@@ -231,3 +236,111 @@ def test_reconcile_ignores_remote_cash_row() -> None:
         percentage_tolerance=Decimal("0.005"),
     )
     assert findings == []
+
+
+def test_reconcile_uses_current_balance_when_available_balance_is_empty() -> (
+    None
+):
+    """Broker snapshots use current_balance as the Saxo cash source."""
+    account = MagicMock()
+    account.id = "saxo-account"
+    account.name = "SaxoInvestor"
+    account.available_balance = None
+    account.current_balance = Decimal("35867.45")
+    source_rows = [
+        {
+            "symbol": "AGN:XAMS",
+            "quantity": "428",
+            "snapshotPrice": "7.953995327102803",
+        }
+    ]
+    remote_rows = [
+        {
+            "holdingType": "security",
+            "instrument": {"symbol": "AGN:XAMS"},
+            "quantity": 428,
+            "marketValue": {"base": "3404.31"},
+        },
+        {
+            "holdingType": "cash",
+            "instrument": {"id": "cash:EUR", "symbol": "EUR"},
+            "marketValue": {"base": "35867.45"},
+        },
+    ]
+
+    assert (
+        _reconcile_holdings(
+            account=account,
+            source_rows=source_rows,
+            remote_rows=remote_rows,
+            absolute_tolerance=Decimal("1.00"),
+            percentage_tolerance=Decimal("0.005"),
+        )
+        == []
+    )
+
+
+def test_holdings_snapshot_corrects_missing_and_stale_positions() -> None:
+    """The positions snapshot is authoritative for Wealthfolio quantity."""
+    corrections = _holdings_quantity_corrections(
+        source_rows=[
+            {
+                "symbol": "AGN:XAMS",
+                "isin": "BMG0112X1056",
+                "quantity": "428",
+                "currency": "EUR",
+            }
+        ],
+        remote_rows=[
+            {
+                "quantity": 400,
+                "instrument": {
+                    "id": "asset-agn",
+                    "symbol": "AGN",
+                    "isin": "BMG0112X1056",
+                    "instrumentType": "EQUITY",
+                },
+            },
+            {
+                "quantity": 550,
+                "instrument": {
+                    "id": "asset-tkwy",
+                    "symbol": "TKWY",
+                    "isin": "NL0012015705",
+                    "instrumentType": "EQUITY",
+                },
+            },
+        ],
+        account_id="wf-account",
+        account_currency="EUR",
+        tenant_id=TENANT_ID,
+        finance_sync_account_id="fs-account",
+    )
+
+    assert [
+        (row["activityType"], row["quantity"], row["assetId"])
+        for row in corrections
+    ] == [("BUY", 28.0, "asset-agn"), ("SELL", 550.0, "asset-tkwy")]
+    assert all(row["unitPrice"] == 0.0 for row in corrections)
+    assert all("TARGET:" in row["comment"] for row in corrections)
+
+
+def test_holdings_snapshot_allows_wealthfolio_two_decimal_quantity_rounding() -> (
+    None
+):
+    corrections = _holdings_quantity_corrections(
+        source_rows=[
+            {
+                "symbol": "FRSHFIF.MFU",
+                "quantity": "16.0227",
+                "currency": "EUR",
+            }
+        ],
+        remote_rows=[{"quantity": 16.02, "instrument": {"symbol": "FRSHFIF"}}],
+        account_id="wf-account",
+        account_currency="EUR",
+        tenant_id=TENANT_ID,
+        finance_sync_account_id="fs-account",
+    )
+
+    assert corrections == []

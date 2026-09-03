@@ -30,6 +30,7 @@ from finance_sync.models.credential import (
     Credential,
 )
 from finance_sync.models.import_run import ImportRun
+from finance_sync.observability.glitchtip import capture_connector_exception
 from finance_sync.services.degiro_import import (
     batch_hash,
     build_preview,
@@ -37,6 +38,7 @@ from finance_sync.services.degiro_import import (
     execute_run,
     validate_local_files,
 )
+from finance_sync.services.retry_lock import retry_lease
 from finance_sync.sync.orchestrator import SyncOrchestrator
 from finance_sync.sync.outbox_publisher import OutboxPublisher
 
@@ -306,6 +308,12 @@ async def sync_connector_job(
             # Note: auto-reconciliation is handled inside run_sync() in
             # the orchestrator — no need to run it again here.
         except Exception as exc:
+            capture_connector_exception(
+                exc,
+                connector=provider_key,
+                operation="sync_connection",
+                connection_id=connection_id,
+            )
             tenant_result = {
                 "tenant_id": tenant.id,
                 "connection_id": connection_id,
@@ -1092,14 +1100,45 @@ async def export_wealthfolio_job(container: Container) -> dict[str, Any]:
         for tenant in tenants:
             tenant_log = log.bind(tenant_id=tenant.id)
             try:
-                exporter = WealthfolioExporter(
-                    session_factory=container.session_factory,
-                    wf_config=wf_config,
-                    tenant_id=tenant.id,
+                lease = (
+                    retry_lease(
+                        container.redis_client,
+                        tenant_id=str(tenant.id),
+                        kind="destination-export",
+                        item_id="legacy",
+                    )
+                    if settings.redis_url is not None
+                    else None
                 )
-                result = await exporter.push_to_wealthfolio(
-                    wf_client=wf_client,
-                )
+                if lease is not None:
+                    async with lease:
+                        if not lease.acquired:
+                            tenant_log.info("export_job_tenant_skipped_overlap")
+                            summary.append(
+                                {
+                                    "tenant_id": tenant.id,
+                                    "status": "skipped",
+                                    "reason": "export_in_progress",
+                                }
+                            )
+                            continue
+                        exporter = WealthfolioExporter(
+                            session_factory=container.session_factory,
+                            wf_config=wf_config,
+                            tenant_id=tenant.id,
+                        )
+                        result = await exporter.push_to_wealthfolio(
+                            wf_client=wf_client,
+                        )
+                else:
+                    exporter = WealthfolioExporter(
+                        session_factory=container.session_factory,
+                        wf_config=wf_config,
+                        tenant_id=tenant.id,
+                    )
+                    result = await exporter.push_to_wealthfolio(
+                        wf_client=wf_client,
+                    )
                 tenant_status = (
                     "failed" if result.get("errors") else "completed"
                 )

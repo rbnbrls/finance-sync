@@ -345,6 +345,16 @@ def map_transaction_to_wf_row(
                 "sourceFxRate": (
                     str(txn.fx_rate) if txn.fx_rate is not None else None
                 ),
+                "merchant": getattr(txn, "merchant_name", None),
+                "merchantId": getattr(txn, "merchant_id", None),
+                "merchantCategoryCode": getattr(
+                    txn, "merchant_category_code", None
+                ),
+                "cashflowBucket": getattr(txn, "cashflow_bucket", None),
+                "categorySuggestion": _json_value(
+                    getattr(txn, "cashflow_suggestion", None)
+                ),
+                "splitCount": len(getattr(txn, "splits", ()) or ()),
             },
             **(
                 {"flow": {"is_external": False}}
@@ -357,6 +367,13 @@ def map_transaction_to_wf_row(
             ),
         },
     }
+
+
+def _json_value(value: Any) -> Any:
+    """Return a stable JSON-friendly value for optional Pydantic fields."""
+    if hasattr(value, "model_dump"):
+        return value.model_dump(mode="json")
+    return value
 
 
 def map_holding_to_wf_row(
@@ -394,6 +411,10 @@ def map_holding_to_wf_row(
     return {
         "date": observed.isoformat(),
         "symbol": symbol,
+        # Keep the canonical identity available to the exporter-side
+        # reconciliation. Wealthfolio may return an ISIN even when the
+        # import used the broker ticker (for example AAPL/US0378331005).
+        "isin": security.isin if security is not None else "",
         "quantity": _fmt_decimal(holding.quantity),
         "avgCost": _fmt_decimal(avg_cost) if avg_cost is not None else "",
         "currency": currency,
@@ -579,7 +600,9 @@ def map_holdings_to_csv(
             security=sec,
             default_currency=default_currency,
         )
-        writer.writerow(row)
+        # ``isin`` is retained for exporter-side reconciliation but is not a
+        # column in Wealthfolio's holdings CSV contract.
+        writer.writerow({field: row[field] for field in fieldnames})
 
     return buf.getvalue()
 

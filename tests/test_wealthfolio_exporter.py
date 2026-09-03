@@ -1326,6 +1326,25 @@ class TestWealthfolioPushCursor:
         )
 
     @pytest.mark.asyncio
+    async def test_named_destination_does_not_prune_shared_accounts(
+        self, exporter: WealthfolioExporter
+    ) -> None:
+        """A named destination must not delete another projection's accounts."""
+        exporter._target_id = "destination-1"
+        acct = _make_mock_account()
+        with patch.object(
+            exporter, "_get_wealthfolio_delivery", return_value=None
+        ):
+            wf_client, _fetch_mock, _complete_mock = self._patch_push_deps(
+                exporter,
+                accounts=[acct],
+                txns_by_account={},
+            )
+            await exporter.push_to_wealthfolio(wf_client)
+
+        wf_client.delete_accounts_not_owned_by_finance_sync.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_push_includes_all_owner_accounts_from_explicit_list(
         self, exporter: WealthfolioExporter
     ) -> None:

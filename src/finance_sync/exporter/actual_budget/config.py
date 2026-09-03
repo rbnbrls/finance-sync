@@ -7,7 +7,7 @@ be passed directly to ``ActualBudgetConfig``.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from pydantic import BaseModel, Field
 
@@ -93,6 +93,13 @@ class ActualBudgetConfig(BaseModel):
         description="Override AB account name for specific "
         "finance-sync account IDs.",
     )
+    transfer_account_name_overrides: dict[str, str] = Field(
+        default_factory=dict,
+        description=(
+            "Map canonical counterparty account references to Actual "
+            "Budget account names for native transfers."
+        ),
+    )
 
     model_config = {"extra": "forbid"}
 
@@ -109,6 +116,12 @@ class ActualBudgetConfig(BaseModel):
             and hasattr(password_value, "get_secret_value")
             else str(password_value or "")
         )
+        transfer_overrides = getattr(
+            settings, "actual_budget_transfer_account_name_overrides", {}
+        )
+        if not isinstance(transfer_overrides, dict):
+            transfer_overrides = {}
+        transfer_overrides = cast(dict[str, str], transfer_overrides)
         return cls(
             server_url=getattr(settings, "actual_budget_server_url", "")
             or "http://localhost:5006",
@@ -129,4 +142,5 @@ class ActualBudgetConfig(BaseModel):
             account_name_overrides=getattr(
                 settings, "actual_budget_account_name_overrides", {}
             ),
+            transfer_account_name_overrides=transfer_overrides,
         )

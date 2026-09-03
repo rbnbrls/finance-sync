@@ -17,7 +17,8 @@ Closes # (issue)
 
 - [ ] `make lint` — Ruff passes
 - [ ] `make type` — Pyright passes (strict mode)
-- [ ] `make test` — Existing tests pass
+- [ ] `make test-ci` — Unit tests and coverage gate pass
+- [ ] `make ci-fast` — Complete fast PR gate passes
 - [ ] New tests added for the change
 
 ## Checklist
