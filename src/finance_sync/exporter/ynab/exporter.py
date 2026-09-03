@@ -11,6 +11,7 @@ from finance_sync.exporter.ynab.client import YNABClient
 from finance_sync.exporter.ynab.config import YNABConfig
 from finance_sync.exporter.ynab.transaction_mapper import map_transaction
 from finance_sync.models import Account, Transaction
+from finance_sync.observability.glitchtip import capture_connector_exception
 from finance_sync.services.destination_references import (
     record_destination_reference,
 )
@@ -90,8 +91,16 @@ class YNABExporter:
 
         if not payload:
             return {"attempted": 0, "imported": 0, "skipped": len(transactions)}
-        async with YNABClient(self._config) as client:
-            result = await client.import_transactions(payload)
+        try:
+            async with YNABClient(self._config) as client:
+                result = await client.import_transactions(payload)
+        except Exception as exc:
+            capture_connector_exception(
+                exc,
+                connector="ynab",
+                operation="import_transactions",
+            )
+            raise
         remote_ids = result.get("data", {}).get("transaction_ids", [])
         for transaction, mapped, remote_id in zip(
             payload_sources, payload, remote_ids, strict=False
