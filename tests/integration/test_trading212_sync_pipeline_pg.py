@@ -10,7 +10,9 @@ from typing import Any
 import httpx
 import pytest
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 
+from finance_sync.connectors.exceptions import PermanentError
 from finance_sync.connectors.models import ConnectorConfig
 from finance_sync.connectors.registry import ConnectorRegistry
 from finance_sync.connectors.trading212 import Trading212Connector
@@ -53,11 +55,13 @@ class Trading212PipelineTransport(httpx.MockTransport):
         self,
         *,
         fail_transactions: bool = False,
+        fail_mapping: bool = False,
         retry_transactions_once: bool = False,
         empty_transactions: bool = False,
         malformed_portfolio: bool = False,
     ) -> None:
         self.fail_transactions = fail_transactions
+        self.fail_mapping = fail_mapping
         self.retry_transactions_once = retry_transactions_once
         self.empty_transactions = empty_transactions
         self.malformed_portfolio = malformed_portfolio
@@ -105,22 +109,33 @@ class PipelineTrading212Connector(Trading212Connector):
         config: ConnectorConfig,
         *,
         fail_transactions: bool = False,
+        fail_mapping: bool = False,
         retry_transactions_once: bool = False,
         empty_transactions: bool = False,
         malformed_portfolio: bool = False,
     ) -> None:
         self.transport = Trading212PipelineTransport(
             fail_transactions=fail_transactions,
+            fail_mapping=fail_mapping,
             retry_transactions_once=retry_transactions_once,
             empty_transactions=empty_transactions,
             malformed_portfolio=malformed_portfolio,
         )
+        self.fail_mapping = fail_mapping
         super().__init__(
             config,
             http_client=httpx.AsyncClient(
                 base_url="https://live.trading212.com", transport=self.transport
             ),
         )
+
+    def transform_transactions(self, raw):
+        if self.fail_mapping:
+            message = (
+                "Trading212 transaction mapping failed: unsupported payload"
+            )
+            raise PermanentError(message)
+        return super().transform_transactions(raw)
 
 
 def _config() -> ConnectorConfig:
@@ -309,6 +324,50 @@ class TestTrading212SyncPipeline:
         assert counts["Account"] == 0
         assert counts["Holding"] == 0
         assert counts["Transaction"] == 0
+        assert counts["SyncRun"] == 1
+
+    async def test_mapping_failure_is_failed_with_actionable_error(
+        self, session_factory, tenant
+    ) -> None:
+        result = await _orchestrator(
+            session_factory, tenant, fail_mapping=True
+        ).run_sync(
+            "trading212", _config(), since=datetime(2024, 1, 1, tzinfo=UTC)
+        )
+
+        assert result.status == SyncRunStatus.FAILED
+        assert result.error_category == "data_mapping"
+        assert "mapping" in (result.error_message or "").lower()
+        counts = await _counts(session_factory)
+        assert counts["Transaction"] == 0
+        assert counts["SyncRun"] == 1
+
+    async def test_database_failure_is_failed_with_actionable_error(
+        self, session_factory, tenant, monkeypatch
+    ) -> None:
+        from finance_sync.sync import orchestrator as orchestrator_module
+
+        class FailingPersistence(orchestrator_module.SyncPersistence):
+            async def persist_account(self, *args, **kwargs):
+                statement = "insert account"
+                raise IntegrityError(
+                    statement,
+                    {},
+                    ValueError("duplicate Trading212 account"),
+                )
+
+        monkeypatch.setattr(
+            orchestrator_module, "SyncPersistence", FailingPersistence
+        )
+        result = await _orchestrator(session_factory, tenant).run_sync(
+            "trading212", _config(), since=datetime(2024, 1, 1, tzinfo=UTC)
+        )
+
+        assert result.status == SyncRunStatus.FAILED
+        assert result.error_category == "database"
+        assert result.error_message == "Database error while syncing"
+        counts = await _counts(session_factory)
+        assert counts["Account"] == 0
         assert counts["SyncRun"] == 1
 
     async def test_selected_account_is_persisted_and_export_filter_can_find_it(

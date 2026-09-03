@@ -11,6 +11,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from sqlalchemy.exc import IntegrityError
 
 from finance_sync.connectors.exceptions import (
     PermanentError,
@@ -21,6 +22,7 @@ from finance_sync.sync.errors import (
     InvalidSinceError,
     categorize_sync_error,
     classify_sync_error,
+    safe_sync_error_message,
     validate_since,
 )
 
@@ -121,3 +123,8 @@ class TestCategorizeInvalidSince:
             "reauth_required",
             "authentication",
         )
+
+    def test_database_failure_has_actionable_safe_message(self) -> None:
+        error = IntegrityError("insert", {}, ValueError("duplicate"))
+        assert categorize_sync_error(error) == "database"
+        assert safe_sync_error_message(error) == "Database error while syncing"

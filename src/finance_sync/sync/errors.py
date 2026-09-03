@@ -45,6 +45,8 @@ def safe_sync_error_message(error: BaseException) -> str:
     """Return a bounded message suitable for a SyncRun/API response."""
     if isinstance(error, ConnectorError):
         return str(error)[:2048] or "Connector sync failed"
+    if categorize_sync_error(error) == "database":
+        return "Database error while syncing"
     return "Sync failed due to an internal error"
 
 
