@@ -8,9 +8,9 @@ process.
 
 from __future__ import annotations
 
-import hashlib
 import re
 from collections.abc import Mapping
+from hashlib import sha256
 from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import urlsplit
 
@@ -204,6 +204,43 @@ def capture_job_exception(error: BaseException) -> None:
     sentry_sdk.capture_exception(error)
 
 
+def _correlation_value(value: str | None) -> str | None:
+    """Return a stable, non-reversible identifier for error correlation."""
+    if not value:
+        return None
+    return sha256(value.encode("utf-8")).hexdigest()[:16]
+
+
+def capture_sync_exception(
+    error: BaseException,
+    *,
+    connector: str,
+    operation: str,
+    connection_id: str | None = None,
+    sync_run_id: str | None = None,
+    account_id: str | None = None,
+) -> None:
+    """Capture a sync failure with safe operation/correlation metadata.
+
+    Identifiers are hashed so the GlitchTip → GitHub workflow can correlate
+    repeated failures without exposing account, tenant, or credential data.
+    Event values remain subject to :func:`scrub_event` before transport.
+    """
+    with sentry_sdk.push_scope() as scope:  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
+        safe_scope: Any = cast("Any", scope)
+        safe_scope.set_tag("connector", connector)  # pyright: ignore[reportUnknownMemberType]
+        safe_scope.set_tag("sync_operation", operation)  # pyright: ignore[reportUnknownMemberType]
+        for key, value in (
+            ("connection_id", connection_id),
+            ("sync_run_id", sync_run_id),
+            ("account_id", account_id),
+        ):
+            correlation = _correlation_value(value)
+            if correlation is not None:
+                safe_scope.set_tag(key, correlation)  # pyright: ignore[reportUnknownMemberType]
+        sentry_sdk.capture_exception(error)
+
+
 def capture_connector_exception(
     error: BaseException,
     *,
@@ -213,29 +250,20 @@ def capture_connector_exception(
     provider_account_id: str | None = None,
     correlation_id: str | None = None,
 ) -> None:
-    """Capture a connector failure with safe, actionable diagnostics.
-
-    Account and connection identifiers are represented by short one-way
-    fingerprints.  This lets operators group failures without sending
-    brokerage identifiers or financial data to GlitchTip.  The exception
-    object itself is passed through so its original type and traceback remain
-    available to the closed-loop issue integration.
-    """
-    sentry = cast("Any", sentry_sdk)
-    with sentry.push_scope() as scope:
-        scope.set_tag("connector", connector)
-        scope.set_tag("operation", operation)
+    """Capture a connector failure with safe diagnostic context."""
+    with sentry_sdk.push_scope() as scope:
+        safe_scope: Any = cast("Any", scope)
+        safe_scope.set_tag("connector", connector)
+        safe_scope.set_tag("operation", operation)
         if correlation_id:
-            scope.set_tag("correlation_id", correlation_id)
-        context: dict[str, str] = {
-            "connector": connector,
-            "operation": operation,
-        }
+            safe_scope.set_tag("correlation_id", correlation_id)
+        context = {"connector": connector, "operation": operation}
         for key, value in (
             ("connection_fingerprint", connection_id),
             ("provider_account_fingerprint", provider_account_id),
         ):
-            if value:
-                context[key] = hashlib.sha256(value.encode()).hexdigest()[:16]
-        scope.set_context("connector", context)
+            fingerprint = _correlation_value(value)
+            if fingerprint:
+                context[key] = fingerprint
+        safe_scope.set_context("connector", context)
         sentry_sdk.capture_exception(error)
