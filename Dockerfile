@@ -39,10 +39,13 @@ FROM python:3.12-slim-trixie AS production
 #     (rc 1), so Coolify rolled back every deployment.  Shipping wget
 #     keeps the default probe working even if a Coolify-side custom
 #     health_check_command is ever reset.
+# python:*-slim includes these unused libraries; removing them keeps the
+# runtime image clear of systemd/udev CVEs (CVE-2026-16742).
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     wget \
     ca-certificates \
+    && apt-get purge -y --auto-remove libsystemd0 libudev1 \
     && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user

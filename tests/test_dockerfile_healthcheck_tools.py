@@ -1,53 +1,48 @@
-"""Regression test: the production image must ship both curl and wget.
-
-Issue #233 (finance-sync-staging crash/restart): Coolify manages the
-app-level healthcheck itself (custom_healthcheck_found=false) and injects
-a **wget**-based probe.  The production image shipped curl only, so every
-probe failed with "/bin/sh: 1: wget: not found" (rc 1) and Coolify rolled
-back every deployment ("New container is not healthy, rolling back...").
-
-The fix pins BOTH tools in the production stage of the Dockerfile:
-  - curl  → backs the Dockerfile HEALTHCHECK below
-  - wget  → satisfies Coolify's default injected probe
-
-This test asserts that coupling so a future Dockerfile edit cannot
-silently drop either tool again.
-"""
+"""Regression tests for production image runtime dependencies."""
 
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DOCKERFILE = PROJECT_ROOT / "Dockerfile"
+DOCKERFILE_WORKER = PROJECT_ROOT / "Dockerfile.worker"
 
 
-def _production_stage() -> str:
-    """Return the Dockerfile text from the production stage onwards."""
-    dockerfile = DOCKERFILE.read_text()
+def _production_stage(path: Path) -> str:
+    """Return Dockerfile text from the production stage onwards."""
+    dockerfile = path.read_text()
     marker = "AS production"
     assert marker in dockerfile, (
-        "production stage marker not found in Dockerfile"
+        f"production stage marker not found in {path.name}"
     )
     return dockerfile.split(marker, 1)[1]
 
 
-def test_production_stage_installs_curl() -> None:
-    """The Dockerfile HEALTHCHECK depends on curl being present."""
-    stage = _production_stage()
-    assert "curl" in stage, (
-        "curl missing from production stage (HEALTHCHECK depends on it)"
-    )
+def test_production_stage_installs_healthcheck_tools() -> None:
+    """Both production images provide tools used by healthcheck probes."""
+    for path in (DOCKERFILE, DOCKERFILE_WORKER):
+        stage = _production_stage(path)
+        assert "curl" in stage, f"curl missing from {path.name}"
+        assert "wget" in stage, f"wget missing from {path.name}"
 
 
-def test_production_stage_installs_wget() -> None:
-    """Coolify's default healthcheck probe is wget-based (issue #233)."""
-    stage = _production_stage()
-    assert "wget" in stage, (
-        "wget missing from production stage (Coolify default probe needs it)"
-    )
+def test_production_stage_removes_unneeded_systemd_libraries() -> None:
+    """Images must not ship the vulnerable, unused systemd runtime libraries."""
+    for path in (DOCKERFILE, DOCKERFILE_WORKER):
+        stage = _production_stage(path)
+        assert "apt-get purge" in stage, (
+            f"systemd cleanup missing from {path.name}"
+        )
+        assert "libsystemd0" in stage, (
+            f"libsystemd0 cleanup missing from {path.name}"
+        )
+        assert "libudev1" in stage, f"libudev1 cleanup missing from {path.name}"
 
 
 def test_production_stage_has_healthcheck() -> None:
-    """The image must keep declaring a HEALTHCHECK on /health/live."""
-    stage = _production_stage()
-    assert "HEALTHCHECK" in stage, "production stage has no HEALTHCHECK"
-    assert "/health/live" in stage, "HEALTHCHECK must target /health/live"
+    """Each production image must declare a live healthcheck."""
+    for path in (DOCKERFILE, DOCKERFILE_WORKER):
+        stage = _production_stage(path)
+        assert "HEALTHCHECK" in stage, f"healthcheck missing from {path.name}"
+        assert "/health/live" in stage, (
+            f"healthcheck target missing from {path.name}"
+        )
