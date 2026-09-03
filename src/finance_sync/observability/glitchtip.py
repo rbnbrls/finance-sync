@@ -239,3 +239,31 @@ def capture_sync_exception(
             if correlation is not None:
                 safe_scope.set_tag(key, correlation)  # pyright: ignore[reportUnknownMemberType]
         sentry_sdk.capture_exception(error)
+
+
+def capture_connector_exception(
+    error: BaseException,
+    *,
+    connector: str,
+    operation: str,
+    connection_id: str | None = None,
+    provider_account_id: str | None = None,
+    correlation_id: str | None = None,
+) -> None:
+    """Capture a connector failure with safe diagnostic context."""
+    with sentry_sdk.push_scope() as scope:
+        safe_scope: Any = cast("Any", scope)
+        safe_scope.set_tag("connector", connector)
+        safe_scope.set_tag("operation", operation)
+        if correlation_id:
+            safe_scope.set_tag("correlation_id", correlation_id)
+        context = {"connector": connector, "operation": operation}
+        for key, value in (
+            ("connection_fingerprint", connection_id),
+            ("provider_account_fingerprint", provider_account_id),
+        ):
+            fingerprint = _correlation_value(value)
+            if fingerprint:
+                context[key] = fingerprint
+        safe_scope.set_context("connector", context)
+        sentry_sdk.capture_exception(error)

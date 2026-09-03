@@ -9,7 +9,6 @@ from pydantic import SecretStr
 
 from finance_sync.config.settings import Settings
 from finance_sync.observability.glitchtip import (
-    capture_sync_exception,
     configure_glitchtip,
     scrub_event,
 )
@@ -97,30 +96,41 @@ def test_scrub_event_preserves_protocol_identifier_fields() -> None:
     assert scrubbed["environment"] == "prod"
 
 
-def test_capture_sync_exception_adds_safe_correlation_tags() -> None:
+def test_capture_connector_exception_adds_safe_context_and_original_error() -> (
+    None
+):
+    from finance_sync.observability.glitchtip import capture_connector_exception
+
     scope = MagicMock()
-    scope.__enter__.return_value = scope
-    scope.__exit__.return_value = False
-    error = RuntimeError("provider token=do-not-send")
+    scope_context = MagicMock()
+    scope_context.__enter__.return_value = scope
+    scope_context.__exit__.return_value = False
+    error = ValueError("provider payload contained api_key=secret-value")
 
     with (
-        patch("finance_sync.observability.glitchtip.sentry_sdk.push_scope", return_value=scope),
-        patch("finance_sync.observability.glitchtip.sentry_sdk.capture_exception") as capture,
+        patch(
+            "finance_sync.observability.glitchtip.sentry_sdk.push_scope",
+            return_value=scope_context,
+        ),
+        patch(
+            "finance_sync.observability.glitchtip.sentry_sdk.capture_exception"
+        ) as capture,
     ):
-        capture_sync_exception(
+        capture_connector_exception(
             error,
             connector="trading212",
             operation="fetch_transactions",
             connection_id="connection-123",
-            sync_run_id="run-456",
-            account_id="account-789",
+            provider_account_id="broker-account-456",
+            correlation_id="sync-run-789",
         )
 
-    assert scope.set_tag.call_args_list[0].args == ("connector", "trading212")
-    assert scope.set_tag.call_args_list[1].args == ("sync_operation", "fetch_transactions")
-    tags = {call.args[0]: call.args[1] for call in scope.set_tag.call_args_list}
-    assert tags["connection_id"] != "connection-123"
-    assert tags["sync_run_id"] != "run-456"
-    assert tags["account_id"] != "account-789"
-    assert all(error.args[0] not in tags.values() for error in [error])
+    scope.set_tag.assert_any_call("connector", "trading212")
+    scope.set_tag.assert_any_call("operation", "fetch_transactions")
+    scope.set_tag.assert_any_call("correlation_id", "sync-run-789")
+    context = scope.set_context.call_args.args[1]
+    assert context["connector"] == "trading212"
+    assert context["operation"] == "fetch_transactions"
+    assert context["connection_fingerprint"] != "connection-123"
+    assert context["provider_account_fingerprint"] != "broker-account-456"
     capture.assert_called_once_with(error)

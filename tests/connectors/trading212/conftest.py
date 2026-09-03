@@ -6,10 +6,13 @@ API and returns canned responses from :mod:`trading212_api_fixtures`.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import httpx
 import pytest
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 from finance_sync.connectors.models import ConnectorConfig
 from finance_sync.connectors.trading212 import (
@@ -20,6 +23,7 @@ from finance_sync.connectors.trading212 import (
 from tests.connectors.fixtures.trading212_api_fixtures import (
     ACCOUNT_CASH_RESPONSE,
     ACCOUNT_INFO_RESPONSE,
+    API_ERROR_RESPONSES,
     DIVIDEND_AAPL,
     ORDER_BUY_AAPL,
     ORDER_HISTORY_RESPONSE,
@@ -36,9 +40,18 @@ class Trading212MockTransport(httpx.MockTransport):
     hit unexpected endpoints.
     """
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        response_overrides: dict[str, Any] | None = None,
+        error_status: int | None = None,
+        error_paths: set[str] | None = None,
+    ) -> None:
         super().__init__(self._handler)
         self._call_log: list[dict[str, object]] = []
+        self.response_overrides = response_overrides or {}
+        self.error_status = error_status
+        self.error_paths = error_paths or set()
 
     @property
     def call_log(self) -> list[dict[str, object]]:
@@ -51,6 +64,19 @@ class Trading212MockTransport(httpx.MockTransport):
         )
 
         path = request.url.path
+
+        if self.error_status is not None and (
+            not self.error_paths or path in self.error_paths
+        ):
+            return httpx.Response(
+                self.error_status,
+                json=API_ERROR_RESPONSES.get(
+                    self.error_status, {"error": "mock API failure"}
+                ),
+            )
+
+        if path in self.response_overrides:
+            return httpx.Response(200, json=self.response_overrides[path])
 
         # GET /api/v0/equity/account/cash
         if request.method == "GET" and path == "/api/v0/equity/account/cash":
@@ -128,6 +154,16 @@ def t212_connector_config() -> ConnectorConfig:
 def t212_mock_transport() -> Trading212MockTransport:
     """Return a fresh mock transport for the Trading212 API."""
     return Trading212MockTransport()
+
+
+@pytest.fixture
+def t212_mock_transport_factory() -> Callable[..., Trading212MockTransport]:
+    """Build isolated transports for API, mapping, and selection scenarios."""
+
+    def factory(**kwargs: Any) -> Trading212MockTransport:
+        return Trading212MockTransport(**kwargs)
+
+    return factory
 
 
 @pytest.fixture

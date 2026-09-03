@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from decimal import Decimal
 from types import SimpleNamespace
 from typing import Any
 
@@ -23,7 +24,9 @@ from finance_sync.models import (
     Transaction,
 )
 from finance_sync.models.enums import SyncRunStatus
+from finance_sync.services.account_selection import filter_accounts
 from finance_sync.sync.orchestrator import SyncOrchestrator
+from finance_sync.sync.persistence import SyncPersistence
 from tests.connectors.fixtures.trading212_api_fixtures import (
     ACCOUNT_CASH_RESPONSE,
     ACCOUNT_INFO_RESPONSE,
@@ -42,8 +45,16 @@ _NO_RECONCILIATION = SimpleNamespace(
 class Trading212PipelineTransport(httpx.MockTransport):
     """Mock the endpoints used by the full Trading212 sync pipeline."""
 
-    def __init__(self, *, fail_transactions: bool = False) -> None:
+    def __init__(
+        self,
+        *,
+        fail_transactions: bool = False,
+        empty_transactions: bool = False,
+        malformed_portfolio: bool = False,
+    ) -> None:
         self.fail_transactions = fail_transactions
+        self.empty_transactions = empty_transactions
+        self.malformed_portfolio = malformed_portfolio
         self.requests: list[str] = []
         super().__init__(self._handle)
 
@@ -55,6 +66,8 @@ class Trading212PipelineTransport(httpx.MockTransport):
         if path == "/api/v0/equity/account/info":
             return httpx.Response(200, json=ACCOUNT_INFO_RESPONSE)
         if path == "/api/v0/equity/portfolio":
+            if self.malformed_portfolio:
+                return httpx.Response(200, json={"unexpected": "shape"})
             return httpx.Response(200, json=PORTFOLIO_RESPONSE)
         if path == "/api/v0/equity/history/orders":
             return httpx.Response(200, json=ORDER_HISTORY_RESPONSE)
@@ -62,6 +75,10 @@ class Trading212PipelineTransport(httpx.MockTransport):
             if self.fail_transactions:
                 return httpx.Response(
                     400, json={"error": "history unavailable"}
+                )
+            if self.empty_transactions:
+                return httpx.Response(
+                    200, json={"items": [], "nextPagePath": None}
                 )
             return httpx.Response(200, json=TRANSACTION_HISTORY_RESPONSE)
         return httpx.Response(404, json={"error": f"unexpected path: {path}"})
@@ -71,10 +88,17 @@ class PipelineTrading212Connector(Trading212Connector):
     """Trading212 connector wired to a per-test mock transport."""
 
     def __init__(
-        self, config: ConnectorConfig, *, fail_transactions: bool = False
+        self,
+        config: ConnectorConfig,
+        *,
+        fail_transactions: bool = False,
+        empty_transactions: bool = False,
+        malformed_portfolio: bool = False,
     ) -> None:
         self.transport = Trading212PipelineTransport(
-            fail_transactions=fail_transactions
+            fail_transactions=fail_transactions,
+            empty_transactions=empty_transactions,
+            malformed_portfolio=malformed_portfolio,
         )
         super().__init__(
             config,
@@ -130,6 +154,25 @@ async def _counts(session_factory) -> dict[str, int]:
 
 
 class TestTrading212SyncPipeline:
+    async def test_selected_account_missing_from_provider_fails_without_writes(
+        self, session_factory, tenant
+    ) -> None:
+        result = await _orchestrator(session_factory, tenant).run_sync(
+            "trading212",
+            _config(),
+            since=datetime(2024, 1, 1, tzinfo=UTC),
+            selected_accounts=["changed-provider-account-id"],
+        )
+
+        assert result.status == SyncRunStatus.FAILED
+        assert result.error_category == "validation"
+        assert result.accounts_synced == 0
+        counts = await _counts(session_factory)
+        assert counts["Account"] == 0
+        assert counts["Holding"] == 0
+        assert counts["Transaction"] == 0
+        assert counts["SyncRun"] == 1
+
     async def test_successful_sync_persists_accounts_holdings_and_transactions(
         self, session_factory, tenant
     ) -> None:
@@ -149,6 +192,71 @@ class TestTrading212SyncPipeline:
         assert counts["Security"] == len(PORTFOLIO_RESPONSE)
         assert counts["Holding"] == len(PORTFOLIO_RESPONSE)
         assert counts["Transaction"] == result.transactions_synced
+        assert counts["SyncRun"] == 1
+
+        async with session_factory() as session:
+            account = (await session.scalars(select(Account))).one()
+            assert account.external_account_id == "12345678"
+            assert account.name == "Trading212"
+            assert account.account_type == "brokerage"
+            assert account.currency_code == "EUR"
+            assert account.current_balance == Decimal("10000.50")
+
+            holdings = (
+                await session.scalars(
+                    select(Holding).where(Holding.account_id == account.id)
+                )
+            ).all()
+            assert {h.quantity for h in holdings} == {
+                Decimal("10.0"),
+                Decimal("5.0"),
+                Decimal("50.0"),
+            }
+            assert {h.currency_code for h in holdings} == {"EUR"}
+            assert {h.source for h in holdings} == {"provider_sync"}
+
+            transactions = (
+                await session.scalars(
+                    select(Transaction).where(
+                        Transaction.account_id == account.id
+                    )
+                )
+            ).all()
+            assert {t.external_transaction_id for t in transactions} == {
+                "order_10000001",
+                "order_10000002",
+                "order_10000003",
+                "order_10000004",
+                "txn_20000001",
+                "txn_20000002",
+                "txn_20000003",
+                "txn_20000004",
+                "txn_20000005",
+                "txn_20000006",
+            }
+            assert {t.currency_code for t in transactions} == {"EUR"}
+            assert {t.status for t in transactions} == {"booked", "pending"}
+
+    async def test_selected_account_filters_trading212_resources(
+        self, session_factory, tenant
+    ) -> None:
+        """A selection excluding provider accounts fails without writes."""
+        result = await _orchestrator(session_factory, tenant).run_sync(
+            "trading212",
+            _config(),
+            since=datetime(2024, 1, 1, tzinfo=UTC),
+            selected_accounts=["different-account"],
+        )
+
+        assert result.status == SyncRunStatus.FAILED
+        assert result.error_category == "validation"
+        assert result.accounts_synced == 0
+        assert result.holdings_synced == 0
+        assert result.transactions_synced == 0
+        counts = await _counts(session_factory)
+        assert counts["Account"] == 0
+        assert counts["Holding"] == 0
+        assert counts["Transaction"] == 0
         assert counts["SyncRun"] == 1
 
     async def test_authentication_failure_creates_failed_run_without_data(
@@ -181,6 +289,83 @@ class TestTrading212SyncPipeline:
         # The account/resource unit of work is rolled back as one batch; the
         # failed resource unit of work must not leave partial account,
         # holdings, or transactions.
+        assert counts["Account"] == 0
+        assert counts["Holding"] == 0
+        assert counts["Transaction"] == 0
+        assert counts["SyncRun"] == 1
+
+    async def test_selected_account_is_persisted_and_export_filter_can_find_it(
+        self, session_factory, tenant
+    ) -> None:
+        result = await _orchestrator(session_factory, tenant).run_sync(
+            "trading212",
+            _config(),
+            since=datetime(2024, 1, 1, tzinfo=UTC),
+            selected_accounts=["12345678"],
+        )
+
+        assert result.status == SyncRunStatus.COMPLETED
+        async with session_factory() as session:
+            accounts = list((await session.execute(select(Account))).scalars())
+            assert len(accounts) == 1
+            assert accounts[0].external_account_id == "12345678"
+            visible = await filter_accounts(session, str(tenant.id), accounts)
+            assert visible == accounts
+
+    async def test_empty_transaction_response_still_completes_with_account_and_holdings(
+        self, session_factory, tenant
+    ) -> None:
+        result = await _orchestrator(
+            session_factory, tenant, empty_transactions=True
+        ).run_sync(
+            "trading212", _config(), since=datetime(2024, 1, 1, tzinfo=UTC)
+        )
+
+        assert result.status == SyncRunStatus.COMPLETED
+        assert result.accounts_synced == 1
+        # Orders are normalized as transactions; the transaction-history
+        # endpoint being empty does not remove those order transactions.
+        assert result.transactions_synced == len(
+            ORDER_HISTORY_RESPONSE["items"]
+        )
+        counts = await _counts(session_factory)
+        assert counts["Account"] == 1
+        assert counts["Holding"] == len(PORTFOLIO_RESPONSE)
+
+    async def test_malformed_portfolio_response_is_failed_without_partial_data(
+        self, session_factory, tenant
+    ) -> None:
+        result = await _orchestrator(
+            session_factory, tenant, malformed_portfolio=True
+        ).run_sync(
+            "trading212", _config(), since=datetime(2024, 1, 1, tzinfo=UTC)
+        )
+
+        assert result.status == SyncRunStatus.FAILED
+        assert result.error_message
+        counts = await _counts(session_factory)
+        assert counts["Account"] == 0
+        assert counts["Holding"] == 0
+        assert counts["Transaction"] == 0
+        assert counts["SyncRun"] == 1
+
+    async def test_persistence_failure_is_failed_without_partial_data(
+        self, session_factory, tenant, monkeypatch
+    ) -> None:
+        async def fail_persist(*args, **kwargs):
+            msg = "database write failed"
+            raise RuntimeError(msg)
+
+        monkeypatch.setattr(SyncPersistence, "persist_account", fail_persist)
+        result = await _orchestrator(session_factory, tenant).run_sync(
+            "trading212", _config(), since=datetime(2024, 1, 1, tzinfo=UTC)
+        )
+
+        assert result.status == SyncRunStatus.FAILED
+        # Internal errors are redacted in the public result; the original
+        # exception is retained by the GlitchTip event.
+        assert result.error_message == "Sync failed due to an internal error"
+        counts = await _counts(session_factory)
         assert counts["Account"] == 0
         assert counts["Holding"] == 0
         assert counts["Transaction"] == 0
