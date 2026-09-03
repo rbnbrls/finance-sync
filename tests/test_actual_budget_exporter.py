@@ -223,6 +223,26 @@ class TestActualBudgetExporter:
     """Exporter tests with mocked DB and AB client."""
 
     @pytest.mark.asyncio
+    async def test_failed_export_is_captured_by_glitchtip(self, exporter) -> None:
+        """Exporter failures must enter the event-driven GlitchTip path."""
+        from finance_sync.exporter.actual_budget import exporter as module
+
+        failure = RuntimeError("Actual Budget unavailable")
+        with (
+            patch.object(exporter, "_load_accounts", side_effect=failure),
+            patch.object(module, "ActualBudgetClient", MockABClient),
+            patch.object(module, "capture_connector_exception") as capture,
+        ):
+            result = await exporter.run_export(
+                since=datetime(2020, 1, 1, tzinfo=UTC),
+            )
+
+        assert result.status == "failed"
+        capture.assert_called_once()
+        assert capture.call_args.args[0] is failure
+        assert capture.call_args.kwargs["connector"] == "actual-budget"
+
+    @pytest.mark.asyncio
     async def test_run_export_no_transactions(self, exporter) -> None:
         """No transactions returns completed result with zero counts."""
         mock_run = MagicMock()

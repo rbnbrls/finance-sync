@@ -19,6 +19,7 @@ from finance_sync.exporter.firefly.client import (
 from finance_sync.exporter.firefly.transaction_mapper import map_transaction
 from finance_sync.exporter.models import ExportRun
 from finance_sync.models import Account, Transaction
+from finance_sync.observability.glitchtip import capture_connector_exception
 from finance_sync.services.destination_references import (
     record_destination_reference,
 )
@@ -253,6 +254,12 @@ class FireflyExporter:
         except Exception as exc:
             status = "failed"
             error = f"{exc}\n{traceback.format_exc(limit=3)}"
+            capture_connector_exception(
+                exc,
+                connector="firefly",
+                operation="export",
+                correlation_id=str(run.id),
+            )
         finally:
             if client is not None:
                 await client.close()

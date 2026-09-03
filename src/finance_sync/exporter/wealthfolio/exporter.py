@@ -64,6 +64,7 @@ from finance_sync.models import (
     TaxLot,
     Transaction,
 )
+from finance_sync.observability.glitchtip import capture_connector_exception
 from finance_sync.sync.errors import categorize_export_error
 
 if TYPE_CHECKING:
@@ -479,7 +480,7 @@ class WealthfolioExporter:
                 failed=txns_failed,
             )
             raise
-        except Exception:
+        except Exception as exc:
             end_ts = datetime.now(UTC)
             tb = traceback.format_exc()
             await self._complete_run(
@@ -494,6 +495,12 @@ class WealthfolioExporter:
             self._log.error(
                 "wealthfolio_export_failed",
                 traceback=tb,
+            )
+            capture_connector_exception(
+                exc,
+                connector="wealthfolio",
+                operation="export",
+                correlation_id=str(run.id),
             )
             return WealthfolioExportResult(
                 status="failed",
