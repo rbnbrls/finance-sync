@@ -97,7 +97,9 @@ async def test_securo_client_failure_returns_failed_result_and_is_captured(
         SecuroConfig(output_dir=tmp_path),
         "tenant-1",
     )
-    account = SimpleNamespace(id="account-1", name="Account", currency_code="EUR")
+    account = SimpleNamespace(
+        id="account-1", name="Account", currency_code="EUR"
+    )
     service._accounts = AsyncMock(return_value=[account])  # type: ignore[method-assign]
     client = MagicMock()
     client.__aenter__ = AsyncMock(return_value=client)
@@ -145,7 +147,9 @@ async def test_ynab_client_failure_is_captured() -> None:
     result = _Result()
     result.scalars = lambda: SimpleNamespace(all=lambda: [account])  # type: ignore[method-assign]
     transaction_result = _Result()
-    transaction_result.scalars = lambda: SimpleNamespace(all=lambda: [transaction])  # type: ignore[method-assign]
+    transaction_result.scalars = lambda: SimpleNamespace(
+        all=lambda: [transaction]
+    )  # type: ignore[method-assign]
 
     class Client:
         async def __aenter__(self) -> Client:
@@ -154,7 +158,9 @@ async def test_ynab_client_failure_is_captured() -> None:
         async def __aexit__(self, *args: object) -> None:
             return None
 
-        async def import_transactions(self, payload: list[dict[str, object]]) -> None:
+        async def import_transactions(
+            self, payload: list[dict[str, object]]
+        ) -> None:
             raise failure
 
     with (
