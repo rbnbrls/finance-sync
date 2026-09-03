@@ -47,6 +47,7 @@ from finance_sync.exporter.actual_budget.transaction_mapper import (
 )
 from finance_sync.exporter.models import ExportRun
 from finance_sync.models import Account, Transaction
+from finance_sync.observability.glitchtip import capture_connector_exception
 from finance_sync.sync.errors import categorize_export_error
 
 if TYPE_CHECKING:
@@ -419,6 +420,12 @@ class ActualBudgetExporter:
                 run.transactions_failed = txns_failed
                 await session.commit()
                 self._log.error("export_connection_failed", error=str(exc))
+                capture_connector_exception(
+                    exc,
+                    connector="actual-budget",
+                    operation="export",
+                    correlation_id=str(run.id),
+                )
                 return ExportResult(
                     status="failed",
                     accounts_mapped=accts_mapped,
@@ -429,7 +436,7 @@ class ActualBudgetExporter:
                     duration_s=(end_ts - start_ts).total_seconds(),
                     run_id=str(run.id),
                 )
-            except Exception:
+            except Exception as exc:
                 await session.rollback()
                 end_ts = datetime.now(UTC)
                 tb = traceback.format_exc()
@@ -442,6 +449,12 @@ class ActualBudgetExporter:
                 run.transactions_failed = txns_failed
                 await session.commit()
                 self._log.error("export_failed", traceback=tb)
+                capture_connector_exception(
+                    exc,
+                    connector="actual-budget",
+                    operation="export",
+                    correlation_id=str(run.id),
+                )
                 return ExportResult(
                     status="failed",
                     accounts_mapped=accts_mapped,

@@ -193,6 +193,35 @@ class TestWealthfolioConfig:
         assert config.instrument_type_overrides == {"crypto": "CRYPTO"}
 
 
+class TestWealthfolioExportMonitoring:
+    async def test_failed_export_is_captured_by_glitchtip(self) -> None:
+        """Exporter failures must enter the event-driven GlitchTip path."""
+        from finance_sync.exporter.wealthfolio import exporter as module
+
+        session = MagicMock()
+        session.flush = AsyncMock()
+        session.commit = AsyncMock()
+        factory = MagicMock()
+        factory.return_value.__aenter__ = AsyncMock(return_value=session)
+        factory.return_value.__aexit__ = AsyncMock(return_value=None)
+        service = WealthfolioExporter(
+            factory, WealthfolioConfig(), tenant_id="tenant-1"
+        )
+        failure = RuntimeError("Wealthfolio unavailable")
+
+        with (
+            patch.object(service, "_load_accounts", side_effect=failure),
+            patch.object(service, "_complete_run", new=AsyncMock()),
+            patch.object(module, "capture_connector_exception") as capture,
+        ):
+            result = await service.run_export(since=datetime.now(UTC))
+
+        assert result.status == "failed"
+        capture.assert_called_once()
+        assert capture.call_args.args[0] is failure
+        assert capture.call_args.kwargs["connector"] == "wealthfolio"
+
+
 # ═══════════════════════════════════════════════════════════════════════
 # Tests for transaction mapper
 # ═══════════════════════════════════════════════════════════════════════
