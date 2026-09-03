@@ -223,7 +223,9 @@ class TestActualBudgetExporter:
     """Exporter tests with mocked DB and AB client."""
 
     @pytest.mark.asyncio
-    async def test_failed_export_is_captured_by_glitchtip(self, exporter) -> None:
+    async def test_failed_export_is_captured_by_glitchtip(
+        self, exporter
+    ) -> None:
         """Exporter failures must enter the event-driven GlitchTip path."""
         from finance_sync.exporter.actual_budget import exporter as module
 
