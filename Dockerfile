@@ -3,13 +3,12 @@
 #
 # Build stage — install dependencies with uv
 # ===========================================
-FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS build
+FROM ghcr.io/astral-sh/uv:python3.12-alpine AS build
 
 # Install system build deps (needed for some native extensions)
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apk add --no-cache \
     gcc \
-    libc6-dev \
-    && rm -rf /var/lib/apt/lists/*
+    musl-dev
 
 # Copy project definition files first (layer caching)
 WORKDIR /app
@@ -28,7 +27,7 @@ RUN uv sync --no-dev --frozen
 
 # Production stage — minimal runtime image
 # =========================================
-FROM python:3.12-slim-trixie AS production
+FROM python:3.12-alpine AS production
 
 # Install runtime system deps.
 # BOTH curl and wget are required (issue #233):
@@ -39,18 +38,16 @@ FROM python:3.12-slim-trixie AS production
 #     (rc 1), so Coolify rolled back every deployment.  Shipping wget
 #     keeps the default probe working even if a Coolify-side custom
 #     health_check_command is ever reset.
-# python:*-slim includes these unused libraries; removing them keeps the
-# runtime image clear of systemd/udev CVEs (CVE-2026-16742).
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# Alpine does not include Debian's systemd/udev libraries in its Python base.
+RUN apk add --no-cache \
+    bash \
     curl \
     wget \
-    ca-certificates \
-    && apt-get purge -y --auto-remove libsystemd0 libudev1 \
-    && rm -rf /var/lib/apt/lists/*
+    ca-certificates
 
 # Create non-root user
-RUN groupadd --system --gid 1000 finance && \
-    useradd --system --gid finance --uid 1000 --create-home --shell /sbin/nologin finance
+RUN addgroup -S -g 1000 finance && \
+    adduser -S -D -G finance -u 1000 -s /sbin/nologin finance
 
 # Copy the project files and .venv from the build stage
 WORKDIR /app

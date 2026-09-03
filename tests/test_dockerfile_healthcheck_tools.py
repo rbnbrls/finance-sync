@@ -25,17 +25,20 @@ def test_production_stage_installs_healthcheck_tools() -> None:
         assert "wget" in stage, f"wget missing from {path.name}"
 
 
-def test_production_stage_removes_unneeded_systemd_libraries() -> None:
-    """Images must not ship the vulnerable, unused systemd runtime libraries."""
+def test_production_stage_uses_runtime_without_systemd_libraries() -> None:
+    """Runtime bases must not inherit the vulnerable systemd libraries."""
     for path in (DOCKERFILE, DOCKERFILE_WORKER):
+        dockerfile = path.read_text()
         stage = _production_stage(path)
-        assert "apt-get purge" in stage, (
-            f"systemd cleanup missing from {path.name}"
+        assert "FROM python:3.12-alpine AS production" in dockerfile, (
+            f"systemd-free runtime base missing from {path.name}"
         )
-        assert "libsystemd0" in stage, (
-            f"libsystemd0 cleanup missing from {path.name}"
+        assert "apt-get purge" not in stage, (
+            f"runtime must not remove essential packages in {path.name}"
         )
-        assert "libudev1" in stage, f"libudev1 cleanup missing from {path.name}"
+        assert "apk add" in stage, (
+            f"Alpine runtime packages missing from {path.name}"
+        )
 
 
 def test_production_stage_has_healthcheck() -> None:
