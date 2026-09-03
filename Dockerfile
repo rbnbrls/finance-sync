@@ -28,7 +28,7 @@ RUN uv sync --no-dev --frozen
 
 # Production stage — minimal runtime image
 # =========================================
-FROM python:3.12-slim-bookworm AS production
+FROM python:3.12-slim-trixie AS production
 
 # Install runtime system deps.
 # BOTH curl and wget are required (issue #233):
