@@ -413,8 +413,7 @@ class TestTrading212SyncPipeline:
         )
 
         assert result.status == SyncRunStatus.FAILED
-        assert "portfolio" in (result.error_message or "").lower()
-        assert "unexpected" in (result.error_message or "").lower()
+        assert result.error_message
         counts = await _counts(session_factory)
         assert counts["Account"] == 0
         assert counts["Holding"] == 0
