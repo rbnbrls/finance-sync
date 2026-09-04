@@ -15,6 +15,10 @@ from finance_sync.api.deps.auth import AuthContext, require_permission
 from finance_sync.config.settings import Settings
 from finance_sync.connectors.models import ConnectorConfig
 from finance_sync.connectors.registry import ConnectorRegistry
+from finance_sync.connectors.trading212 import (
+    _normalise_instrument,
+    _price_scale,
+)
 from finance_sync.dependencies import get_db, get_settings
 from finance_sync.enrichment.models import (
     EnrichmentStatusSummary,
@@ -23,7 +27,10 @@ from finance_sync.enrichment.models import (
 from finance_sync.enrichment.price_store import PriceStore
 from finance_sync.models.credential import Credential
 from finance_sync.models.enrichment_freshness import EnrichmentFreshness
+from finance_sync.models.holding import Holding
+from finance_sync.models.market_data_exception import MarketDataException
 from finance_sync.models.security import Security
+from finance_sync.models.security_listing import SecurityListing
 from finance_sync.services.auth import decrypt_credential
 
 router = APIRouter(tags=["enrichment"])
@@ -56,13 +63,25 @@ async def refresh_quotes(
     Trading212 is currently the supported quote-capable broker adapter.
     """
     cutoff = datetime.now(UTC) - timedelta(hours=24)
+    accepted_ids = set(
+        (
+            await session.execute(
+                select(MarketDataException.security_id).where(
+                    MarketDataException.tenant_id == auth.tenant_id
+                )
+            )
+        ).scalars()
+    )
     stale_result = await session.execute(
         select(Security)
+        .join(Holding, Holding.security_id == Security.id)
         .outerjoin(
             EnrichmentFreshness,
             EnrichmentFreshness.security_id == Security.id,
         )
         .where(
+            Holding.tenant_id == auth.tenant_id,
+            ~Security.id.in_(accepted_ids) if accepted_ids else True,
             (EnrichmentFreshness.last_quote_fetch.is_(None))
             | (EnrichmentFreshness.last_quote_fetch < cutoff)
         )
@@ -110,33 +129,128 @@ async def refresh_quotes(
         try:
             await connector.authenticate()
             portfolio = cast(list[dict[str, Any]], await connector.fetch_portfolio())
+            # Trading212's portfolio payload uses internal tickers.  Its
+            # instrument master supplies the stable ISIN/name/currency used
+            # to match imported DEGIRO/Saxo securities safely.
+            try:
+                instruments = cast(
+                    list[dict[str, Any]], await connector.fetch_instruments()
+                )
+            except Exception:
+                instruments = []
             providers.append("trading212")
             by_ticker = {
                 variant: item
                 for item in portfolio
                 for variant in _ticker_variants(item.get("ticker"))
             }
+            by_isin = {
+                str(item.get("isin", "")).strip().upper(): item
+                for item in instruments
+                if item.get("isin")
+            }
+            instrument_by_ticker = {
+                variant: item
+                for item in instruments
+                for variant in _ticker_variants(item.get("ticker"))
+            }
             observations: list[PriceObservation] = []
             observed_at = datetime.now(UTC)
             freshness_rows: dict[str, EnrichmentFreshness] = {}
             for security in securities:
-                item = next(
-                    (by_ticker.get(variant) for variant in _ticker_variants(security.ticker)),
-                    None,
+                instrument = by_isin.get(str(security.isin or "").upper())
+                if instrument is None:
+                    instrument = next(
+                        (
+                            instrument_by_ticker.get(variant)
+                            for variant in _ticker_variants(security.ticker)
+                        ),
+                        None,
+                    )
+                item = (
+                    next(
+                        (
+                            by_ticker.get(variant)
+                            for variant in _ticker_variants(
+                                instrument.get("ticker")
+                            )
+                        ),
+                        None,
+                    )
+                    if instrument is not None
+                    else next(
+                        (
+                            by_ticker.get(variant)
+                            for variant in _ticker_variants(security.ticker)
+                        ),
+                        None,
+                    )
                 )
                 price = item.get("currentPrice") if item else None
                 if price is None:
                     continue
                 security_id = str(security.id)
-                currency = str(item.get("currencyCode") or security.currency_code or "EUR")
+                raw_ticker = str(item.get("ticker", ""))
+                scale = _price_scale(raw_ticker)
+                price = Decimal(str(price)) * scale
+                currency = str(
+                    item.get("currencyCode")
+                    or (instrument or {}).get("currencyCode")
+                    or security.currency_code
+                    or "EUR"
+                )
+                _, _, venue = _normalise_instrument(raw_ticker)
+                instrument_isin = str((instrument or {}).get("isin", "")).upper()
+                if instrument is not None and instrument_isin == str(
+                    security.isin or ""
+                ).upper():
+                    instrument_name = str(
+                        instrument.get("name")
+                        or instrument.get("shortName")
+                        or ""
+                    ).strip()
+                    normalized_ticker, _, normalized_venue = (
+                        _normalise_instrument(raw_ticker)
+                    )
+                    if instrument_name and (
+                        not security.name
+                        or security.name == security.ticker
+                        or security.name == security.isin
+                        or security.name.upper().endswith("_EQ")
+                    ):
+                        security.name = instrument_name
+                    if normalized_ticker and (
+                        not security.ticker
+                        or security.ticker.upper().endswith("_EQ")
+                    ):
+                        security.ticker = normalized_ticker
+                    if normalized_venue:
+                        listing = await session.scalar(
+                            select(SecurityListing).where(
+                                SecurityListing.security_id == security.id,
+                                SecurityListing.mic == normalized_venue,
+                                SecurityListing.currency_code == currency.upper(),
+                            )
+                        )
+                        if listing is None:
+                            session.add(
+                                SecurityListing(
+                                    security_id=security.id,
+                                    mic=normalized_venue,
+                                    ticker=normalized_ticker,
+                                    currency_code=currency.upper(),
+                                    is_primary_listing=True,
+                                )
+                            )
                 observations.append(
                     PriceObservation(
                         security_id=security_id,
                         timestamp=observed_at,
-                        price_close=Decimal(str(price)),
+                        price_close=price,
                         source="trading212",
                         interval="1d",
                         currency_code=currency,
+                        venue=venue,
                     )
                 )
                 matched_ids.add(security_id)
@@ -166,6 +280,54 @@ async def refresh_quotes(
         "unmatched": len(securities) - len(matched_ids),
         "providers": sorted(set(providers)),
     }
+
+
+@router.post("/enrichment/accept-unavailable-quotes")
+async def accept_unavailable_quotes(
+    auth: AuthContext = Depends(require_permission("enrichment", "write")),
+    session: AsyncSession = Depends(get_db),
+) -> dict[str, object]:
+    """Accept missing quotes as an intentional exception for this tenant."""
+    result = await session.execute(
+        select(Security)
+        .join(Holding, Holding.security_id == Security.id)
+        .outerjoin(
+            EnrichmentFreshness,
+            EnrichmentFreshness.security_id == Security.id,
+        )
+        .where(
+            Holding.tenant_id == auth.tenant_id,
+            ~Security.id.in_(
+                select(MarketDataException.security_id).where(
+                    MarketDataException.tenant_id == auth.tenant_id
+                )
+            ),
+            EnrichmentFreshness.last_quote_fetch.is_(None),
+        )
+        .distinct()
+    )
+    securities = list(result.scalars())
+    for security in securities:
+        freshness = await session.scalar(
+            select(EnrichmentFreshness).where(
+                EnrichmentFreshness.security_id == security.id
+            )
+        )
+        if freshness is None:
+            freshness = EnrichmentFreshness(security_id=str(security.id))
+            session.add(freshness)
+        freshness.status = "unavailable_accepted"
+        freshness.error_message = (
+            "Gebruiker accepteerde dat marktdata niet beschikbaar is."
+        )
+        freshness.data_source = "user_accepted"
+        session.add(
+            MarketDataException(
+                tenant_id=auth.tenant_id, security_id=str(security.id)
+            )
+        )
+    await session.flush()
+    return {"status": "completed", "accepted": len(securities)}
 
 
 @router.get("/enrichment/status")

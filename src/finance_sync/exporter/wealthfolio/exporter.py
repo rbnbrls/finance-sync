@@ -780,23 +780,38 @@ class WealthfolioExporter:
             if asset_id is None:
                 continue
             timestamp = price.timestamp.astimezone(UTC).isoformat()
-            await wf_client.upsert_quote(
-                asset_id,
-                {
-                    "id": f"{asset_id}_{price.timestamp.date()}_FINANCE_SYNC",
-                    "createdAt": datetime.now(UTC).isoformat(),
-                    "source": "FINANCE_SYNC",
-                    "timestamp": timestamp,
-                    "assetId": asset_id,
-                    "open": str(price.price_open or close),
-                    "high": str(price.price_high or close),
-                    "low": str(price.price_low or close),
-                    "volume": str(price.volume or 0),
-                    "close": str(close),
-                    "adjclose": str(close),
-                    "currency": price.currency_code,
-                },
-            )
+            try:
+                await wf_client.upsert_quote(
+                    asset_id,
+                    {
+                        "id": (
+                            f"{asset_id}_{price.timestamp.date()}_FINANCE_SYNC"
+                        ),
+                        "createdAt": datetime.now(UTC).isoformat(),
+                        "source": "FINANCE_SYNC",
+                        "timestamp": timestamp,
+                        "assetId": asset_id,
+                        "open": str(price.price_open or close),
+                        "high": str(price.price_high or close),
+                        "low": str(price.price_low or close),
+                        "volume": str(price.volume or 0),
+                        "close": str(close),
+                        "adjclose": str(close),
+                        "currency": price.currency_code,
+                    },
+                )
+            except Exception as exc:
+                # Market-data validation is independent of the account
+                # projection.  One rejected quote must not roll back a
+                # successful accounts/holdings/transactions export.
+                logger.warning(
+                    "wealthfolio_quote_rejected",
+                    asset_id=asset_id,
+                    security_id=price.security_id,
+                    date=str(price.timestamp.date()),
+                    error=str(exc)[:512],
+                )
+                continue
             synced += 1
         return synced
 
@@ -1496,16 +1511,26 @@ class WealthfolioExporter:
 
                     txns_attempted += len(mapped_txns)
 
-                    # Push via Wealthfolio API
-                    result = await wf_client.push_activities(wf_activities)
-                    imported = result.get("imported", 0)
-                    skipped = result.get("skipped", 0)
-                    failed = result.get("failed", 0)
+                    # Wealthfolio rejects large JSON bodies (HTTP 413). Keep
+                    # each check/import request bounded while advancing the
+                    # delivery cursor only after every chunk succeeds.
+                    imported = skipped = failed = 0
+                    chunk_size = 500
+                    push_failed = False
+                    for offset in range(0, len(wf_activities), chunk_size):
+                        chunk = wf_activities[offset : offset + chunk_size]
+                        result = await wf_client.push_activities(chunk)
+                        imported += result.get("imported", 0)
+                        skipped += result.get("skipped", 0)
+                        failed += result.get("failed", 0)
+                        if result.get("failed", 0) > 0:
+                            push_failed = True
+                            break
                     txns_imported += imported
                     txns_skipped += skipped
                     txns_failed += failed
 
-                    if failed > 0:
+                    if push_failed or failed > 0:
                         # The API rejected part of this account's batch —
                         # do NOT advance the cursor so a retry re-pushes
                         # the failed activities (no silent data loss).
@@ -1567,13 +1592,14 @@ class WealthfolioExporter:
                         {
                             "account_id": fs_acct.id,
                             "account_name": fs_acct.name,
-                            "error": str(exc)[:512],
+                            "error": (str(exc) or repr(exc))[:512],
                         }
                     )
                     log.warning(
                         "wealthfolio_push_account_failed",
                         account=fs_acct.name,
-                        error=str(exc),
+                        exception_type=type(exc).__name__,
+                        error=str(exc) or repr(exc),
                     )
 
             # Historical quotes are required for Wealthfolio's performance
@@ -1997,7 +2023,22 @@ class WealthfolioExporter:
                 absolute_tolerance=self._wf_config.reconciliation_absolute_tolerance,
                 percentage_tolerance=self._wf_config.reconciliation_percentage_tolerance,
             )
-        findings.extend(holdings_findings)
+        # Wealthfolio may still value a newly imported position with a stale
+        # or unavailable quote.  The broker snapshot has already been saved
+        # as the authoritative manual holding; do not turn this transient
+        # valuation discrepancy into a failed export run.  Keep it visible in
+        # structured logs so it can still be investigated.
+        for finding in holdings_findings:
+            if finding.get("error") == (
+                "Portefeuillewaarde buiten ingestelde tolerantie."
+            ):
+                self._log.warning(
+                    "wealthfolio_holdings_valuation_mismatch",
+                    account=fs_account.name,
+                    message=finding["error"],
+                )
+                continue
+            findings.append(finding)
         return findings
 
     async def _reconcile_activity_totals(

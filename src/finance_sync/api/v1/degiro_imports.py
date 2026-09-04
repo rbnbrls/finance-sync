@@ -334,6 +334,11 @@ async def confirm_import(
             session=db,
             retain=body.retain_encrypted,
         )
+        if run.status == "completed":
+            connection.last_success_at = run.completed_at
+            connection.last_attempt_at = run.completed_at
+            connection.last_error = None
+            connection.last_error_category = None
     except ImportValidationError as exc:
         await report_connector_failure(
             container.settings,

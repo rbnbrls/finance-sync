@@ -436,6 +436,7 @@ async def execute_run(
             provider_type="degiro_pension",
             config=config,
             since=datetime.min.replace(tzinfo=UTC),
+            connection_id=str(run.connection_id),
         )
         if result.status.value == "failed":
             message = "De import kon niet atomair worden verwerkt."

@@ -816,14 +816,15 @@ async def enrich_prices_job(container: Container) -> dict[str, Any]:
             # Determine the best identifier to use for the quote lookup
             identifier: str | None = None
             id_type: str = "ticker"
-            if security.ticker:
+            # ISIN is globally stable and avoids ambiguous exchange tickers.
+            if security.isin:
+                identifier = security.isin
+                id_type = "isin"
+            elif security.ticker:
                 identifier = security.ticker
             elif security.figi:
                 identifier = security.figi
                 id_type = "figi"
-            elif security.isin:
-                identifier = security.isin
-                id_type = "isin"
 
             if not identifier:
                 continue

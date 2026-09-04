@@ -25,6 +25,7 @@ class AccountSummary(BaseModel):
     account_type: str
     account_subtype: str | None = None
     currency_code: str
+    venue: str | None = None
     current_balance: E | None = None
     available_balance: E | None = None
     net_asset_value: E | None = None

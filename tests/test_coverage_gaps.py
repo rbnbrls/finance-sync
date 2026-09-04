@@ -2909,6 +2909,9 @@ async def test_degiro_execute_run_completes_and_cleans_staged_files(
     assert completed.skipped_count == 2
     assert completed.account_id == "account-1"
     assert not path.exists()
+    assert orchestrator.run_sync.await_args.kwargs["connection_id"] == (
+        "connection-1"
+    )
 
 
 @pytest.mark.asyncio

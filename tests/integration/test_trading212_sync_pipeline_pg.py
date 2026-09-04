@@ -231,6 +231,7 @@ class TestTrading212SyncPipeline:
             assert account.account_type == "brokerage"
             assert account.currency_code == "EUR"
             assert account.current_balance == Decimal("10000.50")
+            assert account.net_asset_value == Decimal("19626.00")
 
             holdings = (
                 await session.scalars(

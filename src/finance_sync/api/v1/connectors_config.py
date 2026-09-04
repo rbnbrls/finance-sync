@@ -477,6 +477,11 @@ def _credential_response(row: Credential) -> ConnectorConfigResponse:
         if isinstance(parsed, dict):
             options = cast(dict[str, Any], parsed)
             label = options.pop("_label", label) or label
+    # Older connections stored only the JSON options object in description.
+    # Never expose that implementation detail as the connection's name.
+    if not label or label.lstrip().startswith("{"):
+        metadata = _get_registry().list_connectors().get(row.provider_key, {})
+        label = str(metadata.get("display_name", row.provider_key))
     return ConnectorConfigResponse(
         id=str(row.id),
         connection_id=str(row.id),
@@ -1146,11 +1151,12 @@ async def create_connector_config(
 
     # Merge human-readable label into options so it survives updates
     merged_options = dict(options)
-    if body.description:
-        merged_options["_label"] = body.description
-    elif "_label" in merged_options:
-        # Strip stale label if description was cleared
-        del merged_options["_label"]
+    default_label = str(
+        _get_registry().list_connectors()
+        .get(body.provider_type, {})
+        .get("display_name", body.provider_type)
+    )
+    merged_options["_label"] = body.description or default_label
 
     # Store the merged payload (options + optional _label) in description column
     merged_json = (

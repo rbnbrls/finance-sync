@@ -1334,6 +1334,9 @@
         }
 
         function renderDataHealthIssueTools(issue) {
+            if (issue.category === 'freshness') {
+                return `<div class="health-repair-list"><span class="field-hint">Als marktdata voor deze securities niet beschikbaar is, kun je dit als bewuste uitzondering vastleggen.</span><button type="button" class="btn btn-secondary btn-sm" onclick="acceptUnavailableQuotes(this)">Ontbrekende koersen accepteren</button></div>`;
+            }
             const ids = issue.affected_transaction_ids || [];
             if (!ids.length) return '';
             if (issue.category === 'zero_cost_transaction' || issue.category === 'incomplete_transaction') {
@@ -1343,6 +1346,19 @@
                 return `<div class="health-repair-list"><strong>Betrokken transacties</strong>${ids.map(id => `<div class="health-repair-row"><code>${escapeHtml(String(id).slice(0, 8))}</code><button type="button" class="btn btn-danger btn-sm" onclick="tombstoneHealthTransaction('${escapeHtml(id)}')">Markeer duplicaat</button></div>`).join('')}<span class="field-hint">Kies alleen de transactie die aantoonbaar dubbel is. De bronhistorie blijft bewaard.</span></div>`;
             }
             return '';
+        }
+
+        async function acceptUnavailableQuotes(button) {
+            if (!window.confirm('Ontbrekende koersen voor de huidige securities accepteren? Er wordt geen waardering berekend.')) return;
+            button.disabled = true;
+            try {
+                const result = await api('POST', '/enrichment/accept-unavailable-quotes');
+                toast(`${result.accepted || 0} ontbrekende koersen geaccepteerd.`, 'success');
+                await loadOverview();
+                await loadDataHealth();
+            } catch (error) {
+                toast(error?.message || 'De ontbrekende koersen konden niet worden geaccepteerd.', 'error');
+            } finally { button.disabled = false; }
         }
 
         async function correctHealthTransaction(transactionId, changes) {
@@ -1421,7 +1437,7 @@
         }
 
         function readableStatus(value) {
-            return ({ healthy: 'Gezond', active: 'Actief', pending: 'In afwachting', paused: 'Gepauzeerd', error: 'Fout', failed: 'Mislukt', running: 'Bezig', completed: 'Voltooid', partial: 'Gedeeltelijk', skipped: 'Overgeslagen', cancelled: 'Geannuleerd', stale: 'Verouderd', unavailable: 'Niet beschikbaar', fresh: 'Actueel' })[value] || value || 'Onbekend';
+            return ({ healthy: 'Gezond', active: 'Actief', configured: 'Geconfigureerd', connected: 'Verbonden', pending: 'In afwachting', paused: 'Gepauzeerd', error: 'Fout', failed: 'Mislukt', running: 'Bezig', completed: 'Voltooid', partial: 'Gedeeltelijk', skipped: 'Overgeslagen', cancelled: 'Geannuleerd', stale: 'Verouderd', fresh: 'Actueel', unavailable: 'Niet beschikbaar', incompatible: 'Niet compatibel', attention_required: 'Aandacht vereist', reauth_required: 'Opnieuw authenticeren', not_configured: 'Niet geconfigureerd', not_processed: 'Nog niet verwerkt', loading: 'Laden…', unknown: 'Onbekend' })[value] || value || 'Onbekend';
         }
 
         function controlBadge(value) {
@@ -2002,8 +2018,11 @@
             }
 
             connectorCatalog = avail || [];
-            connectors = connectorCatalog.filter(c => c.name !== 'degiro_pension');
-            configs = (cfgs || []).filter(c => c.provider_type !== 'degiro_pension');
+            // Every saved connection belongs in the same status overview,
+            // including file-based providers such as DEGIRO and Saxo.
+            connectors = connectorCatalog;
+            configs = cfgs || [];
+            degiroConfigs = (cfgs || []).filter(c => c.provider_type === 'degiro_pension');
             const healthResults = await Promise.allSettled(configs.map(c =>
                 api('GET', `/connectors/${encodeURIComponent(c.id || c.connection_id)}/health`)
             ));
@@ -2087,8 +2106,14 @@
 
         function renderConnections() {
             const container = document.getElementById('connector-list');
+            const degiroPanel = `<div class="card" style="margin-bottom:24px;border-left:3px solid var(--accent);">
+                <div class="card-header"><div><h2>DEGIRO Pensioen</h2><p class="chain-subtitle">Bestandsimport voor transacties, saldo en actuele holdings.</p></div><span class="badge pending">Bestandsbron</span></div>
+                <p>DEGIRO heeft geen ondersteunde live API. Werk je holdings bij door de drie officiële exports te uploaden.</p>
+                <div class="control-actions" style="margin-top:14px;"><button type="button" class="btn btn-primary btn-sm" onclick="switchSection('uploads')"><span class="mdi mdi-cloud-upload-outline"></span> Holdings bijwerken</button>${degiroConfigs.length ? '' : '<button type="button" class="btn btn-secondary btn-sm" onclick="openCreateWizard(\'degiro_pension\')">Profiel instellen</button>'}</div>
+                <div class="field-hint" style="margin-top:10px;">Benodigd: Transactieoverzicht, Rekeningoverzicht en Portefeuilleoverzicht.</div>
+            </div>`;
             if (!configs.length) {
-                container.innerHTML = `
+                container.innerHTML = degiroPanel + `
                     <div class="empty-state">
                         <div class="icon mdi mdi-link-variant"></div>
                     <p>No connections yet. Add a bunq, Trading212 or file-based broker connection to start syncing.</p>
@@ -2110,7 +2135,7 @@
                 ...Object.keys(byProvider).filter(p => !known.has(p)),
             ];
 
-            let html = '';
+            let html = degiroPanel;
             for (const provider of providerOrder) {
                 const conns = byProvider[provider];
                 if (!conns) continue;
@@ -2159,9 +2184,11 @@
             const health = connectionHealth[String(cfg.id || cfg.connection_id)];
             const healthStatus = health?.overall_status || (isConfigured ? 'pending' : 'unavailable');
             const resourceRows = (health?.resources || []).map(resource =>
-                `<div class="meta-row"><span>${escapeHtml(resource.resource)}: ${escapeHtml(resource.source_status)}</span><span>${resource.stale ? 'stale' : 'fresh'} · ${escapeHtml(fmtDate(resource.last_success_at))}</span></div>`
+                `<div class="meta-row"><span>${escapeHtml(resource.resource)}: ${escapeHtml(readableStatus(resource.source_status))}</span><span>${resource.stale ? 'stale' : 'fresh'} · ${escapeHtml(fmtDate(resource.last_success_at))}</span></div>`
             ).join('');
-            const versionRow = `<div class="meta-row"><span>Connector</span><span>${escapeHtml(meta?.plugin_version || 'unknown')} · ${escapeHtml(health?.compatibility?.status || 'unknown')}</span></div>`;
+            const connectorVersion = meta?.sdk_version || meta?.plugin_version || health?.compatibility?.current_version || 'unknown';
+            const compatibilityStatus = health?.compatibility?.status || 'unknown';
+            const versionRow = `<div class="meta-row"><span>Connector</span><span>${escapeHtml(connectorVersion)} · ${escapeHtml(readableStatus(compatibilityStatus))}</span></div>`;
             const rateLimit = health?.connection?.rate_limit;
             const rateNotice = rateLimit?.active
                 ? `<div class="conn-error" role="status">Rate limit: retry after ${escapeHtml(fmtDate(rateLimit.retry_after_at))} (${escapeHtml(rateLimit.limit_scope || 'connection')}, ${escapeHtml(rateLimit.attempt_count)} attempts)</div>`
@@ -2207,7 +2234,7 @@
                     ${lastError}
                     ${reauthNotice}${rateNotice}
                     <div class="conn-meta" aria-label="Provider health">
-                        <div class="meta-row"><strong>Connection</strong><span>${escapeHtml(health?.connection?.status || 'loading')}</span></div>
+                        <div class="meta-row"><strong>Connection</strong><span>${escapeHtml(readableStatus(health?.connection?.status || 'loading'))}</span></div>
                         <div class="meta-row"><strong>Processing</strong><span>${escapeHtml(fmtDate(health?.last_successful_processing?.last_success_at))}</span></div>
                         ${versionRow}
                         ${resourceRows || '<div class="meta-row"><span>Resource health loading…</span></div>'}
@@ -3241,6 +3268,11 @@
                 toast(`Configuration saved for ${c.display_name}`, 'success');
                 await loadConnectors();
                 if (connectorSupportsFile(providerType)) await loadFileUploads();
+                if (!isEdit && providerType === 'trading212') {
+                    document.getElementById('import-flow-result').innerHTML = '<div class="alert alert-info" role="status"><strong>Trading212 is aangemaakt.</strong> De eerste synchronisatie wordt gestart…</div>';
+                    await startSyncWithProgress(result.id);
+                    await Promise.allSettled([loadOverview(), loadSyncRuns()]);
+                }
             } catch (e) {
                 errorEl.innerHTML = `
                     <strong>Could not save the configuration.</strong>

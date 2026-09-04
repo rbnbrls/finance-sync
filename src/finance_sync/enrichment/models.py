@@ -126,6 +126,7 @@ class PriceObservation(BaseModel):
     source: str = Field(default="openbb")
     interval: str = Field(default="1d")
     currency_code: str = Field(default="EUR")
+    venue: str | None = Field(default=None)
     provider_metadata: dict[str, Any] | None = Field(default=None)
 
 
