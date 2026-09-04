@@ -1124,6 +1124,7 @@ async def _cmd_wealthfolio_push(
                 since=since,
                 full_sync=args.full_history or args.rebuild,
                 rebuild=args.rebuild,
+                prune_accounts=not bool(account_ids),
             )
         print("\nResult:")
         print(f"  Imported:     {result.get('imported', 0)}")

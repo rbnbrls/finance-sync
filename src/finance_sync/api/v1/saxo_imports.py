@@ -32,6 +32,7 @@ from finance_sync.services.degiro_import import (
     connector_options,
     stage_uploads,
 )
+from finance_sync.services.incident_reporting import report_connector_failure
 from finance_sync.sync.orchestrator import SyncOrchestrator
 
 router = APIRouter(
@@ -191,6 +192,14 @@ async def import_files(
             message="Saxo-bestanden zijn geïmporteerd.",
         )
     except PermanentError as exc:
+        await report_connector_failure(
+            container.settings,
+            exc,
+            connector="saxo_investor",
+            operation="file_import",
+            connection_id=str(connection.id),
+            correlation_id=run_id,
+        )
         if import_run is not None:
             import_run.status = "failed"
             import_run.error_details = [str(exc)[:500]]
@@ -202,6 +211,14 @@ async def import_files(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
         ) from exc
     except Exception as exc:
+        await report_connector_failure(
+            container.settings,
+            exc,
+            connector="saxo_investor",
+            operation="file_import",
+            connection_id=str(connection.id),
+            correlation_id=run_id,
+        )
         if import_run is not None:
             import_run.status = "failed"
             import_run.error_details = [str(exc)[:500]]

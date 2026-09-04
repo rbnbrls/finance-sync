@@ -1246,6 +1246,7 @@ class WealthfolioExporter:
         max_transactions: int | None = None,
         full_sync: bool = False,
         rebuild: bool = False,
+        prune_accounts: bool = True,
     ) -> dict[str, Any]:
         """Push exported data directly to a running Wealthfolio instance.
 
@@ -1328,7 +1329,7 @@ class WealthfolioExporter:
             # named destination can share the same Wealthfolio instance with
             # another destination; pruning there would delete accounts owned
             # by the other projection (which caused only Saxo to remain).
-            if self._target_id == "legacy":
+            if self._target_id == "legacy" and prune_accounts:
                 accounts_removed = (
                     await wf_client.delete_accounts_not_owned_by_finance_sync(
                         allowed_provider_ids

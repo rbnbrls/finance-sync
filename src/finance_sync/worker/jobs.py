@@ -30,7 +30,6 @@ from finance_sync.models.credential import (
     Credential,
 )
 from finance_sync.models.import_run import ImportRun
-from finance_sync.observability.glitchtip import capture_connector_exception
 from finance_sync.services.degiro_import import (
     batch_hash,
     build_preview,
@@ -38,6 +37,7 @@ from finance_sync.services.degiro_import import (
     execute_run,
     validate_local_files,
 )
+from finance_sync.services.incident_reporting import report_connector_failure
 from finance_sync.services.retry_lock import retry_lease
 from finance_sync.sync.orchestrator import SyncOrchestrator
 from finance_sync.sync.outbox_publisher import OutboxPublisher
@@ -308,7 +308,8 @@ async def sync_connector_job(
             # Note: auto-reconciliation is handled inside run_sync() in
             # the orchestrator — no need to run it again here.
         except Exception as exc:
-            capture_connector_exception(
+            await report_connector_failure(
+                container.settings,
                 exc,
                 connector=provider_key,
                 operation="sync_connection",
@@ -1161,6 +1162,13 @@ async def export_wealthfolio_job(container: Container) -> dict[str, Any]:
                     },
                 )
             except Exception as exc:
+                await report_connector_failure(
+                    settings,
+                    exc,
+                    connector="wealthfolio",
+                    operation="delivery_sweep",
+                    correlation_id=str(tenant.id),
+                )
                 tenant_log.error(
                     "export_job_tenant_failed",
                     error=str(exc)[:300],

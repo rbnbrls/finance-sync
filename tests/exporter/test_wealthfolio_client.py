@@ -359,6 +359,55 @@ class TestWealthfolioClientImport:
         update.assert_awaited_once_with(existing, "TRANSACTIONS")
         assert result["trackingMode"] == "TRANSACTIONS"
 
+    async def test_ensure_account_reconciles_remote_account_content(
+        self, client: WealthfolioClient
+    ) -> None:
+        client._is_authenticated = True
+        existing = {
+            "id": "wf-brokerage",
+            "name": "Old name",
+            "currency": "USD",
+            "accountType": "CASH",
+            "trackingMode": "HOLDINGS",
+            "group": "Cash",
+            "isActive": False,
+            "isArchived": True,
+            "provider": "FINANCE_SYNC",
+            "providerAccountId": "finance-sync:t:b",
+        }
+        reconciled = {
+            **existing,
+            "name": "Brokerage",
+            "currency": "EUR",
+            "accountType": "SECURITIES",
+            "trackingMode": "TRANSACTIONS",
+            "group": "Investments",
+            "isActive": True,
+            "isArchived": False,
+        }
+        with (
+            patch.object(client, "get_accounts", return_value=[existing]),
+            patch.object(
+                client, "update_account", return_value=reconciled
+            ) as update,
+        ):
+            result = await client.ensure_account(
+                name="Brokerage",
+                currency="EUR",
+                provider_account_id="finance-sync:t:b",
+                account_type="SECURITIES",
+                tracking_mode="TRANSACTIONS",
+            )
+
+        update.assert_awaited_once_with(
+            existing,
+            name="Brokerage",
+            currency="EUR",
+            account_type="SECURITIES",
+            tracking_mode="TRANSACTIONS",
+        )
+        assert result == reconciled
+
     async def test_delete_accounts_keeps_only_exact_finance_sync_dataset(
         self, client: WealthfolioClient
     ) -> None:

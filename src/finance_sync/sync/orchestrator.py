@@ -28,6 +28,7 @@ from finance_sync.observability.connector_metrics import (
     record_connector_operation,
 )
 from finance_sync.observability.glitchtip import capture_connector_exception
+from finance_sync.services.incident_reporting import report_connector_failure
 from finance_sync.sync.cards_pipeline import (
     BunqCardsSyncResult,
     CardsSyncMixin,
@@ -937,13 +938,15 @@ class SyncOrchestrator(CardsSyncMixin):
             )
 
         except PermanentError as exc:
-            capture_connector_exception(
+            await report_connector_failure(
+                self._settings,
                 exc,
                 connector=provider_type,
                 operation=current_operation,
                 connection_id=connection_id,
                 provider_account_id=current_account_id,
                 correlation_id=run_id,
+                fallback_capture=capture_connector_exception,
             )
             end_ts = _dt.now(UTC)
             await self._mark_run_failed(
@@ -967,13 +970,15 @@ class SyncOrchestrator(CardsSyncMixin):
                 duration_s=(end_ts - start_ts).total_seconds(),
             )
         except RateLimitError as exc:
-            capture_connector_exception(
+            await report_connector_failure(
+                self._settings,
                 exc,
                 connector=provider_type,
                 operation=current_operation,
                 connection_id=connection_id,
                 provider_account_id=current_account_id,
                 correlation_id=run_id,
+                fallback_capture=capture_connector_exception,
             )
             end_ts = _dt.now(UTC)
             retry_after_at = (
@@ -1010,13 +1015,15 @@ class SyncOrchestrator(CardsSyncMixin):
                 duration_s=(end_ts - start_ts).total_seconds(),
             )
         except (TransientError, ConnectorError) as exc:
-            capture_connector_exception(
+            await report_connector_failure(
+                self._settings,
                 exc,
                 connector=provider_type,
                 operation=current_operation,
                 connection_id=connection_id,
                 provider_account_id=current_account_id,
                 correlation_id=run_id,
+                fallback_capture=capture_connector_exception,
             )
             end_ts = _dt.now(UTC)
             await self._mark_run_failed(
@@ -1040,13 +1047,15 @@ class SyncOrchestrator(CardsSyncMixin):
                 duration_s=(end_ts - start_ts).total_seconds(),
             )
         except Exception as exc:
-            capture_connector_exception(
+            await report_connector_failure(
+                self._settings,
                 exc,
                 connector=provider_type,
                 operation=current_operation,
                 connection_id=connection_id,
                 provider_account_id=current_account_id,
                 correlation_id=run_id,
+                fallback_capture=capture_connector_exception,
             )
             end_ts = _dt.now(UTC)
             error_message = safe_sync_error_message(exc)

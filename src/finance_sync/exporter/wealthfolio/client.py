@@ -303,23 +303,42 @@ class WealthfolioClient:
         self, account: dict[str, Any], tracking_mode: str
     ) -> dict[str, Any]:
         """Change an existing account to the mode required by its export."""
+        return await self.update_account(
+            account,
+            name=str(account.get("name") or ""),
+            currency=str(account.get("currency") or "EUR"),
+            account_type=str(account.get("accountType") or "SECURITIES"),
+            tracking_mode=tracking_mode,
+        )
+
+    async def update_account(
+        self,
+        account: dict[str, Any],
+        *,
+        name: str,
+        currency: str,
+        account_type: str,
+        tracking_mode: str,
+    ) -> dict[str, Any]:
+        """Make a Wealthfolio account match the Finance Sync projection."""
         self._ensure_authenticated()
-        normalized = tracking_mode.upper()
+        normalized_type = account_type.upper()
+        normalized_tracking = tracking_mode.upper()
         response = await self._client.put(
             f"{self.API_PREFIX}/accounts/{account['id']}",
             json={
                 "id": account["id"],
-                "name": account["name"],
-                "accountType": account["accountType"],
-                "currency": account["currency"],
-                "isDefault": account.get("isDefault", False),
-                "isActive": account.get("isActive", True),
-                "isArchived": account.get("isArchived", False),
-                "trackingMode": normalized,
-                "group": account.get("group"),
-                "provider": account.get("provider"),
+                "name": name,
+                "accountType": normalized_type,
+                "currency": currency,
+                "isDefault": False,
+                "isActive": True,
+                "isArchived": False,
+                "trackingMode": normalized_tracking,
+                "group": "Cash" if normalized_type == "CASH" else "Investments",
+                "provider": "FINANCE_SYNC",
                 "providerAccountId": account.get("providerAccountId"),
-                "meta": account.get("meta"),
+                "meta": '{"managedBy":"finance-sync"}',
             },
         )
         response.raise_for_status()
@@ -341,13 +360,46 @@ class WealthfolioClient:
                 str(account.get("provider") or "").upper() == "FINANCE_SYNC"
                 and account.get("providerAccountId") == provider_account_id
             ):
-                if (
-                    account.get("trackingMode")
-                    and str(account["trackingMode"]).upper()
-                    != tracking_mode.upper()
-                ):
-                    return await self.update_account_tracking_mode(
-                        account, tracking_mode
+                desired_type = account_type.upper()
+                desired_tracking = tracking_mode.upper()
+                desired_group = (
+                    "Cash" if desired_type == "CASH" else "Investments"
+                )
+                differences = {
+                    "name": "name" in account and account.get("name") != name,
+                    "currency": "currency" in account
+                    and account.get("currency") != currency,
+                    "accountType": "accountType" in account
+                    and str(account.get("accountType") or "").upper()
+                    != desired_type,
+                    "trackingMode": "trackingMode" in account
+                    and str(account.get("trackingMode") or "").upper()
+                    != desired_tracking,
+                    "isActive": "isActive" in account
+                    and account.get("isActive") is False,
+                    "isArchived": "isArchived" in account
+                    and account.get("isArchived") is True,
+                    "group": "group" in account
+                    and account.get("group") != desired_group,
+                }
+                # Older API fixtures can omit fields. Do not generate a
+                # needless PUT for such a partial response; live responses
+                # contain the complete account representation.
+                if any(differences.values()):
+                    if differences["trackingMode"] and not any(
+                        value
+                        for key, value in differences.items()
+                        if key != "trackingMode"
+                    ):
+                        return await self.update_account_tracking_mode(
+                            account, desired_tracking
+                        )
+                    return await self.update_account(
+                        account,
+                        name=name,
+                        currency=currency,
+                        account_type=desired_type,
+                        tracking_mode=desired_tracking,
                     )
                 return account
         return await self.create_account(

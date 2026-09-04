@@ -249,12 +249,16 @@ def capture_connector_exception(
     connection_id: str | None = None,
     provider_account_id: str | None = None,
     correlation_id: str | None = None,
+    fingerprint: str | None = None,
 ) -> None:
     """Capture a connector failure with safe diagnostic context."""
     with sentry_sdk.push_scope() as scope:
         safe_scope: Any = cast("Any", scope)
         safe_scope.set_tag("connector", connector)
         safe_scope.set_tag("operation", operation)
+        if fingerprint:
+            safe_scope.set_tag("incident_fingerprint", fingerprint)
+            safe_scope.set_fingerprint(["finance-sync-incident", fingerprint])
         if correlation_id:
             safe_scope.set_tag("correlation_id", correlation_id)
         context = {"connector": connector, "operation": operation}
