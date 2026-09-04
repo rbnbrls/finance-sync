@@ -47,6 +47,7 @@ class ControlPlaneIssue(BaseModel):
         default_factory=_empty_candidates
     )
     confidence: str | None = None
+    affected_transaction_ids: list[str] = Field(default_factory=list)
 
 
 class InstallationStatus(BaseModel):

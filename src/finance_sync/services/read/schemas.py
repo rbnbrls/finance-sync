@@ -20,12 +20,14 @@ E = Decimal
 
 class AccountSummary(BaseModel):
     id: str
+    connection_id: str | None = None
     name: str
     account_type: str
     account_subtype: str | None = None
     currency_code: str
     current_balance: E | None = None
     available_balance: E | None = None
+    net_asset_value: E | None = None
     provider_key: str
     is_active: bool
     owner_user_id: str | None = None
@@ -442,6 +444,7 @@ class CashflowHistoryResponse(BaseModel):
 class SyncRunResponse(BaseModel):
     id: str
     connector: str
+    connection_id: str | None = None
     status: str
     started_at: datetime
     completed_at: datetime | None = None

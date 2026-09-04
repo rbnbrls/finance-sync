@@ -51,6 +51,7 @@ class DataHealthIssue(BaseModel):
     source: str | None = None
     action: ControlPlaneAction
     details: list[str] = Field(default_factory=list)
+    affected_transaction_ids: list[str] = Field(default_factory=list)
 
 
 class DataHealthSource(BaseModel):

@@ -166,33 +166,52 @@ class DataHealthService:
                 )
             ]
         for source, connection in zip(sources, connections, strict=True):
-            if source.status != "healthy" or source.transactions:
+            if source.transactions:
                 continue
-            sync_action = next(
-                (
-                    item
-                    for item in connection.actions
-                    if item.key == "sync_connection"
-                ),
-                action(
-                    "sync_connection",
-                    f"/api/v1/sync/connections/{source.id}",
+            is_file_source = connection.provider in {
+                "degiro_pension",
+                "saxo_investor",
+            }
+            if source.status != "healthy" and not is_file_source:
+                continue
+            if is_file_source:
+                source_action = action(
+                    "open_file_import",
+                    f"#uploads?provider={connection.provider}",
                     permissions=self._permissions,
-                ),
-            )
+                )
+                description = (
+                    f"De bestandsbron {source.provider} heeft nog geen "
+                    "transacties. Upload de actuele provider-export om de "
+                    "dataset aan te vullen."
+                )
+            else:
+                source_action = next(
+                    (
+                        item
+                        for item in connection.actions
+                        if item.key == "sync_connection"
+                    ),
+                    action(
+                        "sync_connection",
+                        f"/api/v1/sync/connections/{source.id}",
+                        permissions=self._permissions,
+                    ),
+                )
+                description = (
+                    f"De gezonde bron {source.provider} heeft nog geen "
+                    "transacties in de canonieke dataset."
+                )
             issues.append(
                 DataHealthIssue(
                     id=f"missing-transactions:{source.id}",
                     category="missing_transactions",
                     severity="warning",
                     title="Bron bevat nog geen transacties",
-                    description=(
-                        f"De gezonde bron {source.provider} heeft nog geen "
-                        "transacties in de canonieke dataset."
-                    ),
+                    description=description,
                     provider=source.provider,
                     source="transactions",
-                    action=sync_action,
+                    action=source_action,
                 )
             )
         return issues
@@ -433,6 +452,9 @@ class DataHealthService:
                         self._transaction_detail(row)
                         for row in incomplete_trades[:10]
                     ],
+                    affected_transaction_ids=[
+                        str(row[0]) for row in incomplete_trades
+                    ],
                     action=action(
                         "view_transactions",
                         "/api/v1/transactions?status=booked",
@@ -482,6 +504,9 @@ class DataHealthService:
                     details=[
                         self._transaction_detail(row)
                         for row in zero_cost_trades[:10]
+                    ],
+                    affected_transaction_ids=[
+                        str(row[0]) for row in zero_cost_trades
                     ],
                     action=action(
                         "view_transactions",
@@ -710,7 +735,7 @@ class DataHealthService:
             recovery = (
                 action(
                     "sync_connection",
-                    f"/api/v1/sync/connections/{source.id}",
+                    f"/api/v1/sync/connections/{source.id}/start",
                     permissions=self._permissions,
                 )
                 if source is not None
@@ -778,4 +803,5 @@ class DataHealthService:
             provider=issue.provider,
             source=issue.category,
             action=issue.action,
+            affected_transaction_ids=issue.affected_transaction_ids,
         )

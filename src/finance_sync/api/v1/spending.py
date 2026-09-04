@@ -22,6 +22,7 @@ from finance_sync.models import (
     TransactionSourceReference,
     TransactionSplit,
 )
+from finance_sync.models.enums import TransactionType
 from finance_sync.sync.persistence import TransactionPersistence
 
 router = APIRouter(prefix="/transactions", tags=["spending"])
@@ -45,6 +46,72 @@ class SpendingEventRequest(BaseModel):
     event_type: str = Field(min_length=1, max_length=32)
     idempotency_key: str = Field(min_length=1, max_length=256)
     payload: dict[str, Any] = Field(default_factory=dict)
+
+
+class DataQualityCorrectionRequest(BaseModel):
+    """Audited correction for fields that block data-quality checks."""
+
+    transaction_type: TransactionType | None = None
+    unit_price: Decimal | None = Field(default=None, ge=0)
+
+
+@router.patch(
+    "/{transaction_id}/data-quality-correction",
+    response_model=dict[str, Any],
+)
+async def correct_data_quality_transaction(
+    transaction_id: str,
+    body: DataQualityCorrectionRequest,
+    auth: AuthContext = Depends(require_permission("transactions", "write")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Apply an explicit, auditable correction to a canonical transaction.
+
+    This is deliberately limited to classification and unit price. Source
+    records remain intact and the change is recorded as an override plus a
+    lifecycle event so a later sync can be reviewed safely.
+    """
+    if body.transaction_type is None and body.unit_price is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Provide transaction_type or unit_price.",
+        )
+    transaction = await _load_transaction(db, auth.tenant_id, transaction_id)
+    actor = str(auth.user.id) if auth.user is not None else None
+    source_revision = transaction.revision
+    transaction.revision = (transaction.revision or 0) + 1
+    changes: dict[str, Any] = {}
+    if body.transaction_type is not None:
+        transaction.transaction_type = body.transaction_type
+        changes["transaction_type"] = body.transaction_type.value
+    if body.unit_price is not None:
+        transaction.unit_price = body.unit_price
+        changes["unit_price"] = str(body.unit_price)
+    db.add(
+        TransactionLifecycleEvent(
+            tenant_id=auth.tenant_id,
+            transaction_id=transaction.id,
+            event_type="update",
+            idempotency_key=f"data-quality-correction:{transaction.id}:{transaction.revision}",
+            payload={"changes": changes},
+            actor=actor,
+            provenance="user_override",
+            source_revision=source_revision,
+        )
+    )
+    for field_name, value in changes.items():
+        db.add(
+            TransactionOverride(
+                tenant_id=auth.tenant_id,
+                transaction_id=transaction.id,
+                field_name=field_name,
+                value={"value": value},
+                actor=actor,
+                provenance="user_override",
+            )
+        )
+    await db.commit()
+    return {"transaction_id": str(transaction.id), "changes": changes}
 
 
 class SpendingDetailResponse(BaseModel):

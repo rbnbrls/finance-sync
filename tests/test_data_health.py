@@ -349,7 +349,7 @@ async def test_changed_provider_data_gets_provider_sync_action() -> None:
     assert issues[0].category == "provider_data_changed"
     assert issues[0].impact_count == 3
     assert issues[0].action.key == "sync_connection"
-    assert issues[0].action.path.endswith("connection-bunq")
+    assert issues[0].action.path.endswith("connection-bunq/start")
 
 
 @pytest.mark.parametrize(

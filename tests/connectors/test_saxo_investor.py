@@ -182,6 +182,7 @@ async def test_imports_saxo_positions_as_holdings(tmp_path: Path) -> None:
     }
     assert account.external_account_id == "saxo-investor-my-saxo"
     assert account.current_balance is None
+    assert account.net_asset_value == 256
     assert len(holdings) == 2
     assert holdings[0].observed_at == datetime(2026, 8, 23, tzinfo=UTC)
     assert holdings[0].security_reference.isin == "NL0000000001"
@@ -271,7 +272,7 @@ async def test_attached_saxo_exports_detect_both_roles() -> None:
         len(
             await connector.fetch_transactions(datetime.min.replace(tzinfo=UTC))
         )
-        == 251
+        == 250
     )
 
 

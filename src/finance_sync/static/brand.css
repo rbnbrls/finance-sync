@@ -38,3 +38,24 @@ code, pre, textarea, .data-value, .metric-value { font-family: var(--font-mono);
 .btn-primary, .btn-success { box-shadow: 0 4px 14px rgba(16, 185, 129, .18); }
 .btn-primary:hover, .btn-success:hover { background: var(--accent-hover); }
 .card, .connector-card, .login-box, .auth-box { box-shadow: 0 8px 24px rgba(15, 23, 42, .18); }
+
+.viewer-account-summary > td { vertical-align: middle; }
+.viewer-chevron { display: inline-flex; align-items: center; gap: 8px; padding: 0; border: 0; background: transparent; color: inherit; text-align: left; cursor: pointer; font: inherit; }
+.viewer-chevron:hover strong, .viewer-sort-button:hover { color: var(--accent); }
+.viewer-chevron .mdi { color: var(--accent-secondary); font-size: 1.2rem; }
+.viewer-account-details > td { padding: 0 !important; background: color-mix(in srgb, var(--surface-2) 35%, transparent); }
+.viewer-nested-table { margin: 0; width: 100%; box-shadow: none; }
+.viewer-account-indent { padding-left: 30px; display: inline-block; }
+.viewer-table-note { color: var(--text-muted); font-size: .82rem; margin: 0 0 10px; }
+.viewer-table-toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 0 0 14px; }
+.viewer-table-toolbar label { font-size: .85rem; font-weight: 600; }
+.viewer-table-toolbar input { min-width: 250px; flex: 1 1 250px; max-width: 420px; }
+.viewer-sort-button { border: 0; background: transparent; color: inherit; padding: 0; font: inherit; font-weight: 700; cursor: pointer; white-space: nowrap; }
+.viewer-sort-button span { color: var(--accent-secondary); font-size: .9em; }
+.viewer-filter-empty { text-align: center; color: var(--text-muted); padding: 24px !important; }
+.health-repair-list { margin-top: 14px; padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: color-mix(in srgb, var(--surface-2) 28%, transparent); }
+.health-repair-list > strong { display: block; margin-bottom: 8px; }
+.health-repair-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 0; border-top: 1px solid color-mix(in srgb, var(--border) 65%, transparent); }
+.health-repair-row code { color: var(--text-muted); min-width: 72px; }
+.health-repair-row label { display: inline-flex; align-items: center; gap: 6px; color: var(--text-muted); font-size: .82rem; }
+.health-price-input { width: 120px; }

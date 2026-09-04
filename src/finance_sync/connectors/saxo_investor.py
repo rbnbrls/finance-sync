@@ -26,6 +26,7 @@ from finance_sync.connectors.exceptions import PermanentError
 from finance_sync.connectors.models import (
     ConnectorConfig,
     RawAccount,
+    RawCashBalance,
     RawHolding,
     RawTransaction,
     SecurityReference,
@@ -352,6 +353,15 @@ class SaxoInvestorConnector(Connector):
                     self._transactions.extend(
                         self._parse_transactions(values, path)
                     )
+        # The same export can be supplied more than once (or contain repeated
+        # source rows).  The content-derived external id is the identity; the
+        # worksheet line is deliberately not part of it.
+        unique_transactions: dict[str, RawTransaction] = {}
+        for transaction in self._transactions:
+            unique_transactions.setdefault(
+                transaction.external_transaction_id, transaction
+            )
+        self._transactions = list(unique_transactions.values())
         if not self._rows and not self._transactions:
             raise ValueError(
                 "geen herkenbare Saxo-posities of transacties gevonden "
@@ -361,23 +371,21 @@ class SaxoInvestorConnector(Connector):
             self._snapshot = _snapshot_at(
                 self._position_path, self.config.options.get("snapshot_at")
             )
-        # The positions export contains investment market values, not cash.
-        # Saxo's transaction export is the authoritative cash ledger; using
-        # the positions total here made the account balance equal the value of
-        # securities (35,867.45 in the 2026-09-01 export) instead of the cash
-        # balance (743.18).
-        cash_balance = (
-            sum(
-                (
-                    transaction.amount
-                    for transaction in self._transactions
-                    if transaction.currency_code == "EUR"
-                ),
-                Decimal(0),
-            )
-            if self._transactions
+        # Keep investment value and cash semantically separate. The positions
+        # export is the authoritative NAV source; the transaction export is
+        # used for the cash ledger when Saxo does not provide a cash snapshot.
+        nav = (
+            sum((row["market_value"] for row in self._rows), Decimal(0))
+            if self._rows
             else None
         )
+        cash_by_currency: dict[str, Decimal] = {}
+        for transaction in self._transactions:
+            currency = transaction.currency_code.upper()
+            cash_by_currency[currency] = (
+                cash_by_currency.get(currency, Decimal(0)) + transaction.amount
+            )
+        cash_balance = cash_by_currency.get("EUR")
         self._account = RawAccount(
             external_account_id=self.external_account_id,
             name=_clean(self.config.options.get("account_name"))
@@ -386,8 +394,26 @@ class SaxoInvestorConnector(Connector):
             account_subtype="brokerage",
             currency_code="EUR",
             current_balance=cash_balance,
-            available_balance=None,
+            available_balance=cash_balance,
+            net_asset_value=nav,
             iso_currency_code="EUR",
+            cash_balances=(
+                [
+                    RawCashBalance(
+                        amount=amount,
+                        currency_code=currency,
+                        balance_kind="available",
+                        observed_at=self._snapshot
+                        or max(
+                            transaction.occurred_at
+                            for transaction in self._transactions
+                        ),
+                    )
+                    for currency, amount in sorted(cash_by_currency.items())
+                ]
+                if cash_by_currency
+                else []
+            ),
             provider_metadata={
                 "source": "saxoinvestor_excel_export",
                 "snapshot_at": self._snapshot.isoformat()
@@ -398,6 +424,11 @@ class SaxoInvestorConnector(Connector):
                 "cash_balance": str(cash_balance)
                 if cash_balance is not None
                 else None,
+                "cash_balances": {
+                    currency: str(amount)
+                    for currency, amount in sorted(cash_by_currency.items())
+                },
+                "net_asset_value": str(nav) if nav is not None else None,
                 "skipped_transaction_rows": self._skipped_transaction_rows,
             },
         )
@@ -480,6 +511,7 @@ class SaxoInvestorConnector(Connector):
         headers = [_clean(value) for value in values[0]]
         index = {header: position for position, header in enumerate(headers)}
         result: list[RawTransaction] = []
+        seen_external_ids: set[str] = set()
         for line, values_row in enumerate(values[1:], start=2):
             row = list(values_row) + [None] * max(
                 0, len(headers) - len(values_row)
@@ -580,10 +612,14 @@ class SaxoInvestorConnector(Connector):
                         amount,
                         booking_currency,
                         isin,
-                        line,
+                        symbol,
+                        instrument,
                     ]
                 )[:32]
             )
+            if external_id in seen_external_ids:
+                continue
+            seen_external_ids.add(external_id)
             fee = (
                 _decimal(
                     row[index["Totale kosten"]],

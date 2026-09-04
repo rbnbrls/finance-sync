@@ -32,6 +32,15 @@ class ProviderMetadata(BaseModel):
     fields: dict[str, Any] = Field(default_factory=dict)
 
 
+class RawCashBalance(BaseModel):
+    """Point-in-time provider cash balance in one currency."""
+
+    amount: Decimal
+    currency_code: str = Field(max_length=3)
+    balance_kind: str = "available"
+    observed_at: datetime
+
+
 class SourceReference(BaseModel):
     """Relation to one or more provider object revisions."""
 
@@ -96,6 +105,10 @@ class RawAccount(BaseModel):
     available_balance: Decimal | None = Field(
         default=None, description="Available balance (may differ from current)"
     )
+    net_asset_value: Decimal | None = Field(
+        default=None, description="Total account value including investments"
+    )
+    cash_balances: list[RawCashBalance] = Field(default_factory=list)
     iso_currency_code: str | None = Field(
         default=None,
         description="ISO-4217 code for the balance values, if different "
@@ -265,6 +278,8 @@ class CanonicalAccountData(BaseModel):
     )
     current_balance: Decimal | None = Field(default=None)
     available_balance: Decimal | None = Field(default=None)
+    net_asset_value: Decimal | None = Field(default=None)
+    cash_balances: list[RawCashBalance] = Field(default_factory=list)
     iso_currency_code: str | None = Field(default=None)
     provider_metadata: dict[str, Any] | None = Field(default=None)
     is_active: bool = Field(default=True)

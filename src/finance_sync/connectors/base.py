@@ -218,6 +218,8 @@ class Connector(ABC):
                 currency_code=r.currency_code,
                 current_balance=r.current_balance,
                 available_balance=r.available_balance,
+                net_asset_value=r.net_asset_value,
+                cash_balances=r.cash_balances,
                 iso_currency_code=r.iso_currency_code,
                 provider_metadata=r.provider_metadata,
                 capabilities=r.capabilities,

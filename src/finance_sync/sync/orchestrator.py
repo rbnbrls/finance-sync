@@ -834,6 +834,9 @@ class SyncOrchestrator(CardsSyncMixin):
                                 external_account_id=ca.external_account_id,
                             )
                             continue
+                        await persistence.persist_cash_balances(
+                            account_uow, account_id, ca
+                        )
                         current_operation = "persist_transactions"
                         transaction_result = await TransactionSyncStage(
                             persistence

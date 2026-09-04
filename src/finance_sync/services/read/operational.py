@@ -852,6 +852,9 @@ class OperationalReadService:
                 SyncRunResponse(
                     id=str(sr.id),
                     connector=sr.connector,
+                    connection_id=(
+                        str(sr.connection_id) if sr.connection_id else None
+                    ),
                     status=str(sr.status),
                     started_at=sr.started_at,
                     completed_at=sr.completed_at,

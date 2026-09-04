@@ -854,6 +854,11 @@
             margin-top: 4px;
             line-height: 1.4;
         }
+        .viewer-summary-card { position:relative; }
+        .viewer-card-info { position:absolute; top:14px; right:14px; color:var(--text-muted); cursor:help; z-index:2; }
+        .viewer-card-info > .mdi { font-size:1rem; }
+        .viewer-card-tooltip { position:absolute; top:22px; right:0; width:245px; padding:9px 11px; border:1px solid var(--border); border-radius:8px; background:var(--surface); color:var(--text); font-size:.75rem; line-height:1.4; box-shadow:0 8px 24px rgba(15,23,42,.18); opacity:0; pointer-events:none; transform:translateY(-3px); transition:opacity .15s ease, transform .15s ease; }
+        .viewer-card-info:hover .viewer-card-tooltip, .viewer-card-info:focus .viewer-card-tooltip, .viewer-card-info:focus-within .viewer-card-tooltip { opacity:1; transform:translateY(0); }
         .upload-dropzone {
             display: flex;
             flex-direction: column;
@@ -990,6 +995,10 @@
         .quality-stat { background:var(--bg); border:1px solid var(--border); border-radius:10px; padding:13px; }
         .quality-stat strong { display:block; font-size:1.25rem; margin-bottom:4px; }
         .quality-stat span { color:var(--text-muted); font-size:.75rem; }
+        .sync-activity { display:grid; gap:8px; margin:0 0 16px; }
+        .sync-activity-item { display:flex; align-items:center; gap:10px; padding:11px 14px; border:1px solid color-mix(in srgb, var(--accent) 45%, var(--border)); border-radius:10px; background:color-mix(in srgb, var(--accent) 7%, var(--surface)); color:var(--text); font-size:.82rem; }
+        .sync-activity-item .spinner { flex:0 0 auto; }
+        .sync-activity-item small { color:var(--text-muted); margin-left:auto; }
         @media (max-width: 760px) { .control-status, .issue-card { flex-direction:column; align-items:stretch; } .quality-grid { grid-template-columns:repeat(2, minmax(0, 1fr)); } }
         @media (max-width: 760px) { .overview-grid { grid-template-columns:1fr; } .overview-runs { grid-column:auto; } .run-summary { grid-template-columns:repeat(2,1fr); } .overview-header { align-items:flex-start; flex-direction:column; gap:8px; } .chain { padding-bottom:14px; } }
         @media (max-width: 420px) { .run-summary { grid-template-columns:1fr 1fr; gap:8px; } .run-stat { padding:11px; } .overview-value { font-size:1.85rem; } }
@@ -1050,6 +1059,7 @@
                 <button type="button" class="btn btn-secondary btn-sm" onclick="loadOverview()"><span class="mdi mdi-refresh"></span> Vernieuwen</button>
             </div>
             <div id="control-status" class="control-status" data-status="loading" aria-live="polite" aria-busy="true"><div><h2 class="control-status-label">Control plane laden…</h2><p>De laatste controle wordt opgehaald.</p></div><span class="spinner" aria-hidden="true"></span></div>
+            <div id="overview-sync-activity" class="sync-activity" aria-live="polite"></div>
             <div class="overview-grid" id="overview-status-grid" aria-live="polite" aria-busy="true">
                 <div class="overview-card"><div class="overview-card-top"><span class="overview-card-label">Importeren</span><span class="overview-icon mdi mdi-download-outline"></span></div><div class="overview-value">—</div><p class="overview-detail">Status wordt geladen…</p></div>
                 <div class="overview-card database"><div class="overview-card-top"><span class="overview-card-label">Centrale database</span><span class="overview-icon mdi mdi-database-outline"></span></div><div class="overview-value">—</div><p class="overview-detail">Status wordt geladen…</p></div>
@@ -1066,6 +1076,7 @@
         <div id="section-data-health" class="hidden" role="region" aria-labelledby="data-health-title">
             <div class="overview-header">
                 <div><div class="overview-kicker">Datakwaliteitsworkflow</div><h1 class="page-title" id="data-health-title">Data health</h1><p class="page-subtitle" style="margin-bottom:0;">Zie wat aandacht nodig heeft en herstel problemen vanuit één overzicht.</p></div>
+                <button type="button" class="btn btn-secondary" onclick="runDataQualityCheck(this)"><span class="mdi mdi-shield-search-outline"></span> Nu controleren</button>
                 <button type="button" class="btn btn-secondary btn-sm" onclick="loadDataHealth()"><span class="mdi mdi-refresh"></span> Vernieuwen</button>
             </div>
             <div id="data-health-status" class="control-status" data-status="loading" aria-live="polite" aria-busy="true"><div><h2 class="control-status-label">Data health laden…</h2><p>De actuele status wordt opgehaald.</p></div><span class="spinner" aria-hidden="true"></span></div>
@@ -1135,6 +1146,7 @@
         <div id="section-sync" class="hidden" role="region" aria-labelledby="sync-title">
             <h1 class="page-title" id="sync-title">Sync Runs</h1>
             <p class="page-subtitle">Plan per connector en exporttarget wanneer data wordt opgehaald of afgeleverd, en bekijk de runhistorie.</p>
+            <div id="sync-page-activity" class="sync-activity" aria-live="polite"></div>
             <div id="sync-schedules" aria-live="polite" aria-busy="true"></div>
             <div id="sync-run-history" style="margin-top: 24px;"></div>
         </div>
@@ -1265,6 +1277,7 @@
                 });
             } finally {
                 if (grid) grid.setAttribute('aria-busy', 'false');
+                ensureActiveSyncPolling();
             }
         }
 
@@ -1303,7 +1316,7 @@
             const sourceRows = (data.sources || []).map(source => `<tr><td><strong>${escapeHtml(source.provider)}</strong></td><td>${controlBadge(source.status)}</td><td>${escapeHtml(formatControlDate(source.last_success_at))}</td><td>${escapeHtml(source.accounts)} accounts · ${escapeHtml(source.transactions)} transacties</td></tr>`).join('');
             if (sources) { sources.setAttribute('aria-busy', 'false'); sources.innerHTML = sourceRows ? `<div class="control-table-wrap"><table class="data-table control-table"><thead><tr><th>Bron</th><th>Status</th><th>Laatste succesvolle sync</th><th>Dekking</th></tr></thead><tbody>${sourceRows}</tbody></table></div>` : '<div class="overview-empty">Nog geen bronnen geconfigureerd.</div>'; }
             const issues = document.getElementById('data-health-issues');
-            if (issues) { issues.setAttribute('aria-busy', 'false'); issues.innerHTML = (data.issues || []).length ? data.issues.map(issue => `<article class="issue-card"><div><span class="severity severity-${escapeHtml(issue.severity)}">${escapeHtml(issue.severity)}</span><h3>${escapeHtml(issue.title)}</h3><p>${escapeHtml(issue.description)}</p>${issue.provider ? `<span class="muted">Bron: ${escapeHtml(issue.provider)}</span>` : ''}${issue.impact_count ? `<span class="muted"> · Impact: ${escapeHtml(issue.impact_count)}</span>` : ''}<div class="action-result" id="health-result-${escapeHtml(issue.id)}" aria-live="polite" tabindex="-1"></div></div><div class="control-actions">${renderControlActions([issue.action], `health-result-${issue.id}`)}</div></article>`).join('') : '<div class="overview-empty">Geen open problemen. De datastroom werkt zoals verwacht.</div>'; }
+            if (issues) { issues.setAttribute('aria-busy', 'false'); issues.innerHTML = (data.issues || []).length ? data.issues.map(issue => `<article class="issue-card"><div><span class="severity severity-${escapeHtml(issue.severity)}">${escapeHtml(issue.severity)}</span><h3>${escapeHtml(issue.title)}</h3><p>${escapeHtml(issue.description)}</p>${issue.provider ? `<span class="muted">Bron: ${escapeHtml(issue.provider)}</span>` : ''}${issue.impact_count ? `<span class="muted"> · Impact: ${escapeHtml(issue.impact_count)}</span>` : ''}${renderDataHealthIssueTools(issue)}<div class="action-result" id="health-result-${escapeHtml(issue.id)}" aria-live="polite" tabindex="-1"></div></div><div class="control-actions">${renderControlActions([issue.action], `health-result-${issue.id}`)}</div></article>`).join('') : '<div class="overview-empty">Geen open problemen. De datastroom werkt zoals verwacht.</div>'; }
             if (issues && Array.isArray(data.issues)) {
                 issues.querySelectorAll('.issue-card').forEach((card, index) => {
                     const details = data.issues[index]?.details || [];
@@ -1318,6 +1331,50 @@
                     card.querySelector('div')?.appendChild(list);
                 });
             }
+        }
+
+        function renderDataHealthIssueTools(issue) {
+            const ids = issue.affected_transaction_ids || [];
+            if (!ids.length) return '';
+            if (issue.category === 'zero_cost_transaction' || issue.category === 'incomplete_transaction') {
+                return `<div class="health-repair-list"><strong>Herstel per transactie</strong>${ids.map(id => `<div class="health-repair-row"><code>${escapeHtml(String(id).slice(0, 8))}</code><button type="button" class="btn btn-secondary btn-sm" onclick="correctHealthTransaction('${escapeHtml(id)}', { transaction_type: 'transfer' })">Classificeer als Transfer In</button><label>Verkrijgingsprijs <input class="health-price-input" id="health-price-${escapeHtml(id)}" inputmode="decimal" type="number" min="0" step="0.0001" placeholder="bijv. 12,50"></label><button type="button" class="btn btn-secondary btn-sm" onclick="correctHealthTransaction('${escapeHtml(id)}', { unit_price: document.getElementById('health-price-${escapeHtml(id)}')?.value })">Opslaan</button></div>`).join('')}</div>`;
+            }
+            if (issue.category === 'reconciliation') {
+                return `<div class="health-repair-list"><strong>Betrokken transacties</strong>${ids.map(id => `<div class="health-repair-row"><code>${escapeHtml(String(id).slice(0, 8))}</code><button type="button" class="btn btn-danger btn-sm" onclick="tombstoneHealthTransaction('${escapeHtml(id)}')">Markeer duplicaat</button></div>`).join('')}<span class="field-hint">Kies alleen de transactie die aantoonbaar dubbel is. De bronhistorie blijft bewaard.</span></div>`;
+            }
+            return '';
+        }
+
+        async function correctHealthTransaction(transactionId, changes) {
+            if (changes.unit_price !== undefined && (!changes.unit_price || Number(changes.unit_price) < 0)) {
+                toast('Vul een verkrijgingsprijs van nul of hoger in.', 'error');
+                return;
+            }
+            try {
+                await api('PATCH', `/transactions/${encodeURIComponent(transactionId)}/data-quality-correction`, { ...changes, ...(changes.unit_price !== undefined ? { unit_price: String(changes.unit_price) } : {}) });
+                toast('Transactie gecorrigeerd. Data health wordt opnieuw gecontroleerd.', 'success');
+                await loadDataHealth();
+            } catch (error) { toast(error?.message || 'De transactie kon niet worden gecorrigeerd.', 'error'); }
+        }
+
+        async function tombstoneHealthTransaction(transactionId) {
+            if (!window.confirm('Deze transactie als duplicaat markeren? De bronhistorie blijft bewaard.')) return;
+            try {
+                await api('DELETE', `/transactions/${encodeURIComponent(transactionId)}`);
+                toast('Duplicaat gemarkeerd. Data health wordt opnieuw gecontroleerd.', 'success');
+                await loadDataHealth();
+            } catch (error) { toast(error?.message || 'Het duplicaat kon niet worden gemarkeerd.', 'error'); }
+        }
+
+        async function runDataQualityCheck(button) {
+            if (button?.dataset.busy === 'true') return;
+            if (button) { button.dataset.busy = 'true'; button.disabled = true; button.setAttribute('aria-busy', 'true'); }
+            try {
+                await api('POST', '/reconciliation/trigger', { detect_duplicates: true, threshold_hours: 48 });
+                toast('Datakwaliteitscontrole gestart en afgerond.', 'success');
+                await loadDataHealth();
+            } catch (error) { toast(error?.message || 'De datakwaliteitscontrole kon niet worden gestart.', 'error'); }
+            finally { if (button) { button.dataset.busy = 'false'; button.disabled = false; button.removeAttribute('aria-busy'); } }
         }
 
         function reconciliationRunIdFromPath(path) {
@@ -1435,7 +1492,7 @@
 
         function renderControlSyncs(items) {
             const el = document.getElementById('control-syncs'); if (!el) return; el.setAttribute('aria-busy', 'false');
-            el.innerHTML = items.length ? `<div class="control-table-wrap"><table class="data-table control-table"><thead><tr><th>Connector</th><th>Status</th><th>Gestart</th><th>Aantallen</th><th>Actie</th></tr></thead><tbody>${items.slice(0, 10).map(r => `<tr><td>${escapeHtml(r.connector)}</td><td>${controlBadge(r.status)}${r.error_category ? `<br><span class="muted">${escapeHtml(r.error_category)}</span>` : ''}</td><td class="muted">${escapeHtml(formatControlDate(r.started_at))}</td><td class="muted">${escapeHtml(r.items_processed ?? '—')}</td><td class="control-actions">${renderControlActions(r.actions)}</td></tr>`).join('')}</tbody></table></div>` : '<div class="overview-empty">Nog geen synchronisaties uitgevoerd.</div>';
+            el.innerHTML = items.length ? `<div class="control-table-wrap"><table class="data-table control-table"><thead><tr><th>Connector</th><th>Status</th><th>Gestart</th><th>Aantallen</th><th>Actie</th></tr></thead><tbody>${items.slice(0, 10).map(r => `<tr><td>${escapeHtml(r.connector)}</td><td>${r.status === 'running' ? '<span class="badge pending"><span class="spinner"></span> Bezig</span>' : controlBadge(r.status)}${r.error_category ? `<br><span class="muted">${escapeHtml(r.error_category)}</span>` : ''}</td><td class="muted">${escapeHtml(formatControlDate(r.started_at))}</td><td class="muted">${escapeHtml(r.items_processed ?? '—')}</td><td class="control-actions">${renderControlActions(r.actions)}</td></tr>`).join('')}</tbody></table></div>` : '<div class="overview-empty">Nog geen synchronisaties uitgevoerd.</div>';
         }
 
         function renderControlQuality(freshness, coverage, quality = null) {
@@ -1455,6 +1512,7 @@
             const method = button.dataset.method || 'GET'; const path = button.dataset.path || ''; const result = document.getElementById(button.dataset.resultId || '');
             if (!path) return;
             if (button.dataset.actionKey === 'map_security') { switchSection('connectors'); toast('Open de security-mappingflow vanuit de connectorgegevens.', 'info'); return; }
+            if (button.dataset.actionKey === 'open_file_import') { switchSection('uploads'); openCreateWizard(new URLSearchParams(path.split('?')[1] || '').get('provider') || undefined); return; }
             if (method === 'GET') {
                 // API links cannot be opened with window.location: the
                 // bearer token lives in localStorage and is only attached by
@@ -1509,7 +1567,7 @@
             button.dataset.busy = 'true'; button.disabled = true; button.setAttribute('aria-busy', 'true');
             const original = button.textContent; button.textContent = 'Bezig…';
             if (result) { result.className = 'action-result'; result.textContent = 'Actie wordt uitgevoerd…'; }
-            try { await api(method, path); if (result) { result.className = 'action-result success'; result.textContent = 'Uitgevoerd. Overzicht wordt vernieuwd.'; result.focus?.(); } await loadOverview(); }
+            try { const actionResult = await api(method, path); if (result) { result.className = 'action-result success'; result.textContent = actionResult?.updated !== undefined ? `${actionResult.updated} koersen bijgewerkt; ${actionResult.unmatched || 0} niet gematcht.` : 'Uitgevoerd. Overzicht wordt vernieuwd.'; result.focus?.(); } await loadOverview(); if (path.includes('/enrichment/refresh-quotes')) await loadDataHealth(); }
             catch (error) { if (result) { result.className = 'action-result error'; result.textContent = error?.message || 'Actie mislukt.'; } }
             finally { button.dataset.busy = 'false'; button.disabled = false; button.removeAttribute('aria-busy'); button.textContent = original; }
         }
@@ -1800,7 +1858,7 @@
                 const currency = portfolioData?.currency_code || 'EUR';
                 summary.innerHTML = `
                     <div class="card"><div class="field-hint">Portefeuillewaarde</div><div class="page-title">${viewerMoney(portfolioData?.total_value, currency)}</div></div>
-                    <div class="card"><div class="field-hint">Kostprijs</div><div class="page-title">${viewerMoney(portfolioData?.total_cost_basis, currency)}</div></div>
+                    <div class="card viewer-summary-card"><span class="viewer-card-info" tabindex="0" role="img" aria-label="Uitleg kostprijs"><span class="mdi mdi-information-outline" aria-hidden="true"></span><span class="viewer-card-tooltip" role="tooltip">De totale historische kostprijs van de huidige holdings. Dit is wat er volgens de import voor de aangehouden effecten is betaald, niet de actuele marktwaarde.</span></span><div class="field-hint">Kostprijs</div><div class="page-title">${viewerMoney(portfolioData?.total_cost_basis, currency)}</div></div>
                     <div class="card"><div class="field-hint">Accounts / holdings</div><div class="page-title">${viewerCell(accountData?.total ?? '—')} / ${viewerCell(holdingData?.total ?? '—')}</div></div>
                     <div class="card"><div class="field-hint">Transacties</div><div class="page-title">${viewerCell(transactionData?.total ?? '—')}</div></div>`;
                 summary.setAttribute('aria-busy', 'false');
@@ -1826,16 +1884,94 @@
             if (portfolioResult.status === 'rejected' && summary) {
                 summary.insertAdjacentHTML('afterbegin', renderViewerError('Portefeuilleoverzicht kon niet worden geladen.', portfolioResult.reason?.message, 'loadViewer'));
             }
+            ensureActiveSyncPolling();
+        }
+
+        function viewerAccountIsBroker(item) {
+            return /broker|invest|securit|beleg/i.test(String(item.account_type || ''));
+        }
+
+        function viewerAccountValue(item) {
+            return viewerAccountIsBroker(item) && item.net_asset_value != null
+                ? item.net_asset_value
+                : item.current_balance;
+        }
+
+        function viewerTotalsByCurrency(items, valueKey) {
+            const totals = {};
+            items.forEach(item => {
+                const currency = String(item.currency_code || 'EUR').toUpperCase();
+                const value = Number(item[valueKey]);
+                if (Number.isFinite(value)) totals[currency] = (totals[currency] || 0) + value;
+            });
+            return Object.entries(totals).map(([currency, value]) => viewerMoney(value, currency)).join('<br>') || '—';
         }
 
         function renderViewerAccounts(items) {
             if (!items.length) return '<div class="empty-state" style="padding:24px 10px;"><p>Geen accounts in de database.</p></div>';
-            return `<div style="overflow-x:auto;"><table class="data-table"><thead><tr><th>Naam</th><th>Provider</th><th>Type</th><th>Saldo</th><th>Beschikbaar</th><th>Status</th></tr></thead><tbody>${items.map(item => `<tr><td>${viewerCell(item.name)}</td><td>${viewerCell(item.provider_key)}</td><td>${viewerCell(item.account_type)}</td><td>${viewerMoney(item.current_balance, item.currency_code)}</td><td>${viewerMoney(item.available_balance, item.currency_code)}</td><td>${item.is_active ? '<span class="badge connected">Actief</span>' : '<span class="badge pending">Inactief</span>'}</td></tr>`).join('')}</tbody></table></div>`;
+            const groups = new Map();
+            items.forEach(item => {
+                const key = item.connection_id || `legacy:${item.provider_key || 'unknown'}`;
+                if (!groups.has(key)) groups.set(key, []);
+                groups.get(key).push(item);
+            });
+            const rows = [...groups.values()].map((group, index) => {
+                const first = group[0];
+                const label = first.connection_id
+                    ? `${first.provider_key || 'Provider'} · verbinding ${String(first.connection_id).slice(0, 8)}`
+                    : `${first.provider_key || 'Onbekende provider'} · legacy verbinding`;
+                const detailRows = group.map(item => {
+                    return `<tr class="viewer-account-detail"><td><span class="viewer-account-indent">${viewerCell(item.name)}</span></td><td>${viewerCell(item.account_type)}</td><td>${viewerMoney(viewerAccountValue(item), item.currency_code)}</td><td>${viewerMoney(item.available_balance, item.currency_code)}</td><td>${viewerCell(String(item.currency_code || 'EUR').toUpperCase())}</td><td>${item.is_active ? '<span class="badge connected">Actief</span>' : '<span class="badge pending">Inactief</span>'}</td></tr>`;
+                }).join('');
+                const valueTotals = {};
+                group.forEach(item => {
+                    const currency = String(item.currency_code || 'EUR').toUpperCase();
+                    const value = Number(viewerAccountValue(item));
+                    if (Number.isFinite(value)) valueTotals[currency] = (valueTotals[currency] || 0) + value;
+                });
+                const valueTotalHtml = Object.entries(valueTotals).map(([currency, value]) => viewerMoney(value, currency)).join('<br>') || '—';
+                return `<tbody class="viewer-account-group"><tr class="viewer-account-summary"><td><button type="button" class="viewer-chevron" aria-expanded="false" aria-controls="viewer-account-details-${index}" onclick="toggleViewerAccountGroup(${index}, this)"><span class="mdi mdi-chevron-right" aria-hidden="true"></span><span><strong>${viewerCell(label)}</strong><br><span class="field-hint">${group.length} account${group.length === 1 ? '' : 's'} · totaal per valuta</span></span></button></td><td>${viewerCell(first.provider_key)}</td><td>${valueTotalHtml}</td><td>${viewerTotalsByCurrency(group, 'available_balance')}</td><td>${[...new Set(group.map(item => String(item.currency_code || 'EUR').toUpperCase()))].map(viewerCell).join('<br>')}</td><td>${group.every(item => item.is_active) ? '<span class="badge connected">Actief</span>' : '<span class="badge pending">Controleer</span>'}</td></tr><tr id="viewer-account-details-${index}" class="viewer-account-details hidden"><td colspan="6"><table class="data-table viewer-nested-table"><thead><tr><th>Account</th><th>Type</th><th>${viewerAccountIsBroker(first) ? 'NAV' : 'Saldo'}</th><th>Beschikbaar cash</th><th>Valuta</th><th>Status</th></tr></thead><tbody>${detailRows}</tbody></table></td></tr></tbody>`;
+            }).join('');
+            return `<div class="viewer-table-note">NAV = netto asset value van een broker. Beschikbaar cash wordt per valuta getoond.</div><div style="overflow-x:auto;"><table class="data-table"><thead><tr><th>Verbinding</th><th>Provider</th><th>NAV / saldo</th><th>Beschikbaar cash</th><th>Valuta</th><th>Status</th></tr></thead>${rows}</table></div>`;
         }
 
-        function renderViewerHoldings(items) {
-            if (!items.length) return '<div class="empty-state" style="padding:24px 10px;"><p>Geen holdings in de database.</p></div>';
-            return `<div style="overflow-x:auto;"><table class="data-table"><thead><tr><th>Effect</th><th>Account</th><th>Aantal</th><th>Marktwaarde</th><th>Prijs</th><th>Geobserveerd</th></tr></thead><tbody>${items.map(item => `<tr><td><strong>${viewerCell(item.ticker || item.security_name)}</strong><br><span class="field-hint">${viewerCell(item.security_name)}</span></td><td>${viewerCell(item.account_name)}</td><td>${viewerCell(item.quantity)}</td><td>${viewerMoney(item.market_value, item.currency_code)}</td><td>${viewerMoney(item.price, item.price_currency || item.currency_code)}</td><td>${viewerCell(fmtDate(item.observed_at))}</td></tr>`).join('')}</tbody></table></div>`;
+        let viewerHoldingsState = { items: [], query: '', sortBy: '', direction: 'asc' };
+
+        function toggleViewerAccountGroup(index, button) {
+            const details = document.getElementById(`viewer-account-details-${index}`);
+            if (!details) return;
+            const expanded = details.classList.toggle('hidden') === false;
+            button.setAttribute('aria-expanded', String(expanded));
+            const icon = button.querySelector('.mdi');
+            if (icon) icon.className = `mdi mdi-chevron-${expanded ? 'down' : 'right'}`;
+        }
+
+        function sortViewerHoldings(key) {
+            if (viewerHoldingsState.sortBy === key) viewerHoldingsState.direction = viewerHoldingsState.direction === 'asc' ? 'desc' : 'asc';
+            else { viewerHoldingsState.sortBy = key; viewerHoldingsState.direction = 'asc'; }
+            renderViewerHoldings(viewerHoldingsState.items, false);
+        }
+
+        function renderViewerHoldings(items, reset = true) {
+            if (reset) viewerHoldingsState = { items, query: '', sortBy: '', direction: 'asc' };
+            const query = viewerHoldingsState.query.trim().toLocaleLowerCase();
+            let visible = viewerHoldingsState.items.filter(item => !query || [item.ticker, item.security_name, item.account_name, item.security_type, item.currency_code].some(value => String(value || '').toLocaleLowerCase().includes(query)));
+            const key = viewerHoldingsState.sortBy;
+            if (key) visible.sort((a, b) => String(a[key] ?? '').localeCompare(String(b[key] ?? ''), undefined, { numeric: true, sensitivity: 'base' }) * (viewerHoldingsState.direction === 'asc' ? 1 : -1));
+            if (!viewerHoldingsState.items.length) return '<div class="empty-state" style="padding:24px 10px;"><p>Geen holdings in de database.</p></div>';
+            const columns = [['ticker', 'Effect'], ['account_name', 'Account'], ['quantity', 'Aantal'], ['market_value', 'Marktwaarde'], ['price', 'Prijs'], ['observed_at', 'Geobserveerd']];
+            const heading = columns.map(([key, label]) => `<th><button type="button" class="viewer-sort-button" onclick="sortViewerHoldings('${key}')">${label}<span aria-hidden="true">${viewerHoldingsState.sortBy === key ? (viewerHoldingsState.direction === 'asc' ? ' ↑' : ' ↓') : ' ↕'}</span></button></th>`).join('');
+            const body = visible.map(item => `<tr><td><strong>${viewerCell(item.ticker || item.security_name)}</strong><br><span class="field-hint">${viewerCell(item.security_name)}</span></td><td>${viewerCell(item.account_name)}</td><td>${viewerCell(item.quantity)}</td><td>${viewerMoney(item.market_value, item.currency_code)}</td><td>${viewerMoney(item.price, item.price_currency || item.currency_code)}</td><td>${viewerCell(fmtDate(item.observed_at))}</td></tr>`).join('');
+            const container = document.getElementById('viewer-holdings');
+            const html = `<div class="viewer-table-toolbar"><label for="viewer-holdings-search">Zoek holding</label><input id="viewer-holdings-search" type="search" placeholder="Ticker, naam of account…" value="${escapeHtml(viewerHoldingsState.query)}" oninput="viewerHoldingsState.query=this.value; renderViewerHoldings(viewerHoldingsState.items, false)"><span class="field-hint">${visible.length} van ${viewerHoldingsState.items.length}</span></div><div style="overflow-x:auto;"><table class="data-table"><thead><tr>${heading}</tr></thead><tbody>${body || '<tr><td colspan="6" class="viewer-filter-empty">Geen holdings gevonden.</td></tr>'}</tbody></table></div>`;
+            if (container) {
+                container.innerHTML = html;
+                if (!reset) {
+                    const search = document.getElementById('viewer-holdings-search');
+                    if (search) { search.focus(); search.setSelectionRange(search.value.length, search.value.length); }
+                }
+            }
+            return html;
         }
 
         function renderViewerTransactions(items) {
@@ -2619,7 +2755,7 @@
                     if (selected.length && selected.length !== fileUploadState.inlineAccounts.length) await api('POST', `/connectors/configs/${encodeURIComponent(result.id)}/accounts`, { account_ids: selected, purge_unselected: false });
                 }
                 if (connectorSupportsFile(provider) && fileUploadState.method === 'file') renderProviderFileWizard(provider);
-                else { document.getElementById('import-flow-result').innerHTML = `<div class="alert alert-success" role="status"><strong>${escapeHtml(name)} is aangemaakt.</strong> De API-koppeling is getest en staat klaar.</div>`; document.getElementById('import-flow-panel').innerHTML = ''; }
+                else { document.getElementById('import-flow-result').innerHTML = `<div class="alert alert-info" role="status"><strong>${escapeHtml(name)} is aangemaakt.</strong> De eerste synchronisatie wordt gestart…</div>`; document.getElementById('import-flow-panel').innerHTML = ''; await startSyncWithProgress(result.id); }
             } catch (e) { error.innerHTML = `<strong>Koppeling kon niet worden opgeslagen.</strong> ${escapeHtml(e.message || '')}`; error.classList.remove('hidden'); if (button) { button.disabled = false; button.textContent = 'Koppeling opslaan'; } }
         }
 
@@ -3304,18 +3440,55 @@
 
         async function syncConnection(connectionId) {
             try {
-                const result = await api('POST', `/sync/connections/${connectionId}`, {});
-                if (result.status === 'error') {
-                    toast(`Sync failed: ${result.error_message || 'unknown error'}`, 'error');
-                } else {
-                    let msg = `Sync ${result.status}`;
-                    if (result.transactions_synced > 0) msg += ` · ${result.transactions_synced} transactions`;
-                    toast(msg, 'success');
-                }
+                const result = await startSyncWithProgress(connectionId);
+                toast(result.status === 'running' ? 'Deze sync loopt al.' : 'Sync gestart.', 'info');
                 await loadConnectors();
             } catch (e) {
                 toast(`Could not start sync: ${e.message}`, 'error');
             }
+        }
+
+        const activeSyncJobs = new Map();
+        let activeSyncPoller = null;
+
+        function renderActiveSyncJobs() {
+            const jobs = [...activeSyncJobs.values()];
+            const html = jobs.length ? jobs.map(job => `<div class="sync-activity-item"><span class="spinner" aria-hidden="true"></span><strong>${escapeHtml(job.provider || 'Connector')}</strong><span>${job.status === 'queued' ? 'Sync wordt gestart…' : 'Sync is bezig…'}</span><small>Automatisch vernieuwen</small></div>`).join('') : '';
+            ['overview-sync-activity', 'sync-page-activity'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.innerHTML = html;
+            });
+        }
+
+        async function refreshActiveSyncJobs() {
+            try {
+                const data = await api('GET', '/sync-runs?status=running&limit=100');
+                const running = data.items || [];
+                const runningConnections = new Set(running.map(run => String(run.connection_id || run.connector)));
+                running.forEach(run => {
+                    const key = String(run.connection_id || run.connector);
+                    activeSyncJobs.set(key, { provider: run.connector, status: 'running', runId: run.id });
+                });
+                for (const [key, job] of activeSyncJobs) {
+                    if (job.status === 'running' && !runningConnections.has(key)) activeSyncJobs.delete(key);
+                    else if (job.status === 'queued' && Date.now() - job.queuedAt > 30000) activeSyncJobs.delete(key);
+                }
+                renderActiveSyncJobs();
+                if (!activeSyncJobs.size && activeSyncPoller) { clearInterval(activeSyncPoller); activeSyncPoller = null; }
+            } catch (_) { /* The normal page loaders show API errors. */ }
+        }
+
+        function ensureActiveSyncPolling() {
+            if (!activeSyncPoller) activeSyncPoller = setInterval(refreshActiveSyncJobs, 2000);
+            refreshActiveSyncJobs();
+        }
+
+        async function startSyncWithProgress(connectionId) {
+            const result = await api('POST', `/sync/connections/${encodeURIComponent(connectionId)}/start`, {});
+            activeSyncJobs.set(String(connectionId), { provider: result.provider, status: result.status, queuedAt: Date.now(), runId: result.sync_run_id });
+            renderActiveSyncJobs();
+            ensureActiveSyncPolling();
+            return result;
         }
 
         // (closeModal is defined once in the modal helpers section above;
@@ -3726,6 +3899,7 @@
                     notice.innerHTML = `<div class="alert alert-error inline-error" role="alert"><div class="inline-error-msg"><strong>Runhistorie</strong> kon niet worden geladen. <button class="btn btn-sm" onclick="loadSyncRuns()">Opnieuw</button></div></div>`;
                     historyContainer.appendChild(notice);
                 }
+                ensureActiveSyncPolling();
                 if (container) container.setAttribute('aria-busy', 'false');
             } catch (e) {
                 renderInlineError('sync-schedules', 'Could not load planning', e.message || 'The planning service did not respond.', loadSyncRuns);
@@ -4096,6 +4270,7 @@
             for (const r of syncRunHistory) {
                 const badgeClass = r.status === 'completed' ? 'badge connected' : (r.status === 'failed' ? 'badge disconnected' : 'badge pending');
                 const statusLabel = RUN_STATUS_LABELS[r.status] || r.status;
+                const statusHtml = r.status === 'running' ? `<span class="${badgeClass}"><span class="spinner"></span> ${escapeHtml(statusLabel)}</span>` : `<span class="${badgeClass}">${escapeHtml(statusLabel)}</span>`;
                 const errorDetail = r.error_message
                     ? `<div class="run-error-line" title="${escapeHtml(String(r.error_message).slice(0, 300))}"><span class="mdi mdi-alert-outline"></span> ${escapeHtml(String(r.error_message).slice(0, 80))}</div>`
                     : '';
@@ -4103,7 +4278,7 @@
                     <tr>
                         <td style="padding:8px 12px;border-bottom:1px solid var(--border);font-size:0.85rem;font-family:monospace;">${escapeHtml(String(r.id).slice(0, 8))}</td>
                         <td style="padding:8px 12px;border-bottom:1px solid var(--border);font-size:0.85rem;">${escapeHtml(r.connector || '')}</td>
-                        <td style="padding:8px 12px;border-bottom:1px solid var(--border);font-size:0.85rem;"><span class="${badgeClass}">${escapeHtml(statusLabel)}</span></td>
+                        <td style="padding:8px 12px;border-bottom:1px solid var(--border);font-size:0.85rem;">${statusHtml}</td>
                         <td style="padding:8px 12px;border-bottom:1px solid var(--border);font-size:0.85rem;">${r.started_at ? escapeHtml(fmtDate(r.started_at)) : '-'}</td>
                         <td style="padding:8px 12px;border-bottom:1px solid var(--border);font-size:0.85rem;">${r.completed_at ? escapeHtml(fmtDate(r.completed_at)) : '-'}</td>
                         <td style="padding:8px 12px;border-bottom:1px solid var(--border);font-size:0.85rem;">${r.items_processed ?? '-'}</td>

@@ -39,6 +39,9 @@ ACTION_CATALOG: dict[str, ActionSpec] = {
     "view_imports": ActionSpec(
         "view_imports", "Importdetails bekijken", "GET", "connectors:read"
     ),
+    "open_file_import": ActionSpec(
+        "open_file_import", "Bestanden uploaden", "GET", "connectors:read"
+    ),
     "edit_connection": ActionSpec(
         "edit_connection", "Bewerken", "GET", "connectors:read"
     ),
@@ -56,6 +59,9 @@ ACTION_CATALOG: dict[str, ActionSpec] = {
     ),
     "view_data_source": ActionSpec(
         "view_data_source", "Bron bekijken", "GET", "enrichment:read"
+    ),
+    "refresh_quotes": ActionSpec(
+        "refresh_quotes", "Koersen bijwerken", "POST", "enrichment:write"
     ),
     "test_destination": ActionSpec(
         "test_destination", "Bestemming testen", "POST", "destinations:write"

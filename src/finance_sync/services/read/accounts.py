@@ -44,12 +44,16 @@ class AccountReadService:
 
         return AccountSummary(
             id=str(account.id),
+            connection_id=(
+                str(account.connection_id) if account.connection_id else None
+            ),
             name=account.name,
             account_type=str(account.account_type),
             account_subtype=account.account_subtype,
             currency_code=account.currency_code,
             current_balance=account.current_balance,
             available_balance=account.available_balance,
+            net_asset_value=account.net_asset_value,
             provider_key=account.provider_key,
             is_active=account.is_active,
             owner_user_id=account.owner_user_id,

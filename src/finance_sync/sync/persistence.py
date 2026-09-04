@@ -15,7 +15,10 @@ from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from typing import TYPE_CHECKING, Any, Protocol
 
+from sqlalchemy import select
+
 from finance_sync.models.account import Account
+from finance_sync.models.balance import Balance
 from finance_sync.models.card_transaction import CardTransaction
 from finance_sync.models.credential import Credential
 from finance_sync.models.enums import (
@@ -293,6 +296,7 @@ class AccountPersistence:
             "currency_code",
             "current_balance",
             "available_balance",
+            "net_asset_value",
             "iso_currency_code",
             "provider_metadata",
             "capabilities",
@@ -335,6 +339,7 @@ class AccountPersistence:
             currency_code=account.currency_code,
             current_balance=account.current_balance,
             available_balance=account.available_balance,
+            net_asset_value=account.net_asset_value,
             iso_currency_code=account.iso_currency_code,
             provider_metadata=account.provider_metadata,
             capabilities=getattr(account, "capabilities", None),
@@ -355,6 +360,35 @@ class AccountPersistence:
             provider_key=account.provider_key,
         )
         return entity
+
+    async def persist_cash_balances(
+        self, uow: UnitOfWork, account_id: str, account: CanonicalAccountData
+    ) -> None:
+        """Upsert provider cash snapshots without collapsing currencies."""
+        for snapshot in account.cash_balances:
+            currency = snapshot.currency_code.upper()
+            existing = await uow.session.scalar(
+                select(Balance).where(
+                    Balance.account_id == account_id,
+                    Balance.observed_at == snapshot.observed_at,
+                    Balance.balance_kind == snapshot.balance_kind,
+                    Balance.currency_code == currency,
+                )
+            )
+            if existing is None:
+                uow.session.add(
+                    Balance(
+                        tenant_id=self._tenant_id,
+                        account_id=account_id,
+                        observed_at=snapshot.observed_at,
+                        balance_kind=snapshot.balance_kind,
+                        amount=snapshot.amount,
+                        currency_code=currency,
+                        source="provider_sync",
+                    )
+                )
+            else:
+                existing.amount = snapshot.amount
 
 
 class TransactionPersistence:
@@ -1155,6 +1189,14 @@ class SyncPersistence:
         return await self._account_persistence.persist_account(
             uow, account, connection_id=connection_id
         )
+
+    async def persist_cash_balances(
+        self, uow: UnitOfWork, account_id: str, account: CanonicalAccountData
+    ) -> None:
+        if self.context is not None:
+            await self._account_persistence.persist_cash_balances(
+                uow, account_id, account
+            )
 
     async def persist_transaction(
         self,

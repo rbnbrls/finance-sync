@@ -246,7 +246,7 @@ class ControlPlaneService:
                 ),
                 action(
                     "sync_connection",
-                    f"/api/v1/sync/connections/{row.id}",
+                    f"/api/v1/sync/connections/{row.id}/start",
                     permissions=permissions,
                     disabled_reason=(
                         "De verbinding is gepauzeerd."
@@ -502,6 +502,14 @@ class ControlPlaneService:
                     )
                     if value
                 ),
+                affected_transaction_ids=[
+                    str(value)
+                    for value in (
+                        result.transaction_id_a,
+                        result.transaction_id_b,
+                    )
+                    if value
+                ],
             )
             for result in results
         ]
@@ -528,8 +536,8 @@ class ControlPlaneService:
                     "holdings hebben geen waardering."
                 ),
                 action=action(
-                    "view_data_source",
-                    "/api/v1/enrichment/status",
+                    "refresh_quotes",
+                    "/api/v1/enrichment/refresh-quotes",
                     permissions=self._permissions,
                 ),
             )
