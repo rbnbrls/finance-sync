@@ -1087,12 +1087,6 @@ class SyncOrchestrator(CardsSyncMixin):
                 duration_s=(end_ts - start_ts).total_seconds(),
             )
 
-    # ── Cards pipeline ─────────────────────────────────────────────
-
-    # ── Entity upsert helpers ──────────────────────────────────────
-
-    # ── Failure handling ───────────────────────────────────────────
-
     async def _mark_run_failed(
         self,
         session: AsyncSession,
