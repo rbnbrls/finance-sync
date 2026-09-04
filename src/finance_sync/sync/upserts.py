@@ -284,17 +284,31 @@ async def bulk_upsert_transactions(
     if not rows:
         return UpsertResult(inserted_ids=(), updated_ids=())
 
-    stmt = _upsert_stmt(
-        Transaction,
-        rows,
-        index_elements=index_elements,
-        update_columns=update_columns,
-        revision_column=revision_column,
-    )
-    return await _run_upsert(
-        session,
-        stmt,
-        [str(row["id"]) for row in rows],
+    # asyncpg limits a prepared statement to 32767 bind parameters.  A
+    # Trading212 history can contain several thousand rows, so keep each
+    # INSERT comfortably below that limit while retaining one transaction.
+    chunk_size = 500
+    inserted: list[str] = []
+    updated: list[str] = []
+    for offset in range(0, len(rows), chunk_size):
+        chunk = rows[offset : offset + chunk_size]
+        stmt = _upsert_stmt(
+            Transaction,
+            chunk,
+            index_elements=index_elements,
+            update_columns=update_columns,
+            revision_column=revision_column,
+        )
+        result = await _run_upsert(
+            session,
+            stmt,
+            [str(row["id"]) for row in chunk],
+        )
+        inserted.extend(result.inserted_ids)
+        updated.extend(result.updated_ids)
+    return UpsertResult(
+        inserted_ids=tuple(inserted),
+        updated_ids=tuple(updated),
     )
 
 

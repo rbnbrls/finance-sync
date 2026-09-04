@@ -21,6 +21,10 @@ from finance_sync.api.deps.auth import AuthContext, require_permission
 from finance_sync.config.settings import Settings
 from finance_sync.connectors.models import ConnectorConfig
 from finance_sync.connectors.registry import ConnectorRegistry
+from finance_sync.connectors.trading212 import (
+    _normalise_instrument,
+    _price_scale,
+)
 from finance_sync.dependencies import get_db, get_settings
 from finance_sync.enrichment.models import PriceObservation
 from finance_sync.enrichment.price_store import PriceStore
@@ -125,12 +129,15 @@ async def _live_quote(
             observed_at = datetime.now(UTC)
             security = await _security(db, auth=auth, symbol=symbol)
             if security is not None:
+                raw_ticker = str(item.get("ticker", symbol))
+                price_value = Decimal(str(price)) * _price_scale(raw_ticker)
+                _, _, venue = _normalise_instrument(raw_ticker)
                 await PriceStore(db, settings).store_prices(
                     [
                         PriceObservation(
                             security_id=str(security.id),
                             timestamp=observed_at,
-                            price_close=Decimal(str(price)),
+                            price_close=price_value,
                             source="trading212",
                             interval="1d",
                             currency_code=str(
@@ -138,6 +145,7 @@ async def _live_quote(
                                 or security.currency_code
                                 or "EUR"
                             ),
+                            venue=venue,
                             provider_metadata={
                                 "connection_id": str(credential.id),
                                 "symbol": str(item.get("ticker", symbol)),

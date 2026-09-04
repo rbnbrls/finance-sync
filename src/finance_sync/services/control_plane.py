@@ -617,26 +617,46 @@ class ControlPlaneService:
         total_count = int(total or 0)
         holdings_without_valuation = int(
             await self._session.scalar(
-                select(func.count(Holding.id)).where(
+                select(func.count(Holding.id))
+                .outerjoin(
+                    EnrichmentFreshness,
+                    EnrichmentFreshness.security_id == Holding.security_id,
+                )
+                .where(
                     Holding.tenant_id == self._tenant_id,
                     Holding.market_value.is_(None),
+                    (EnrichmentFreshness.status.is_(None))
+                    | (EnrichmentFreshness.status != "unavailable_accepted"),
                 )
             )
             or 0
         )
+        accepted_ids = {
+            str(getattr(row, "security_id", ""))
+            for row in rows
+            if getattr(row, "status", None) == "unavailable_accepted"
+        }
+        active_rows = [
+            row
+            for row in rows
+            if getattr(row, "status", None) != "unavailable_accepted"
+        ]
+        total_count = max(total_count - len(accepted_ids), 0)
         cutoff = self._now - self._freshness_limit
         fresh = sum(
             1
-            for row in rows
+            for row in active_rows
             if row.last_quote_fetch and row.last_quote_fetch >= cutoff
         )
         stale = sum(
             1
-            for row in rows
+            for row in active_rows
             if row.last_quote_fetch and row.last_quote_fetch < cutoff
         )
-        without_quote = max(total_count - len(rows), 0) + sum(
-            1 for row in rows if row.last_quote_fetch is None
+        without_quote = max(total_count - len(active_rows), 0) + sum(
+            1
+            for row in active_rows
+            if row.last_quote_fetch is None
         )
         latest = max((row.updated_at for row in rows), default=None)
         by_source: dict[str, dict[str, int]] = {}
@@ -678,7 +698,8 @@ class ControlPlaneService:
                     category_bucket["stale"] += 1
         status = (
             "fresh"
-            if total_count and fresh == total_count
+            if (total_count and fresh == total_count)
+            or (not total_count and accepted_ids)
             else (
                 "unavailable"
                 if not total_count

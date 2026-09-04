@@ -29,6 +29,7 @@ from finance_sync.models.datamart import (
 )
 from finance_sync.models.detected_subscription import DetectedSubscription
 from finance_sync.models.enrichment_freshness import EnrichmentFreshness
+from finance_sync.models.market_data_exception import MarketDataException
 from finance_sync.models.enums import (
     AccountType,
     BalanceKind,
@@ -212,6 +213,7 @@ __all__ = [
     "DetectedSubscription",
     "DetectionMethod",
     "EnrichmentFreshness",
+    "MarketDataException",
     "ExportTarget",
     "FundamentalObservation",
     "FxRate",

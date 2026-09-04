@@ -34,7 +34,11 @@ def _date_is_invalid(value: Any) -> bool:
 
 
 def _metadata_version(metadata: dict[str, Any]) -> str | None:
-    value = metadata.get("plugin_version")
+    # The public ``/connectors`` catalogue exposes the SDK version, while the
+    # internal registry also has the implementation version.  Treat the SDK
+    # version as a safe fallback so a connector is not shown as unknown merely
+    # because it did not publish a separate plugin version.
+    value = metadata.get("plugin_version", metadata.get("sdk_version"))
     return str(value) if value is not None else None
 
 

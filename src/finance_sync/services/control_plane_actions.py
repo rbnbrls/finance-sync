@@ -63,6 +63,12 @@ ACTION_CATALOG: dict[str, ActionSpec] = {
     "refresh_quotes": ActionSpec(
         "refresh_quotes", "Koersen bijwerken", "POST", "enrichment:write"
     ),
+    "accept_unavailable_quotes": ActionSpec(
+        "accept_unavailable_quotes",
+        "Ontbrekende koersen accepteren",
+        "POST",
+        "enrichment:write",
+    ),
     "test_destination": ActionSpec(
         "test_destination", "Bestemming testen", "POST", "destinations:write"
     ),

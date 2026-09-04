@@ -87,6 +87,10 @@ class SecurityPrice(TimestampMixin, Base):
         comment="ISO-4217 currency code",
     )
 
+    venue: Mapped[str | None] = mapped_column(
+        String(4), nullable=True, comment="ISO 10383 market identifier code"
+    )
+
     def __repr__(self) -> str:
         return (
             f"<SecurityPrice security_id={self.security_id!r} "

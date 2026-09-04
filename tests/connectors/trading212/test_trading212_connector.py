@@ -31,9 +31,11 @@ from finance_sync.connectors.trading212 import (
     _map_order_side,
     _map_order_status,
     _map_transaction_type,
+    _normalise_instrument,
     _parse_cash_transaction,
     _parse_order,
     _parse_t212_datetime,
+    _price_scale,
 )
 from tests.connectors.fixtures.trading212_api_fixtures import (
     ACCOUNT_CASH_RESPONSE,
@@ -818,6 +820,50 @@ class TestTrading212CashTransactionParsing:
         assert txn.amount == Decimal("5000.00")
         assert txn.transaction_type == "deposit"
 
+    def test_parse_cash_transaction_without_id_uses_stable_fallback(self) -> None:
+        """Live cash-history payloads may omit id without collapsing rows."""
+        txn = _parse_cash_transaction(
+            {
+                "type": "DIVIDEND",
+                "dateTime": "2026-09-04T04:09:25.915Z",
+                "amount": 0.72,
+                "currencyCode": "EUR",
+                "reference": "provider-reference-1",
+                "ticker": "AAPL",
+            },
+            "12345678",
+        )
+        assert txn.external_transaction_id == "txn_provider-reference-1"
+        assert txn.external_transaction_id != "txn_"
+
+    def test_parse_cash_transaction_without_id_or_reference_is_unique(self) -> None:
+        """Rows without provider identifiers must not collapse to ``txn_``."""
+        base = {
+            "type": "DIVIDEND",
+            "currencyCode": "EUR",
+            "ticker": "AAPL",
+        }
+        first = _parse_cash_transaction(
+            {
+                **base,
+                "dateTime": "2026-09-04T04:09:25.915Z",
+                "amount": 0.72,
+            },
+            "12345678",
+        )
+        second = _parse_cash_transaction(
+            {
+                **base,
+                "dateTime": "2026-09-05T04:09:25.915Z",
+                "amount": 0.73,
+            },
+            "12345678",
+        )
+
+        assert first.external_transaction_id != "txn_"
+        assert second.external_transaction_id != "txn_"
+        assert first.external_transaction_id != second.external_transaction_id
+
     def test_parse_withdrawal(self) -> None:
         """A withdrawal should parse with negative amount."""
         from tests.connectors.fixtures.trading212_api_fixtures import (
@@ -862,6 +908,17 @@ class TestTrading212CashTransactionParsing:
 
 
 class TestTrading212Mapping:
+    def test_london_prices_are_scaled_from_gbx(self) -> None:
+        assert _price_scale("WISEl_EQ") == Decimal("0.01")
+        assert _price_scale("AAPL_US_EQ") == Decimal(1)
+
+    def test_normalise_dutch_instrument(self) -> None:
+        assert _normalise_instrument("BESIa_EQ") == (
+            "BESI:XAMS",
+            "BE Semiconductor Industries",
+            "XAMS",
+        )
+
     """Transaction type and status mapping."""
 
     def test_map_order_sides(self) -> None:
@@ -1039,7 +1096,6 @@ class TestTrading212HoldingsMapping:
         """fetch_holdings for a different account returns no data."""
         await t212_connector.authenticate()
         assert await t212_connector.fetch_holdings(account_id="other") == []
-
 
 class TestTrading212ConnectorErrorHandling:
     """Error classification and handling."""
