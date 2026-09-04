@@ -51,9 +51,10 @@ async def report_connector_failure(
     fingerprint = incident_fingerprint(
         connector=connector, operation=operation, error=error
     )
-    token = secret_value(settings.github_token)
-    if token and "/" in settings.github_repo:
-        owner, repo = settings.github_repo.split("/", 1)
+    token = secret_value(getattr(settings, "github_token", None))
+    github_repo = getattr(settings, "github_repo", "")
+    if token and "/" in github_repo:
+        owner, repo = github_repo.split("/", 1)
         marker = f"finance-sync-incident:{fingerprint}"
         service = GitHubIssueService(token=token)
         existing = await service.find_open_issue_by_marker(
