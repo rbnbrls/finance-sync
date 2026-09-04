@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from typing import Any, cast
+from typing import Any, Protocol, cast
 
 from fastapi import APIRouter, Depends
 from sqlalchemy import func, select
@@ -27,6 +27,10 @@ from finance_sync.models.security import Security
 from finance_sync.services.auth import decrypt_credential
 
 router = APIRouter(tags=["enrichment"])
+
+
+class _PortfolioConnector(Protocol):
+    async def fetch_portfolio(self) -> list[dict[str, Any]]: ...
 
 
 def _options(credential: Credential) -> dict[str, Any]:
@@ -109,7 +113,8 @@ async def refresh_quotes(
         )
         try:
             await connector.authenticate()
-            portfolio = cast(list[dict[str, Any]], await connector.fetch_portfolio())
+            portfolio_connector = cast(_PortfolioConnector, connector)
+            portfolio = await portfolio_connector.fetch_portfolio()
             providers.append("trading212")
             by_ticker = {
                 variant: item
@@ -118,17 +123,24 @@ async def refresh_quotes(
             }
             observations: list[PriceObservation] = []
             observed_at = datetime.now(UTC)
-            freshness_rows: dict[str, EnrichmentFreshness] = {}
+            freshness_rows: dict[str, EnrichmentFreshness | None] = {}
             for security in securities:
                 item = next(
-                    (by_ticker.get(variant) for variant in _ticker_variants(security.ticker)),
+                    (
+                        by_ticker.get(variant)
+                        for variant in _ticker_variants(security.ticker)
+                    ),
                     None,
                 )
-                price = item.get("currentPrice") if item else None
+                if item is None:
+                    continue
+                price = item.get("currentPrice")
                 if price is None:
                     continue
                 security_id = str(security.id)
-                currency = str(item.get("currencyCode") or security.currency_code or "EUR")
+                currency = str(
+                    item.get("currencyCode") or security.currency_code or "EUR"
+                )
                 observations.append(
                     PriceObservation(
                         security_id=security_id,
