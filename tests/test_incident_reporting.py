@@ -1,5 +1,6 @@
 """Tests for the single-route connector incident reporter."""
 
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -85,6 +86,22 @@ async def test_falls_back_to_glitchtip_when_github_is_unavailable() -> None:
 
     result = await report_connector_failure(
         _settings(),
+        RuntimeError("provider unavailable"),
+        connector="saxo_investor",
+        operation="sync_connection",
+        fallback_capture=fallback,
+    )
+
+    assert result["channel"] == "glitchtip"
+    fallback.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_reduced_settings_can_use_glitchtip_fallback() -> None:
+    fallback = MagicMock()
+
+    result = await report_connector_failure(
+        SimpleNamespace(),
         RuntimeError("provider unavailable"),
         connector="saxo_investor",
         operation="sync_connection",
