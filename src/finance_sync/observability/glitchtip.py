@@ -258,7 +258,9 @@ def capture_connector_exception(
         safe_scope.set_tag("operation", operation)
         if fingerprint:
             safe_scope.set_tag("incident_fingerprint", fingerprint)
-            safe_scope.set_fingerprint(["finance-sync-incident", fingerprint])
+            set_fingerprint = getattr(safe_scope, "set_fingerprint", None)
+            if callable(set_fingerprint):
+                set_fingerprint(["finance-sync-incident", fingerprint])
         if correlation_id:
             safe_scope.set_tag("correlation_id", correlation_id)
         context = {"connector": connector, "operation": operation}
