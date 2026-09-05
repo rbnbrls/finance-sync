@@ -11,9 +11,17 @@ from pathlib import Path
 import pytest
 from openpyxl import Workbook
 
-from finance_sync.connectors.degiro_pension import DegiroPensionConnector
+from finance_sync.connectors.degiro_pension import (
+    DegiroPensionConnector,
+    ImportValidationReport,
+)
 from finance_sync.connectors.exceptions import PermanentError
-from finance_sync.connectors.models import ConnectorConfig
+from finance_sync.connectors.models import (
+    ConnectorConfig,
+    RawHolding,
+    RawTransaction,
+    SecurityReference,
+)
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -30,6 +38,41 @@ def _connector(*names: str, **options: object) -> DegiroPensionConnector:
             },
         )
     )
+
+
+def test_missing_portfolio_gak_is_derived_from_transactions() -> None:
+    reference = SecurityReference(isin="NL0000000001", name="Example")
+    transactions = [
+        RawTransaction(
+            external_transaction_id="buy",
+            external_account_id="account",
+            amount=Decimal(-100),
+            occurred_at=datetime(2026, 1, 1, tzinfo=UTC),
+            transaction_type="purchase",
+            quantity=Decimal(10),
+            unit_price=Decimal(10),
+            security_reference=reference,
+        ),
+    ]
+    holdings = [
+        RawHolding(
+            external_account_id="account",
+            observed_at=datetime(2026, 2, 1, tzinfo=UTC),
+            quantity=Decimal(10),
+            security_reference=reference,
+            market_value=Decimal(120),
+            currency_code="EUR",
+        )
+    ]
+    report = ImportValidationReport()
+
+    result = DegiroPensionConnector._fill_missing_cost_basis(
+        holdings, transactions, report
+    )
+
+    assert result[0].cost_basis == Decimal(100)
+    assert result[0].cost_basis_currency == "EUR"
+    assert "GAK afgeleid" in report.warnings[-1]
 
 
 @pytest.mark.asyncio

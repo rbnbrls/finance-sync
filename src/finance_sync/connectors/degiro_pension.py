@@ -377,9 +377,12 @@ class DegiroPensionConnector(Connector):
                 )
                 raise PermanentError(message)
             self._transactions = self._deduplicate(transactions)
-            self._holdings = holdings
+            self._holdings = self._fill_missing_cost_basis(
+                holdings, self._transactions, report
+            )
             report.rows_imported = len(self._transactions) + len(holdings)
             self._reports = reports
+            self.validation_report = report
         except PermanentError:
             self.validation_report = report
             raise
@@ -388,7 +391,88 @@ class DegiroPensionConnector(Connector):
             self.validation_report = report
             message = f"DEGIRO-export kon niet worden gelezen: {exc}"
             raise PermanentError(message) from exc
-        self.validation_report = report
+
+    @staticmethod
+    def _fill_missing_cost_basis(
+        holdings: list[RawHolding],
+        transactions: list[RawTransaction],
+        report: ImportValidationReport,
+    ) -> list[RawHolding]:
+        """Derive missing portfolio GAK values from the transactions export.
+
+        DEGIRO's Portfolio export does not always include a GAK column.  The
+        Transactions export still contains the authoritative trade quantity,
+        price and fees, so calculate a weighted-average remaining cost per
+        ISIN.  The value stored on ``RawHolding`` is the total cost basis;
+        Wealthfolio later converts it to average cost per unit.
+        """
+        state: dict[str, tuple[Decimal, Decimal]] = {}
+        ordered = sorted(transactions, key=lambda item: item.occurred_at)
+        for transaction in ordered:
+            reference = transaction.security_reference
+            isin = reference.isin if reference is not None else None
+            if (
+                not isin
+                or transaction.transaction_type not in {"purchase", "sale"}
+                or transaction.quantity is None
+                or transaction.unit_price is None
+                or transaction.quantity == 0
+            ):
+                continue
+            quantity = abs(transaction.quantity)
+            unit_price = abs(transaction.unit_price)
+            open_quantity, open_cost = state.get(
+                isin, (Decimal(0), Decimal(0))
+            )
+            if transaction.transaction_type == "purchase":
+                state[isin] = (
+                    open_quantity + quantity,
+                    open_cost
+                    + quantity * unit_price
+                    + abs(transaction.fee_amount or Decimal(0)),
+                )
+                continue
+            average_cost = (
+                open_cost / open_quantity if open_quantity else Decimal(0)
+            )
+            state[isin] = (
+                max(open_quantity - quantity, Decimal(0)),
+                max(open_cost - quantity * average_cost, Decimal(0)),
+            )
+
+        filled = 0
+        result: list[RawHolding] = []
+        for holding in holdings:
+            if holding.cost_basis is not None:
+                result.append(holding)
+                continue
+            isin = holding.security_reference.isin
+            derived_quantity, derived_cost = state.get(
+                isin, (Decimal(0), Decimal(0))
+            )
+            if derived_quantity <= 0 or derived_cost <= 0:
+                result.append(holding)
+                continue
+            # A mismatch means the transaction export is incomplete for this
+            # position. Do not invent a cost basis from a partial history.
+            if derived_quantity != abs(holding.quantity):
+                report.warnings.append(
+                    f"GAK niet afgeleid voor {isin}: transacties bevatten "
+                    f"{derived_quantity} stuks, portefeuille "
+                    f"{holding.quantity}."
+                )
+                result.append(holding)
+                continue
+            holding.cost_basis = derived_cost
+            holding.cost_basis_currency = holding.currency_code
+            filled += 1
+            result.append(holding)
+        if filled:
+            report.warnings.append(
+                f"GAK afgeleid uit transacties voor {filled} "
+                "portefeuilleposities."
+            )
+        return result
 
     def _read_table(self, path: Path) -> tuple[list[str], list[list[Any]]]:
         suffix = path.suffix.lower()
