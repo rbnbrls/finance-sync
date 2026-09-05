@@ -83,6 +83,11 @@ class ExportRun(Base):
         nullable=True,
         comment="Sanitized delivery cursor/checkpoint metadata",
     )
+    preflight_manifest: Mapped[dict[str, object] | None] = mapped_column(
+        JSON,
+        nullable=True,
+        comment="Versioned Wealthfolio data-contract validation result",
+    )
 
     created_at = created_at_ts()
 

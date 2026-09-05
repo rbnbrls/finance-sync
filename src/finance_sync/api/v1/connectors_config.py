@@ -70,6 +70,9 @@ from finance_sync.services.connector_compatibility import (
     evaluate_connector,
     load_json,
 )
+from finance_sync.services.connector_data_deletion import (
+    ConnectorDataDeletionService,
+)
 from finance_sync.services.connector_releases import (
     ConnectorReleaseError,
     register_candidate,
@@ -125,6 +128,76 @@ def _release_response(row: ConnectorRelease) -> ConnectorReleaseResponse:
 # ── Singleton registry ──────────────────────────────────────────────────
 _registry: ConnectorRegistry | None = None
 
+# Market-data sources are configuration objects, not transaction connectors.
+# They live in the same UX because users should be able to manage the whole
+# enrichment chain in one place.  The repair service consumes the enabled
+# sources in priority order; credentials are still encrypted by the normal
+# connector-config endpoint.
+MARKET_DATA_PROVIDERS: tuple[dict[str, Any], ...] = (
+    {
+        "name": "openfigi",
+        "display_name": "OpenFIGI",
+        "credential_fields": [{"key": "api_key", "label": "API key", "type": "password", "required": False}],
+        "description": "Instrument-identiteit en ISIN/FIGI/ticker-mapping",
+        "documentation_url": "https://www.openfigi.com/api/documentation",
+    },
+    {
+        "name": "ecb",
+        "display_name": "ECB wisselkoersen",
+        "credential_fields": [],
+        "description": "Officiële dagelijkse EUR-wisselkoersen",
+        "documentation_url": "https://data.ecb.europa.eu/help/api/data",
+    },
+    {
+        "name": "stooq",
+        "display_name": "Stooq",
+        "credential_fields": [],
+        "description": "Gratis dagelijkse historische koersen",
+        "documentation_url": "https://stooq.com/q/d/l/",
+    },
+    {
+        "name": "finnhub",
+        "display_name": "Finnhub",
+        "credential_fields": [{"key": "api_key", "label": "API key", "type": "password", "required": True}],
+        "description": "Actuele marktkoersen en historische reeksen",
+        "documentation_url": "https://finnhub.io/docs/api/quote",
+    },
+    {
+        "name": "twelve_data",
+        "display_name": "Twelve Data",
+        "credential_fields": [{"key": "api_key", "label": "API key", "type": "password", "required": True}],
+        "description": "Actuele en historische koersen via credits",
+        "documentation_url": "https://twelvedata.com/docs/introduction/quickstart",
+    },
+    {
+        "name": "alpha_vantage",
+        "display_name": "Alpha Vantage",
+        "credential_fields": [{"key": "api_key", "label": "API key", "type": "password", "required": True}],
+        "description": "Koersen en historische data; gratis quota is beperkt",
+        "documentation_url": "https://www.alphavantage.co/support/",
+    },
+    {
+        "name": "yahoo_finance",
+        "display_name": "Yahoo Finance",
+        "credential_fields": [],
+        "description": "Gratis marktdata zonder configuratie",
+        "documentation_url": "https://wealthfolio.app/docs/concepts/market-data-and-fx/",
+    },
+    {
+        "name": "boerse_frankfurt",
+        "display_name": "Börse Frankfurt",
+        "credential_fields": [],
+        "description": "Marktdata voor Europese instrumenten",
+        "documentation_url": "https://wealthfolio.app/docs/concepts/market-data-and-fx/",
+    },
+)
+_MARKET_DATA_KEYS = {item["name"] for item in MARKET_DATA_PROVIDERS}
+_MARKET_DATA_NO_SECRET_KEYS = {
+    item["name"]
+    for item in MARKET_DATA_PROVIDERS
+    if not item["credential_fields"]
+}
+
 
 def _get_registry() -> ConnectorRegistry:
     global _registry
@@ -163,9 +236,21 @@ class ConnectorInfo(BaseModel):
         default_factory=list,
         description="Resources this connector can fetch",
     )
+    spending_capabilities: dict[str, dict[str, object]] = Field(
+        default_factory=dict,
+        description="Optional spending capabilities and availability",
+    )
     configuration_mode: str = Field(
         default="user",
         description="Whether configuration is user-managed or staging-selectable.",
+    )
+    ingestion_methods: list[str] = Field(
+        default_factory=lambda: ["api"],
+        description="Supported user-facing ingestion methods: api and/or file",
+    )
+    import_wizard: dict[str, object] = Field(
+        default_factory=dict,
+        description="Secret-safe provider-specific import wizard hints",
     )
 
 
@@ -179,6 +264,9 @@ class ConnectorCatalogInfo(BaseModel):
     plugin_version: str
     sdk_version: str
     supported_resources: list[str]
+    spending_capabilities: dict[str, dict[str, object]] = Field(
+        default_factory=dict
+    )
     credential_fields: list[dict[str, object]]
     option_fields: list[dict[str, object]]
     rate_limit_policy: dict[str, int | float] | None = None
@@ -187,6 +275,8 @@ class ConnectorCatalogInfo(BaseModel):
     lifecycle_status: str = "available"
     feature_flag: str | None = None
     configuration_mode: str
+    ingestion_methods: list[str] = Field(default_factory=lambda: ["api"])
+    import_wizard: dict[str, object] = Field(default_factory=dict)
     metadata_incomplete: bool = False
     compatibility: ConnectorCompatibility
 
@@ -234,8 +324,11 @@ class ConnectorConfigResponse(BaseModel):
     )
     last_error: str | None = Field(
         default=None,
-        description="Sanitised error of the last failed sync / connection test",
+        description="Sanitised error of the last failed sync",
     )
+    last_test_at: datetime | None = None
+    last_test_status: str | None = None
+    last_test_error: str | None = None
     credential_status: str = "unknown"
     last_authenticated_at: datetime | None = None
     expires_at: datetime | None = None
@@ -286,6 +379,20 @@ class ConnectorTestResult(BaseModel):
             "provider does not support account enumeration or the test failed"
         ),
     )
+
+
+class ConnectorDeletionPreviewResponse(BaseModel):
+    """Impact summary shown before permanently deleting a connection."""
+
+    provider_key: str
+    connection_id: str
+    accounts: int
+    transactions: int
+    card_transactions: int
+    holdings: int
+    balances: int
+    other_records: int
+    legacy_records_warning: str | None = None
 
 
 class ConnectorAccountsUpdate(BaseModel):
@@ -355,6 +462,19 @@ class InlineTestResult(BaseModel):
     )
 
 
+def _account_enumeration_error_is_fatal(provider_key: str) -> bool:
+    """Return whether account discovery is required to validate a provider.
+
+    Bunq's authenticated session can be created successfully while the
+    monetary-account request still fails. Treating that failure as optional
+    makes the UI report a successful connection with no accounts, after which
+    the worker cannot sync balances or payments. Other connectors retain the
+    historical best-effort behaviour because some need extra scopes for
+    account enumeration.
+    """
+    return provider_key == "bunq"
+
+
 class ConnectorConfigUpdate(BaseModel):
     """Payload for updating an existing connector configuration."""
 
@@ -389,6 +509,10 @@ _NON_SECRET_PROVIDERS = {
     "manual_expense",
 }
 
+# SaxoInvestor is a single-account file source. Its positions and
+# transactions exports belong to the same account and must share one profile.
+_SINGLE_CONNECTION_PROVIDERS = {"saxo_investor"}
+
 
 def _credential_secrets(cred: Credential, settings: Any) -> list[str]:
     """Return the decrypted secret values of a credential for redaction.
@@ -415,7 +539,7 @@ def _credential_response(row: Credential) -> ConnectorConfigResponse:
     """Build the public response for a credential row (no secrets)."""
     options: Any = {}
     is_configured = bool(row.encrypted_payload) or row.provider_key in (
-        _NON_SECRET_PROVIDERS
+        _NON_SECRET_PROVIDERS | _MARKET_DATA_NO_SECRET_KEYS
     )
     label = row.description
     with contextlib.suppress(json.JSONDecodeError, TypeError):
@@ -423,6 +547,17 @@ def _credential_response(row: Credential) -> ConnectorConfigResponse:
         if isinstance(parsed, dict):
             options = cast(dict[str, Any], parsed)
             label = options.pop("_label", label) or label
+    # Older connections stored only the JSON options object in description.
+    # Never expose that implementation detail as the connection's name.
+    if not label or label.lstrip().startswith("{"):
+        metadata = _get_registry().list_connectors().get(row.provider_key, {})
+        label = str(metadata.get("display_name", row.provider_key))
+        if row.provider_key in _MARKET_DATA_KEYS:
+            label = next(
+                item["display_name"]
+                for item in MARKET_DATA_PROVIDERS
+                if item["name"] == row.provider_key
+            )
     return ConnectorConfigResponse(
         id=str(row.id),
         connection_id=str(row.id),
@@ -435,6 +570,9 @@ def _credential_response(row: Credential) -> ConnectorConfigResponse:
         last_attempt_at=row.last_attempt_at,
         last_success_at=row.last_success_at,
         last_error=row.last_error,
+        last_test_at=getattr(row, "last_test_at", None),
+        last_test_status=getattr(row, "last_test_status", None),
+        last_test_error=getattr(row, "last_test_error", None),
         credential_status=getattr(row, "credential_status", None) or "unknown",
         last_authenticated_at=getattr(row, "last_authenticated_at", None),
         expires_at=getattr(row, "expires_at", None),
@@ -739,8 +877,11 @@ def _get_connector_credential_schema(
                     "label": "API Secret",
                     "type": "password",
                     "placeholder": "Enter your Trading212 API secret",
-                    "required": False,
-                    "description": "Required for current Trading212 API keys",
+                    "required": True,
+                    "description": (
+                        "Required for current Trading212 API keys. "
+                        "Your secret is encrypted and never shown again."
+                    ),
                 },
             ],
             [
@@ -762,49 +903,9 @@ def _get_connector_credential_schema(
         "degiro_pension": (
             [],
             [
-                {
-                    "key": "watchfolder",
-                    "label": "Inkomende watchfolder",
-                    "type": "text",
-                    "required": False,
-                    "description": (
-                        "Alleen voor self-hosting; mount deze map ook in de worker"
-                    ),
-                },
-                {
-                    "key": "archive_directory",
-                    "label": "Archiefmap",
-                    "type": "text",
-                    "required": False,
-                },
-                {
-                    "key": "quarantine_directory",
-                    "label": "Quarantainemap",
-                    "type": "text",
-                    "required": False,
-                },
-                {
-                    "key": "account_key",
-                    "label": "Rekeningkenmerk",
-                    "type": "text",
-                    "required": False,
-                    "description": (
-                        "Willekeurig, blijvend kenmerk; gebruik geen "
-                        "gebruikersnaam of rekeningnummer"
-                    ),
-                },
-                {
-                    "key": "account_name",
-                    "label": "Rekeningnaam",
-                    "type": "text",
-                    "default": "DEGIRO Pensioen",
-                },
-                {
-                    "key": "snapshot_at",
-                    "label": "Portefeuillesnapshotdatum",
-                    "type": "date",
-                    "required": False,
-                },
+                # Browser uploads do not need filesystem paths or a manual
+                # snapshot override. The upload wizard supplies a stable
+                # account key and uses the profile label as account name.
             ],
         ),
         "saxo_investor": (
@@ -900,8 +1001,41 @@ async def list_available_connectors(
                 credential_fields=cred_fields,
                 option_fields=opt_fields,
                 capabilities=capabilities,
+                spending_capabilities=cast(
+                    dict[str, dict[str, object]],
+                    meta.get("spending_capabilities", {}),
+                ),
                 configuration_mode="staging_choice" if managed else "user",
+                ingestion_methods=list(meta.get("ingestion_methods", ["api"])),
+                import_wizard=cast(
+                    dict[str, object], meta.get("import_wizard", {})
+                ),
             )
+        )
+    result.extend(
+        ConnectorInfo(
+                name=str(item["name"]),
+                display_name=str(item["display_name"]),
+                sdk_version="market-data-v1",
+                credential_fields=cast(
+                    list[dict[str, object]], item["credential_fields"]
+                ),
+                option_fields=[
+                    {
+                        "key": "enabled",
+                        "label": "Bron gebruiken",
+                        "type": "boolean",
+                        "required": False,
+                        "default": True,
+                    }
+                ],
+                capabilities=["quotes", "historical_prices"],
+                configuration_mode="user",
+                ingestion_methods=["api"],
+                documentation_url=str(item["documentation_url"]),
+                auth_mode=("credentials" if item["credential_fields"] else "none"),
+        )
+        for item in MARKET_DATA_PROVIDERS
         )
     return result
 
@@ -965,6 +1099,10 @@ async def list_connector_catalog(
                 plugin_version=str(meta.get("plugin_version", "0.1.0")),
                 sdk_version=str(meta.get("sdk_version", "0.1.0")),
                 supported_resources=list(meta.get("supported_resources", [])),
+                spending_capabilities=cast(
+                    dict[str, dict[str, object]],
+                    meta.get("spending_capabilities", {}),
+                ),
                 credential_fields=credential_fields,
                 option_fields=option_fields,
                 rate_limit_policy=rate_limit,
@@ -975,6 +1113,10 @@ async def list_connector_catalog(
                 configuration_mode="staging_choice" if managed else "user",
                 metadata_incomplete=bool(
                     meta.get("metadata_incomplete", False)
+                ),
+                ingestion_methods=list(meta.get("ingestion_methods", ["api"])),
+                import_wizard=cast(
+                    dict[str, object], meta.get("import_wizard", {})
                 ),
                 compatibility=compatibility,
             )
@@ -1016,6 +1158,31 @@ async def get_connector_config(
     return _credential_response(cred)
 
 
+@router.get(
+    "/configs/{config_id}/deletion-preview",
+    response_model=ConnectorDeletionPreviewResponse,
+)
+async def preview_connector_deletion(
+    config_id: str,
+    request: Request,
+    auth: AuthContext = Depends(require_permission("connectors", "write")),
+    db: AsyncSession = Depends(get_db),
+) -> ConnectorDeletionPreviewResponse:
+    """Return the tenant-scoped impact of permanently deleting a connection."""
+    cred = await _load_tenant_credential(db, auth, config_id)
+    if is_staging_managed(cred.provider_key, get_container(request).settings):
+        # Kept as a separate guard in the preview so the UI cannot present a
+        # destructive action that the DELETE endpoint will reject.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This connector is staging-managed and cannot be removed",
+        )
+    preview = await ConnectorDataDeletionService(db, auth.tenant_id).preview(
+        cred
+    )
+    return ConnectorDeletionPreviewResponse(**preview.as_dict())
+
+
 @router.post(
     "/configs",
     response_model=ConnectorConfigResponse,
@@ -1033,6 +1200,8 @@ async def create_connector_config(
 
     credentials = body.credentials
     options = body.options
+    if body.provider_type in _MARKET_DATA_KEYS:
+        options = {"enabled": True, **options}
     if is_staging_managed(body.provider_type, settings):
         try:
             credentials, options = staging_connector_config(
@@ -1051,7 +1220,7 @@ async def create_connector_config(
 
     # Validate provider_type exists
     registry = _get_registry()
-    if body.provider_type not in registry:
+    if body.provider_type not in registry and body.provider_type not in _MARKET_DATA_KEYS:
         available = registry.available
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -1061,8 +1230,20 @@ async def create_connector_config(
             ),
         )
 
-    # Multiple connections per provider are allowed — no uniqueness check
-    # on (tenant, provider).  Each create call adds a new connection.
+    if body.provider_type in _SINGLE_CONNECTION_PROVIDERS:
+        existing = await db.scalar(
+            select(Credential.id).where(
+                Credential.tenant_id == auth.tenant_id,
+                Credential.provider_key == body.provider_type,
+            )
+        )
+        if existing is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Er bestaat al één SaxoInvestor-account voor deze tenant.",
+            )
+
+    # Other providers intentionally allow multiple connections per tenant.
 
     # Encrypt credentials if provided
     encrypted_payload: bytes = b""
@@ -1073,11 +1254,20 @@ async def create_connector_config(
 
     # Merge human-readable label into options so it survives updates
     merged_options = dict(options)
-    if body.description:
-        merged_options["_label"] = body.description
-    elif "_label" in merged_options:
-        # Strip stale label if description was cleared
-        del merged_options["_label"]
+    default_label = str(
+        _get_registry().list_connectors().get(body.provider_type, {}).get(
+            "display_name",
+            next(
+                (
+                    item["display_name"]
+                    for item in MARKET_DATA_PROVIDERS
+                    if item["name"] == body.provider_type
+                ),
+                body.provider_type,
+            ),
+        )
+    )
+    merged_options["_label"] = body.description or default_label
 
     # Store the merged payload (options + optional _label) in description column
     merged_json = (
@@ -1262,9 +1452,9 @@ async def delete_connector_config(
 ) -> None:
     """Delete a connector configuration (connection).
 
-    Deleting a connection stops future syncs for it but never removes
-    already-imported accounts, transactions or holdings — history is
-    kept (with the connection id retained for traceability).
+    Deleting a connection permanently removes all canonical and derived
+    records owned by that exact connection.  Legacy records without a
+    connection id are deliberately preserved.
     """
     cred = await _load_tenant_credential(db, auth, config_id)
     settings = get_container(request).settings
@@ -1278,30 +1468,7 @@ async def delete_connector_config(
         )
     provider_key = cred.provider_key
     connection_id = str(cred.id)
-    await db.delete(cred)
-
-    # Disable any schedule for this connection atomically with the
-    # deletion: a dangling enabled schedule must never be planned by the
-    # worker against a dead source (no ghost runs, no failure rows).
-    from finance_sync.models.sync_schedule import (
-        SCOPE_INGESTION,
-        SyncSchedule,
-    )
-
-    schedule = (
-        await db.execute(
-            select(SyncSchedule).where(
-                SyncSchedule.tenant_id == auth.tenant_id,
-                SyncSchedule.scope == SCOPE_INGESTION,
-                SyncSchedule.target_id == connection_id,
-            )
-        )
-    ).scalar_one_or_none()
-    if schedule is not None:
-        schedule.enabled = False
-        schedule.next_run_at = None
-        schedule.updated_at = datetime.now(UTC)
-    await db.flush()
+    await ConnectorDataDeletionService(db, auth.tenant_id).delete(cred)
 
     await log_connection_event(
         db,
@@ -1325,10 +1492,12 @@ async def test_connector_connection(
     """Test a connection by calling the connector's ``health`` method.
 
     On success the returned payload includes the accounts the provider
-    offers so the frontend can drive account selection.  The connection's
-    ``last_attempt_at`` / ``last_success_at`` / ``last_error`` fields
-    are updated and the attempt is recorded in the tenant audit log.
-    Error messages are sanitised before being stored or returned.
+    offers so the frontend can drive account selection.  Test metadata is
+    stored separately from sync metadata: ``last_success_at`` is reserved
+    for a completed import, and ``last_attempt_at`` / ``last_error`` are
+    not changed by this authentication check. The attempt is recorded in
+    the tenant audit log, and error messages are sanitised before being
+    stored or returned.
     """
     container = get_container(request)
     settings = container.settings
@@ -1418,43 +1587,42 @@ async def test_connector_connection(
                         )
                     )
             except Exception:
-                # Account enumeration is optional — don't fail the test.
-                pass
+                # Bunq account discovery is required for a useful connection:
+                # without it neither balances nor payments can be synced. Other
+                # providers retain best-effort enumeration for scope compatibility.
+                if _account_enumeration_error_is_fatal(cred.provider_key):
+                    raise
 
-        cred.last_attempt_at = now
         cred.last_test_at = now
         cred.updated_at = now
         if health.healthy:
-            cred.last_success_at = now
             cred.credential_status = "verified"
             cred.last_authenticated_at = now
             cred.reauth_required_at = None
             cred.last_auth_error_code = None
-            cred.last_error = None
-            cred.last_error_category = None
             cred.last_test_status = "passed"
             cred.last_test_error = None
             message = health.message or "Connection successful"
         else:
             from finance_sync.sync.errors import categorize_export_error
 
-            cred.last_error = sanitize_error(
+            test_error = sanitize_error(
                 health.message or "Connection test failed", secrets
             )
-            cred.last_error_category = categorize_export_error(
+            test_error_category = categorize_export_error(
                 health.message or "Connection test failed"
             )
             cred.credential_status = (
                 "reauth_required"
-                if cred.last_error_category == "reauth_required"
+                if test_error_category == "reauth_required"
                 else "unknown"
             )
             if cred.credential_status == "reauth_required":
                 cred.reauth_required_at = now
-                cred.last_auth_error_code = cred.last_error_category
+                cred.last_auth_error_code = test_error_category
             cred.last_test_status = "failed"
-            cred.last_test_error = cred.last_error
-            message = cred.last_error or "Connection test failed"
+            cred.last_test_error = test_error
+            message = test_error or "Connection test failed"
         await db.flush()
         await log_connection_event(
             db,
@@ -1476,17 +1644,15 @@ async def test_connector_connection(
         failure = sanitize_error(str(exc), secrets)
         from finance_sync.sync.errors import categorize_export_error
 
-        cred.last_attempt_at = now
-        cred.last_error = failure
-        cred.last_error_category = categorize_export_error(str(exc))
+        test_error_category = categorize_export_error(str(exc))
         cred.credential_status = (
             "reauth_required"
-            if cred.last_error_category == "reauth_required"
+            if test_error_category == "reauth_required"
             else "unknown"
         )
         if cred.credential_status == "reauth_required":
             cred.reauth_required_at = now
-            cred.last_auth_error_code = cred.last_error_category
+            cred.last_auth_error_code = test_error_category
         cred.last_test_at = now
         cred.last_test_status = "failed"
         cred.last_test_error = failure
@@ -1928,10 +2094,10 @@ async def test_connector_inline(
                     )
                 )
         except Exception:
-            # Account listing is optional — don't fail the test if
-            # accounts can't be fetched (e.g. Trading212 may need
-            # additional scopes)
-            pass
+            # Bunq account discovery is required for a useful connection;
+            # without it neither balances nor payments can be synced.
+            if _account_enumeration_error_is_fatal(provider_type):
+                raise
 
         return InlineTestResult(
             success=True,

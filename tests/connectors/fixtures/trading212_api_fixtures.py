@@ -30,6 +30,35 @@ ACCOUNT_INFO_RESPONSE: dict[str, Any] = {
     "currencyCode": "EUR",
 }
 
+# A second account response is useful when exercising connection-level
+# account selection.  The API returns one selected brokerage account at a
+# time; selection itself is persisted by finance-sync, not by Trading212.
+SELECTED_ACCOUNT_INFO_RESPONSE: dict[str, Any] = {
+    "id": 87654321,
+    "currencyCode": "EUR",
+}
+SELECTED_ACCOUNT_IDS = ["87654321"]
+
+# Deliberately incomplete provider payload for mapper error/defensive-path
+# tests.  It remains a valid list response, but omits optional fields and
+# contains null values seen in provider responses.
+MAPPING_FAILURE_PORTFOLIO_RESPONSE: list[dict[str, Any]] = [
+    {"ticker": None, "quantity": None, "averagePrice": None},
+    {"ticker": "  ", "quantity": "not-a-number", "currentPrice": None},
+]
+
+# Canonical error payloads shared by API classification tests.  Keep these
+# free of credentials so they are safe to reuse in parametrized tests.
+API_ERROR_RESPONSES: dict[int, dict[str, str]] = {
+    400: {"error": "Bad Request"},
+    401: {"error": "Unauthorized"},
+    403: {"error": "Forbidden"},
+    404: {"error": "Not Found"},
+    429: {"error": "Too Many Requests"},
+    500: {"error": "Internal Server Error"},
+    503: {"error": "Service Unavailable"},
+}
+
 # ── Portfolio ───────────────────────────────────────────────────────────
 
 PORTFOLIO_RESPONSE: list[dict[str, Any]] = [
@@ -184,7 +213,7 @@ ORDER_HISTORY_PAGE_1: dict[str, Any] = {
         ORDER_SELL_TSLA,
     ],
     "nextPagePath": (
-        "/api/v0/equity/history/orders?cursor=page2_cursor&limit=100"
+        "/api/v0/equity/history/orders?cursor=page2_cursor&limit=50"
     ),
 }
 
@@ -277,7 +306,7 @@ TRANSACTION_HISTORY_PAGE_1: dict[str, Any] = {
         DEPOSIT_1,
     ],
     "nextPagePath": (
-        "/api/v0/equity/history/transactions?cursor=txn_page2&limit=100"
+        "/api/v0/equity/history/transactions?cursor=txn_page2&limit=50"
     ),
 }
 

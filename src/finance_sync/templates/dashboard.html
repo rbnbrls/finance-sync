@@ -854,6 +854,11 @@
             margin-top: 4px;
             line-height: 1.4;
         }
+        .viewer-summary-card { position:relative; }
+        .viewer-card-info { position:absolute; top:14px; right:14px; color:var(--text-muted); cursor:help; z-index:2; }
+        .viewer-card-info > .mdi { font-size:1rem; }
+        .viewer-card-tooltip { position:absolute; top:22px; right:0; width:245px; padding:9px 11px; border:1px solid var(--border); border-radius:8px; background:var(--surface); color:var(--text); font-size:.75rem; line-height:1.4; box-shadow:0 8px 24px rgba(15,23,42,.18); opacity:0; pointer-events:none; transform:translateY(-3px); transition:opacity .15s ease, transform .15s ease; }
+        .viewer-card-info:hover .viewer-card-tooltip, .viewer-card-info:focus .viewer-card-tooltip, .viewer-card-info:focus-within .viewer-card-tooltip { opacity:1; transform:translateY(0); }
         .upload-dropzone {
             display: flex;
             flex-direction: column;
@@ -938,17 +943,19 @@
         .chain-card { padding:24px 24px 27px; margin-bottom:16px; }
         .chain-card .card-header { margin-bottom:22px; }
         .chain-subtitle { color:var(--text-muted); font-size:.82rem; margin-top:5px; }
-        .chain { display:flex; align-items:center; width:100%; overflow-x:auto; padding:5px 1px 10px; }
-        .chain-node { flex:1 1 0; min-width:145px; display:flex; align-items:center; gap:10px; }
-        .chain-node:last-of-type { flex:0 1 205px; }
+        /* The chain is a stepper, not a horizontal carousel.  Keeping every
+           step in the card makes the complete data path visible without
+           forcing the user to discover a sideways scrollbar. */
+        .chain { display:flex; flex-direction:column; align-items:stretch; width:100%; overflow:visible; padding:2px 1px 4px; }
+        .chain-node { width:100%; min-width:0; display:flex; align-items:center; gap:10px; padding:3px 0; }
         .chain-circle { width:42px; height:42px; flex:0 0 42px; border-radius:13px; display:grid; place-items:center; font-size:1.15rem; background:color-mix(in srgb, var(--accent) 13%, transparent); color:var(--accent); border:1px solid color-mix(in srgb, var(--accent) 25%, var(--border)); }
         .chain-circle.center { background:color-mix(in srgb, var(--accent-secondary) 13%, transparent); color:var(--accent-secondary); border-color:color-mix(in srgb, var(--accent-secondary) 25%, var(--border)); }
         .chain-circle.exporter { background:rgba(139,92,246,.13); color:#a78bfa; border-color:rgba(139,92,246,.3); }
-        .chain-label { font-weight:650; font-size:.84rem; white-space:nowrap; }
-        .chain-meta { color:var(--text-muted); font-size:.72rem; margin-top:3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:130px; }
-        .chain-line { flex:0 0 42px; height:1px; background:var(--border); position:relative; margin:0 7px; }
-        .chain-line::after { content:""; position:absolute; right:0; top:-3px; border-left:6px solid var(--border); border-top:3px solid transparent; border-bottom:3px solid transparent; }
-        .chain-add { flex:0 0 42px; height:42px; border:1px dashed color-mix(in srgb, var(--accent) 65%, var(--border)); border-radius:13px; background:transparent; color:var(--accent); font-size:1.35rem; cursor:pointer; display:grid; place-items:center; margin-left:9px; transition:background .15s, border-color .15s; }
+        .chain-label { font-weight:650; font-size:.84rem; overflow-wrap:anywhere; }
+        .chain-meta { color:var(--text-muted); font-size:.72rem; margin-top:3px; overflow-wrap:anywhere; }
+        .chain-line { flex:0 0 18px; width:2px; height:18px; background:var(--border); position:relative; margin:0 0 0 20px; }
+        .chain-line::after { content:""; position:absolute; left:-3px; bottom:-1px; border-top:6px solid var(--border); border-left:3px solid transparent; border-right:3px solid transparent; }
+        .chain-add { flex:0 0 42px; width:42px; height:42px; border:1px dashed color-mix(in srgb, var(--accent) 65%, var(--border)); border-radius:13px; background:transparent; color:var(--accent); font-size:1.35rem; cursor:pointer; display:grid; place-items:center; margin-top:7px; transition:background .15s, border-color .15s; }
         .chain-add:hover { background:color-mix(in srgb, var(--accent) 10%, transparent); border-color:var(--accent); }
         .overview-empty { color:var(--text-muted); font-size:.84rem; padding:14px 0 4px; }
         .control-status { display:flex; justify-content:space-between; align-items:center; gap:16px; padding:18px 20px; margin-bottom:16px; border:1px solid var(--border); border-radius:14px; background:var(--surface); }
@@ -967,6 +974,8 @@
         .issue-card h3 { font-size:.92rem; margin:6px 0 4px; }
         .issue-card p { color:var(--text-muted); font-size:.8rem; line-height:1.45; }
         .issue-card .btn { flex:0 0 auto; }
+        .health-details { margin:10px 0 0; padding-left:18px; color:var(--text-muted); font-size:.78rem; line-height:1.5; }
+        .health-details li + li { margin-top:3px; }
         .control-actions { display:flex; flex-wrap:wrap; gap:6px; }
         .action-result { min-height:1.2em; margin-top:6px; color:var(--text-muted); font-size:.78rem; }
         .action-result.success { color:var(--green); }
@@ -981,6 +990,16 @@
         .control-table td { font-size:.8rem; }
         .control-table .muted { color:var(--text-muted); }
         .control-actions { display:flex; gap:6px; flex-wrap:wrap; }
+        .duplicate-review { margin-top:14px; padding:16px; border:1px solid var(--border); border-radius:12px; background:var(--surface-2); }
+        .duplicate-review h3 { margin:7px 0 4px; font-size:.95rem; }
+        .duplicate-review-grid { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:12px; margin-top:14px; }
+        .duplicate-review-card { padding:13px; border:1px solid var(--border); border-radius:10px; background:var(--surface); }
+        .duplicate-review-card h3 { margin:0 0 10px; }
+        .duplicate-review-fields { display:grid; grid-template-columns: minmax(100px, .8fr) 1.2fr; gap:5px 10px; margin:0; font-size:.76rem; }
+        .duplicate-review-fields dt { color:var(--text-muted); }
+        .duplicate-review-fields dd { margin:0; overflow-wrap:anywhere; }
+        .duplicate-review-actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:14px; }
+        @media (max-width:700px) { .duplicate-review-grid { grid-template-columns:1fr; } }
         .action-result { margin-top:8px; font-size:.78rem; color:var(--text-muted); }
         .action-result.success { color:var(--green); }
         .action-result.error { color:var(--red); }
@@ -988,8 +1007,12 @@
         .quality-stat { background:var(--bg); border:1px solid var(--border); border-radius:10px; padding:13px; }
         .quality-stat strong { display:block; font-size:1.25rem; margin-bottom:4px; }
         .quality-stat span { color:var(--text-muted); font-size:.75rem; }
+        .sync-activity { display:grid; gap:8px; margin:0 0 16px; }
+        .sync-activity-item { display:flex; align-items:center; gap:10px; padding:11px 14px; border:1px solid color-mix(in srgb, var(--accent) 45%, var(--border)); border-radius:10px; background:color-mix(in srgb, var(--accent) 7%, var(--surface)); color:var(--text); font-size:.82rem; }
+        .sync-activity-item .spinner { flex:0 0 auto; }
+        .sync-activity-item small { color:var(--text-muted); margin-left:auto; }
         @media (max-width: 760px) { .control-status, .issue-card { flex-direction:column; align-items:stretch; } .quality-grid { grid-template-columns:repeat(2, minmax(0, 1fr)); } }
-        @media (max-width: 760px) { .overview-grid { grid-template-columns:1fr; } .overview-runs { grid-column:auto; } .run-summary { grid-template-columns:repeat(2,1fr); } .overview-header { align-items:flex-start; flex-direction:column; gap:8px; } .chain { padding-bottom:14px; } }
+        @media (max-width: 760px) { .overview-grid { grid-template-columns:1fr; } .overview-runs { grid-column:auto; } .run-summary { grid-template-columns:repeat(2,1fr); } .overview-header { align-items:flex-start; flex-direction:column; gap:8px; } }
         @media (max-width: 420px) { .run-summary { grid-template-columns:1fr 1fr; gap:8px; } .run-stat { padding:11px; } .overview-value { font-size:1.85rem; } }
     </style>
     <link rel="stylesheet" href="/static/brand.css">
@@ -1012,14 +1035,14 @@
             <a href="#data-health" data-section="data-health" data-perm="sync:read" onclick="switchSection('data-health')">
                 <span class="icon mdi mdi-heart-pulse" aria-hidden="true"></span> Data health
             </a>
-            <a href="#" data-section="connectors" data-perm="connectors:read" onclick="switchSection('connectors')">
-                <span class="icon mdi mdi-link-variant" aria-hidden="true"></span> Importers
+            <a href="#connectors" data-section="connectors" data-perm="connectors:read" onclick="switchSection('connectors')">
+                <span class="icon mdi mdi-connection" aria-hidden="true"></span> Verbindingen
             </a>
             <a href="#" data-section="viewer" onclick="switchSection('viewer')">
                 <span class="icon mdi mdi-eye-outline" aria-hidden="true"></span> Viewer
             </a>
             <a href="#" data-section="uploads" data-perm="connectors:read" onclick="switchSection('uploads')">
-                <span class="icon mdi mdi-cloud-upload-outline" aria-hidden="true"></span> Uploads
+                <span class="icon mdi mdi-cloud-upload-outline" aria-hidden="true"></span> Importeren
             </a>
             <a href="#" data-section="exporters" onclick="switchSection('exporters')">
                 <span class="icon mdi mdi-export-variant" aria-hidden="true"></span> Exporters
@@ -1048,8 +1071,9 @@
                 <button type="button" class="btn btn-secondary btn-sm" onclick="loadOverview()"><span class="mdi mdi-refresh"></span> Vernieuwen</button>
             </div>
             <div id="control-status" class="control-status" data-status="loading" aria-live="polite" aria-busy="true"><div><h2 class="control-status-label">Control plane laden…</h2><p>De laatste controle wordt opgehaald.</p></div><span class="spinner" aria-hidden="true"></span></div>
+            <div id="overview-sync-activity" class="sync-activity" aria-live="polite"></div>
             <div class="overview-grid" id="overview-status-grid" aria-live="polite" aria-busy="true">
-                <div class="overview-card"><div class="overview-card-top"><span class="overview-card-label">Importers</span><span class="overview-icon mdi mdi-download-outline"></span></div><div class="overview-value">—</div><p class="overview-detail">Status wordt geladen…</p></div>
+                <div class="overview-card"><div class="overview-card-top"><span class="overview-card-label">Importeren</span><span class="overview-icon mdi mdi-download-outline"></span></div><div class="overview-value">—</div><p class="overview-detail">Status wordt geladen…</p></div>
                 <div class="overview-card database"><div class="overview-card-top"><span class="overview-card-label">Centrale database</span><span class="overview-icon mdi mdi-database-outline"></span></div><div class="overview-value">—</div><p class="overview-detail">Status wordt geladen…</p></div>
                 <div class="overview-card export"><div class="overview-card-top"><span class="overview-card-label">Exporters</span><span class="overview-icon mdi mdi-export-variant"></span></div><div class="overview-value">—</div><p class="overview-detail">Status wordt geladen…</p></div>
                 <div class="overview-card overview-runs"><div class="overview-card-top"><div><span class="overview-card-label">Sync Runs</span><p class="chain-subtitle">De laatste synchronisaties in één oogopslag.</p></div><span class="overview-status">Systeem actief</span></div><div class="run-summary"><div class="run-stat success"><strong>—</strong><span>Voltooid</span></div><div class="run-stat active"><strong>—</strong><span>Bezig</span></div><div class="run-stat failure"><strong>—</strong><span>Mislukt</span></div><div class="run-stat"><strong>—</strong><span>Totaal bekeken</span></div></div></div>
@@ -1064,12 +1088,15 @@
         <div id="section-data-health" class="hidden" role="region" aria-labelledby="data-health-title">
             <div class="overview-header">
                 <div><div class="overview-kicker">Datakwaliteitsworkflow</div><h1 class="page-title" id="data-health-title">Data health</h1><p class="page-subtitle" style="margin-bottom:0;">Zie wat aandacht nodig heeft en herstel problemen vanuit één overzicht.</p></div>
+                <button type="button" class="btn btn-primary" onclick="runDataQualityRepair(this)"><span class="mdi mdi-auto-fix"></span> Kwaliteit herstellen</button>
+                <button type="button" class="btn btn-secondary" onclick="runDataQualityCheck(this)"><span class="mdi mdi-shield-search-outline"></span> Nu controleren</button>
                 <button type="button" class="btn btn-secondary btn-sm" onclick="loadDataHealth()"><span class="mdi mdi-refresh"></span> Vernieuwen</button>
             </div>
             <div id="data-health-status" class="control-status" data-status="loading" aria-live="polite" aria-busy="true"><div><h2 class="control-status-label">Data health laden…</h2><p>De actuele status wordt opgehaald.</p></div><span class="spinner" aria-hidden="true"></span></div>
             <div id="data-health-summary" class="quality-grid" aria-live="polite" aria-busy="true"><div class="overview-empty"><span class="spinner"></span> Overzicht laden…</div></div>
             <div class="card control-section"><div class="card-header"><div><h2>Bronnen</h2><p class="chain-subtitle">Laatste succesvolle sync en datadekking per bron.</p></div></div><div id="data-health-sources" aria-live="polite" aria-busy="true"><div class="overview-empty">Bronnen laden…</div></div></div>
             <div class="card control-section"><div class="card-header"><div><h2>Actie vereist</h2><p class="chain-subtitle">Elke melding heeft één concrete vervolgstap.</p></div></div><div id="data-health-issues" class="issue-list" aria-live="polite" aria-busy="true"><div class="overview-empty">Issues laden…</div></div></div>
+            <div id="data-health-reconciliation-detail" class="card control-section hidden" aria-live="polite" aria-busy="false"></div>
         </div>
         <div id="section-connectors" class="hidden" role="region" aria-labelledby="connectors-title">
             <h1 class="page-title" id="connectors-title">Importers</h1>
@@ -1102,21 +1129,19 @@
             </div>
         </div>
         <div id="section-uploads" class="hidden" role="region" aria-labelledby="uploads-title">
-            <h1 class="page-title" id="uploads-title">Uploads</h1>
-            <p class="page-subtitle">Importeer je volledige DEGIRO-historie voor betrouwbare posities, cashflows en performance in Wealthfolio.</p>
-            <div class="card degiro-wizard">
+            <div class="overview-header">
+                <div><h1 class="page-title" id="uploads-title">Importeren</h1><p class="page-subtitle" style="margin-bottom:0;">Voeg al je bank- en brokerrekeningen toe aan één uniform finance-sync datamodel.</p></div>
+                <button type="button" class="btn btn-secondary btn-sm" data-perm="connectors:read" onclick="switchSection('connectors')"><span class="mdi mdi-cog-outline"></span> Bestaande koppelingen beheren</button>
+            </div>
+            <div class="card import-flow-card">
                 <div class="card-header">
-                    <h2>DEGIRO importwizard</h2>
-                    <span class="badge pending">3 bestanden</span>
+                    <div><h2>Waar komt je data vandaan?</h2><p class="chain-subtitle">Kies eerst de tegenpartij. Je krijgt daarna automatisch de juiste API- of bestandsflow.</p></div>
+                    <span class="badge pending" id="import-flow-step">Stap 1 van 2</span>
                 </div>
-                <div id="degiro-wizard-progress" class="degiro-wizard-progress" aria-label="Importstappen"></div>
-                <div id="degiro-wizard-body" aria-live="polite"></div>
-                <div id="degiro-wizard-result" aria-live="polite"></div>
-                <div class="degiro-wizard-privacy"><span class="mdi mdi-shield-lock-outline" aria-hidden="true"></span><span>Je bestanden worden veilig gecontroleerd en pas na jouw bevestiging verwerkt. Upload ongewijzigde DEGIRO-exports; PDF-bestanden worden niet ondersteund.</span></div>
-                <!-- Compatibility hooks for the existing DEGIRO import surface. -->
-                <input id="degiro-upload-files" class="visually-hidden" type="file" multiple accept=".csv,.xlsx,.xls">
-                <select id="degiro-upload-connection" class="visually-hidden" aria-label="DEGIRO uploadprofiel"></select>
-                <span class="hidden">&#8635; Retry</span>
+                <div id="import-provider-choice" class="connector-grid" aria-live="polite" aria-busy="true"></div>
+                <div id="import-flow-panel" class="hidden" aria-live="polite"></div>
+                <div id="import-flow-result" aria-live="polite"></div>
+                <div class="degiro-wizard-privacy"><span class="mdi mdi-shield-lock-outline" aria-hidden="true"></span><span>Bestanden worden alleen tijdelijk verwerkt. API-gegevens worden versleuteld opgeslagen en nooit teruggetoond.</span></div>
             </div>
             <div class="card">
                 <div class="card-header">
@@ -1134,6 +1159,7 @@
         <div id="section-sync" class="hidden" role="region" aria-labelledby="sync-title">
             <h1 class="page-title" id="sync-title">Sync Runs</h1>
             <p class="page-subtitle">Plan per connector en exporttarget wanneer data wordt opgehaald of afgeleverd, en bekijk de runhistorie.</p>
+            <div id="sync-page-activity" class="sync-activity" aria-live="polite"></div>
             <div id="sync-schedules" aria-live="polite" aria-busy="true"></div>
             <div id="sync-run-history" style="margin-top: 24px;"></div>
         </div>
@@ -1206,6 +1232,7 @@
         let token = localStorage.getItem('fs_token');
         let connectors = [];     // available connector types
         let connectorCatalog = [];
+        const MARKET_DATA_KEYS = new Set(['openfigi', 'ecb', 'stooq', 'finnhub', 'twelve_data', 'alpha_vantage', 'yahoo_finance', 'boerse_frankfurt']);
         let configs = [];        // saved configs (one entry per connection)
         let connectionHealth = {}; // read-only three-level health projection
         let degiroRuns = [];     // path-free DEGIRO import status
@@ -1264,6 +1291,7 @@
                 });
             } finally {
                 if (grid) grid.setAttribute('aria-busy', 'false');
+                ensureActiveSyncPolling();
             }
         }
 
@@ -1302,7 +1330,201 @@
             const sourceRows = (data.sources || []).map(source => `<tr><td><strong>${escapeHtml(source.provider)}</strong></td><td>${controlBadge(source.status)}</td><td>${escapeHtml(formatControlDate(source.last_success_at))}</td><td>${escapeHtml(source.accounts)} accounts · ${escapeHtml(source.transactions)} transacties</td></tr>`).join('');
             if (sources) { sources.setAttribute('aria-busy', 'false'); sources.innerHTML = sourceRows ? `<div class="control-table-wrap"><table class="data-table control-table"><thead><tr><th>Bron</th><th>Status</th><th>Laatste succesvolle sync</th><th>Dekking</th></tr></thead><tbody>${sourceRows}</tbody></table></div>` : '<div class="overview-empty">Nog geen bronnen geconfigureerd.</div>'; }
             const issues = document.getElementById('data-health-issues');
-            if (issues) { issues.setAttribute('aria-busy', 'false'); issues.innerHTML = (data.issues || []).length ? data.issues.map(issue => `<article class="issue-card"><div><span class="severity severity-${escapeHtml(issue.severity)}">${escapeHtml(issue.severity)}</span><h3>${escapeHtml(issue.title)}</h3><p>${escapeHtml(issue.description)}</p>${issue.provider ? `<span class="muted">Bron: ${escapeHtml(issue.provider)}</span>` : ''}${issue.impact_count ? `<span class="muted"> · Impact: ${escapeHtml(issue.impact_count)}</span>` : ''}<div class="action-result" id="health-result-${escapeHtml(issue.id)}" aria-live="polite" tabindex="-1"></div></div><div class="control-actions">${renderControlActions([issue.action], `health-result-${issue.id}`)}</div></article>`).join('') : '<div class="overview-empty">Geen open problemen. De datastroom werkt zoals verwacht.</div>'; }
+            if (issues) { issues.setAttribute('aria-busy', 'false'); issues.innerHTML = (data.issues || []).length ? data.issues.map(issue => `<article class="issue-card"><div><span class="severity severity-${escapeHtml(issue.severity)}">${escapeHtml(issue.severity)}</span><h3>${escapeHtml(issue.title)}</h3><p>${escapeHtml(issue.description)}</p>${issue.provider ? `<span class="muted">Bron: ${escapeHtml(issue.provider)}</span>` : ''}${issue.impact_count ? `<span class="muted"> · Impact: ${escapeHtml(issue.impact_count)}</span>` : ''}${renderDataHealthIssueTools(issue)}<div class="action-result" id="health-result-${escapeHtml(issue.id)}" aria-live="polite" tabindex="-1"></div></div><div class="control-actions">${renderControlActions([issue.action], `health-result-${issue.id}`)}</div></article>`).join('') : '<div class="overview-empty">Geen open problemen. De datastroom werkt zoals verwacht.</div>'; }
+            if (issues && Array.isArray(data.issues)) {
+                issues.querySelectorAll('.issue-card').forEach((card, index) => {
+                    const details = data.issues[index]?.details || [];
+                    if (!details.length) return;
+                    const list = document.createElement('ul');
+                    list.className = 'health-details';
+                    details.forEach(detail => {
+                        const item = document.createElement('li');
+                        item.textContent = detail;
+                        list.appendChild(item);
+                    });
+                    card.querySelector('div')?.appendChild(list);
+                });
+            }
+        }
+
+        function renderDataHealthIssueTools(issue) {
+            if (issue.category === 'quote_sync_failure' || issue.category === 'stale_prices') {
+                return `<div class="health-repair-list"><strong>Koersen herstellen</strong><span class="field-hint">Controleer eerst ISIN, beurs en prijsvaluta. Daarna kun je de koersprovider opnieuw uitvoeren.</span><button type="button" class="btn btn-secondary btn-sm" onclick="runHealthIssueAction(this, '${escapeHtml(issue.action?.path || '/enrichment/refresh-quotes')}')">Koersen bijwerken</button>${trading212ProviderHelp()}</div>`;
+            }
+            if (issue.category === 'incomplete_valuation') {
+                return `<div class="health-repair-list"><strong>Waardering compleet maken</strong><span class="field-hint">Ontbrekende koersen worden opnieuw opgehaald. Als marktdata niet bestaat, accepteer de security als bewuste uitzondering.</span><button type="button" class="btn btn-secondary btn-sm" onclick="runHealthIssueAction(this, '${escapeHtml(issue.action?.path || '/enrichment/refresh-quotes')}')">Waardering opnieuw opbouwen</button></div>`;
+            }
+            if (issue.category === 'negative_valuation') {
+                return `<div class="health-repair-list"><strong>Historische waarde herstellen</strong><span class="field-hint">Controleer ontbrekende stortingen, aankopen en Transfer In-activiteiten vóór de eerste aankoop.</span><button type="button" class="btn btn-secondary btn-sm" onclick="openHealthData('${escapeHtml(issue.action?.path || '/api/v1/transactions')}')">Transacties beoordelen</button><button type="button" class="btn btn-secondary btn-sm" onclick="runDataQualityCheck(this)">Opnieuw controleren</button></div>`;
+            }
+            if (issue.category === 'incomplete_cost_basis') {
+                return `<div class="health-repair-list"><strong>Cost basis herstellen</strong><span class="field-hint">Leg per aankoop de hoeveelheid en verkrijgingsprijs vast; zonder die gegevens kan Wealthfolio geen winst/verlies berekenen.</span><button type="button" class="btn btn-secondary btn-sm" onclick="openHealthData('${escapeHtml(issue.action?.path || '/api/v1/transactions?type=purchase')}')">Aankopen beoordelen</button><button type="button" class="btn btn-secondary btn-sm" onclick="runDataQualityCheck(this)">Opnieuw controleren</button></div>`;
+            }
+            if (issue.category === 'incomplete_holding' || issue.category === 'incomplete_valuation') {
+                return `<div class="health-repair-list"><strong>Waardering herstellen</strong><span class="field-hint">Werk eerst beurs, ISIN en prijsvaluta bij. Haal daarna koersen opnieuw op; accepteer alleen bewust ontbrekende marktdata.</span><button type="button" class="btn btn-secondary btn-sm" onclick="runHealthIssueAction(this, '${escapeHtml(issue.action?.path || '/api/v1/enrichment/refresh-quotes')}')">Koersen en waardering bijwerken</button><button type="button" class="btn btn-secondary btn-sm" onclick="openHealthData('/api/v1/holdings')">Posities bekijken</button>${trading212ProviderHelp()}</div>`;
+            }
+            if (issue.category === 'unbalanced_transfer') {
+                return `<div class="health-repair-list"><strong>Transfers koppelen</strong><span class="field-hint">Controleer beide kanten van iedere transfer. Markeer een externe storting/opname als externe geldstroom of herstel de ontbrekende tegenboeking.</span><button type="button" class="btn btn-secondary btn-sm" onclick="openHealthData('${escapeHtml(issue.action?.path || '/api/v1/transactions?type=transfer')}')">Transfers bekijken</button><button type="button" class="btn btn-secondary btn-sm" onclick="runDataQualityCheck(this)">Opnieuw controleren</button></div>`;
+            }
+            if (issue.category === 'incomplete_security_identity' || issue.category === 'unresolved_security' || issue.category === 'security_mapping') {
+                return `<div class="health-repair-list"><strong>Security identificeren</strong><span class="field-hint">Vraag Trading212's instrument-master op. ISIN, ticker, beurs, naam en prijsvaluta worden in de mapping-queue opgeslagen; start daarna een Trading212-sync.</span><button type="button" class="btn btn-secondary btn-sm" onclick="runHealthIssueAction(this, '/api/v1/enrichment/refresh-trading212-identities')">Trading212-identiteiten ophalen</button><button type="button" class="btn btn-secondary btn-sm" onclick="openHealthData('${escapeHtml(issue.action?.path || '/api/v1/holdings')}')">Securities bekijken</button></div>`;
+            }
+            if (issue.category === 'incomplete_import' || issue.category === 'missing_transactions') {
+                return `<div class="health-repair-list"><strong>Brondata aanvullen</strong><span class="field-hint">Open de importdetails, herstel afgewezen bestanden of records en voer de import opnieuw uit.</span><button type="button" class="btn btn-secondary btn-sm" onclick="openHealthData('${escapeHtml(issue.action?.path || '#uploads')}')">Import bekijken</button></div>`;
+            }
+            if (issue.category === 'duplicate_accounts' || issue.category === 'balance_conflict' || issue.category === 'negative_balance') {
+                return `<div class="health-repair-list"><strong>Accountgegevens controleren</strong><span class="field-hint">Controleer de provideridentiteit, het actuele saldo en ontbrekende stortingen vóór je opnieuw exporteert.</span><button type="button" class="btn btn-secondary btn-sm" onclick="openHealthData('${escapeHtml(issue.action?.path || '/api/v1/accounts')}')">Accounts bekijken</button></div>`;
+            }
+            if (issue.category === 'freshness') {
+                return `<div class="health-repair-list"><span class="field-hint">Als marktdata voor deze securities niet beschikbaar is, kun je dit als bewuste uitzondering vastleggen.</span><button type="button" class="btn btn-secondary btn-sm" onclick="acceptUnavailableQuotes(this)">Ontbrekende koersen accepteren</button></div>`;
+            }
+            const ids = issue.affected_transaction_ids || [];
+            if (!ids.length) return '';
+            if (issue.category === 'zero_cost_transaction' || issue.category === 'incomplete_transaction') {
+                return `<div class="health-repair-list"><strong>Herstel per transactie</strong>${ids.map(id => `<div class="health-repair-row"><code>${escapeHtml(String(id).slice(0, 8))}</code><button type="button" class="btn btn-secondary btn-sm" onclick="correctHealthTransaction('${escapeHtml(id)}', { transaction_type: 'transfer' })">Classificeer als Transfer In</button><label>Verkrijgingsprijs <input class="health-price-input" id="health-price-${escapeHtml(id)}" inputmode="decimal" type="number" min="0" step="0.0001" placeholder="bijv. 12,50"></label><button type="button" class="btn btn-secondary btn-sm" onclick="correctHealthTransaction('${escapeHtml(id)}', { unit_price: document.getElementById('health-price-${escapeHtml(id)}')?.value })">Opslaan</button></div>`).join('')}</div>`;
+            }
+            if (issue.category === 'reconciliation') {
+                return `<div class="health-repair-list"><strong>Betrokken transacties</strong><div class="field-hint">Open de finding om beide transacties volledig te vergelijken. Daar kun je één transactie behouden of aangeven dat beide terecht zijn.</div><button type="button" class="btn btn-secondary btn-sm" onclick="openReconciliationDetail(${JSON.stringify(issue.action?.path || '')})">Details vergelijken</button></div>`;
+            }
+            return '';
+        }
+
+        function trading212ProviderHelp() {
+            return `<details class="health-provider-help"><summary>Wealthfolio custom provider instellen</summary><div class="field-hint">Wealthfolio → Settings → Market Data → Add Custom Provider</div><dl class="duplicate-review-fields"><dt>URL (Mac/Docker)</dt><dd><code>http://host.docker.internal:8000/api/v1/market-data/trading212/latest?symbol={SYMBOL}</code></dd><dt>Formaat</dt><dd>JSON</dd><dt>Price path</dt><dd><code>$.price</code></dd><dt>Currency path</dt><dd><code>$.currency</code></dd><dt>Date path</dt><dd><code>$.date</code></dd><dt>Header</dt><dd><code>X-API-Key: &lt;finance-sync read-only key&gt;</code></dd></dl><div class="field-hint">Geef het provider-account een voorkeur per asset. Gebruik bij dezelfde security een ticker- of ISIN-override als de brokernaam afwijkt.</div></details>`;
+        }
+
+        function openHealthData(path) {
+            if (!path || path.startsWith('#')) { window.location.hash = path || '#uploads'; return; }
+            if (path.includes('/transactions')) window.location.hash = '#viewer';
+            else if (path.includes('/holdings')) window.location.hash = '#viewer';
+            else if (path.includes('/accounts')) window.location.hash = '#accounts';
+            else if (path.includes('file-uploads')) window.location.hash = '#uploads';
+            else window.location.hash = '#data-health';
+        }
+
+        async function runHealthIssueAction(button, path) {
+            button.disabled = true;
+            try {
+                await api('POST', path, {});
+                toast('Data health actie uitgevoerd. Controle wordt vernieuwd.', 'success');
+                await loadOverview();
+                await loadDataHealth();
+            } catch (error) {
+                toast(error?.message || 'De data health actie kon niet worden uitgevoerd.', 'error');
+            } finally { button.disabled = false; }
+        }
+
+        async function acceptUnavailableQuotes(button) {
+            if (!window.confirm('Ontbrekende koersen voor de huidige securities accepteren? Er wordt geen waardering berekend.')) return;
+            button.disabled = true;
+            try {
+                const result = await api('POST', '/enrichment/accept-unavailable-quotes');
+                toast(`${result.accepted || 0} ontbrekende koersen geaccepteerd.`, 'success');
+                await loadOverview();
+                await loadDataHealth();
+            } catch (error) {
+                toast(error?.message || 'De ontbrekende koersen konden niet worden geaccepteerd.', 'error');
+            } finally { button.disabled = false; }
+        }
+
+        async function correctHealthTransaction(transactionId, changes) {
+            if (changes.unit_price !== undefined && (!changes.unit_price || Number(changes.unit_price) < 0)) {
+                toast('Vul een verkrijgingsprijs van nul of hoger in.', 'error');
+                return;
+            }
+            try {
+                await api('PATCH', `/transactions/${encodeURIComponent(transactionId)}/data-quality-correction`, { ...changes, ...(changes.unit_price !== undefined ? { unit_price: String(changes.unit_price) } : {}) });
+                toast('Transactie gecorrigeerd. Data health wordt opnieuw gecontroleerd.', 'success');
+                await loadDataHealth();
+            } catch (error) { toast(error?.message || 'De transactie kon niet worden gecorrigeerd.', 'error'); }
+        }
+
+        async function tombstoneHealthTransaction(transactionId) {
+            if (!window.confirm('Deze transactie als duplicaat markeren? De bronhistorie blijft bewaard.')) return;
+            try {
+                await api('DELETE', `/transactions/${encodeURIComponent(transactionId)}`);
+                toast('Duplicaat gemarkeerd. Data health wordt opnieuw gecontroleerd.', 'success');
+                await loadDataHealth();
+            } catch (error) { toast(error?.message || 'Het duplicaat kon niet worden gemarkeerd.', 'error'); }
+        }
+
+        async function runDataQualityCheck(button) {
+            if (button?.dataset.busy === 'true') return;
+            if (button) { button.dataset.busy = 'true'; button.disabled = true; button.setAttribute('aria-busy', 'true'); }
+            try {
+                await api('POST', '/reconciliation/trigger', { detect_duplicates: true, threshold_hours: 48 });
+                toast('Datakwaliteitscontrole gestart en afgerond.', 'success');
+                await loadDataHealth();
+            } catch (error) { toast(error?.message || 'De datakwaliteitscontrole kon niet worden gestart.', 'error'); }
+            finally { if (button) { button.dataset.busy = 'false'; button.disabled = false; button.removeAttribute('aria-busy'); } }
+        }
+
+        async function runDataQualityRepair(button) {
+            if (button?.dataset.busy === 'true') return;
+            if (button) { button.dataset.busy = 'true'; button.disabled = true; button.setAttribute('aria-busy', 'true'); }
+            try {
+                const result = await api('POST', '/control-plane/data-health/repair', {});
+                const identity = result?.identity || {};
+                const quotes = result?.quotes || {};
+                toast(`${identity.resolved_by_isin || 0} identiteiten gekoppeld; ${quotes.updated || 0} koersen bijgewerkt.`, 'success');
+                await loadOverview();
+                await loadDataHealth();
+            } catch (error) { toast(error?.message || 'De kwaliteitsreparatie kon niet worden uitgevoerd.', 'error'); }
+            finally { if (button) { button.dataset.busy = 'false'; button.disabled = false; button.removeAttribute('aria-busy'); } }
+        }
+
+        function reconciliationRunIdFromPath(path) {
+            const match = String(path || '').match(/\/reconciliation\/([^/?#]+)/);
+            return match ? decodeURIComponent(match[1]) : '';
+        }
+
+        async function openReconciliationDetail(path) {
+            const detail = document.getElementById('data-health-reconciliation-detail');
+            if (!detail) return;
+            const runId = reconciliationRunIdFromPath(path);
+            if (!runId) throw new Error('De reconciliatierun kon niet worden gevonden.');
+            detail.classList.remove('hidden');
+            detail.setAttribute('aria-busy', 'true');
+            detail.innerHTML = '<div class="overview-empty"><span class="spinner"></span> Finding wordt geladen…</div>';
+            detail.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            try {
+                const data = await api('GET', path);
+                const run = data.run || {};
+                const results = data.results || [];
+                detail.setAttribute('aria-busy', 'false');
+                detail.innerHTML = `<div class="card-header"><div><div class="overview-kicker">Reconciliatie</div><h2>Finding details</h2><p class="chain-subtitle">Run ${escapeHtml(run.id || runId)} · ${escapeHtml(readableStatus(run.status))} · ${escapeHtml(formatControlDate(run.completed_at || run.started_at))}</p></div><button type="button" class="btn btn-secondary btn-sm" onclick="closeReconciliationDetail()">Terug naar issues</button></div>${results.length ? results.map(result => renderReconciliationResult(result)).join('') : '<div class="overview-empty">Deze reconciliatierun bevat geen zichtbare findings.</div>'}`;
+            } catch (error) {
+                detail.setAttribute('aria-busy', 'false');
+                detail.innerHTML = `<div class="alert alert-error inline-error" role="alert"><div class="inline-error-msg"><strong>Finding kon niet worden geladen</strong><span>${escapeHtml(error?.message || 'De details zijn tijdelijk niet beschikbaar.')}</span></div><button type="button" class="btn btn-secondary btn-sm" onclick="openReconciliationDetail(${JSON.stringify(path)})">Opnieuw proberen</button></div>`;
+            }
+        }
+
+        function renderReconciliationResult(result) {
+            const txs = result.transactions || [];
+            if (result.kind !== 'duplicate_transaction' || txs.length < 2) {
+                return `<article class="health-repair-list"><strong>${escapeHtml(result.description || 'Finding')}</strong><div class="field-hint">${escapeHtml([result.transaction_id_a, result.transaction_id_b].filter(Boolean).join(' · ') || 'Geen transactiegegevens beschikbaar')}</div></article>`;
+            }
+            const card = (tx) => `<div class="duplicate-review-card"><h3>${escapeHtml(tx.security_name || tx.description || 'Transactie')}</h3><dl class="duplicate-review-fields"><dt>Datum</dt><dd>${escapeHtml(formatControlDate(tx.occurred_at))}</dd><dt>Bedrag</dt><dd>${escapeHtml(`${tx.amount ?? '—'} ${tx.currency_code || ''}`)}</dd><dt>Type</dt><dd>${escapeHtml(tx.transaction_type || '—')}</dd><dt>Aantal / koers</dt><dd>${escapeHtml(`${tx.quantity ?? '—'} / ${tx.unit_price ?? '—'} ${tx.currency_code || ''}`)}</dd><dt>Transactiekosten</dt><dd>${escapeHtml(`${tx.fee_amount ?? '—'} ${tx.fee_currency_code || ''}`)}</dd><dt>Rekening</dt><dd>${escapeHtml(tx.account_name || tx.account_id || '—')}</dd><dt>Broker-ID</dt><dd><code>${escapeHtml(tx.external_transaction_id || '—')}</code></dd><dt>Status</dt><dd>${escapeHtml(readableStatus(tx.status))}</dd><dt>Omschrijving</dt><dd>${escapeHtml(tx.description || '—')}</dd></dl></div>`;
+            return `<article class="duplicate-review"><div><span class="severity severity-${escapeHtml(result.severity)}">${escapeHtml(result.severity)}</span><h3>Welke transactie moet behouden blijven?</h3><p>${escapeHtml(result.description || '')}</p></div><div class="duplicate-review-grid">${card(txs[0])}${card(txs[1])}</div><div class="duplicate-review-actions"><button type="button" class="btn btn-danger btn-sm" onclick="reviewDuplicate(${JSON.stringify(result.transaction_id_a)}, ${JSON.stringify(result.transaction_id_b)}, 'keep_a', ${JSON.stringify(pathForReconciliationResult(result))})">Transactie A behouden</button><button type="button" class="btn btn-danger btn-sm" onclick="reviewDuplicate(${JSON.stringify(result.transaction_id_a)}, ${JSON.stringify(result.transaction_id_b)}, 'keep_b', ${JSON.stringify(pathForReconciliationResult(result))})">Transactie B behouden</button><button type="button" class="btn btn-secondary btn-sm" onclick="reviewDuplicate(${JSON.stringify(result.transaction_id_a)}, ${JSON.stringify(result.transaction_id_b)}, 'keep_both', ${JSON.stringify(pathForReconciliationResult(result))})">Beide behouden</button></div></article>`;
+        }
+
+        function pathForReconciliationResult(result) { return `/api/v1/reconciliation/${encodeURIComponent(result.run_id)}`; }
+
+        async function reviewDuplicate(transactionA, transactionB, decision, reloadPath) {
+            const message = decision === 'keep_both' ? 'Beide transacties behouden en deze melding sluiten?' : 'De andere transactie zacht markeren als duplicaat?';
+            if (!window.confirm(message)) return;
+            try {
+                await api('POST', '/api/v1/reconciliation/duplicates/decision', { transaction_id_a: transactionA, transaction_id_b: transactionB, decision });
+                toast('Duplicate-beoordeling opgeslagen.', 'success');
+                await loadDataHealth();
+                await openReconciliationDetail(reloadPath);
+            } catch (error) { toast(error?.message || 'Beoordeling opslaan mislukt.', 'error'); }
+        }
+
+        function closeReconciliationDetail() {
+            const detail = document.getElementById('data-health-reconciliation-detail');
+            if (detail) { detail.classList.add('hidden'); detail.innerHTML = ''; }
+            document.getElementById('data-health-issues')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }
 
         const controlStatusLabels = {
@@ -1317,7 +1539,7 @@
         }
 
         function readableStatus(value) {
-            return ({ healthy: 'Gezond', active: 'Actief', pending: 'In afwachting', paused: 'Gepauzeerd', error: 'Fout', failed: 'Mislukt', running: 'Bezig', completed: 'Voltooid', partial: 'Gedeeltelijk', skipped: 'Overgeslagen', cancelled: 'Geannuleerd', stale: 'Verouderd', unavailable: 'Niet beschikbaar', fresh: 'Actueel' })[value] || value || 'Onbekend';
+            return ({ healthy: 'Gezond', active: 'Actief', configured: 'Geconfigureerd', connected: 'Verbonden', pending: 'In afwachting', paused: 'Gepauzeerd', error: 'Fout', failed: 'Mislukt', running: 'Bezig', completed: 'Voltooid', partial: 'Gedeeltelijk', skipped: 'Overgeslagen', cancelled: 'Geannuleerd', stale: 'Verouderd', fresh: 'Actueel', unavailable: 'Niet beschikbaar', incompatible: 'Niet compatibel', attention_required: 'Aandacht vereist', reauth_required: 'Opnieuw authenticeren', not_configured: 'Niet geconfigureerd', not_processed: 'Nog niet verwerkt', loading: 'Laden…', unknown: 'Onbekend' })[value] || value || 'Onbekend';
         }
 
         function controlBadge(value) {
@@ -1388,7 +1610,7 @@
 
         function renderControlSyncs(items) {
             const el = document.getElementById('control-syncs'); if (!el) return; el.setAttribute('aria-busy', 'false');
-            el.innerHTML = items.length ? `<div class="control-table-wrap"><table class="data-table control-table"><thead><tr><th>Connector</th><th>Status</th><th>Gestart</th><th>Aantallen</th><th>Actie</th></tr></thead><tbody>${items.slice(0, 10).map(r => `<tr><td>${escapeHtml(r.connector)}</td><td>${controlBadge(r.status)}${r.error_category ? `<br><span class="muted">${escapeHtml(r.error_category)}</span>` : ''}</td><td class="muted">${escapeHtml(formatControlDate(r.started_at))}</td><td class="muted">${escapeHtml(r.items_processed ?? '—')}</td><td class="control-actions">${renderControlActions(r.actions)}</td></tr>`).join('')}</tbody></table></div>` : '<div class="overview-empty">Nog geen synchronisaties uitgevoerd.</div>';
+            el.innerHTML = items.length ? `<div class="control-table-wrap"><table class="data-table control-table"><thead><tr><th>Connector</th><th>Status</th><th>Gestart</th><th>Aantallen</th><th>Actie</th></tr></thead><tbody>${items.slice(0, 10).map(r => `<tr><td>${escapeHtml(r.connector)}</td><td>${r.status === 'running' ? '<span class="badge pending"><span class="spinner"></span> Bezig</span>' : controlBadge(r.status)}${r.error_category ? `<br><span class="muted">${escapeHtml(r.error_category)}</span>` : ''}</td><td class="muted">${escapeHtml(formatControlDate(r.started_at))}</td><td class="muted">${escapeHtml(r.items_processed ?? '—')}</td><td class="control-actions">${renderControlActions(r.actions)}</td></tr>`).join('')}</tbody></table></div>` : '<div class="overview-empty">Nog geen synchronisaties uitgevoerd.</div>';
         }
 
         function renderControlQuality(freshness, coverage, quality = null) {
@@ -1408,12 +1630,62 @@
             const method = button.dataset.method || 'GET'; const path = button.dataset.path || ''; const result = document.getElementById(button.dataset.resultId || '');
             if (!path) return;
             if (button.dataset.actionKey === 'map_security') { switchSection('connectors'); toast('Open de security-mappingflow vanuit de connectorgegevens.', 'info'); return; }
-            if (method === 'GET') { if (path.includes('/securities/unresolved')) switchSection('connectors'); else if (path.includes('/sync-runs')) switchSection('sync'); else if (path.includes('/destinations')) switchSection('exporters'); else window.location.href = path; return; }
+            if (button.dataset.actionKey === 'open_file_import') { switchSection('uploads'); openCreateWizard(new URLSearchParams(path.split('?')[1] || '').get('provider') || undefined); return; }
+            if (method === 'GET') {
+                // API links cannot be opened with window.location: the
+                // bearer token lives in localStorage and is only attached by
+                // api(). Keep connector recovery inside the authenticated UI.
+                if (path.includes('/connectors/configs')) {
+                    switchSection('connectors');
+                    await loadConnectors();
+                    const match = path.match(/\/connectors\/configs\/([^/?#]+)/);
+                    if (match) {
+                        const connectionId = decodeURIComponent(match[1]);
+                        const cfg = findConfig(connectionId);
+                        if (cfg) openConfigModal(cfg.provider_type, connectionId);
+                        else toast('De verbinding kon niet worden geladen.', 'error');
+                    } else {
+                        openCreateWizard();
+                    }
+                } else if (path.includes('/enrichment/status')) {
+                    switchSection('data-health');
+                    if (result) {
+                        result.className = 'action-result';
+                        result.textContent = 'Koersstatus wordt geladen…';
+                    }
+                    try {
+                        const status = await api('GET', path);
+                        if (result) {
+                            result.className = 'action-result success';
+                            result.innerHTML = `Koersstatus: ${escapeHtml(status.stale_securities ?? 0)} verouderd, ${escapeHtml(status.pending_securities ?? 0)} in afwachting, ${escapeHtml(status.failed_securities ?? 0)} mislukt. <button type="button" class="btn btn-secondary btn-sm" onclick="loadDataHealth()">Opnieuw controleren</button>`;
+                            result.focus?.();
+                        }
+                    } catch (error) {
+                        if (result) {
+                            result.className = 'action-result error';
+                            result.textContent = error?.message || 'De koersstatus kon niet worden geladen.';
+                        }
+                    }
+                } else if (path.includes('/securities/unresolved')) {
+                    switchSection('connectors');
+                } else if (path.includes('/accounts') || path.includes('/transactions') || path.includes('/holdings')) {
+                    switchSection('viewer');
+                    await loadViewer();
+                } else if (path.includes('/connectors/file-uploads')) {
+                    switchSection('uploads');
+                    await loadFileUploads();
+                } else if (path.includes('/sync-runs')) switchSection('sync');
+                else if (path.includes('/destinations')) switchSection('exporters');
+                else if (path.includes('/reconciliation/')) { switchSection('data-health'); openReconciliationDetail(path); }
+                else if (path.startsWith(API_BASE)) toast('Deze actie kan niet vanuit de GUI worden geopend.', 'error');
+                else window.location.href = path;
+                return;
+            }
             if (button.dataset.busy === 'true') return;
             button.dataset.busy = 'true'; button.disabled = true; button.setAttribute('aria-busy', 'true');
             const original = button.textContent; button.textContent = 'Bezig…';
             if (result) { result.className = 'action-result'; result.textContent = 'Actie wordt uitgevoerd…'; }
-            try { await api(method, path); if (result) { result.className = 'action-result success'; result.textContent = 'Uitgevoerd. Overzicht wordt vernieuwd.'; result.focus?.(); } await loadOverview(); }
+            try { const actionResult = await api(method, path); if (result) { result.className = 'action-result success'; result.textContent = actionResult?.updated !== undefined ? `${actionResult.updated} koersen bijgewerkt; ${actionResult.unmatched || 0} niet gematcht.` : 'Uitgevoerd. Overzicht wordt vernieuwd.'; result.focus?.(); } await loadOverview(); if (path.includes('/enrichment/refresh-quotes')) await loadDataHealth(); }
             catch (error) { if (result) { result.className = 'action-result error'; result.textContent = error?.message || 'Actie mislukt.'; } }
             finally { button.dataset.busy = 'false'; button.disabled = false; button.removeAttribute('aria-busy'); button.textContent = original; }
         }
@@ -1704,7 +1976,7 @@
                 const currency = portfolioData?.currency_code || 'EUR';
                 summary.innerHTML = `
                     <div class="card"><div class="field-hint">Portefeuillewaarde</div><div class="page-title">${viewerMoney(portfolioData?.total_value, currency)}</div></div>
-                    <div class="card"><div class="field-hint">Kostprijs</div><div class="page-title">${viewerMoney(portfolioData?.total_cost_basis, currency)}</div></div>
+                    <div class="card viewer-summary-card"><span class="viewer-card-info" tabindex="0" role="img" aria-label="Uitleg kostprijs"><span class="mdi mdi-information-outline" aria-hidden="true"></span><span class="viewer-card-tooltip" role="tooltip">De totale historische kostprijs van de huidige holdings. Dit is wat er volgens de import voor de aangehouden effecten is betaald, niet de actuele marktwaarde.</span></span><div class="field-hint">Kostprijs</div><div class="page-title">${viewerMoney(portfolioData?.total_cost_basis, currency)}</div></div>
                     <div class="card"><div class="field-hint">Accounts / holdings</div><div class="page-title">${viewerCell(accountData?.total ?? '—')} / ${viewerCell(holdingData?.total ?? '—')}</div></div>
                     <div class="card"><div class="field-hint">Transacties</div><div class="page-title">${viewerCell(transactionData?.total ?? '—')}</div></div>`;
                 summary.setAttribute('aria-busy', 'false');
@@ -1730,16 +2002,94 @@
             if (portfolioResult.status === 'rejected' && summary) {
                 summary.insertAdjacentHTML('afterbegin', renderViewerError('Portefeuilleoverzicht kon niet worden geladen.', portfolioResult.reason?.message, 'loadViewer'));
             }
+            ensureActiveSyncPolling();
+        }
+
+        function viewerAccountIsBroker(item) {
+            return /broker|invest|securit|beleg/i.test(String(item.account_type || ''));
+        }
+
+        function viewerAccountValue(item) {
+            return viewerAccountIsBroker(item) && item.net_asset_value != null
+                ? item.net_asset_value
+                : item.current_balance;
+        }
+
+        function viewerTotalsByCurrency(items, valueKey) {
+            const totals = {};
+            items.forEach(item => {
+                const currency = String(item.currency_code || 'EUR').toUpperCase();
+                const value = Number(item[valueKey]);
+                if (Number.isFinite(value)) totals[currency] = (totals[currency] || 0) + value;
+            });
+            return Object.entries(totals).map(([currency, value]) => viewerMoney(value, currency)).join('<br>') || '—';
         }
 
         function renderViewerAccounts(items) {
             if (!items.length) return '<div class="empty-state" style="padding:24px 10px;"><p>Geen accounts in de database.</p></div>';
-            return `<div style="overflow-x:auto;"><table class="data-table"><thead><tr><th>Naam</th><th>Provider</th><th>Type</th><th>Saldo</th><th>Beschikbaar</th><th>Status</th></tr></thead><tbody>${items.map(item => `<tr><td>${viewerCell(item.name)}</td><td>${viewerCell(item.provider_key)}</td><td>${viewerCell(item.account_type)}</td><td>${viewerMoney(item.current_balance, item.currency_code)}</td><td>${viewerMoney(item.available_balance, item.currency_code)}</td><td>${item.is_active ? '<span class="badge connected">Actief</span>' : '<span class="badge pending">Inactief</span>'}</td></tr>`).join('')}</tbody></table></div>`;
+            const groups = new Map();
+            items.forEach(item => {
+                const key = item.connection_id || `legacy:${item.provider_key || 'unknown'}`;
+                if (!groups.has(key)) groups.set(key, []);
+                groups.get(key).push(item);
+            });
+            const rows = [...groups.values()].map((group, index) => {
+                const first = group[0];
+                const label = first.connection_id
+                    ? `${first.provider_key || 'Provider'} · verbinding ${String(first.connection_id).slice(0, 8)}`
+                    : `${first.provider_key || 'Onbekende provider'} · legacy verbinding`;
+                const detailRows = group.map(item => {
+                    return `<tr class="viewer-account-detail"><td><span class="viewer-account-indent">${viewerCell(item.name)}</span></td><td>${viewerCell(item.account_type)}</td><td>${viewerMoney(viewerAccountValue(item), item.currency_code)}</td><td>${viewerMoney(item.available_balance, item.currency_code)}</td><td>${viewerCell(String(item.currency_code || 'EUR').toUpperCase())}</td><td>${item.is_active ? '<span class="badge connected">Actief</span>' : '<span class="badge pending">Inactief</span>'}</td></tr>`;
+                }).join('');
+                const valueTotals = {};
+                group.forEach(item => {
+                    const currency = String(item.currency_code || 'EUR').toUpperCase();
+                    const value = Number(viewerAccountValue(item));
+                    if (Number.isFinite(value)) valueTotals[currency] = (valueTotals[currency] || 0) + value;
+                });
+                const valueTotalHtml = Object.entries(valueTotals).map(([currency, value]) => viewerMoney(value, currency)).join('<br>') || '—';
+                return `<tbody class="viewer-account-group"><tr class="viewer-account-summary"><td><button type="button" class="viewer-chevron" aria-expanded="false" aria-controls="viewer-account-details-${index}" onclick="toggleViewerAccountGroup(${index}, this)"><span class="mdi mdi-chevron-right" aria-hidden="true"></span><span><strong>${viewerCell(label)}</strong><br><span class="field-hint">${group.length} account${group.length === 1 ? '' : 's'} · totaal per valuta</span></span></button></td><td>${viewerCell(first.provider_key)}</td><td>${valueTotalHtml}</td><td>${viewerTotalsByCurrency(group, 'available_balance')}</td><td>${[...new Set(group.map(item => String(item.currency_code || 'EUR').toUpperCase()))].map(viewerCell).join('<br>')}</td><td>${group.every(item => item.is_active) ? '<span class="badge connected">Actief</span>' : '<span class="badge pending">Controleer</span>'}</td></tr><tr id="viewer-account-details-${index}" class="viewer-account-details hidden"><td colspan="6"><table class="data-table viewer-nested-table"><thead><tr><th>Account</th><th>Type</th><th>${viewerAccountIsBroker(first) ? 'NAV' : 'Saldo'}</th><th>Beschikbaar cash</th><th>Valuta</th><th>Status</th></tr></thead><tbody>${detailRows}</tbody></table></td></tr></tbody>`;
+            }).join('');
+            return `<div class="viewer-table-note">NAV = netto asset value van een broker. Beschikbaar cash wordt per valuta getoond.</div><div style="overflow-x:auto;"><table class="data-table"><thead><tr><th>Verbinding</th><th>Provider</th><th>NAV / saldo</th><th>Beschikbaar cash</th><th>Valuta</th><th>Status</th></tr></thead>${rows}</table></div>`;
         }
 
-        function renderViewerHoldings(items) {
-            if (!items.length) return '<div class="empty-state" style="padding:24px 10px;"><p>Geen holdings in de database.</p></div>';
-            return `<div style="overflow-x:auto;"><table class="data-table"><thead><tr><th>Effect</th><th>Account</th><th>Aantal</th><th>Marktwaarde</th><th>Prijs</th><th>Geobserveerd</th></tr></thead><tbody>${items.map(item => `<tr><td><strong>${viewerCell(item.ticker || item.security_name)}</strong><br><span class="field-hint">${viewerCell(item.security_name)}</span></td><td>${viewerCell(item.account_name)}</td><td>${viewerCell(item.quantity)}</td><td>${viewerMoney(item.market_value, item.currency_code)}</td><td>${viewerMoney(item.price, item.price_currency || item.currency_code)}</td><td>${viewerCell(fmtDate(item.observed_at))}</td></tr>`).join('')}</tbody></table></div>`;
+        let viewerHoldingsState = { items: [], query: '', sortBy: '', direction: 'asc' };
+
+        function toggleViewerAccountGroup(index, button) {
+            const details = document.getElementById(`viewer-account-details-${index}`);
+            if (!details) return;
+            const expanded = details.classList.toggle('hidden') === false;
+            button.setAttribute('aria-expanded', String(expanded));
+            const icon = button.querySelector('.mdi');
+            if (icon) icon.className = `mdi mdi-chevron-${expanded ? 'down' : 'right'}`;
+        }
+
+        function sortViewerHoldings(key) {
+            if (viewerHoldingsState.sortBy === key) viewerHoldingsState.direction = viewerHoldingsState.direction === 'asc' ? 'desc' : 'asc';
+            else { viewerHoldingsState.sortBy = key; viewerHoldingsState.direction = 'asc'; }
+            renderViewerHoldings(viewerHoldingsState.items, false);
+        }
+
+        function renderViewerHoldings(items, reset = true) {
+            if (reset) viewerHoldingsState = { items, query: '', sortBy: '', direction: 'asc' };
+            const query = viewerHoldingsState.query.trim().toLocaleLowerCase();
+            let visible = viewerHoldingsState.items.filter(item => !query || [item.ticker, item.security_name, item.account_name, item.security_type, item.currency_code].some(value => String(value || '').toLocaleLowerCase().includes(query)));
+            const key = viewerHoldingsState.sortBy;
+            if (key) visible.sort((a, b) => String(a[key] ?? '').localeCompare(String(b[key] ?? ''), undefined, { numeric: true, sensitivity: 'base' }) * (viewerHoldingsState.direction === 'asc' ? 1 : -1));
+            if (!viewerHoldingsState.items.length) return '<div class="empty-state" style="padding:24px 10px;"><p>Geen holdings in de database.</p></div>';
+            const columns = [['ticker', 'Effect'], ['account_name', 'Account'], ['quantity', 'Aantal'], ['market_value', 'Marktwaarde'], ['price', 'Prijs'], ['observed_at', 'Geobserveerd']];
+            const heading = columns.map(([key, label]) => `<th><button type="button" class="viewer-sort-button" onclick="sortViewerHoldings('${key}')">${label}<span aria-hidden="true">${viewerHoldingsState.sortBy === key ? (viewerHoldingsState.direction === 'asc' ? ' ↑' : ' ↓') : ' ↕'}</span></button></th>`).join('');
+            const body = visible.map(item => `<tr><td><strong>${viewerCell(item.ticker || item.security_name)}</strong><br><span class="field-hint">${viewerCell(item.security_name)}</span></td><td>${viewerCell(item.account_name)}</td><td>${viewerCell(item.quantity)}</td><td>${viewerMoney(item.market_value, item.currency_code)}</td><td>${viewerMoney(item.price, item.price_currency || item.currency_code)}</td><td>${viewerCell(fmtDate(item.observed_at))}</td></tr>`).join('');
+            const container = document.getElementById('viewer-holdings');
+            const html = `<div class="viewer-table-toolbar"><label for="viewer-holdings-search">Zoek holding</label><input id="viewer-holdings-search" type="search" placeholder="Ticker, naam of account…" value="${escapeHtml(viewerHoldingsState.query)}" oninput="viewerHoldingsState.query=this.value; renderViewerHoldings(viewerHoldingsState.items, false)"><span class="field-hint">${visible.length} van ${viewerHoldingsState.items.length}</span></div><div style="overflow-x:auto;"><table class="data-table"><thead><tr>${heading}</tr></thead><tbody>${body || '<tr><td colspan="6" class="viewer-filter-empty">Geen holdings gevonden.</td></tr>'}</tbody></table></div>`;
+            if (container) {
+                container.innerHTML = html;
+                if (!reset) {
+                    const search = document.getElementById('viewer-holdings-search');
+                    if (search) { search.focus(); search.setSelectionRange(search.value.length, search.value.length); }
+                }
+            }
+            return html;
         }
 
         function renderViewerTransactions(items) {
@@ -1770,10 +2120,15 @@
             }
 
             connectorCatalog = avail || [];
-            connectors = connectorCatalog.filter(c => c.name !== 'degiro_pension');
-            configs = (cfgs || []).filter(c => c.provider_type !== 'degiro_pension');
+            // Every saved connection belongs in the same status overview,
+            // including file-based providers such as DEGIRO and Saxo.
+            connectors = connectorCatalog;
+            configs = cfgs || [];
+            degiroConfigs = (cfgs || []).filter(c => c.provider_type === 'degiro_pension');
             const healthResults = await Promise.allSettled(configs.map(c =>
-                api('GET', `/connectors/${encodeURIComponent(c.id || c.connection_id)}/health`)
+                MARKET_DATA_KEYS.has(c.provider_type)
+                    ? Promise.resolve({ overall_status: c.options?.enabled === false ? 'disabled' : 'healthy' })
+                    : api('GET', `/connectors/${encodeURIComponent(c.id || c.connection_id)}/health`)
             ));
             connectionHealth = {};
             healthResults.forEach((result, index) => {
@@ -1855,8 +2210,14 @@
 
         function renderConnections() {
             const container = document.getElementById('connector-list');
+            const degiroPanel = `<div class="card" style="margin-bottom:24px;border-left:3px solid var(--accent);">
+                <div class="card-header"><div><h2>DEGIRO Pensioen</h2><p class="chain-subtitle">Bestandsimport voor transacties, saldo en actuele holdings.</p></div><span class="badge pending">Bestandsbron</span></div>
+                <p>DEGIRO heeft geen ondersteunde live API. Werk je holdings bij door de drie officiële exports te uploaden.</p>
+                <div class="control-actions" style="margin-top:14px;"><button type="button" class="btn btn-primary btn-sm" onclick="switchSection('uploads')"><span class="mdi mdi-cloud-upload-outline"></span> Holdings bijwerken</button>${degiroConfigs.length ? '' : '<button type="button" class="btn btn-secondary btn-sm" onclick="openCreateWizard(\'degiro_pension\')">Profiel instellen</button>'}</div>
+                <div class="field-hint" style="margin-top:10px;">Benodigd: Transactieoverzicht, Rekeningoverzicht en Portefeuilleoverzicht.</div>
+            </div>`;
             if (!configs.length) {
-                container.innerHTML = `
+                container.innerHTML = degiroPanel + `
                     <div class="empty-state">
                         <div class="icon mdi mdi-link-variant"></div>
                     <p>No connections yet. Add a bunq, Trading212 or file-based broker connection to start syncing.</p>
@@ -1878,11 +2239,19 @@
                 ...Object.keys(byProvider).filter(p => !known.has(p)),
             ];
 
-            let html = '';
+            let html = degiroPanel;
             for (const provider of providerOrder) {
                 const conns = byProvider[provider];
-                if (!conns) continue;
                 const meta = connectors.find(c => c.name === provider);
+                if (!conns && MARKET_DATA_KEYS.has(provider) && meta) {
+                    html += renderMarketDataCard(meta, null);
+                    continue;
+                }
+                if (!conns) continue;
+                if (MARKET_DATA_KEYS.has(provider)) {
+                    html += renderMarketDataCard(meta, conns[0]);
+                    continue;
+                }
                 const displayName = escapeHtml(String((meta && meta.display_name) || provider));
                 html += `
                     <div class="provider-group" style="margin-bottom:24px;">
@@ -1900,6 +2269,39 @@
             }
             container.innerHTML = html;
             container.setAttribute('aria-busy', 'false');
+        }
+
+        function renderMarketDataCard(meta, cfg) {
+            const provider = String(meta.name);
+            const enabled = cfg ? cfg.options?.enabled !== false : true;
+            const needsKey = (meta.credential_fields || []).some(f => f.required);
+            const configured = !!cfg && !!cfg.is_configured;
+            const active = enabled && (!needsKey || configured);
+            const state = !enabled ? 'Uit' : (needsKey && !configured ? 'Configuratie vereist' : 'Aan');
+            const action = cfg
+                ? `<button type="button" class="btn btn-secondary btn-sm" onclick="toggleMarketDataProvider('${escapeHtml(String(cfg.id))}', ${enabled ? 'false' : 'true'})">${enabled ? 'Uitschakelen' : 'Inschakelen'}</button>`
+                : `<button type="button" class="btn btn-success btn-sm" onclick="enableMarketDataProvider('${escapeHtml(provider)}')">Inschakelen</button>`;
+            const setup = needsKey
+                ? `<button type="button" class="btn btn-secondary btn-sm" onclick="openConfigModal('${escapeHtml(provider)}', '${cfg ? escapeHtml(String(cfg.id)) : ''}')">${configured ? 'API-key wijzigen' : 'Configureren'}</button>`
+                : `<a class="btn btn-secondary btn-sm" href="${escapeHtml(String(meta.documentation_url || '#'))}" target="_blank" rel="noopener">Documentatie</a>`;
+            return `<div class="provider-group" style="margin-bottom:24px;"><div class="provider-group-header"><h2>${escapeHtml(String(meta.display_name))}<span style="color:var(--text-muted);font-size:0.8rem;font-weight:500;"> · marktdata</span></h2></div><div class="connector-grid"><div class="connector-card"><div class="top"><div class="name">${escapeHtml(String(meta.display_name))}</div><span class="badge ${active ? 'connected' : 'pending'}">${state}</span></div><div class="desc">${escapeHtml(String(meta.description || 'Marktdata'))}</div><div class="conn-meta"><div class="meta-row"><span>Configuratie</span><span>${needsKey ? (configured ? 'API-key opgeslagen' : 'API-key vereist') : 'Geen sleutel nodig'}</span></div><div class="meta-row"><span>Gebruik in repairjob</span><span>${active ? 'Ja' : 'Nee'}</span></div></div><div class="actions">${action}${setup}</div></div></div></div>`;
+        }
+
+        async function enableMarketDataProvider(provider) {
+            try {
+                await api('POST', '/connectors/configs', { provider_type: provider, credentials: {}, options: { enabled: true } });
+                toast('Marktdata-provider ingeschakeld.', 'success');
+                await loadConnectors();
+            } catch (error) { toast(error?.message || 'Provider kon niet worden ingeschakeld.', 'error'); }
+        }
+
+        async function toggleMarketDataProvider(connectionId, enabled) {
+            try {
+                const cfg = findConfig(connectionId);
+                await api('PUT', `/connectors/configs/${encodeURIComponent(connectionId)}`, { options: { ...(cfg?.options || {}), enabled } });
+                toast(enabled ? 'Marktdata-provider ingeschakeld.' : 'Marktdata-provider uitgeschakeld.', 'success');
+                await loadConnectors();
+            } catch (error) { toast(error?.message || 'Providerstatus kon niet worden gewijzigd.', 'error'); }
         }
 
         function findConfig(connectionId) {
@@ -1927,9 +2329,11 @@
             const health = connectionHealth[String(cfg.id || cfg.connection_id)];
             const healthStatus = health?.overall_status || (isConfigured ? 'pending' : 'unavailable');
             const resourceRows = (health?.resources || []).map(resource =>
-                `<div class="meta-row"><span>${escapeHtml(resource.resource)}: ${escapeHtml(resource.source_status)}</span><span>${resource.stale ? 'stale' : 'fresh'} · ${escapeHtml(fmtDate(resource.last_success_at))}</span></div>`
+                `<div class="meta-row"><span>${escapeHtml(resource.resource)}: ${escapeHtml(readableStatus(resource.source_status))}</span><span>${resource.stale ? 'stale' : 'fresh'} · ${escapeHtml(fmtDate(resource.last_success_at))}</span></div>`
             ).join('');
-            const versionRow = `<div class="meta-row"><span>Connector</span><span>${escapeHtml(meta?.plugin_version || 'unknown')} · ${escapeHtml(health?.compatibility?.status || 'unknown')}</span></div>`;
+            const connectorVersion = meta?.sdk_version || meta?.plugin_version || health?.compatibility?.current_version || 'unknown';
+            const compatibilityStatus = health?.compatibility?.status || 'unknown';
+            const versionRow = `<div class="meta-row"><span>Connector</span><span>${escapeHtml(connectorVersion)} · ${escapeHtml(readableStatus(compatibilityStatus))}</span></div>`;
             const rateLimit = health?.connection?.rate_limit;
             const rateNotice = rateLimit?.active
                 ? `<div class="conn-error" role="status">Rate limit: retry after ${escapeHtml(fmtDate(rateLimit.retry_after_at))} (${escapeHtml(rateLimit.limit_scope || 'connection')}, ${escapeHtml(rateLimit.attempt_count)} attempts)</div>`
@@ -1975,16 +2379,13 @@
                     ${lastError}
                     ${reauthNotice}${rateNotice}
                     <div class="conn-meta" aria-label="Provider health">
-                        <div class="meta-row"><strong>Connection</strong><span>${escapeHtml(health?.connection?.status || 'loading')}</span></div>
+                        <div class="meta-row"><strong>Connection</strong><span>${escapeHtml(readableStatus(health?.connection?.status || 'loading'))}</span></div>
                         <div class="meta-row"><strong>Processing</strong><span>${escapeHtml(fmtDate(health?.last_successful_processing?.last_success_at))}</span></div>
                         ${versionRow}
                         ${resourceRows || '<div class="meta-row"><span>Resource health loading…</span></div>'}
                     </div>
                     <div class="actions">
                         ${cfg.provider_type === 'saxo_investor' ? '' : `<button class="btn btn-success btn-sm" onclick="syncConnection('${connectionId}')"><span class="mdi mdi-sync"></span> Sync now</button>`}
-                        ${cfg.provider_type === 'saxo_investor'
-                            ? `<button class="btn btn-primary btn-sm" onclick="openSaxoImport('${connectionId}')"><span class="mdi mdi-file-upload-outline"></span> Upload Saxo Excel</button>`
-                            : ''}
                         <button class="btn btn-secondary btn-sm" onclick="testConnection('${connectionId}', '${provider}')"><span class="mdi mdi-check-circle-outline"></span> Test</button>
                         <button class="btn btn-secondary btn-sm" onclick="refreshConnectionHealth('${connectionId}')"><span class="mdi mdi-heart-pulse"></span> Health</button>
                         ${health?.action_required === 'reauthenticate' ? `<button class="btn btn-warning btn-sm" onclick="openConfigModal('${provider}', '${connectionId}')">Reauthenticate</button>` : ''}
@@ -2036,52 +2437,6 @@
             modal.setAttribute('aria-labelledby', 'degiro-modal-title');
             openModal(modal);
             modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
-        }
-
-        function openSaxoImport(connectionId) {
-            const modal = document.createElement('div');
-            modal.className = 'modal-overlay';
-            modal.innerHTML = `
-                <div class="modal">
-                    <h2 id="saxo-modal-title">Importeer SaxoInvestor</h2>
-                    <p style="color:var(--text-muted);margin-bottom:16px;">Selecteer het Saxo-positiesbestand, het transactiebestand of beide. Daarna worden de bestanden direct geïmporteerd.</p>
-                    <div class="form-group">
-                        <label for="saxo-files">SaxoInvestor Excel-bestanden (.xlsx)</label>
-                        <input id="saxo-files" type="file" multiple accept=".xlsx" aria-required="true">
-                    </div>
-                    <div id="saxo-import-result" aria-live="polite"></div>
-                    <div class="modal-footer">
-                        <button type="button" class="btn btn-secondary" onclick="closeModal()">Annuleren</button>
-                        <button type="button" id="saxo-import-btn" class="btn btn-primary" onclick="importSaxoFiles('${escapeHtml(String(connectionId))}')">Importeren</button>
-                    </div>
-                </div>`;
-            document.getElementById('modal-container').appendChild(modal);
-            modal.setAttribute('aria-labelledby', 'saxo-modal-title');
-            openModal(modal);
-            modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
-        }
-
-        async function importSaxoFiles(connectionId) {
-            const files = document.getElementById('saxo-files').files;
-            if (!files.length) { toast('Selecteer minimaal één Saxo Excel-bestand', 'error'); return; }
-            const form = new FormData();
-            form.append('connection_id', connectionId);
-            for (const file of files) form.append('files', file);
-            const headers = {};
-            if (token) headers.Authorization = `Bearer ${token}`;
-            const button = document.getElementById('saxo-import-btn');
-            button.disabled = true;
-            try {
-                const response = await fetch(`${API_BASE}/connectors/saxo-investor/imports`, { method: 'POST', headers, body: form });
-                const data = await response.json();
-                if (!response.ok) throw new Error(data.detail || 'Importeren mislukt');
-                toast(`Saxo-import voltooid: ${data.holdings} posities, ${data.transactions} transacties`, 'success');
-                closeModal();
-                renderConnections();
-            } catch (e) {
-                document.getElementById('saxo-import-result').innerHTML = `<div class="alert alert-error" role="alert">${escapeHtml(e.message || 'De server heeft de bestanden geweigerd.')}</div>`;
-                button.disabled = false;
-            }
         }
 
         async function previewDegiroImport(connectionId) {
@@ -2308,163 +2663,427 @@
 
         async function degiroWizardConfirm() { if (!degiroWizardState.runId) return; const result = document.getElementById('degiro-wizard-result'); try { const data = await api('POST', `/connectors/degiro-pension/imports/${degiroWizardState.runId}/confirm`, {}); result.innerHTML = `<div class="alert alert-success" role="status"><strong>Dataset geïmporteerd.</strong> ${escapeHtml(String(data.created_count ?? 0))} nieuwe items, ${escapeHtml(String(data.updated_count ?? 0))} bijgewerkte items. Je kunt de data nu in Wealthfolio gebruiken.</div>`; degiroWizardState.runId = null; degiroWizardState.preview = null; await loadFileUploads(); renderDegiroWizardActions(); } catch (error) { result.innerHTML = `<div class="alert alert-error" role="alert">Import bevestigen mislukt. ${escapeHtml(error.message || '')}</div>`; } }
 
-        // ── Universal file upload flow ─────────────────────────────────
-        let fileUploadState = { files: [], inspection: null, flow: null, runId: null };
+        // ── Unified import flow ────────────────────────────────────────
+        // The user chooses a counterparty before seeing credentials or file
+        // requirements. This keeps API connections and broker-specific
+        // exports in one predictable entry point.
+        const IMPORTER_COPY = {
+            degiro_pension: { label: 'DEGIRO Pensioen', icon: 'mdi-chart-line', accept: '.csv,.xlsx,.xls', files: 'Upload Account.xlsx, Transactions.xlsx en Portfolio.csv uit je DEGIRO-export.', required: 'Deze drie bestanden leveren saldo, transactiehistorie en actuele holdings voor Wealthfolio.' },
+            saxo_investor: { label: 'SaxoInvestor', icon: 'mdi-chart-areaspline', accept: '.xlsx', files: 'Upload het Posities-bestand en het Transacties-bestand.', required: 'Beide XLSX-exportbestanden zijn nodig om je actuele holdings en volledige transactiehistorie te importeren.' },
+            csv_import: { label: 'CSV import', icon: 'mdi-file-delimited-outline', accept: '.csv,.txt', files: 'Upload een CSV met minimaal datum, omschrijving en bedrag.', required: 'De kolommen worden automatisch voorgesteld.' },
+            manual_expense: { label: 'Handmatige uitgaven', icon: 'mdi-receipt-text-outline', accept: '.json', files: 'Upload je expenses-JSON-bestand.', required: 'Gebruik het afgesproken expenses-formaat.' },
+        };
+        let fileUploadState = { provider: '', method: '', files: [], flow: null, runId: null, configs: [], processing: false, inlineTested: false, inlineAccounts: [] };
+
+        function importWizardDefinition(provider) {
+            const catalog = connectorCatalog.find(c => c.name === provider);
+            const metadata = catalog?.import_wizard || {};
+            return {
+                ...(IMPORTER_COPY[provider] || {}),
+                fileDefinitions: Array.isArray(metadata.files) ? metadata.files : [],
+                accept: Array.isArray(metadata.accept) ? metadata.accept.join(',') : (IMPORTER_COPY[provider]?.accept || ''),
+            };
+        }
+
+        function importFileLabels(provider) {
+            const definitions = importWizardDefinition(provider).fileDefinitions;
+            return definitions.map(file => String(file.label || file.key)).join(', ');
+        }
+
+        function connectorSupportsFile(provider) {
+            const catalog = connectorCatalog.find(c => c.name === provider);
+            return (catalog?.ingestion_methods || []).includes('file') || !!IMPORTER_COPY[provider];
+        }
 
         async function loadFileUploads() {
+            await loadImportFlow();
             const runs = document.getElementById('degiro-upload-runs');
             if (!runs) return;
             try {
                 const result = await api('GET', '/connectors/file-uploads/runs');
-                runs.innerHTML = result.length
-                    ? `<table class="data-table"><thead><tr><th>Datum</th><th>Bestanden</th><th>Status</th><th>Nieuw</th><th>Bijgewerkt</th></tr></thead><tbody>${result.slice(0, 10).map(run => `<tr><td>${escapeHtml(fmtDate(run.created_at))}</td><td>${escapeHtml((run.file_names || []).join(', '))}</td><td>${escapeHtml(run.status || '—')}</td><td>${escapeHtml(String(run.created_count ?? '—'))}</td><td>${escapeHtml(String(run.updated_count ?? '—'))}</td></tr>`).join('')}</tbody></table>`
-                    : '<div class="empty-state" style="padding:24px 10px;"><p>Nog geen uploads.</p></div>';
+                runs.innerHTML = renderUploadHistory(result);
             } catch (e) {
                 runs.innerHTML = `<div class="alert alert-error" role="alert">Uploadgeschiedenis kon niet worden geladen. ${escapeHtml(e.message || '')}</div>`;
             }
         }
 
-        function clearFileUpload() {
-            fileUploadState = { files: [], inspection: null, flow: null, runId: null };
-            const input = document.getElementById('file-upload-input');
-            if (input) input.value = '';
-            ['file-upload-selection', 'file-upload-result', 'file-upload-choice'].forEach(id => {
-                const el = document.getElementById(id); if (el) { el.innerHTML = ''; el.classList.add('hidden'); }
-            });
-            const start = document.getElementById('file-upload-start-btn');
-            const clear = document.getElementById('file-upload-clear-btn');
-            if (start) start.disabled = true;
-            if (clear) clear.disabled = true;
+        function importStatusLabel(status) {
+            return {
+                previewed: 'Preview klaar',
+                running: 'Bezig',
+                processing: 'Bezig',
+                completed: 'Voltooid',
+                failed: 'Mislukt',
+                retry_queued: 'Opnieuw ingepland',
+            }[status] || status || 'Onbekend';
         }
 
-        function setFileUploadFiles(files) {
-            fileUploadState = { files: Array.from(files || []), inspection: null, flow: null, runId: null };
-            const selection = document.getElementById('file-upload-selection');
-            const result = document.getElementById('file-upload-result');
-            const choices = document.getElementById('file-upload-choice');
-            if (!fileUploadState.files.length) { clearFileUpload(); return; }
-            selection.textContent = `${fileUploadState.files.length} bestand(en): ${fileUploadState.files.map(file => file.name).join(', ')}`;
-            result.innerHTML = '<div class="field-hint">Bestandstype en broker worden gecontroleerd…</div>';
-            result.classList.remove('hidden'); choices.innerHTML = ''; choices.classList.add('hidden');
-            document.getElementById('file-upload-start-btn').disabled = true;
-            document.getElementById('file-upload-clear-btn').disabled = false;
-            inspectFileUpload();
+        function importPeriod(run) {
+            if (!run.period_start && !run.period_end) return '—';
+            return `${fmtDate(run.period_start)} – ${fmtDate(run.period_end)}`;
         }
 
-        async function inspectFileUpload() {
-            const form = new FormData();
-            fileUploadState.files.forEach(file => form.append('files', file));
-            const headers = {}; if (token) headers.Authorization = `Bearer ${token}`;
+        function retryFileUpload(provider) {
+            fileUploadState = { provider, method: 'file', files: [], flow: null, runId: null, configs: fileUploadState.configs, processing: false, inlineTested: false, inlineAccounts: [] };
+            document.getElementById('import-flow-result').innerHTML = '<div class="alert alert-info" role="status">Selecteer de bestanden opnieuw om deze import opnieuw te proberen.</div>';
+            renderProviderFileWizard(provider);
+            document.getElementById('import-flow-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+
+        function renderUploadHistory(result) {
+            if (!result.length) return '<div class="empty-state" style="padding:24px 10px;"><p>Nog geen uploads.</p></div>';
+            return `<div style="overflow-x:auto;"><table class="data-table"><thead><tr><th>Datum</th><th>Tegenpartij / profiel</th><th>Bestanden</th><th>Periode</th><th>Status</th><th>Regels</th><th>Nieuw</th><th>Bijgewerkt</th><th>Overgeslagen</th><th></th></tr></thead><tbody>${result.slice(0, 20).map(run => {
+                const warnings = (run.warnings || []).length ? `<br><span class="field-hint">${escapeHtml(run.warnings.slice(0, 2).join(' · '))}</span>` : '';
+                const error = run.error ? `<br><span class="run-error-line">${escapeHtml(run.error)}</span>` : '';
+                const retry = run.retryable && run.provider_type ? `<button type="button" class="btn btn-secondary btn-sm" onclick="retryFileUpload('${escapeHtml(run.provider_type)}')">Opnieuw</button>` : '';
+                return `<tr><td>${escapeHtml(fmtDate(run.created_at))}</td><td><strong>${escapeHtml(IMPORTER_COPY[run.provider_type]?.label || run.provider_type || '—')}</strong><br><span class="field-hint">${escapeHtml(run.profile_name || '—')}</span></td><td>${escapeHtml((run.file_names || []).join(', '))}</td><td>${escapeHtml(importPeriod(run))}</td><td>${escapeHtml(importStatusLabel(run.status))}${warnings}${error}</td><td>${escapeHtml(String(run.rows_total ?? '—'))}</td><td>${escapeHtml(String(run.created_count ?? '—'))}</td><td>${escapeHtml(String(run.updated_count ?? '—'))}</td><td>${escapeHtml(String(run.skipped_count ?? '—'))}</td><td>${retry}</td></tr>`;
+            }).join('')}</tbody></table></div>`;
+        }
+
+        function clearFileUpload() { fileUploadState = { provider: '', method: '', files: [], flow: null, runId: null, configs: [], processing: false, inlineTested: false, inlineAccounts: [] }; renderImportProviders(); }
+
+        async function loadImportFlow() {
+            const choice = document.getElementById('import-provider-choice');
+            if (!choice) return;
+            choice.setAttribute('aria-busy', 'true');
             try {
-                const response = await fetch(`${API_BASE}/connectors/file-uploads/inspect`, { method: 'POST', headers, body: form });
-                const data = await response.json();
-                if (!response.ok) throw new Error(data.detail || 'De bestanden konden niet worden gelezen.');
-                fileUploadState.inspection = data;
-                const matching = (data.flows || []).filter(flow => flow.provider_type === data.detected_provider && flow.ready);
-                const result = document.getElementById('file-upload-result');
-                if (data.detected_provider && matching.length === 1) {
-                    fileUploadState.flow = matching[0];
-                    result.innerHTML = `<div class="alert alert-success"><strong>${escapeHtml(matching[0].display_name)} herkend.</strong> ${escapeHtml(data.reason || '')} Importflow wordt gestart.</div>`;
-                    await startSelectedFileImport();
-                } else {
-                    result.innerHTML = `<div class="alert alert-info"><strong>${data.detected_provider ? `${escapeHtml(data.reason || 'Broker herkend')}, maar kies een rekening.` : 'Broker niet automatisch herkend.'}</strong><span style="display:block;margin-top:4px;">Kies hieronder de importflow en rekening die bij dit bestand horen.</span></div>`;
-                    renderFileUploadChoices(data.flows || []);
-                }
+                const [catalog, saved] = await Promise.all([api('GET', '/connectors'), api('GET', '/connectors/configs')]);
+                connectorCatalog = catalog || [];
+                fileUploadState.configs = saved || [];
+                renderImportProviders();
+            } catch (e) { choice.innerHTML = `<div class="alert alert-error" role="alert">Importeren kon niet worden geladen. ${escapeHtml(e.message || '')} <button type="button" class="btn btn-secondary btn-sm" onclick="loadImportFlow()">Opnieuw proberen</button></div>`; }
+            choice.setAttribute('aria-busy', 'false');
+        }
+
+        function renderImportProviders() {
+            const choice = document.getElementById('import-provider-choice');
+            const panel = document.getElementById('import-flow-panel');
+            if (!choice) return;
+            const providers = (connectorCatalog || []).filter(c => c.configuration_mode !== 'staging_choice');
+            choice.innerHTML = providers.length ? providers.map(c => {
+                const copy = importWizardDefinition(c.name);
+                const methods = c.ingestion_methods || (copy ? ['file'] : ['api']);
+                const file = methods.includes('file');
+                const configured = fileUploadState.configs.filter(x => x.provider_type === c.name).length;
+                const methodText = methods.length > 1 ? 'API-koppeling of bestanden' : (file ? 'Bestand uploaden' : 'API-koppeling maken');
+                return `<button type="button" class="connector-card" style="text-align:left;cursor:pointer;" onclick="selectImportProvider('${escapeHtml(String(c.name))}')"><div class="top"><span class="icon mdi ${copy?.icon || 'mdi-bank-outline'}" style="font-size:1.5rem;color:var(--accent);"></span><span class="badge ${configured ? 'connected' : 'unconfigured'}">${configured ? 'Actief' : (file ? 'Bestand' : 'Niet actief')}</span></div><div class="name">${escapeHtml(String(copy?.label || c.display_name || c.name))}</div><div class="desc">${methodText}</div></button>`;
+            }).join('') : '<div class="empty-state">Geen importers beschikbaar.</div>';
+            choice.classList.toggle('hidden', !!fileUploadState.provider);
+            if (!fileUploadState.provider && panel) { panel.classList.add('hidden'); panel.innerHTML = ''; }
+            if (fileUploadState.provider && fileUploadState.method === 'file' && IMPORTER_COPY[fileUploadState.provider]) {
+                renderProviderFileWizard(fileUploadState.provider);
+            }
+        }
+
+        function selectImportProvider(provider) {
+            fileUploadState.provider = provider;
+            const catalogEntry = connectorCatalog.find(c => c.name === provider);
+            const methods = catalogEntry?.ingestion_methods || (IMPORTER_COPY[provider] ? ['file'] : ['api']);
+            if (methods.length > 1) { renderImportMethodChoice(provider, methods); return; }
+            selectImportMethod(provider, methods[0] || 'api');
+        }
+
+        function renderImportMethodChoice(provider, methods) {
+            const panel = document.getElementById('import-flow-panel');
+            const c = connectorCatalog.find(x => x.name === provider);
+            if (!panel || !c) return;
+            panel.classList.remove('hidden');
+            document.getElementById('import-provider-choice').classList.add('hidden');
+            document.getElementById('import-flow-step').textContent = 'Stap 2 van 3';
+            const cards = methods.map(method => {
+                const api = method === 'api';
+                return `<button type="button" class="connector-card" style="text-align:left;cursor:pointer;" onclick="selectImportMethod('${escapeHtml(provider)}','${method}')"><div class="name"><span class="mdi ${api ? 'mdi-api' : 'mdi-cloud-upload-outline'}"></span> ${api ? 'API koppelen' : 'Bestanden uploaden'}</div><div class="desc">${api ? 'Automatisch synchroniseren met deze tegenpartij.' : 'Een exportbestand of provider-specifieke rapporten importeren.'}</div></button>`;
+            }).join('');
+            panel.innerHTML = `<div class="degiro-wizard-progress"><div class="wizard-step active"><div class="wizard-step-line"></div><div class="wizard-step-label">${escapeHtml(String(c.display_name || provider))}</div></div><div class="wizard-step active"><div class="wizard-step-line"></div><div class="wizard-step-label">Methode kiezen</div></div></div><p class="degiro-wizard-copy">Kies hoe je de gegevens van ${escapeHtml(String(c.display_name || provider))} wilt toevoegen.</p><div class="connector-grid">${cards}</div><div class="degiro-wizard-actions"><button type="button" class="btn btn-secondary" onclick="resetImportFlow()">Andere tegenpartij</button></div>`;
+        }
+
+        function selectImportMethod(provider, method) {
+            fileUploadState.provider = provider;
+            fileUploadState.method = method;
+            fileUploadState.inlineTested = false;
+            fileUploadState.inlineAccounts = [];
+            const allConfigs = fileUploadState.configs.filter(x => x.provider_type === provider);
+            // SaxoInvestor represents one account, so legacy duplicate
+            // profiles must not turn into multiple selectable upload targets.
+            const configs = provider === 'saxo_investor' ? allConfigs.slice(0, 1) : allConfigs;
+            if (!configs.length) { renderInlineProfileSetup(provider); return; }
+            if (method === 'file') renderProviderFileWizard(provider);
+            else renderInlineApiFlow(provider);
+        }
+
+        function renderInlineProfileSetup(provider) {
+            const panel = document.getElementById('import-flow-panel');
+            const c = connectorCatalog.find(x => x.name === provider);
+            if (!panel || !c) return;
+            const copy = importWizardDefinition(provider);
+            const isApi = fileUploadState.method === 'api';
+            const isSaxoFile = provider === 'saxo_investor' && !isApi;
+            const fields = [...(c.credential_fields || []).map(f => ({ ...f, group: 'credential' })), ...(c.option_fields || []).map(f => ({ ...f, group: 'option' }))];
+            const fieldHtml = fields.map(f => {
+                if (f.type === 'boolean') return `<label class="checkbox-wrap"><input class="inline-profile-field" data-group="${f.group}" data-key="${escapeHtml(String(f.key))}" type="checkbox" ${f.default ? 'checked' : ''}> ${escapeHtml(String(f.label || f.key))}</label>`;
+                const required = f.required ? ' required aria-required="true"' : '';
+                const inputId = `inline-profile-${escapeHtml(String(f.key))}`;
+                const isSecret = f.type === 'password';
+                const toggle = isSecret ? `<button type="button" class="btn btn-secondary btn-sm" style="margin-top:8px;" onclick="toggleSecretField('${inputId}', this)" aria-controls="${inputId}" aria-label="Show secret">Show</button>` : '';
+                return `<div class="form-group"><label for="${inputId}">${escapeHtml(String(f.label || f.key))}${f.required ? ' <span style="color:var(--red)">*</span>' : ''}</label><input class="inline-profile-field" data-group="${f.group}" data-key="${escapeHtml(String(f.key))}" id="${inputId}" type="${isSecret ? 'password' : 'text'}" autocomplete="${isSecret ? 'new-password' : 'off'}" placeholder="${escapeHtml(String(f.placeholder || ''))}"${required}>${toggle}${f.description ? `<div class="field-hint">${escapeHtml(String(f.description))}</div>` : ''}</div>`;
+            }).join('');
+            const profileFields = isSaxoFile ? '' : fieldHtml;
+            const profileName = isSaxoFile
+                ? '<div class="alert alert-info"><strong>Eén SaxoInvestor-account</strong><span style="display:block;margin-top:4px;">Je hebt geen inloggegevens of technische instellingen nodig. Upload straks één Posities-bestand en één Transacties-bestand.</span></div>'
+                : `<div class="form-group"><label for="inline-profile-name">Naam van deze koppeling</label><input id="inline-profile-name" type="text" value="${escapeHtml(String(c.display_name || provider))}" required aria-required="true"><div class="field-hint">Deze naam wordt gebruikt om de koppeling later terug te vinden.</div></div>`;
+            panel.classList.remove('hidden');
+            document.getElementById('import-flow-step').textContent = 'Stap 2 van 2';
+            const profileHeading = isApi ? 'Trading212 API-gegevens' : 'Profielgegevens';
+            const apiHelp = isApi && provider === 'trading212'
+                ? '<div class="alert alert-info" role="note"><strong>Gebruik beide Trading212-gegevens.</strong><span style="display:block;margin-top:4px;">Vul je API Key en API Secret in uit Trading212. Deze worden versleuteld opgeslagen en nooit teruggetoond.</span></div>'
+                : '';
+            const testButton = isApi ? '<button type="button" class="btn btn-secondary" id="inline-profile-test" onclick="testInlineProfile(\'' + escapeHtml(provider) + '\')">Verbinding testen</button>' : '';
+            const saveDisabled = isApi ? ' disabled' : '';
+            panel.innerHTML = `<div class="degiro-wizard-progress"><div class="wizard-step active"><div class="wizard-step-line"></div><div class="wizard-step-label">${escapeHtml(String(c.display_name || provider))}</div></div><div class="wizard-step active"><div class="wizard-step-line"></div><div class="wizard-step-label">${isApi ? 'API testen en opslaan' : 'Profiel instellen'}</div></div></div><p class="degiro-wizard-copy">Maak eerst een profiel aan voor ${escapeHtml(String(c.display_name || provider))}. ${isApi ? 'Test de gegevens en kies daarna de accounts die je wilt synchroniseren.' : 'Daarna kun je direct bestanden importeren.'}</p>${profileName}${apiHelp}${profileFields ? `<h3 style="font-size:.9rem;font-weight:600;margin:16px 0 12px;">${profileHeading}</h3>${profileFields}` : ''}<div id="inline-profile-test-result" aria-live="polite"></div><div id="inline-profile-accounts" class="wizard-accounts hidden"></div><div id="inline-profile-error" class="hidden alert alert-error" role="alert"></div><div class="degiro-wizard-actions"><button type="button" class="btn btn-secondary" onclick="resetImportFlow()">Andere tegenpartij</button><div class="degiro-wizard-actions-right">${testButton}<button type="button" class="btn btn-primary" id="inline-profile-save" onclick="saveInlineProfile('${escapeHtml(provider)}')"${saveDisabled}>Koppeling opslaan</button></div></div>`;
+            document.getElementById('import-provider-choice').classList.add('hidden');
+        }
+
+        function toggleSecretField(fieldId, button) {
+            const field = document.getElementById(fieldId);
+            if (!field) return;
+            const visible = field.type === 'text';
+            field.type = visible ? 'password' : 'text';
+            button.textContent = visible ? 'Show' : 'Hide';
+            button.setAttribute('aria-label', visible ? 'Show secret' : 'Hide secret');
+        }
+
+        function readInlineProfile(provider) {
+            const c = connectorCatalog.find(x => x.name === provider);
+            const credentials = {};
+            const options = {};
+            const missing = [];
+            for (const field of document.querySelectorAll('.inline-profile-field')) {
+                const value = field.type === 'checkbox' ? field.checked : String(field.value || '').trim();
+                const definition = [...(c?.credential_fields || []), ...(c?.option_fields || [])].find(f => String(f.key) === String(field.dataset.key));
+                if (definition?.required && field.type !== 'checkbox' && !value) missing.push(definition.label || definition.key);
+                if (value !== '' && value !== false) (field.dataset.group === 'credential' ? credentials : options)[field.dataset.key] = value;
+            }
+            return { credentials, options, missing };
+        }
+
+        async function testInlineProfile(provider) {
+            const error = document.getElementById('inline-profile-error');
+            const result = document.getElementById('inline-profile-test-result');
+            const button = document.getElementById('inline-profile-test');
+            const save = document.getElementById('inline-profile-save');
+            const payload = readInlineProfile(provider);
+            if (payload.missing.length) { error.textContent = `Vul in: ${payload.missing.join(', ')}.`; error.classList.remove('hidden'); return; }
+            error.classList.add('hidden');
+            if (button) { button.disabled = true; button.innerHTML = '<span class="spinner"></span> Testen…'; }
+            if (result) result.innerHTML = '<div class="alert alert-info" role="status">Verbinding wordt getest…</div>';
+            try {
+                const response = await api('POST', `/connectors/${encodeURIComponent(provider)}/test`, { credentials: payload.credentials, options: payload.options });
+                if (!response.success) throw new Error(response.message || 'De verbindingstest is mislukt.');
+                fileUploadState.inlineTested = true;
+                fileUploadState.inlineAccounts = response.accounts || [];
+                if (result) result.innerHTML = `<div class="alert alert-success" role="status"><span class="mdi mdi-check-circle-outline"></span> ${escapeHtml(response.message || 'Verbinding geslaagd.')}</div>`;
+                const accounts = document.getElementById('inline-profile-accounts');
+                if (accounts && fileUploadState.inlineAccounts.length) { accounts.classList.remove('hidden'); accounts.innerHTML = renderAccountCheckboxes(fileUploadState.inlineAccounts, fileUploadState.inlineAccounts.map(a => String(a.id))); }
+                if (save) save.disabled = false;
             } catch (e) {
-                document.getElementById('file-upload-result').innerHTML = `<div class="alert alert-error" role="alert">${escapeHtml(e.message || 'De bestanden konden niet worden gecontroleerd.')}</div>`;
-            }
+                fileUploadState.inlineTested = false;
+                if (result) result.innerHTML = `<div class="alert alert-error" role="alert">${escapeHtml(e.message || 'De verbindingstest is mislukt.')}</div>`;
+                if (save) save.disabled = true;
+            } finally { if (button) { button.disabled = false; button.textContent = 'Verbinding testen'; } }
         }
 
-        function renderFileUploadChoices(flows) {
-            const choices = document.getElementById('file-upload-choice');
-            choices.classList.remove('hidden');
-            if (!flows.length) {
-                choices.innerHTML = '<div class="alert alert-warning">Er is nog geen file-importaccount ingesteld. Maak eerst een DEGIRO-, SaxoInvestor-, CSV- of handmatige-uitgavenconfiguratie aan bij Importers.</div>';
-                return;
-            }
-            choices.innerHTML = `<h3 style="font-size:1rem;margin-bottom:10px;">Kies de importflow en rekening</h3><div class="connector-grid">${flows.map((flow, index) => `<button type="button" class="connector-card" style="text-align:left;cursor:pointer;${fileUploadState.flow?.connection_id === flow.connection_id ? 'outline:2px solid var(--accent);' : ''}" onclick="chooseFileUploadFlow(${index})"><div class="name">${escapeHtml(flow.display_name)}</div><div class="desc">${escapeHtml(flow.account_name || 'Account kiezen')}</div></button>`).join('')}</div>`;
-            choices.dataset.flows = JSON.stringify(flows);
+        function renderInlineApiFlow(provider) {
+            const panel = document.getElementById('import-flow-panel');
+            const c = connectorCatalog.find(x => x.name === provider);
+            const configs = fileUploadState.configs.filter(x => x.provider_type === provider);
+            if (!panel || !c) return;
+            panel.classList.remove('hidden');
+            document.getElementById('import-flow-step').textContent = 'Stap 2 van 2';
+            document.getElementById('import-provider-choice').classList.add('hidden');
+            panel.innerHTML = `<div class="degiro-wizard-progress"><div class="wizard-step active"><div class="wizard-step-line"></div><div class="wizard-step-label">${escapeHtml(String(c.display_name || provider))}</div></div><div class="wizard-step active"><div class="wizard-step-line"></div><div class="wizard-step-label">API-koppeling</div></div></div><p class="degiro-wizard-copy">Kies een bestaande koppeling of voeg een nieuwe ${escapeHtml(String(c.display_name || provider))}-koppeling toe.</p><div class="connector-grid">${configs.map(cfg => `<div class="connector-card"><div class="name">${escapeHtml(String(cfg.description || c.display_name || provider))}</div><div class="desc">${cfg.is_configured ? 'Koppeling actief' : 'Configuratie ontbreekt'}</div><div class="actions" style="margin-top:12px;"><button type="button" class="btn btn-secondary btn-sm" onclick="testConnection('${escapeHtml(String(cfg.id))}', '${escapeHtml(provider)}')">Verbinding testen</button><button type="button" class="btn btn-secondary btn-sm" onclick="openAccountsModal('${escapeHtml(String(cfg.id))}')">Accounts beheren</button></div></div>`).join('')}<button type="button" class="connector-card" style="text-align:left;cursor:pointer;" onclick="renderInlineProfileSetup('${escapeHtml(provider)}')"><div class="name"><span class="mdi mdi-plus"></span> Nieuwe koppeling</div><div class="desc">API-gegevens instellen</div></button></div><div class="degiro-wizard-actions"><button type="button" class="btn btn-secondary" onclick="resetImportFlow()">Andere tegenpartij</button></div>`;
         }
 
-        function chooseFileUploadFlow(index) {
-            const choices = document.getElementById('file-upload-choice');
-            const flows = JSON.parse(choices.dataset.flows || '[]');
-            fileUploadState.flow = flows[index] || null;
-            renderFileUploadChoices(flows);
-            if (fileUploadState.flow?.provider_type === 'saxo_investor'
-                && !fileUploadState.flow.ready) {
-                // Upload-first: retain the selected files in the first-time
-                // connector wizard so the user does not have to select them
-                // again.
-                openConfigModal('saxo_investor', null);
-                return;
+        async function saveInlineProfile(provider) {
+            const c = connectorCatalog.find(x => x.name === provider);
+            const isApi = fileUploadState.method === 'api';
+            const name = provider === 'saxo_investor' && !isApi
+                ? 'SaxoInvestor'
+                : String(document.getElementById('inline-profile-name')?.value || '').trim();
+            const error = document.getElementById('inline-profile-error');
+            const button = document.getElementById('inline-profile-save');
+            if (!name) { error.textContent = 'Vul een naam voor de koppeling in.'; error.classList.remove('hidden'); return; }
+            if (isApi && !fileUploadState.inlineTested) { error.textContent = 'Test eerst de API-verbinding voordat je opslaat.'; error.classList.remove('hidden'); return; }
+            const payload = readInlineProfile(provider);
+            if (payload.missing.length) { error.textContent = `Vul in: ${payload.missing.join(', ')}.`; error.classList.remove('hidden'); return; }
+            const { credentials, options } = payload;
+            if (provider === 'degiro_pension') { options.account_key = crypto.randomUUID(); options.account_name = name; }
+            if (provider === 'saxo_investor' && !isApi) { options.account_key = 'default'; options.account_name = 'SaxoInvestor'; }
+            if (button) { button.disabled = true; button.innerHTML = '<span class="spinner"></span> Opslaan…'; }
+            try {
+                const result = await api('POST', '/connectors/configs', { provider_type: provider, credentials, options, description: name });
+                fileUploadState.configs.push(result);
+                if (isApi && fileUploadState.inlineAccounts.length) {
+                    const selected = Array.from(document.querySelectorAll('#inline-profile-accounts .wizard-account-cb:checked')).map(el => el.value);
+                    if (selected.length && selected.length !== fileUploadState.inlineAccounts.length) await api('POST', `/connectors/configs/${encodeURIComponent(result.id)}/accounts`, { account_ids: selected, purge_unselected: false });
+                }
+                if (connectorSupportsFile(provider) && fileUploadState.method === 'file') renderProviderFileWizard(provider);
+                else { document.getElementById('import-flow-result').innerHTML = `<div class="alert alert-info" role="status"><strong>${escapeHtml(name)} is aangemaakt.</strong> De eerste synchronisatie wordt gestart…</div>`; document.getElementById('import-flow-panel').innerHTML = ''; await startSyncWithProgress(result.id); }
+            } catch (e) { error.innerHTML = `<strong>Koppeling kon niet worden opgeslagen.</strong> ${escapeHtml(e.message || '')}`; error.classList.remove('hidden'); if (button) { button.disabled = false; button.textContent = 'Koppeling opslaan'; } }
+        }
+
+        function renderProviderFileWizard(provider) {
+            const panel = document.getElementById('import-flow-panel');
+            const copy = importWizardDefinition(provider);
+            const allConfigs = fileUploadState.configs.filter(x => x.provider_type === provider);
+            const configs = provider === 'saxo_investor' ? allConfigs.slice(0, 1) : allConfigs;
+            panel.classList.remove('hidden');
+            document.getElementById('import-flow-step').textContent = 'Stap 2 van 2';
+            const selected = fileUploadState.flow?.connection_id || configs[0]?.id || '';
+            const profileStep = configs.length ? `<div class="form-group"><label for="import-flow-connection">Accountprofiel</label><select id="import-flow-connection" onchange="updateImportFlowSelection()">${configs.map(c => `<option value="${escapeHtml(String(c.id))}" ${String(c.id) === String(selected) ? 'selected' : ''}>${escapeHtml(String(c.description || copy.label))}</option>`).join('')}</select></div>` : `<div class="alert alert-info">Het profiel ontbreekt. <button type="button" class="btn btn-secondary btn-sm" onclick="renderInlineProfileSetup('${escapeHtml(provider)}')">Profiel instellen</button></div>`;
+            const uploadStep = provider === 'degiro_pension'
+                ? `<div class="degiro-wizard-file" id="degiro-account-file"><div class="degiro-wizard-file-main"><span class="file-number">1</span><div><div class="degiro-wizard-file-title">Accountoverzicht</div><div class="degiro-wizard-file-detail">DEGIRO-export met je rekeningmutaties en saldo</div><div class="degiro-wizard-file-name" id="degiro-account-file-name">Nog niet geselecteerd</div></div></div><label class="btn btn-secondary btn-sm" for="degiro-account-input">Bestand kiezen</label><input id="degiro-account-input" class="visually-hidden" type="file" accept=".xlsx,.xls,.csv" onchange="setImportFlowFile('account', this)"></div><div class="degiro-wizard-file" id="degiro-transactions-file"><div class="degiro-wizard-file-main"><span class="file-number">2</span><div><div class="degiro-wizard-file-title">Transacties</div><div class="degiro-wizard-file-detail">DEGIRO-export met je aan- en verkopen</div><div class="degiro-wizard-file-name" id="degiro-transactions-file-name">Nog niet geselecteerd</div></div></div><label class="btn btn-secondary btn-sm" for="degiro-transactions-input">Bestand kiezen</label><input id="degiro-transactions-input" class="visually-hidden" type="file" accept=".xlsx,.xls,.csv" onchange="setImportFlowFile('transactions', this)"></div><div class="degiro-wizard-file" id="degiro-portfolio-file"><div class="degiro-wizard-file-main"><span class="file-number">3</span><div><div class="degiro-wizard-file-title">Portefeuille</div><div class="degiro-wizard-file-detail">DEGIRO-export met je actuele posities, koersen en marktwaarden</div><div class="degiro-wizard-file-name" id="degiro-portfolio-file-name">Nog niet geselecteerd</div></div></div><label class="btn btn-secondary btn-sm" for="degiro-portfolio-input">Bestand kiezen</label><input id="degiro-portfolio-input" class="visually-hidden" type="file" accept=".xlsx,.xls,.csv" onchange="setImportFlowFile('portfolio', this)"></div>`
+                : provider === 'saxo_investor'
+                ? renderSaxoUploadFields()
+                : `<label class="upload-dropzone" for="import-flow-files"><span class="upload-dropzone-icon mdi mdi-cloud-upload-outline"></span><strong>${escapeHtml(copy.fileDefinitions[0]?.label || 'Bestand selecteren')}</strong><span class="field-hint">${escapeHtml(copy.accept)} · één bestand</span><input id="import-flow-files" type="file" accept="${escapeHtml(copy.accept)}" onchange="setImportFlowFiles(this.files)"></label>`;
+            const fileSummary = importFileLabels(provider) || copy.files;
+            panel.innerHTML = `<div class="degiro-wizard-progress" aria-label="Importstappen"><div class="wizard-step active"><div class="wizard-step-line"></div><div class="wizard-step-label">${escapeHtml(copy.label)} kiezen</div></div><div class="wizard-step active"><div class="wizard-step-line"></div><div class="wizard-step-label">Bestanden verwerken</div></div></div><p class="degiro-wizard-copy">${escapeHtml(fileSummary)}. ${escapeHtml(copy.required)}</p>${profileStep}${uploadStep}<div id="import-flow-selection" class="field-hint" style="margin-top:10px;"></div><div class="degiro-wizard-actions"><button type="button" class="btn btn-secondary" onclick="resetImportFlow()">Andere tegenpartij</button><button type="button" class="btn btn-primary" id="import-flow-start" onclick="startSelectedFileImport()" disabled>Controle starten</button></div>`;
+            updateImportFlowSelection();
+            panel.querySelector('input, select, button')?.focus();
+        }
+
+        function resetImportFlow() { fileUploadState = { provider: '', method: '', files: [], flow: null, runId: null, configs: fileUploadState.configs, processing: false, inlineTested: false, inlineAccounts: [] }; document.getElementById('import-flow-step').textContent = 'Stap 1 van 2'; document.getElementById('import-flow-result').innerHTML = ''; renderImportProviders(); }
+        async function createDegiroProfile() {
+            const name = String(document.getElementById('degiro-profile-name')?.value || '').trim() || 'DEGIRO Pensioen';
+            const button = document.querySelector('.import-profile-create button');
+            if (button) { button.disabled = true; button.textContent = 'Opslaan…'; }
+            try {
+                const result = await api('POST', '/connectors/configs', { provider_type: 'degiro_pension', options: { account_key: crypto.randomUUID(), account_name: name }, description: name });
+                fileUploadState.configs.push(result);
+                renderProviderFileWizard('degiro_pension');
+            } catch (e) { document.getElementById('import-flow-result').innerHTML = `<div class="alert alert-error" role="alert">Profiel kon niet worden opgeslagen. ${escapeHtml(e.message || '')}</div>`; if (button) { button.disabled = false; button.textContent = 'Profiel opslaan'; } }
+        }
+        function setImportFlowFiles(files) { fileUploadState.files = Array.from(files || []).slice(0, 1); updateImportFlowSelection(); }
+        const saxoWizardFiles = [
+            { kind: 'positions', number: '1', title: 'Posities', detail: 'SaxoInvestor-export met je actuele holdings en marktwaarden.' },
+            { kind: 'transactions', number: '2', title: 'Transacties', detail: 'SaxoInvestor-export met je volledige transactiehistorie.' },
+        ];
+        function renderSaxoUploadFields() {
+            return saxoWizardFiles.map(report => {
+                const file = fileUploadState.files.find(item => item._saxoKind === report.kind);
+                return `<div class="degiro-wizard-file ${file ? 'is-uploaded' : ''}" id="saxo-${report.kind}-file"><div class="degiro-wizard-file-main"><span class="file-number">${report.number}</span><div><div class="degiro-wizard-file-title"><span class="mdi ${report.kind === 'positions' ? 'mdi-chart-donut' : 'mdi-swap-horizontal'}" aria-hidden="true"></span> ${report.title}</div><div class="degiro-wizard-file-detail">${report.detail}</div><div class="degiro-wizard-file-name" id="saxo-${report.kind}-file-name">${file ? `<span class="mdi mdi-check-circle-outline"></span> ${escapeHtml(file.name)}` : 'Nog niet geselecteerd'}</div></div></div><label class="btn ${file ? 'btn-success' : 'btn-secondary'} btn-sm" for="saxo-${report.kind}-input">${file ? 'Vervangen' : 'Bestand kiezen'}</label><input id="saxo-${report.kind}-input" class="visually-hidden" type="file" accept=".xlsx" onchange="setSaxoImportFlowFile('${report.kind}', this)"></div>`;
+            }).join('');
+        }
+        function setSaxoImportFlowFile(kind, input) {
+            const file = input.files?.[0];
+            if (!file) return;
+            fileUploadState.files = fileUploadState.files.filter(existing => existing._saxoKind !== kind);
+            Object.defineProperty(file, '_saxoKind', { value: kind, enumerable: false });
+            fileUploadState.files.push(file);
+            updateImportFlowSelection();
+        }
+        function setImportFlowFile(kind, input) {
+            const file = input.files?.[0];
+            if (!file) return;
+            fileUploadState.files = fileUploadState.files.filter(existing => existing._degiroKind !== kind);
+            Object.defineProperty(file, '_degiroKind', { value: kind, enumerable: false });
+            fileUploadState.files.push(file);
+            const name = document.getElementById(`degiro-${kind}-file-name`);
+            const card = document.getElementById(`degiro-${kind}-file`);
+            if (name) name.textContent = file.name;
+            if (card) card.classList.add('is-uploaded');
+            updateImportFlowSelection();
+        }
+        function updateImportFlowSelection() { const el = document.getElementById('import-flow-selection'); const btn = document.getElementById('import-flow-start'); const isDegiro = fileUploadState.provider === 'degiro_pension'; const isSaxo = fileUploadState.provider === 'saxo_investor'; const required = isDegiro ? 3 : isSaxo ? 2 : 1; const complete = fileUploadState.files.length >= required; if (el) { el.textContent = isDegiro ? `${fileUploadState.files.length}/3 bestanden geselecteerd${complete ? ' · klaar voor controle' : ' · selecteer Accountoverzicht, Transacties en Portefeuille'}` : isSaxo ? `${fileUploadState.files.length}/2 bestanden geselecteerd${complete ? ' · klaar voor controle' : ' · selecteer Posities en Transacties'}` : (fileUploadState.files.length ? `${fileUploadState.files.length} bestand(en): ${fileUploadState.files.map(f => f.name).join(', ')}` : 'Nog geen bestanden geselecteerd.'); el.setAttribute('aria-live', 'polite'); } if (btn) btn.disabled = !complete || !document.getElementById('import-flow-connection')?.value; }
+
+        function validateSelectedFileTypes() {
+            const provider = fileUploadState.provider;
+            const allowed = provider === 'saxo_investor' ? ['.xlsx'] : provider === 'degiro_pension' ? ['.csv', '.xlsx', '.xls'] : provider === 'manual_expense' ? ['.json'] : ['.csv', '.txt'];
+            const invalid = fileUploadState.files.find(file => !allowed.includes(String(file.name || '').toLowerCase().slice(String(file.name || '').lastIndexOf('.'))));
+            if (invalid) throw new Error(`${invalid.name} heeft een ongeldig bestandstype. Gebruik ${allowed.join(', ')}.`);
+        }
+
+        async function validateGenericImportFiles() {
+            const provider = fileUploadState.provider;
+            if (!['csv_import', 'manual_expense'].includes(provider)) return true;
+            const file = fileUploadState.files[0];
+            if (!file) return false;
+            const text = await file.text();
+            if (provider === 'manual_expense') {
+                try {
+                    const parsed = JSON.parse(text);
+                    if (!parsed || !Array.isArray(parsed.expenses)) throw new Error('Het JSON-bestand moet een expenses-lijst bevatten.');
+                    const result = document.getElementById('import-flow-result');
+                    if (result) result.innerHTML = `<div class="alert alert-success" role="status"><strong>Expenses JSON gecontroleerd.</strong> ${escapeHtml(String(parsed.expenses.length))} uitgave(n) gevonden.</div>`;
+                } catch (e) {
+                    throw new Error(e instanceof SyntaxError ? 'Het expenses-bestand bevat geen geldige JSON.' : e.message);
+                }
+                return true;
             }
-            document.getElementById('file-upload-start-btn').disabled = !fileUploadState.flow?.ready;
-            if (fileUploadState.flow && !fileUploadState.flow.ready) {
-                document.getElementById('file-upload-result').innerHTML = `<div class="alert alert-info">Deze importflow is nog niet ingesteld. Stel eerst ${escapeHtml(fileUploadState.flow.display_name)} in bij Importers.</div><button type="button" class="btn btn-primary" onclick="openConfigModal('${escapeHtml(fileUploadState.flow.provider_type)}', null)">Importaccount instellen</button>`;
-            }
+            const header = (text.split(/\r?\n/, 1)[0] || '').split(/[;,]/).map(value => value.replace(/^\uFEFF/, '').trim().toLowerCase());
+            const has = names => names.some(name => header.some(column => column.replace(/[^a-z0-9]/g, '') === name));
+            const missing = [];
+            if (!has(['date', 'datum', 'transactiondate', 'boekdatum'])) missing.push('datum');
+            if (!has(['description', 'omschrijving', 'name', 'naam'])) missing.push('omschrijving');
+            if (!has(['amount', 'bedrag', 'value', 'waarde'])) missing.push('bedrag');
+            if (missing.length) throw new Error(`CSV-mapping kon niet worden gemaakt. Ontbrekende kolom(men): ${missing.join(', ')}.`);
+            const mapping = {
+                datum: header.find(column => ['date', 'datum', 'transactiondate', 'boekdatum'].includes(column.replace(/[^a-z0-9]/g, ''))),
+                omschrijving: header.find(column => ['description', 'omschrijving', 'name', 'naam'].includes(column.replace(/[^a-z0-9]/g, ''))),
+                bedrag: header.find(column => ['amount', 'bedrag', 'value', 'waarde'].includes(column.replace(/[^a-z0-9]/g, ''))),
+            };
+            const result = document.getElementById('import-flow-result');
+            if (result) result.innerHTML = `<div class="alert alert-success" role="status"><strong>CSV-mapping gecontroleerd.</strong><div class="field-hint">Datum: ${escapeHtml(mapping.datum)} · Omschrijving: ${escapeHtml(mapping.omschrijving)} · Bedrag: ${escapeHtml(mapping.bedrag)}</div></div>`;
+            return true;
+        }
+
+        function showImportProcessing() {
+            const result = document.getElementById('import-flow-result');
+            const names = fileUploadState.files.map(file => `<li>${escapeHtml(file.name)}</li>`).join('');
+            const providerLabel = importWizardDefinition(fileUploadState.provider).label || 'Import';
+            result.innerHTML = `<div class="alert alert-info" role="status" aria-live="polite"><strong><span class="spinner"></span> Bestanden worden verwerkt…</strong><ul style="margin:10px 0 0 20px;">${names}</ul><div class="field-hint" style="margin-top:8px;">De ${escapeHtml(providerLabel)}-bestanden worden gelezen en gecontroleerd. Dit kan even duren.</div></div>`;
+            result.setAttribute('aria-busy', 'true');
         }
 
         async function startSelectedFileImport() {
-            const flow = fileUploadState.flow;
-            if (!flow || !fileUploadState.files.length) return;
-            const result = document.getElementById('file-upload-result');
-            const form = new FormData();
-            form.append('connection_id', flow.connection_id);
-            fileUploadState.files.forEach(file => form.append('files', file));
+            const provider = fileUploadState.provider;
+            const connectionId = document.getElementById('import-flow-connection')?.value;
+            if (!provider || !connectionId || !fileUploadState.files.length || fileUploadState.processing) return;
+            fileUploadState.flow = { connection_id: connectionId, provider_type: provider };
+            const result = document.getElementById('import-flow-result');
+            const form = new FormData(); form.append('provider_type', provider); form.append('connection_id', connectionId); fileUploadState.files.forEach(file => form.append('files', file));
             const headers = {}; if (token) headers.Authorization = `Bearer ${token}`;
-            const start = document.getElementById('file-upload-start-btn');
-            start.disabled = true;
+            fileUploadState.processing = true;
+            showImportProcessing();
+            const button = document.getElementById('import-flow-start'); if (button) { button.disabled = true; button.innerHTML = '<span class="spinner"></span> Bezig…'; }
             try {
-                if (flow.provider_type === 'degiro_pension') {
-                    const response = await fetch(`${API_BASE}/connectors/degiro-pension/imports/preview`, { method: 'POST', headers, body: form });
-                    const data = await response.json();
-                    if (!response.ok) throw new Error(data.detail || 'DEGIRO-preview mislukt.');
-                    fileUploadState.runId = data.id;
-                    const p = data.preview || {};
-                    result.innerHTML = `<div class="alert alert-success"><strong>DEGIRO-import klaar voor bevestiging.</strong><br>Rapporten: ${escapeHtml((p.report_types || []).join(', ') || 'geen')} · ${escapeHtml(String(p.rows ?? 0))} regels · ${escapeHtml(String(p.transactions ?? 0))} transacties · ${escapeHtml(String(p.holdings ?? 0))} holdings</div><button type="button" class="btn btn-success" onclick="confirmSelectedFileImport()" ${p.already_processed ? 'disabled' : ''}>Bevestig import</button>`;
-                } else if (flow.provider_type === 'saxo_investor') {
-                    const response = await fetch(`${API_BASE}/connectors/saxo-investor/imports`, { method: 'POST', headers, body: form });
-                    const data = await response.json();
-                    if (!response.ok) throw new Error(data.detail || 'Saxo-import mislukt.');
-                    result.innerHTML = `<div class="alert alert-success"><strong>Saxo-import voltooid.</strong> ${escapeHtml(data.message || '')}</div>`;
+                validateSelectedFileTypes();
+                await validateGenericImportFiles();
+                const endpoint = '/connectors/file-uploads/dispatch';
+                const response = await fetch(`${API_BASE}${endpoint}`, { method: 'POST', headers, body: form }); const data = await response.json(); if (!response.ok) throw new Error(data.detail || 'Import mislukt.');
+                if (provider === 'degiro_pension') { fileUploadState.runId = data.id; const p = data.preview || {}; const missing = p.missing_report_types || []; const holdingsWarning = Number(p.holdings ?? 0) === 0 || missing.includes('portfolio'); result.innerHTML = `<div class="alert alert-success" role="status"><strong>Controle afgerond.</strong> De drie bestanden zijn verwerkt en samengevoegd.</div><div class="degiro-wizard-summary"><div class="degiro-wizard-summary-item"><strong>${escapeHtml(String(p.transactions ?? 0))}</strong><span>transacties</span></div><div class="degiro-wizard-summary-item"><strong>${escapeHtml(String(p.holdings ?? 0))}</strong><span>holdings</span></div><div class="degiro-wizard-summary-item"><strong>${escapeHtml(String(p.rows ?? 0))}</strong><span>regels gelezen</span></div></div>${holdingsWarning ? '<div class="alert alert-warning" role="alert"><strong>Holdings ontbreken.</strong> Account.xlsx en Transactions.xlsx bevatten saldo en activiteiten, maar geen actuele positiesnapshot. Upload ook het DEGIRO-portefeuilleoverzicht om holdings en performance in Wealthfolio betrouwbaar te kunnen reconciliëren.</div>' : ''}<button type="button" class="btn btn-success" onclick="confirmSelectedFileImport()">Import bevestigen</button>`; }
+                else if (provider === 'saxo_investor') {
+                    fileUploadState.processing = false;
+                    result.innerHTML = `<div class="alert alert-success" role="status"><strong>Controle en import afgerond.</strong> ${escapeHtml(String(data.holdings ?? 0))} posities en ${escapeHtml(String(data.transactions ?? 0))} transacties zijn ingeladen.</div><div class="field-hint" style="margin-top:10px;">Je wordt automatisch doorgestuurd naar Viewer…</div>`;
+                    result.setAttribute('aria-busy', 'false');
                     await loadFileUploads();
-                } else {
-                    const response = await fetch(`${API_BASE}/connectors/file-uploads/import?connection_id=${encodeURIComponent(flow.connection_id)}`, { method: 'POST', headers, body: form });
-                    const data = await response.json();
-                    if (!response.ok) throw new Error(data.detail || 'Bestandsimport mislukt.');
-                    result.innerHTML = `<div class="alert alert-success"><strong>Import voltooid.</strong> ${escapeHtml(data.message || '')}</div>`;
-                    await loadFileUploads();
-                }
-            } catch (e) {
-                result.innerHTML = `<div class="alert alert-error" role="alert"><strong>Import mislukt.</strong> ${escapeHtml(e.message || '')}</div>`;
-                start.disabled = false;
-            }
+                    setTimeout(() => { switchSection('viewer'); }, 700);
+                } else { fileUploadState.processing = false; result.innerHTML = `<div class="alert alert-success" role="status"><strong>Import voltooid.</strong> ${escapeHtml(data.message || '')}</div><button type="button" class="btn btn-secondary btn-sm" style="margin-top:10px;" onclick="resetImportFlow()">Nieuwe import starten</button>`; await loadFileUploads(); }
+                result.setAttribute('aria-busy', 'false');
+            } catch (e) { fileUploadState.processing = false; result.innerHTML = `<div class="alert alert-error inline-error" role="alert"><div class="inline-error-msg"><strong>Import mislukt.</strong><span>${escapeHtml(e.message || '')}</span></div><button type="button" class="btn btn-secondary btn-sm" onclick="startSelectedFileImport()"><span class="mdi mdi-refresh"></span> Opnieuw proberen</button></div>`; result.setAttribute('aria-busy', 'false'); if (button) { button.disabled = false; button.textContent = 'Controle opnieuw starten'; } }
         }
 
         async function confirmSelectedFileImport() {
             if (!fileUploadState.runId) return;
             try {
-                const result = await api('POST', `/connectors/degiro-pension/imports/${fileUploadState.runId}/confirm`, {});
-                document.getElementById('file-upload-result').innerHTML = `<div class="alert alert-success"><strong>Import voltooid.</strong> ${escapeHtml(String(result.created_count ?? 0))} nieuwe items, ${escapeHtml(String(result.updated_count ?? 0))} bijgewerkte items.</div>`;
+                const result = await api('POST', `/connectors/file-uploads/dispatch/${fileUploadState.runId}/confirm`, {});
+                document.getElementById('import-flow-result').innerHTML = `<div class="alert alert-success" role="status"><strong>Import voltooid.</strong> ${escapeHtml(String(result.created_count ?? 0))} nieuwe items, ${escapeHtml(String(result.updated_count ?? 0))} bijgewerkte items.</div><button type="button" class="btn btn-secondary btn-sm" style="margin-top:10px;" onclick="resetImportFlow()">Nieuwe import starten</button>`;
                 fileUploadState.runId = null;
+                fileUploadState.processing = false;
                 await loadFileUploads();
             } catch (e) {
-                document.getElementById('file-upload-result').innerHTML = `<div class="alert alert-error" role="alert">${escapeHtml(e.message || 'Bevestigen mislukt.')}</div>`;
+                document.getElementById('import-flow-result').innerHTML = `<div class="alert alert-error inline-error" role="alert"><div class="inline-error-msg"><strong>Bevestigen mislukt.</strong><span>${escapeHtml(e.message || '')}</span></div><button type="button" class="btn btn-secondary btn-sm" onclick="confirmSelectedFileImport()"><span class="mdi mdi-refresh"></span> Opnieuw proberen</button></div>`;
             }
         }
-
-        document.addEventListener('DOMContentLoaded', () => {
-            initDegiroWizard();
-            const input = document.getElementById('file-upload-input');
-            const zone = document.getElementById('file-upload-dropzone');
-            if (!input || !zone) return;
-            input.addEventListener('change', () => setFileUploadFiles(input.files));
-            ['dragenter', 'dragover'].forEach(type => zone.addEventListener(type, event => { event.preventDefault(); zone.classList.add('is-dragover'); }));
-            ['dragleave', 'drop'].forEach(type => zone.addEventListener(type, event => { event.preventDefault(); zone.classList.remove('is-dragover'); }));
-            zone.addEventListener('drop', event => setFileUploadFiles(event.dataTransfer.files));
-            zone.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); input.click(); } });
-        });
 
         // ── Configuration Wizard ────────────────────────────────────────
         // Supports creating a brand-new connection (multiple connections
@@ -2475,7 +3094,8 @@
         function wizardProviders(includeManualUpload = false) {
             const source = includeManualUpload ? connectorCatalog : connectors;
             return source.filter(c => c.configuration_mode !== 'staging_choice'
-                && ((c.credential_fields && c.credential_fields.length) || (c.option_fields && c.option_fields.length)));
+                && (((c.credential_fields && c.credential_fields.length) || (c.option_fields && c.option_fields.length))
+                    || (includeManualUpload && c.name === 'degiro_pension')));
         }
 
         function openCreateWizard(presetProvider) {
@@ -2524,11 +3144,15 @@
                     const maskedHint = isEdit && isPassword
                         ? '<div class="field-hint" id="cred-mask-hint">Stored credentials are never shown — enter new values only to replace them.</div>'
                         : '';
+                    const secretToggle = isPassword
+                        ? `<button type="button" class="btn btn-secondary btn-sm" style="margin-top:8px;" onclick="toggleSecretField('cred-${escapeHtml(String(f.key))}', this)" aria-controls="cred-${escapeHtml(String(f.key))}" aria-label="Show secret">Show</button>`
+                        : '';
                     const describedBy = ((hintFor ? 'cred-hint-' + escapeHtml(String(f.key)) : '') + (maskedHint ? ' cred-mask-hint' : '')).trim();
                     fieldsHtml += `
                         <div class="form-group">
                             <label for="cred-${escapeHtml(String(f.key))}">${label}${(f.required && required) ? ' <span style="color:var(--red)">*</span>' : ''}</label>
                             <input type="${isPassword ? 'password' : escapeHtml(String(f.type))}" id="cred-${escapeHtml(String(f.key))}"${placeholder}${requiredStr}${autoComplete}${describedBy ? ` aria-describedby="${describedBy}"` : ''}>
+                            ${secretToggle}
                             ${maskedHint}
                             ${descHtml}
                         </div>`;
@@ -2570,16 +3194,6 @@
                 }
             }
 
-            const saxoInitialUploadHtml = (!isEdit && providerType === 'saxo_investor')
-                ? `
-                        <h3 style="font-size:0.9rem;font-weight:600;margin:16px 0 12px;">SaxoInvestor export</h3>
-                        <div class="form-group">
-                            <label for="saxo-initial-files">SaxoInvestor XLSX-bestand <span style="color:var(--red)">*</span></label>
-                            <input type="file" id="saxo-initial-files" accept=".xlsx" multiple required aria-required="true">
-                            <div class="field-hint">Selecteer het Posities-bestand, het Transacties-bestand of beide. De bestanden worden na verwerking verwijderd.</div>
-                        </div>`
-                : '';
-
             const providerSelect = isEdit ? '' : `
                 <div class="form-group">
                     <label for="config-provider">Provider <span style="color:var(--red)">*</span></label>
@@ -2602,7 +3216,6 @@
                         </div>
                         ${fieldsHtml ? `<h3 style="font-size:0.9rem;font-weight:600;margin-bottom:12px;margin-top:4px;">Credentials</h3>${fieldsHtml}` : ''}
                         ${optsHtml ? `<h3 style="font-size:0.9rem;font-weight:600;margin:16px 0 12px;">Options</h3>${optsHtml}` : ''}
-                        ${saxoInitialUploadHtml}
                         <div id="config-error" class="hidden alert alert-error" role="alert"></div>
                         <div id="wizard-test-result" aria-live="polite"></div>
                         <div id="wizard-accounts" class="wizard-accounts hidden"></div>
@@ -2619,16 +3232,6 @@
             modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
             wizardAccounts = [];
 
-            if (!isEdit && providerType === 'saxo_investor'
-                && typeof fileUploadState !== 'undefined'
-                && fileUploadState.files.length) {
-                const input = document.getElementById('saxo-initial-files');
-                if (input && typeof DataTransfer !== 'undefined') {
-                    const transfer = new DataTransfer();
-                    fileUploadState.files.forEach(file => transfer.items.add(file));
-                    input.files = transfer.files;
-                }
-            }
         }
 
         function onWizardProviderChange() {
@@ -2756,10 +3359,6 @@
                 const el = document.getElementById(`opt-${f.key}`);
                 if (el && !String(el.value || '').trim()) missing.push(f.label || f.key);
             }
-            if (providerType === 'saxo_investor' && !isEdit) {
-                const files = document.getElementById('saxo-initial-files')?.files;
-                if (!files || !files.length) missing.push('SaxoInvestor XLSX-bestand');
-            }
             if (missing.length) {
                 errorEl.innerHTML = `<strong>Please fill in the required fields:</strong> ${escapeHtml(missing.join(', '))}.`;
                 errorEl.classList.remove('hidden');
@@ -2792,6 +3391,10 @@
                 }
             }
             const description = document.getElementById('config-desc').value.trim() || null;
+            if (providerType === 'degiro_pension' && !isEdit) {
+                options.account_key = crypto.randomUUID();
+                options.account_name = description || 'DEGIRO Pensioen';
+            }
 
             try {
                 let result;
@@ -2799,18 +3402,6 @@
                     result = await api('PUT', `/connectors/configs/${connectionId}`, { credentials, options, description });
                 } else {
                     result = await api('POST', '/connectors/configs', { provider_type: providerType, credentials, options, description });
-
-                    if (providerType === 'saxo_investor') {
-                        const files = document.getElementById('saxo-initial-files').files;
-                        const form = new FormData();
-                        form.append('connection_id', result.id);
-                        for (const file of files) form.append('files', file);
-                        const headers = {};
-                        if (token) headers.Authorization = `Bearer ${token}`;
-                        const response = await fetch(`${API_BASE}/connectors/saxo-investor/imports`, { method: 'POST', headers, body: form });
-                        const data = await response.json();
-                        if (!response.ok) throw new Error(data.detail || 'SaxoInvestor-import mislukt.');
-                    }
 
                     // Apply the account selection chosen from the test result.
                     const checked = Array.from(document.querySelectorAll('.wizard-account-cb:checked')).map(el => el.value);
@@ -2821,7 +3412,12 @@
                 closeModal();
                 toast(`Configuration saved for ${c.display_name}`, 'success');
                 await loadConnectors();
-                if (providerType === 'degiro_pension') await loadDegiroUploads();
+                if (connectorSupportsFile(providerType)) await loadFileUploads();
+                if (!isEdit && providerType === 'trading212') {
+                    document.getElementById('import-flow-result').innerHTML = '<div class="alert alert-info" role="status"><strong>Trading212 is aangemaakt.</strong> De eerste synchronisatie wordt gestart…</div>';
+                    await startSyncWithProgress(result.id);
+                    await Promise.allSettled([loadOverview(), loadSyncRuns()]);
+                }
             } catch (e) {
                 errorEl.innerHTML = `
                     <strong>Could not save the configuration.</strong>
@@ -3021,18 +3617,55 @@
 
         async function syncConnection(connectionId) {
             try {
-                const result = await api('POST', `/sync/connections/${connectionId}`, {});
-                if (result.status === 'error') {
-                    toast(`Sync failed: ${result.error_message || 'unknown error'}`, 'error');
-                } else {
-                    let msg = `Sync ${result.status}`;
-                    if (result.transactions_synced > 0) msg += ` · ${result.transactions_synced} transactions`;
-                    toast(msg, 'success');
-                }
+                const result = await startSyncWithProgress(connectionId);
+                toast(result.status === 'running' ? 'Deze sync loopt al.' : 'Sync gestart.', 'info');
                 await loadConnectors();
             } catch (e) {
                 toast(`Could not start sync: ${e.message}`, 'error');
             }
+        }
+
+        const activeSyncJobs = new Map();
+        let activeSyncPoller = null;
+
+        function renderActiveSyncJobs() {
+            const jobs = [...activeSyncJobs.values()];
+            const html = jobs.length ? jobs.map(job => `<div class="sync-activity-item"><span class="spinner" aria-hidden="true"></span><strong>${escapeHtml(job.provider || 'Connector')}</strong><span>${job.status === 'queued' ? 'Sync wordt gestart…' : 'Sync is bezig…'}</span><small>Automatisch vernieuwen</small></div>`).join('') : '';
+            ['overview-sync-activity', 'sync-page-activity'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.innerHTML = html;
+            });
+        }
+
+        async function refreshActiveSyncJobs() {
+            try {
+                const data = await api('GET', '/sync-runs?status=running&limit=100');
+                const running = data.items || [];
+                const runningConnections = new Set(running.map(run => String(run.connection_id || run.connector)));
+                running.forEach(run => {
+                    const key = String(run.connection_id || run.connector);
+                    activeSyncJobs.set(key, { provider: run.connector, status: 'running', runId: run.id });
+                });
+                for (const [key, job] of activeSyncJobs) {
+                    if (job.status === 'running' && !runningConnections.has(key)) activeSyncJobs.delete(key);
+                    else if (job.status === 'queued' && Date.now() - job.queuedAt > 30000) activeSyncJobs.delete(key);
+                }
+                renderActiveSyncJobs();
+                if (!activeSyncJobs.size && activeSyncPoller) { clearInterval(activeSyncPoller); activeSyncPoller = null; }
+            } catch (_) { /* The normal page loaders show API errors. */ }
+        }
+
+        function ensureActiveSyncPolling() {
+            if (!activeSyncPoller) activeSyncPoller = setInterval(refreshActiveSyncJobs, 2000);
+            refreshActiveSyncJobs();
+        }
+
+        async function startSyncWithProgress(connectionId) {
+            const result = await api('POST', `/sync/connections/${encodeURIComponent(connectionId)}/start`, {});
+            activeSyncJobs.set(String(connectionId), { provider: result.provider, status: result.status, queuedAt: Date.now(), runId: result.sync_run_id });
+            renderActiveSyncJobs();
+            ensureActiveSyncPolling();
+            return result;
         }
 
         // (closeModal is defined once in the modal helpers section above;
@@ -3231,14 +3864,21 @@
 
         // ── Delete connection ───────────────────────────────────────────
         async function deleteConfig(configId, providerName) {
-            if (!confirm(`Delete the ${providerName} connection? Already-imported history is kept.`)) return;
             try {
+                const impact = await api('GET', `/connectors/configs/${encodeURIComponent(configId)}/deletion-preview`);
+                const warning = impact.legacy_records_warning ? `\n\n${impact.legacy_records_warning}` : '';
+                const message = `Delete the ${providerName} connection permanently?\n\n` +
+                    `Accounts: ${impact.accounts}\nTransactions: ${impact.transactions}\n` +
+                    `Card transactions: ${impact.card_transactions}\nHoldings: ${impact.holdings}\n` +
+                    `Balances: ${impact.balances}\nOther linked records: ${impact.other_records}` + warning +
+                    `\n\nThis cannot be undone.`;
+                if (!confirm(message)) return;
                 await api('DELETE', `/connectors/configs/${configId}`);
-                toast(`Connection removed for ${providerName}`, 'info');
+                toast(`Connection and linked data removed for ${providerName}`, 'info');
                 delete connTestAccounts[configId];
                 await loadConnectors();
             } catch (e) {
-                toast(`Failed to remove: ${e.message}`, 'error');
+                toast(`Failed to remove connection: ${e.message}`, 'error');
             }
         }
 
@@ -3287,10 +3927,79 @@
                     <button class="btn btn-sm" onclick="destinationAction('${escapeHtml(d.id)}', '${d.status === 'active' ? 'pause' : 'activate'}')">${d.status === 'active' ? 'Pauzeren' : 'Activeren'}</button>
                     <button class="btn btn-sm btn-danger" onclick="deleteDestination('${escapeHtml(d.id)}')">Verwijderen</button></div></div>`;
             }).join('');
-            container.innerHTML = `<div class="connector-toolbar"><button class="btn btn-primary" onclick="openDestinationWizard()">+ Exporter toevoegen</button></div>
+            container.innerHTML = `<div class="connector-toolbar"><button class="btn btn-primary" onclick="openDestinationWizard()">+ Exporter toevoegen</button><button class="btn btn-secondary" onclick="openCustomProviderWizard()"><span class="mdi mdi-chart-line"></span> Wealthfolio market-data provider</button></div>
                 ${cards ? `<div class="connector-grid">${cards}</div>` : '<div class="empty-state"><div class="icon mdi mdi-database-outline"></div><p>Nog geen exporters. Je datalake blijft volledig bruikbaar; voeg alleen een downstream-app toe wanneer je die wilt gebruiken.</p><button class="btn btn-primary" onclick="openDestinationWizard()"><span class="mdi mdi-plus"></span> Exporter toevoegen</button></div>'}`;
             const runs = document.getElementById('exporter-runs');
             if (runs) runs.innerHTML = '';
+        }
+
+        function customProviderBaseUrls() {
+            const browserBase = window.location.origin.replace(/\/$/, '');
+            const dockerBase = browserBase.replace(/:\/\/(localhost|127\.0\.0\.1)(?=[:/]|$)/i, '//host.docker.internal');
+            return { browser: browserBase, docker: dockerBase, shared: 'http://app:8000' };
+        }
+
+        function copyCustomProviderValue(value, button) {
+            const write = navigator.clipboard?.writeText(value);
+            if (!write) return toast('Kopiëren lukt niet; selecteer de waarde handmatig.', 'error');
+            write.then(() => {
+                const original = button.textContent;
+                button.textContent = 'Gekopieerd';
+                setTimeout(() => { button.textContent = original; }, 1200);
+            }).catch(() => toast('Kopiëren lukt niet; selecteer de waarde handmatig.', 'error'));
+        }
+
+        function providerValue(label, value) {
+            return `<div class="form-group"><label>${label}</label><div style="display:flex;gap:8px;align-items:stretch;"><code style="display:block;flex:1;padding:10px;background:var(--surface-muted);border:1px solid var(--border);border-radius:6px;overflow-wrap:anywhere;">${escapeHtml(value)}</code><button type="button" class="btn btn-secondary btn-sm" onclick="copyCustomProviderValue(${JSON.stringify(value)}, this)">Kopiëren</button></div></div>`;
+        }
+
+        function openCustomProviderWizard() {
+            const urls = customProviderBaseUrls();
+            const state = { step: 1, rawKey: '', symbol: '', test: null, existing: [] };
+            const modal = document.createElement('div');
+            modal.className = 'modal-overlay'; modal.id = 'custom-provider-wizard-modal';
+            document.getElementById('modal-container').appendChild(modal);
+            const render = () => {
+                const latestBrowser = `${urls.browser}/api/v1/market-data/latest?symbol={SYMBOL}`;
+                const latestDocker = `${urls.docker}/api/v1/market-data/latest?symbol={SYMBOL}`;
+                const historyDocker = `${urls.docker}/api/v1/market-data/history?symbol={SYMBOL}&from={FROM}&to={TO}`;
+                let body = '';
+                if (state.step === 1) body = `<p>Deze wizard maakt een least-privilege API-key en toont de waarden voor Wealthfolio → Settings → Market Data → Add custom provider.</p><div class="alert alert-info"><strong>Bron van waarheid:</strong> finance-sync levert de actuele quote uit de laatst bekende brokerholding en historische koersen uit de lokale price store.</div><div class="form-group"><label for="custom-provider-symbol">Testsymbool of ISIN (optioneel)</label><input id="custom-provider-symbol" value="${escapeHtml(state.symbol)}" placeholder="bijv. BESI:XAMS of NL0012866412"><p class="field-hint">Gebruik een symbool dat in finance-sync bekend is. Je kunt dit later per Wealthfolio-asset overschrijven.</p></div>`;
+                if (state.step === 2) body = `<p>Maak één sleutel aan die alleen marktdata mag lezen. De ruwe sleutel wordt één keer getoond en wordt niet in finance-sync opgeslagen.</p>${state.existing.length ? `<div class="alert alert-info">Er bestaan al ${state.existing.length} actieve API-key(s). Een bestaande ruwe sleutel kan niet opnieuw worden getoond; maak alleen een nieuwe sleutel als je hem niet meer hebt.</div>` : ''}<button type="button" class="btn btn-primary" id="custom-provider-create-key" onclick="createCustomProviderKey()">Read-only API-key maken</button><div id="custom-provider-key-result" style="margin-top:14px;">${state.rawKey ? `<div class="alert alert-warning"><strong>Bewaar deze sleutel nu.</strong></div>${providerValue('X-API-Key-waarde', state.rawKey)}` : ''}</div>`;
+                if (state.step === 3) body = `<p>Vul deze waarden letterlijk in in de Wealthfolio-wizard.</p><h3 style="font-size:.95rem;margin:16px 0 10px;">Aanbevolen URL vanuit een Wealthfolio Docker-container</h3>${providerValue('Latest URL', latestDocker)}${providerValue('Historical URL', historyDocker)}<p class="field-hint">Gebruik voor een gedeeld Docker-netwerk als host <code>http://app:8000</code>. Draait Wealthfolio buiten Docker, gebruik dan de browser-URL hieronder.</p>${providerValue('Browser latest URL', latestBrowser)}<h3 style="font-size:.95rem;margin:16px 0 10px;">JSON-paden</h3>${providerValue('Latest price path', '$.price')}${providerValue('Latest date path', '$.date')}${providerValue('Historical price path', '$.data[*].price')}${providerValue('Historical date path', '$.data[*].date')}${providerValue('Currency path', '$.currency')}${providerValue('Authentication header', 'X-API-Key: ' + (state.rawKey || '<jouw read-only key>'))}`;
+                if (state.step === 4) body = `<div class="alert alert-success"><strong>Finance-sync is klaar voor Wealthfolio custom market data.</strong></div><p>Test de latest URL in Wealthfolio met een echte ticker of ISIN. Als Wealthfolio in Docker draait, moet de URL naar <code>host.docker.internal</code> wijzen; gebruik niet <code>localhost</code>.</p>${state.test ? `<div class="alert ${state.test.ok ? 'alert-success' : 'alert-error'}">${escapeHtml(state.test.message)}</div>` : ''}<button type="button" class="btn btn-secondary" onclick="testCustomProvider()">Provider testen${state.symbol ? ` (${escapeHtml(state.symbol)})` : ''}</button>`;
+                const progress = `<p class="field-hint">Stap ${state.step} van 4 — ${['Controleren', 'Sleutel', 'Wealthfolio-waarden', 'Testen'][state.step - 1]}</p>`;
+                modal.innerHTML = `<div class="modal" style="width:760px;max-width:calc(100vw - 32px);" role="dialog" aria-modal="true" aria-labelledby="custom-provider-wizard-title"><h2 id="custom-provider-wizard-title">Wealthfolio custom market-data provider</h2>${progress}<div id="custom-provider-wizard-body">${body}</div><div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal()">Annuleren</button>${state.step > 1 ? '<button class="btn" onclick="customProviderBack()">Terug</button>' : ''}${state.step < 4 ? `<button class="btn btn-primary" onclick="customProviderNext()">Volgende</button>` : '<button class="btn btn-primary" onclick="closeModal()">Klaar</button>'}</div></div>`;
+            };
+            window.customProviderBack = () => { state.step--; render(); };
+            window.customProviderNext = async () => {
+                if (state.step === 1) state.symbol = document.getElementById('custom-provider-symbol')?.value.trim() || '';
+                if (state.step === 2 && !state.rawKey) return toast('Maak eerst de read-only API-key.', 'error');
+                if (state.step < 4) { state.step++; render(); }
+            };
+            window.createCustomProviderKey = async () => {
+                const button = document.getElementById('custom-provider-create-key');
+                if (button) button.disabled = true;
+                try {
+                    const created = await api('POST', '/auth/api-keys', { name: 'Wealthfolio custom market data', permissions: 'market-data:read' });
+                    state.rawKey = created.raw_key;
+                    render();
+                    toast('Read-only API-key gemaakt. Bewaar hem direct.', 'success');
+                } catch (e) { if (button) button.disabled = false; toast(e.message || 'API-key maken mislukt.', 'error'); }
+            };
+            window.testCustomProvider = async () => {
+                if (!state.rawKey) return toast('Maak eerst de read-only API-key.', 'error');
+                if (!state.symbol) return toast('Vul eerst een testsymbool of ISIN in.', 'error');
+                try {
+                    const url = `${urls.browser}/api/v1/market-data/latest?symbol=${encodeURIComponent(state.symbol)}`;
+                    const response = await fetch(url, { headers: { 'X-API-Key': state.rawKey } });
+                    const data = await response.json();
+                    state.test = response.ok ? { ok: true, message: `Provider antwoordt: ${data.price} ${data.currency} (${data.source}).` } : { ok: false, message: data.detail || `HTTP ${response.status}` };
+                } catch (e) { state.test = { ok: false, message: e.message || 'Provider is niet bereikbaar.' }; }
+                render();
+            };
+            api('GET', '/auth/api-keys').then(keys => { state.existing = (keys || []).filter(k => k.is_active && (k.permissions || '').split(' ').includes('market-data:read')); render(); }).catch(() => {});
+            openModal(modal); render();
         }
 
         function openDestinationWizard(targetId) {
@@ -3380,7 +4089,7 @@
         async function rotateJupyterKey(id) { if (!confirm('De huidige Jupyter-sleutel stopt direct. Doorgaan?')) return; try { const result = await api('POST', `/destinations/${id}/jupyter-key/rotate`); const modal = document.createElement('div'); modal.className = 'modal-overlay'; modal.innerHTML = `<div class="modal" role="dialog" aria-modal="true"><h2>Nieuwe Jupyter-sleutel</h2><p>Bewaar deze sleutel nu; hij wordt nooit opnieuw getoond.</p><textarea readonly style="width:100%;min-height:80px;">${escapeHtml(result.api_key)}</textarea><div class="modal-footer"><button class="btn btn-primary" onclick="closeModal()">Ik heb de sleutel bewaard</button></div></div>`; document.getElementById('modal-container').appendChild(modal); openModal(modal); } catch (e) { toast(e.message || 'Sleutel roteren mislukt.', 'error'); } }
         async function downloadJupyterNotebook(id) { try { const response = await fetch(`${API_BASE}/destinations/${encodeURIComponent(id)}/jupyter-notebook`, { headers: authHeaders() }); if (!response.ok) throw new Error((await response.json().catch(() => ({}))).detail || 'Notebook downloaden mislukt.'); const blob = await response.blob(); const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = 'finance-sync-datalake-starter.py'; link.click(); URL.revokeObjectURL(link.href); } catch (e) { toast(e.message || 'Notebook downloaden mislukt.', 'error'); } }
         async function destinationAction(id, action) { try { const result = await api('POST', `/destinations/${id}/${action}`); if (result.jupiter_bootstrap) toast('Jupyter-sleutel is eenmalig aangemaakt; bewaar hem direct.', 'info'); await loadExporters(); } catch (e) { toast(e.message || 'Wijziging mislukt.', 'error'); } }
-        async function deleteDestination(id) { if (!confirm('Deze bestemming verwijderen? Je canonieke datalake blijft intact.')) return; try { await api('DELETE', `/destinations/${id}`); await loadExporters(); } catch (e) { toast(e.message || 'Verwijderen mislukt.', 'error'); } }
+        async function deleteDestination(id) { if (!confirm('Deze exportbestemming lokaal verwijderen? Je canonieke datalake en data op de externe bestemming blijven intact.')) return; try { await api('DELETE', `/destinations/${id}`); await loadExporters(); } catch (e) { toast(e.message || 'Verwijderen mislukt.', 'error'); } }
 
         // ── Feedback button event wiring ────────────────────────────────
         document.addEventListener('DOMContentLoaded', function () {
@@ -3436,6 +4145,7 @@
                     notice.innerHTML = `<div class="alert alert-error inline-error" role="alert"><div class="inline-error-msg"><strong>Runhistorie</strong> kon niet worden geladen. <button class="btn btn-sm" onclick="loadSyncRuns()">Opnieuw</button></div></div>`;
                     historyContainer.appendChild(notice);
                 }
+                ensureActiveSyncPolling();
                 if (container) container.setAttribute('aria-busy', 'false');
             } catch (e) {
                 renderInlineError('sync-schedules', 'Could not load planning', e.message || 'The planning service did not respond.', loadSyncRuns);
@@ -3806,6 +4516,7 @@
             for (const r of syncRunHistory) {
                 const badgeClass = r.status === 'completed' ? 'badge connected' : (r.status === 'failed' ? 'badge disconnected' : 'badge pending');
                 const statusLabel = RUN_STATUS_LABELS[r.status] || r.status;
+                const statusHtml = r.status === 'running' ? `<span class="${badgeClass}"><span class="spinner"></span> ${escapeHtml(statusLabel)}</span>` : `<span class="${badgeClass}">${escapeHtml(statusLabel)}</span>`;
                 const errorDetail = r.error_message
                     ? `<div class="run-error-line" title="${escapeHtml(String(r.error_message).slice(0, 300))}"><span class="mdi mdi-alert-outline"></span> ${escapeHtml(String(r.error_message).slice(0, 80))}</div>`
                     : '';
@@ -3813,7 +4524,7 @@
                     <tr>
                         <td style="padding:8px 12px;border-bottom:1px solid var(--border);font-size:0.85rem;font-family:monospace;">${escapeHtml(String(r.id).slice(0, 8))}</td>
                         <td style="padding:8px 12px;border-bottom:1px solid var(--border);font-size:0.85rem;">${escapeHtml(r.connector || '')}</td>
-                        <td style="padding:8px 12px;border-bottom:1px solid var(--border);font-size:0.85rem;"><span class="${badgeClass}">${escapeHtml(statusLabel)}</span></td>
+                        <td style="padding:8px 12px;border-bottom:1px solid var(--border);font-size:0.85rem;">${statusHtml}</td>
                         <td style="padding:8px 12px;border-bottom:1px solid var(--border);font-size:0.85rem;">${r.started_at ? escapeHtml(fmtDate(r.started_at)) : '-'}</td>
                         <td style="padding:8px 12px;border-bottom:1px solid var(--border);font-size:0.85rem;">${r.completed_at ? escapeHtml(fmtDate(r.completed_at)) : '-'}</td>
                         <td style="padding:8px 12px;border-bottom:1px solid var(--border);font-size:0.85rem;">${r.items_processed ?? '-'}</td>
@@ -4292,7 +5003,7 @@
             const requestedSection = window.location.hash.slice(1);
             const supportedSections = new Set([
                 'overview', 'data-health', 'connectors', 'viewer', 'uploads',
-                'exporters', 'sync', 'holding-news',
+                'exporters', 'sync', 'holding-news', 'settings',
             ]);
             switchSection(supportedSections.has(requestedSection) ? requestedSection : 'overview');
         })();

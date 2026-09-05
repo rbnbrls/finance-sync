@@ -101,6 +101,7 @@ class ExportRunResponse(BaseModel):
     target_id: str | None = None
     account_scope: list[str] | None = None
     delivery_checkpoint: dict[str, object] | None = None
+    preflight_manifest: dict[str, object] | None = None
 
 
 class RetryExportResponse(BaseModel):
@@ -514,6 +515,7 @@ async def list_export_runs(
                 target_id=r.target_id,
                 account_scope=r.account_scope,
                 delivery_checkpoint=r.delivery_checkpoint,
+                preflight_manifest=r.preflight_manifest,
             )
             for r in runs
         ],
@@ -568,6 +570,7 @@ async def get_export_run(
         target_id=run.target_id,
         account_scope=run.account_scope,
         delivery_checkpoint=run.delivery_checkpoint,
+        preflight_manifest=run.preflight_manifest,
     )
 
 

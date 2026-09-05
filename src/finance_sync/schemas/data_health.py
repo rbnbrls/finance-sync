@@ -29,6 +29,16 @@ DataHealthCategory = Literal[
     "destination",
     "export",
     "data_quality",
+    "incomplete_transaction",
+    "zero_cost_transaction",
+    "unbalanced_transfer",
+    "negative_balance",
+    "incomplete_holding",
+    "incomplete_security_identity",
+    "quote_sync_failure",
+    "negative_valuation",
+    "incomplete_valuation",
+    "incomplete_cost_basis",
 ]
 
 
@@ -44,6 +54,8 @@ class DataHealthIssue(BaseModel):
     provider: str | None = None
     source: str | None = None
     action: ControlPlaneAction
+    details: list[str] = Field(default_factory=list)
+    affected_transaction_ids: list[str] = Field(default_factory=list)
 
 
 class DataHealthSource(BaseModel):

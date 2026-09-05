@@ -320,3 +320,11 @@ sweep) tracks each push as an `ExportRun` and maintains a per-account
 re-processes the accounts whose cursor did not advance. Activities carry the
 stable remote `accountId`; account mappings are persisted in
 `wealthfolio_account_mappings`.
+
+`finance-sync wealthfolio push --full-history` performs a complete historical
+backfill from the first canonical transaction for each selected account. A
+new non-legacy destination also backfills automatically when it has no
+delivery cursor. All Wealthfolio accounts are transaction-tracked and each
+push removes remote accounts outside the exact finance-sync dataset. Daily
+`SecurityPrice` observations are projected as `FINANCE_SYNC` quotes for
+historical valuation charts.

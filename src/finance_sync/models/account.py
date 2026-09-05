@@ -6,13 +6,15 @@ from decimal import Decimal
 from typing import Any, ClassVar
 from uuid import UUID as _UUID
 
-from sqlalchemy import ForeignKey, Numeric, String, UniqueConstraint
+from sqlalchemy import JSON, ForeignKey, Numeric, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from finance_sync.db import Base, pk_uuid
 from finance_sync.models.enums import AccountType
 from finance_sync.models.mixins import TimestampMixin
+
+_JSON = JSON().with_variant(JSONB(), "postgresql")
 
 
 class Account(TimestampMixin, Base):
@@ -94,13 +96,22 @@ class Account(TimestampMixin, Base):
     available_balance: Mapped[Decimal | None] = mapped_column(
         Numeric(24, 8), nullable=True
     )
+    net_asset_value: Mapped[Decimal | None] = mapped_column(
+        Numeric(24, 8), nullable=True,
+        comment="Total account value including investment positions",
+    )
     iso_currency_code: Mapped[str | None] = mapped_column(
         String(3), nullable=True, comment="ISO-4217 for current balance"
     )
 
     # ── Provider metadata ────────────────────────────────────────────
     provider_metadata: Mapped[dict[str, Any] | None] = mapped_column(
-        JSONB, nullable=True, default=dict
+        _JSON, nullable=True, default=dict
+    )
+    capabilities: Mapped[dict[str, bool] | None] = mapped_column(
+        _JSON,
+        nullable=True,
+        comment="Optional account feature capabilities",
     )
 
     # ── Lifecycle ────────────────────────────────────────────────────

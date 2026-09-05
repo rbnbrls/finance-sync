@@ -145,6 +145,7 @@ class SecuritiesReadService:
                     source=price.source,
                     interval=price.interval,
                     currency_code=price.currency_code,
+                    venue=price.venue,
                 )
                 for price in rows
             ],

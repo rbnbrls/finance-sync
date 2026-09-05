@@ -34,6 +34,8 @@ class TransactionType(StrEnum):
     INTEREST = "interest"
     DIVIDEND = "dividend"
     TAX = "tax"
+    SPLIT = "split"
+    ADJUSTMENT = "adjustment"
     WITHDRAWAL = "withdrawal"
     DEPOSIT = "deposit"
     CARD_PAYMENT = "card_payment"
@@ -48,6 +50,18 @@ class TransactionStatus(StrEnum):
     BOOKED = "booked"
     REVERSED = "reversed"
     CANCELLED = "cancelled"
+
+
+class TransactionLifecycleEventType(StrEnum):
+    """Auditable, append-only transaction lifecycle operations."""
+
+    CREATE = "create"
+    UPDATE = "update"
+    REVERSE = "reverse"
+    REFUND = "refund"
+    SPLIT = "split"
+    DELETE = "delete"
+    TOMBSTONE = "tombstone"
 
 
 class SecurityType(StrEnum):
@@ -178,6 +192,9 @@ class ReconciliationResultKind(StrEnum):
     MISSING_TRANSACTION = "missing_transaction"
     CROSS_CONNECTOR_MISMATCH = "cross_connector_mismatch"
     AMOUNT_MISMATCH = "amount_mismatch"
+    CURRENCY_MISMATCH = "currency_mismatch"
+    CATEGORY_MISMATCH = "category_mismatch"
+    UNMATCHED_DESTINATION_OBJECT = "unmatched_destination_object"
 
 
 class ReconciliationSeverity(StrEnum):

@@ -14,6 +14,7 @@ from finance_sync.schemas.provider_health import ProviderHealthOverview
 from finance_sync.services.control_plane import ControlPlaneService
 from finance_sync.services.data_health import DataHealthService
 from finance_sync.services.data_quality import DataQualityService
+from finance_sync.services.data_quality_repair import DataQualityRepairService
 from finance_sync.services.provider_health import ProviderHealthService
 
 router = APIRouter(prefix="/control-plane", tags=["control-plane"])
@@ -58,6 +59,23 @@ async def get_data_health_overview(
         permissions=auth.permissions,
         redis_configured=settings.redis_url is not None,
     ).get_overview()
+
+
+@router.post("/data-health/repair")
+async def repair_data_health(
+    request: Request,
+    auth: AuthContext = Depends(require_permission("enrichment", "write")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, object]:
+    """Run safe, deterministic quality repairs for the current tenant.
+
+    Broker activity is never invented: unresolved cost basis, transfers and
+    missing transactions stay visible in the Data Health projection.
+    """
+    settings = get_container(request).settings
+    result = await DataQualityRepairService(db, settings).run(auth.tenant_id)
+    await db.commit()
+    return result
 
 
 @router.get("/provider-health", response_model=list[ProviderHealthOverview])

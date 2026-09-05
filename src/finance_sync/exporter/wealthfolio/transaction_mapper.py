@@ -20,6 +20,8 @@ Mapping rules
 
 from __future__ import annotations
 
+import hashlib
+import json
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any
@@ -42,6 +44,8 @@ WF_ACTIVITY_TRANSFER_IN = "TRANSFER_IN"
 WF_ACTIVITY_TRANSFER_OUT = "TRANSFER_OUT"
 WF_ACTIVITY_SPLIT = "SPLIT"
 WF_ACTIVITY_CREDIT = "CREDIT"
+WF_ACTIVITY_ADJUSTMENT = "ADJUSTMENT"
+WF_ACTIVITY_UNKNOWN = "UNKNOWN"
 
 # ── Instrument type mapping defaults ────────────────────────────────────
 DEFAULT_INSTRUMENT_TYPE_MAP: dict[str, str] = {
@@ -53,6 +57,8 @@ DEFAULT_INSTRUMENT_TYPE_MAP: dict[str, str] = {
     "currency": "CURRENCY",
     "option": "OPTION",
     "other": "OTHER",
+    "index": "EQUITY",
+    "benchmark": "EQUITY",
 }
 
 # ── Canonical TransactionType → Wealthfolio activity type ──────────────
@@ -66,6 +72,20 @@ TRANSACTION_TYPE_MAP: dict[str, str] = {
     "fee": WF_ACTIVITY_FEE,
     "tax": WF_ACTIVITY_TAX,
     "payment": WF_ACTIVITY_FEE,
+    "card_payment": WF_ACTIVITY_FEE,
+    "scheduled_payment": WF_ACTIVITY_FEE,
+    "split": WF_ACTIVITY_SPLIT,
+    # Corporate actions are represented as connector transactions. Preserve
+    # their specific kind in ``subtype`` while using Wealthfolio's generic
+    # adjustment activity where no dedicated activity exists.
+    "merger": WF_ACTIVITY_ADJUSTMENT,
+    "spin_off": WF_ACTIVITY_ADJUSTMENT,
+    "return_of_capital": WF_ACTIVITY_ADJUSTMENT,
+    "ticker_change": WF_ACTIVITY_ADJUSTMENT,
+    "isin_change": WF_ACTIVITY_ADJUSTMENT,
+    "adjustment": WF_ACTIVITY_ADJUSTMENT,
+    # An unclassified cash adjustment must not silently become a fee.
+    "other": WF_ACTIVITY_CREDIT,
     "transfer": WF_ACTIVITY_TRANSFER_IN,  # adjusted by sign in mapper
 }
 
@@ -74,7 +94,123 @@ class UnresolvedSecurityExportError(ValueError):
     """Raised when an investment row lacks a safely resolved security."""
 
 
+class UnresolvedCashCurrencyError(ValueError):
+    """Raised when a cash activity cannot be projected to account currency."""
+
+
+class InvalidFxRateError(ValueError):
+    """Raised when an FX observation has an unsafe direction or value."""
+
+
 # ── Public API ──────────────────────────────────────────────────────────
+
+
+def map_security_to_wf_asset(
+    security: FsSecurity,
+    *,
+    listing: Any | None = None,
+    metadata: list[Any] | None = None,
+) -> dict[str, Any]:
+    """Build a complete Wealthfolio asset identity from canonical data."""
+    ticker = (
+        listing.ticker if listing is not None else None
+    ) or security.ticker
+    asset: dict[str, Any] = {
+        "kind": "INVESTMENT",
+        "name": security.name,
+        "displayCode": ticker or security.isin or security.id,
+        "instrumentType": DEFAULT_INSTRUMENT_TYPE_MAP.get(
+            str(security.security_type), "OTHER"
+        ),
+        "instrumentSymbol": ticker or security.isin or security.id,
+        "quoteCcy": (
+            listing.currency_code
+            if listing is not None
+            else security.currency_code
+        ),
+        "isin": security.isin,
+        "providerId": "FINANCE_SYNC",
+        "providerSymbol": ticker or security.isin or security.id,
+    }
+    if listing is not None:
+        asset["exchangeMic"] = listing.mic
+    if metadata:
+        asset["metadata"] = {
+            str(observation.metadata_type): observation.metadata_json
+            for observation in metadata
+        }
+    return asset
+
+
+def map_security_catalog_to_csv(
+    securities: list[FsSecurity],
+    *,
+    listings: dict[str, Any] | None = None,
+    metadata: dict[str, list[Any]] | None = None,
+) -> str:
+    """Serialize the complete canonical asset catalog for Wealthfolio."""
+    if not securities:
+        return ""
+    import csv
+    import io
+
+    fields = [
+        "securityId",
+        "name",
+        "isin",
+        "ticker",
+        "exchangeMic",
+        "providerId",
+        "providerSymbol",
+        "quoteCcy",
+        "instrumentType",
+        "metadata",
+    ]
+    output = io.StringIO()
+    writer = csv.DictWriter(output, fieldnames=fields)
+    writer.writeheader()
+    listing_map = listings or {}
+    metadata_map = metadata or {}
+    for security in securities:
+        asset = map_security_to_wf_asset(
+            security,
+            listing=listing_map.get(security.id),
+            metadata=metadata_map.get(security.id),
+        )
+        writer.writerow(
+            {
+                "securityId": security.id,
+                "name": asset["name"],
+                "isin": asset.get("isin") or "",
+                "ticker": asset["displayCode"],
+                "exchangeMic": asset.get("exchangeMic") or "",
+                "providerId": asset["providerId"],
+                "providerSymbol": asset["providerSymbol"],
+                "quoteCcy": asset["quoteCcy"],
+                "instrumentType": asset["instrumentType"],
+                "metadata": json.dumps(
+                    asset.get("metadata", {}), sort_keys=True
+                ),
+            }
+        )
+    return output.getvalue()
+
+
+def validate_fx_observation(
+    *,
+    base_currency: str,
+    quote_currency: str,
+    rate: Decimal,
+) -> None:
+    """Reject invalid or ambiguous FX observations before projection."""
+    base = base_currency.upper()
+    quote = quote_currency.upper()
+    if base == quote:
+        message = "FX base- en quotevaluta mogen niet gelijk zijn."
+        raise InvalidFxRateError(message)
+    if rate <= 0:
+        message = "FX-koers moet groter dan nul zijn."
+        raise InvalidFxRateError(message)
 
 
 def map_transaction_to_wf_row(
@@ -83,6 +219,9 @@ def map_transaction_to_wf_row(
     security: FsSecurity | None = None,
     instrument_type_map: dict[str, str] | None = None,
     default_currency: str = "EUR",
+    account_currency: str | None = None,
+    allow_multi_currency_cash: bool = False,
+    import_run_id: str | None = None,
 ) -> dict[str, Any]:
     """Convert a canonical *txn* into a Wealthfolio CSV activity row.
 
@@ -110,17 +249,31 @@ def map_transaction_to_wf_row(
     # Resolve quantity and unit price
     quantity, unit_price = _resolve_quantity_price(txn, activity_type, security)
 
-    # Resolve amount
-    amount = _resolve_amount(txn, activity_type)
+    # Resolve amount and currency.  Wealthfolio derives cash balances from
+    # activities, so an EUR-only broker account must never receive a USD cash
+    # activity merely because the underlying instrument paid in USD.
+    currency, amount, projected_fx_rate = _resolve_cash_projection(
+        txn,
+        activity_type,
+        account_currency=account_currency,
+        allow_multi_currency_cash=allow_multi_currency_cash,
+        default_currency=default_currency,
+    )
 
     # Fee — typically zero for non-trade activities
     fee = _resolve_fee(txn, activity_type)
 
-    # Currency and FX
-    currency = txn.currency_code or default_currency
-    fx_rate = _resolve_fx_rate(txn)
+    # FX for trades remains the instrument conversion.  Cash activities that
+    # were projected to the account currency use the rate used for that
+    # projection instead.
+    fx_rate = projected_fx_rate or _resolve_fx_rate(txn)
 
-    # Comment with external ID for dedup
+    # Wealthfolio has first-class lifecycle and provenance fields.  Keep the
+    # readable comment as a fallback for old CSV imports, but never use it as
+    # the only identity of a source transaction.
+    status, needs_review = _resolve_status(txn)
+    source_record_id = str(txn.external_transaction_id)
+    idempotency_key = _idempotency_key(txn)
     comment = _build_comment(txn)
 
     return {
@@ -132,10 +285,95 @@ def map_transaction_to_wf_row(
         "unitPrice": _fmt_decimal(unit_price),
         "currency": currency,
         "fee": _fmt_decimal(fee),
-        "amount": _fmt_decimal(amount),
+        "amount": _fmt_decimal(amount) if amount is not None else "",
         "fxRate": _fmt_decimal(fx_rate) if fx_rate is not None else "",
+        "settlementDate": _as_timestamp(txn.booked_at),
+        "status": status,
+        "needsReview": needs_review,
+        "tax": (
+            _fmt_decimal(abs(txn.amount))
+            if txn.transaction_type == "tax"
+            else ""
+        ),
+        "sourceType": _source_type(txn),
+        "subtype": _activity_subtype(txn),
+        "grossAmount": (
+            _fmt_decimal(abs(txn.amount))
+            if txn.transaction_type == "dividend"
+            else ""
+        ),
+        "netAmount": (
+            _fmt_decimal(abs(txn.amount))
+            if txn.transaction_type == "dividend"
+            else ""
+        ),
+        "sourceSystem": "FINANCE_SYNC",
+        "sourceRecordId": source_record_id,
+        "sourceGroupId": f"{txn.provider_key}:{txn.account_id}",
+        "idempotencyKey": idempotency_key,
+        "importRunId": import_run_id or "",
         "comment": comment,
+        # Kept as an internal field for the JSON API.  CSV output filters it
+        # out because Wealthfolio's CSV wizard has no portable ISIN column.
+        "isin": security.isin if security is not None else "",
+        "exchangeMic": getattr(security, "exchange_mic", "")
+        if security is not None
+        else "",
+        "providerId": (getattr(security, "provider_id", "") or "FINANCE_SYNC")
+        if security is not None
+        else "",
+        "providerSymbol": (
+            getattr(security, "provider_symbol", "")
+            or (security.ticker or security.isin)
+        )
+        if security is not None
+        else "",
+        "symbolName": security.name if security is not None else "",
+        "metadata": {
+            "financeSync": {
+                "externalTransactionId": txn.external_transaction_id,
+                "provider": txn.provider_key,
+                "revision": txn.revision,
+                "sourceCurrency": txn.currency_code,
+                "sourceAmount": str(txn.amount),
+                "sourceAmountInBase": (
+                    str(txn.amount_in_base)
+                    if txn.amount_in_base is not None
+                    else None
+                ),
+                "sourceBaseCurrency": txn.base_currency_code,
+                "sourceFxRate": (
+                    str(txn.fx_rate) if txn.fx_rate is not None else None
+                ),
+                "merchant": getattr(txn, "merchant_name", None),
+                "merchantId": getattr(txn, "merchant_id", None),
+                "merchantCategoryCode": getattr(
+                    txn, "merchant_category_code", None
+                ),
+                "cashflowBucket": getattr(txn, "cashflow_bucket", None),
+                "categorySuggestion": _json_value(
+                    getattr(txn, "cashflow_suggestion", None)
+                ),
+                "splitCount": len(getattr(txn, "splits", ()) or ()),
+            },
+            **(
+                {"flow": {"is_external": False}}
+                if activity_type
+                in (
+                    WF_ACTIVITY_TRANSFER_IN,
+                    WF_ACTIVITY_TRANSFER_OUT,
+                )
+                else {}
+            ),
+        },
     }
+
+
+def _json_value(value: Any) -> Any:
+    """Return a stable JSON-friendly value for optional Pydantic fields."""
+    if hasattr(value, "model_dump"):
+        return value.model_dump(mode="json")
+    return value
 
 
 def map_holding_to_wf_row(
@@ -173,10 +411,93 @@ def map_holding_to_wf_row(
     return {
         "date": observed.isoformat(),
         "symbol": symbol,
+        # Keep the canonical identity available to the exporter-side
+        # reconciliation. Wealthfolio may return an ISIN even when the
+        # import used the broker ticker (for example AAPL/US0378331005).
+        "isin": security.isin if security is not None else "",
         "quantity": _fmt_decimal(holding.quantity),
         "avgCost": _fmt_decimal(avg_cost) if avg_cost is not None else "",
         "currency": currency,
     }
+
+
+def map_tax_lot_to_wf_row(
+    lot: Any,
+    *,
+    security: FsSecurity | None = None,
+) -> dict[str, Any]:
+    """Map a canonical tax lot to a lossless Wealthfolio sidecar row."""
+    symbol = (security.ticker or security.isin) if security is not None else ""
+    return {
+        "lotId": str(lot.id),
+        "accountId": str(lot.account_id),
+        "symbol": symbol,
+        "isin": security.isin if security is not None else "",
+        "purchaseTransactionId": str(lot.purchase_transaction_id or ""),
+        "saleTransactionId": str(lot.sale_transaction_id or ""),
+        "acquiredAt": _as_timestamp(lot.acquired_at),
+        "closedAt": _as_timestamp(lot.closed_at),
+        "quantity": _fmt_decimal(lot.quantity),
+        "remainingQuantity": _fmt_decimal(lot.remaining_quantity),
+        "costBasisTotal": _fmt_decimal(lot.cost_basis_total),
+        "costBasisPerUnit": _fmt_decimal(lot.cost_basis_per_unit),
+        "currency": lot.currency_code,
+        "costBasisMethod": str(lot.cost_basis_method),
+        "realizedPL": _fmt_decimal(lot.realized_pl),
+        "realizedPLCurrency": lot.realized_pl_currency or lot.currency_code,
+        "washSaleAdjusted": bool(lot.has_wash_sale_adjustment),
+        "disallowedLoss": _fmt_decimal(lot.disallowed_loss),
+        "sourceSystem": "FINANCE_SYNC",
+        "sourceRecordId": str(lot.id),
+        "idempotencyKey": hashlib.sha256(
+            f"finance-sync:tax-lot:{lot.id}".encode()
+        ).hexdigest(),
+    }
+
+
+def map_tax_lots_to_csv(
+    lots: list[Any],
+    *,
+    security_map: dict[str, FsSecurity] | None = None,
+) -> str:
+    """Return a lossless, connector-owned tax-lot CSV sidecar."""
+    if not lots:
+        return ""
+    import csv
+    import io
+
+    fieldnames = [
+        "lotId",
+        "accountId",
+        "symbol",
+        "isin",
+        "purchaseTransactionId",
+        "saleTransactionId",
+        "acquiredAt",
+        "closedAt",
+        "quantity",
+        "remainingQuantity",
+        "costBasisTotal",
+        "costBasisPerUnit",
+        "currency",
+        "costBasisMethod",
+        "realizedPL",
+        "realizedPLCurrency",
+        "washSaleAdjusted",
+        "disallowedLoss",
+        "sourceSystem",
+        "sourceRecordId",
+        "idempotencyKey",
+    ]
+    buf = io.StringIO()
+    writer = csv.DictWriter(buf, fieldnames=fieldnames)
+    writer.writeheader()
+    sec_map = security_map or {}
+    for lot in lots:
+        writer.writerow(
+            map_tax_lot_to_wf_row(lot, security=sec_map.get(lot.security_id))
+        )
+    return buf.getvalue()
 
 
 def map_transactions_to_csv(
@@ -185,6 +506,9 @@ def map_transactions_to_csv(
     security_map: dict[str, FsSecurity] | None = None,
     instrument_type_map: dict[str, str] | None = None,
     default_currency: str = "EUR",
+    account_currency: str | None = None,
+    allow_multi_currency_cash: bool = False,
+    import_run_id: str | None = None,
 ) -> str:
     """Map multiple transactions to a Wealthfolio-compatible CSV string.
 
@@ -208,6 +532,19 @@ def map_transactions_to_csv(
         "fee",
         "amount",
         "fxRate",
+        "settlementDate",
+        "status",
+        "needsReview",
+        "tax",
+        "subtype",
+        "sourceType",
+        "grossAmount",
+        "netAmount",
+        "sourceSystem",
+        "sourceRecordId",
+        "sourceGroupId",
+        "idempotencyKey",
+        "importRunId",
         "comment",
     ]
 
@@ -223,8 +560,11 @@ def map_transactions_to_csv(
             security=sec,
             instrument_type_map=instrument_type_map,
             default_currency=default_currency,
+            account_currency=account_currency,
+            allow_multi_currency_cash=allow_multi_currency_cash,
+            import_run_id=import_run_id,
         )
-        writer.writerow(row)
+        writer.writerow({key: row.get(key, "") for key in fieldnames})
 
     return buf.getvalue()
 
@@ -260,7 +600,9 @@ def map_holdings_to_csv(
             security=sec,
             default_currency=default_currency,
         )
-        writer.writerow(row)
+        # ``isin`` is retained for exporter-side reconciliation but is not a
+        # column in Wealthfolio's holdings CSV contract.
+        writer.writerow({field: row[field] for field in fieldnames})
 
     return buf.getvalue()
 
@@ -273,7 +615,9 @@ def _resolve_activity_type(txn: FsTransaction) -> str:
 
     Adjusts based on amount sign for transfer-type transactions.
     """
-    base_type = TRANSACTION_TYPE_MAP.get(txn.transaction_type, WF_ACTIVITY_FEE)
+    base_type = TRANSACTION_TYPE_MAP.get(
+        txn.transaction_type, WF_ACTIVITY_UNKNOWN
+    )
 
     # Transfers: positive = IN, negative = OUT
     if txn.transaction_type == "transfer":
@@ -306,6 +650,7 @@ def _resolve_security_info(
         WF_ACTIVITY_WITHDRAWAL,
         WF_ACTIVITY_TAX,
         WF_ACTIVITY_CREDIT,
+        WF_ACTIVITY_UNKNOWN,
     ):
         return "", ""
 
@@ -388,6 +733,13 @@ def _resolve_quantity_price(
             unit_price = abs(txn.amount) / quantity
         return quantity, abs(unit_price)
 
+    if activity_type == WF_ACTIVITY_SPLIT:
+        return Decimal(1), Decimal(1)
+
+    if activity_type == WF_ACTIVITY_ADJUSTMENT:
+        quantity = abs(txn.quantity or Decimal(1))
+        return quantity, abs(txn.unit_price or Decimal(1))
+
     # Wealthfolio represents dividends against the security with their cash
     # amount; quantity is optional but retaining it helps reconciliation.
     if activity_type == WF_ACTIVITY_DIVIDEND:
@@ -399,14 +751,15 @@ def _resolve_quantity_price(
 def _resolve_amount(
     txn: FsTransaction,
     activity_type: str,
-) -> Decimal:
+) -> Decimal | None:
     """Return the cash amount for the transaction.
 
     For cash activities (DEPOSIT, WITHDRAWAL, DIVIDEND, INTEREST, FEE, TAX):
     use the full absolute transaction amount.
 
     For trades (BUY, SELL): amount is auto-calculated from qty x price,
-    so we return 0 (blank in CSV).
+    so we return ``None``.  Sending numeric zero is not equivalent to an
+    omitted amount: Wealthfolio can interpret it as a zero-cost trade.
     """
     if activity_type in (
         WF_ACTIVITY_DIVIDEND,
@@ -416,6 +769,9 @@ def _resolve_amount(
         WF_ACTIVITY_FEE,
         WF_ACTIVITY_TAX,
         WF_ACTIVITY_CREDIT,
+        WF_ACTIVITY_UNKNOWN,
+        WF_ACTIVITY_SPLIT,
+        WF_ACTIVITY_ADJUSTMENT,
     ):
         return abs(txn.amount)
 
@@ -423,7 +779,65 @@ def _resolve_amount(
         return abs(txn.amount)
 
     # BUY, SELL — amount is auto-calculated
-    return Decimal(0)
+    return None
+
+
+def _resolve_cash_projection(
+    txn: FsTransaction,
+    activity_type: str,
+    *,
+    account_currency: str | None,
+    allow_multi_currency_cash: bool,
+    default_currency: str,
+) -> tuple[str, Decimal | None, Decimal | None]:
+    """Return destination currency, amount and optional projection FX rate.
+
+    The canonical amount is signed, while Wealthfolio expects positive cash
+    amounts plus an activity direction.  For a foreign-currency cash event,
+    prefer the connector's authoritative base amount.  A provider FX rate is
+    the second choice.  Never fall back to a 1:1 conversion: that was the
+    source of the extra USD cash in the DEGIRO Pensioen projection.
+    """
+    source_currency = (txn.currency_code or default_currency).upper()
+    destination_currency = (account_currency or source_currency).upper()
+    cash_types = {
+        WF_ACTIVITY_DIVIDEND,
+        WF_ACTIVITY_INTEREST,
+        WF_ACTIVITY_DEPOSIT,
+        WF_ACTIVITY_WITHDRAWAL,
+        WF_ACTIVITY_FEE,
+        WF_ACTIVITY_TAX,
+        WF_ACTIVITY_CREDIT,
+        WF_ACTIVITY_UNKNOWN,
+        WF_ACTIVITY_SPLIT,
+        WF_ACTIVITY_ADJUSTMENT,
+        WF_ACTIVITY_TRANSFER_IN,
+        WF_ACTIVITY_TRANSFER_OUT,
+    }
+    if activity_type not in cash_types or not account_currency:
+        return source_currency, _resolve_amount(txn, activity_type), None
+    if source_currency == destination_currency or allow_multi_currency_cash:
+        return source_currency, _resolve_amount(txn, activity_type), None
+
+    if (
+        txn.amount_in_base is not None
+        and (txn.base_currency_code or "").upper() == destination_currency
+    ):
+        return destination_currency, abs(txn.amount_in_base), None
+
+    if txn.fx_rate is not None and txn.fx_rate != 0:
+        # DEGIRO's rate is quoted as instrument currency per EUR.
+        return (
+            destination_currency,
+            abs(txn.amount) / abs(txn.fx_rate),
+            txn.fx_rate,
+        )
+
+    message = (
+        f"Geen {destination_currency}-waarde of FX-koers voor "
+        f"{source_currency}-cashactiviteit {txn.external_transaction_id}."
+    )
+    raise UnresolvedCashCurrencyError(message)
 
 
 def _resolve_fee(
@@ -459,6 +873,64 @@ def _resolve_fx_rate(txn: FsTransaction) -> Decimal | None:
     if txn.fx_rate is not None and txn.currency_code != txn.base_currency_code:
         return txn.fx_rate
     return None
+
+
+def _resolve_status(txn: FsTransaction) -> tuple[str, bool]:
+    """Map canonical transaction lifecycle to Wealthfolio's lifecycle."""
+    status = str(txn.status).lower()
+    if status == "pending":
+        return "PENDING", True
+    if status in {"reversed", "cancelled"}:
+        return "VOID", True
+    return "POSTED", False
+
+
+def _source_type(txn: FsTransaction) -> str:
+    if txn.transaction_type == "tax":
+        return "WITHHOLDING_TAX"
+    return str(txn.transaction_type).upper()
+
+
+def _activity_subtype(txn: FsTransaction) -> str:
+    if txn.transaction_type == "dividend":
+        return "CASH_DIVIDEND"
+    if txn.transaction_type == "tax":
+        return "WITHHOLDING_TAX"
+    if txn.transaction_type == "split":
+        return "SPLIT"
+    if txn.transaction_type in {
+        "merger",
+        "spin_off",
+        "return_of_capital",
+        "ticker_change",
+        "isin_change",
+    }:
+        return str(txn.transaction_type).upper()
+    return ""
+
+
+def _idempotency_key(txn: FsTransaction) -> str:
+    """Build a stable key that survives provider revisions and re-syncs."""
+    identity = "|".join(
+        str(value or "")
+        for value in (
+            getattr(txn, "tenant_id", ""),
+            txn.provider_key,
+            getattr(txn, "connection_id", ""),
+            txn.account_id,
+            txn.external_transaction_id,
+        )
+    )
+    return hashlib.sha256(identity.encode("utf-8")).hexdigest()
+
+
+def _as_timestamp(dt: datetime | None) -> str:
+    if dt is None:
+        return ""
+    value = (
+        dt.astimezone(UTC) if dt.tzinfo is not None else dt.replace(tzinfo=UTC)
+    )
+    return value.isoformat()
 
 
 def _build_comment(txn: FsTransaction) -> str:

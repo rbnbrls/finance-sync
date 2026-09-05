@@ -17,7 +17,9 @@ from argparse import (
     Namespace,
     RawDescriptionHelpFormatter,
 )
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
@@ -29,6 +31,34 @@ from finance_sync.db.uow import UnitOfWork
 from finance_sync.models.enums import ReconciliationRunStatus
 from finance_sync.observability.logging import configure_logging
 from finance_sync.services.reconciliation import ReconciliationService
+from finance_sync.services.retry_lock import retry_lease
+
+# Production Wealthfolio instances.  The CLI smoke/push commands write to
+# the configured instance; these URLs require an explicit --allow-prod to
+# prevent test data from polluting production again (issue #504).
+_WF_PROD_BASE_URLS = {
+    "http://192.168.3.50:8080",
+    "https://wealthfolio.7rb.nl",
+    "http://wealthfolio.7rb.nl",
+}
+
+
+@asynccontextmanager
+async def _wealthfolio_export_lease(container: Container, tenant_id: str):
+    """Serialize CLI pushes with scheduled/API Wealthfolio exports."""
+    if container.settings.redis_url is None:
+        yield
+        return
+    async with retry_lease(
+        container.redis_client,
+        tenant_id=str(tenant_id),
+        kind="destination-export",
+        item_id="legacy",
+    ) as lease:
+        if not lease.acquired:
+            message = "Another Wealthfolio export is in progress"
+            raise RuntimeError(message)
+        yield
 
 
 def _build_parser() -> ArgumentParser:
@@ -232,6 +262,18 @@ def _build_wealthfolio_subparser(
         help="Days of transaction history to push (default: 90)",
     )
     push.add_argument(
+        "--full-history",
+        action="store_true",
+        default=False,
+        help="Backfill the complete finance-sync transaction history",
+    )
+    push.add_argument(
+        "--rebuild",
+        action="store_true",
+        default=False,
+        help="Delete and rebuild the selected Wealthfolio destination data",
+    )
+    push.add_argument(
         "--max-transactions",
         type=int,
         default=None,
@@ -250,13 +292,25 @@ def _build_wealthfolio_subparser(
         description=(
             "Push the selected investment accounts twice, verify that the "
             "second pass imports nothing, and check remote account/activity/"
-            "holding visibility without printing financial values."
+            "holding visibility without printing financial values.  Writes "
+            "to the configured Wealthfolio instance: pass --allow-prod when "
+            "targeting the production instance (issue #504 guard)."
         ),
     )
     smoke.add_argument("--server-url", default=None)
     smoke.add_argument("--password", default=None)
     smoke.add_argument("--account-ids", default=None)
     smoke.add_argument("--days-back", type=int, default=3650)
+    smoke.add_argument(
+        "--allow-prod",
+        action="store_true",
+        default=False,
+        help=(
+            "Allow running the smoke push against the production Wealthfolio "
+            "instance (LXC 104 / wealthfolio.7rb.nl).  Required because a "
+            "smoke push created the corrupted test account behind issue #504."
+        ),
+    )
 
     # ── export (CSV) ─────────────────────────────────────────────────
     export = wf_sub.add_parser(
@@ -943,6 +997,9 @@ async def _cmd_wealthfolio_export(
     print(f"  Tenant:       {str(tenant_id)[:16]}…")
     print(f"  Days back:    {args.days_back}")
 
+    # ``full_history`` and ``rebuild`` belong to the push command. Export
+    # ``full_history`` and ``rebuild`` belong to the push command.  Export
+    # has only ``days_back`` and must not assume those Namespace attributes.
     since = datetime.now(UTC) - timedelta(days=args.days_back)
 
     exporter = WealthfolioExporter(
@@ -1013,7 +1070,11 @@ async def _cmd_wealthfolio_push(
     print("Wealthfolio push starting …")
     print(f"  Server URL:   {server_url}")
     print(f"  Tenant:       {str(tenant_id)[:16]}…")
-    print(f"  Days back:    {args.days_back}")
+    print(
+        "  History:      full/rebuild"
+        if args.full_history or args.rebuild
+        else f"  Days back:    {args.days_back}"
+    )
 
     exporter = WealthfolioExporter(
         session_factory=container.session_factory,
@@ -1047,6 +1108,7 @@ async def _cmd_wealthfolio_push(
     wf_client_config = WealthfolioClientConfig(
         base_url=server_url,
         password=password,
+        request_timeout=container.settings.wealthfolio_request_timeout,
     )
     wf_client = WealthfolioClient(config=wf_client_config)
 
@@ -1055,11 +1117,15 @@ async def _cmd_wealthfolio_push(
         await wf_client.authenticate()
         print("  ✓ Authenticated")
 
-        result = await exporter.push_to_wealthfolio(
-            wf_client=wf_client,
-            accounts=await exporter._load_accounts(account_ids),  # noqa: SLF001
-            since=since,
-        )
+        async with _wealthfolio_export_lease(container, tenant_id):
+            result = await exporter.push_to_wealthfolio(
+                wf_client=wf_client,
+                accounts=await exporter._load_accounts(account_ids),  # noqa: SLF001
+                since=since,
+                full_sync=args.full_history or args.rebuild,
+                rebuild=args.rebuild,
+                prune_accounts=not bool(account_ids),
+            )
         print("\nResult:")
         print(f"  Imported:     {result.get('imported', 0)}")
         print(f"  Skipped:     {result.get('skipped', 0)}")
@@ -1095,6 +1161,20 @@ async def _cmd_wealthfolio_smoke(
             file=sys.stderr,
         )
         sys.exit(2)
+    # Issue #504 guard: a smoke push created the corrupted 'Smoke Test
+    # Brokerage' account in production (NULL-asset BUY row -> slow holdings
+    # recalculation -> HTTP 408).  Refuse to write to the production
+    # instance unless the operator explicitly opts in.
+    if (
+        not getattr(args, "allow_prod", False)
+        and server_url.rstrip("/") in _WF_PROD_BASE_URLS
+    ):
+        print(
+            "Refusing to run the Wealthfolio smoke push against the "
+            "production instance without --allow-prod (issue #504 guard).",
+            file=sys.stderr,
+        )
+        sys.exit(2)
     account_ids = (
         [
             value.strip()
@@ -1111,17 +1191,22 @@ async def _cmd_wealthfolio_smoke(
     )
     accounts = await exporter._load_accounts(account_ids)  # noqa: SLF001
     client = WealthfolioClient(
-        WealthfolioClientConfig(base_url=server_url, password=password)
+        WealthfolioClientConfig(
+            base_url=server_url,
+            password=password,
+            request_timeout=container.settings.wealthfolio_request_timeout,
+        )
     )
     try:
         await client.authenticate()
         since = datetime.now(UTC) - timedelta(days=args.days_back)
-        first = await exporter.push_to_wealthfolio(
-            client, accounts=accounts, since=since
-        )
-        second = await exporter.push_to_wealthfolio(
-            client, accounts=accounts, since=since
-        )
+        async with _wealthfolio_export_lease(container, tenant_id):
+            first = await exporter.push_to_wealthfolio(
+                client, accounts=accounts, since=since, full_sync=True
+            )
+            second = await exporter.push_to_wealthfolio(
+                client, accounts=accounts, since=since
+            )
         visible = 0
         activity_count = 0
         holding_count = 0
@@ -1231,7 +1316,7 @@ async def _cmd_securo(args: Namespace) -> None:
             server_url=args.server_url or settings.securo_server_url,
             email=args.email or settings.securo_email,
             password=args.password or secret_value(settings.securo_password),
-            output_dir=args.output_dir or settings.securo_output_dir,
+            output_dir=Path(args.output_dir or settings.securo_output_dir),
             auto_create_accounts=settings.securo_auto_create_accounts,
         )
         result = await SecuroExporter(

@@ -5,10 +5,9 @@ The API key is sent directly as the ``Authorization`` header value
 (without a ``Bearer`` prefix, per Trading212's convention).
 
 Rate limit
-    Trading212's free-tier API allows 10 requests per minute per API key.
-    The connector's built-in
-    :class:`~finance_sync.connectors.rate_limiter.RateLimiter` enforces
-    this globally.
+    Trading212 applies endpoint-specific limits per account.  The connector
+    uses a conservative six-request/minute HTTP throttle and honours the
+    provider's reset headers when the account is rate limited.
 
 Pagination
     Trading212 uses cursor-based pagination via a ``nextPagePath`` field
@@ -33,7 +32,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import TYPE_CHECKING, Any
+from time import time
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import httpx
 
@@ -49,14 +49,47 @@ from finance_sync.connectors.models import (
     RawTransaction,
     SecurityReference,
 )
-from finance_sync.connectors.rate_limiter import RateLimitPolicy
+from finance_sync.connectors.rate_limiter import RateLimiter, RateLimitPolicy
 
 if TYPE_CHECKING:
     from finance_sync.connectors.models import ConnectorConfig
 
 _T212_API_BASE_LIVE = "https://live.trading212.com"
 _T212_API_BASE_DEMO = "https://demo.trading212.com"
-_DEFAULT_PAGE_SIZE = 100
+# Trading212 caps the ``limit`` query param at 50 for both
+# /history/orders and /history/transactions; anything larger returns
+# HTTP 400 "Limit cannot be greater than 50" (see issue #505).
+_DEFAULT_PAGE_SIZE = 50
+
+# Trading212's portfolio endpoint returns broker-internal symbols.  Keep the
+# provider identifier in metadata, but expose exchange-qualified symbols and
+# known display names to the rest of the application.
+_INSTRUMENT_ALIASES: dict[str, tuple[str, str, str]] = {
+    "BESIA_EQ": ("BESI:XAMS", "BE Semiconductor Industries", "XAMS"),
+}
+
+
+def _normalise_instrument(
+    ticker: str,
+) -> tuple[str, str, str | None]:
+    """Map a Trading212 internal ticker to a readable security reference."""
+    key = ticker.upper()
+    alias = _INSTRUMENT_ALIASES.get(key)
+    if alias is not None:
+        return alias
+
+    # Dutch instruments are commonly returned as ``<symbol>a_EQ``.  The
+    # suffix is Trading212's venue marker, not part of the public ticker.
+    if key.endswith("A_EQ") and len(key) > 4:
+        return f"{key[:-4]}:XAMS", ticker, "XAMS"
+    return ticker, ticker, None
+
+
+def _price_scale(ticker: str) -> Decimal:
+    """Return the scale for Trading212's venue-specific quote units."""
+    # London instruments are quoted in pence (GBX), while the account
+    # endpoint reports the portfolio in the account currency.
+    return Decimal("0.01") if ticker.upper().endswith("L_EQ") else Decimal(1)
 
 
 class Trading212Connector(Connector):
@@ -87,12 +120,17 @@ class Trading212Connector(Connector):
     display_name = "Trading212"
     sdk_version = "0.1.0"
     supported_resources = frozenset({"accounts", "transactions", "holdings"})
+    # Trading212 is a historical broker API.  New connections should import
+    # more than the generic platform lookback so the Wealthfolio account is
+    # complete from the first sync.  Pagination and the endpoint limiter keep
+    # this bounded by the provider's rate limits.
+    initial_sync_lookback_days: ClassVar[int] = 3650
 
     rate_limit_policy = RateLimitPolicy(
-        max_requests=10,
+        max_requests=6,
         window_seconds=60,
-        max_retries=5,
-        backoff_base=2.0,
+        max_retries=2,
+        backoff_base=5.0,
     )
 
     def __init__(
@@ -120,8 +158,58 @@ class Trading212Connector(Connector):
             base_url=base_url,
             timeout=httpx.Timeout(30.0),
         )
+        # Injected transports are used by deterministic unit tests; real
+        # clients get endpoint-aware throttling.
+        throttle_requests = 1 if http_client is None else 0
+        self._http_rate_limiters = {
+            "account": RateLimiter(
+                RateLimitPolicy(
+                    max_requests=throttle_requests,
+                    window_seconds=5,
+                    max_retries=0,
+                )
+            ),
+            "portfolio": RateLimiter(
+                RateLimitPolicy(
+                    max_requests=throttle_requests,
+                    window_seconds=1,
+                    max_retries=0,
+                )
+            ),
+            "metadata": RateLimiter(
+                RateLimitPolicy(
+                    max_requests=throttle_requests,
+                    window_seconds=50,
+                    max_retries=0,
+                )
+            ),
+            "history": RateLimiter(
+                RateLimitPolicy(
+                    max_requests=6 if http_client is None else 0,
+                    window_seconds=60,
+                    max_retries=0,
+                )
+            ),
+        }
         self._account_id: str | None = None
         self._account_currency: str = "EUR"
+        self._cash_data: dict[str, Any] | None = None
+        self._instrument_metadata: dict[str, dict[str, Any]] | None = None
+
+    async def _get(
+        self, url: str, *, headers: dict[str, str]
+    ) -> httpx.Response:
+        """Make a request after acquiring the endpoint's provider slot."""
+        if "/equity/account/" in url:
+            limiter = self._http_rate_limiters["account"]
+        elif "/equity/portfolio" in url:
+            limiter = self._http_rate_limiters["portfolio"]
+        elif "/equity/metadata/" in url:
+            limiter = self._http_rate_limiters["metadata"]
+        else:
+            limiter = self._http_rate_limiters["history"]
+        await limiter.acquire()
+        return await self._http.get(url, headers=headers)
 
     @property
     def name(self) -> str:
@@ -130,6 +218,14 @@ class Trading212Connector(Connector):
     # ── Authentication ──────────────────────────────────────────────────
 
     async def authenticate(self) -> None:
+        """Authenticate with operation-level retry and reset-aware backoff."""
+        self._cash_data = None
+        if self._rate_limiter is not None:
+            await self._rate_limiter.retry(self._authenticate_once)
+        else:
+            await self._authenticate_once()
+
+    async def _authenticate_once(self) -> None:
         """Validate the Trading212 API key by calling
         ``GET /api/v0/equity/account/cash``.
 
@@ -148,11 +244,12 @@ class Trading212Connector(Connector):
         )
 
         try:
-            resp = await self._http.get(
+            resp = await self._get(
                 "/api/v0/equity/account/cash", headers=headers
             )
             resp.raise_for_status()
             data = resp.json()
+            self._cash_data = data
             self._account_currency = data.get("currencyCode", "EUR")
             # Account info for a more stable account identifier
             await self._load_account_info(api_key)
@@ -171,7 +268,7 @@ class Trading212Connector(Connector):
             api_key, self.config.credentials.get("api_secret")
         )
         try:
-            resp = await self._http.get(
+            resp = await self._get(
                 "/api/v0/equity/account/info", headers=headers
             )
             resp.raise_for_status()
@@ -210,9 +307,7 @@ class Trading212Connector(Connector):
         )
 
         try:
-            resp = await self._http.get(
-                "/api/v0/equity/portfolio", headers=headers
-            )
+            resp = await self._get("/api/v0/equity/portfolio", headers=headers)
             resp.raise_for_status()
             return resp.json()  # list of portfolio items
         except httpx.HTTPStatusError as exc:
@@ -223,6 +318,49 @@ class Trading212Connector(Connector):
             raise TransientError(msg) from exc
         except httpx.HTTPError as exc:
             msg = f"Trading212 HTTP error fetching portfolio: {exc}"
+            raise TransientError(msg) from exc
+
+    async def fetch_instruments(self) -> list[dict[str, Any]]:
+        """Fetch Trading212's instrument master for ISIN/name matching.
+
+        The portfolio and history endpoints expose broker symbols such as
+        ``BESIA_EQ`` but omit stable identifiers.  The metadata endpoint is
+        the provider-of-record for ISIN, display name, venue and currency.
+        Cache it for the lifetime of a sync so one sync consumes one metadata
+        request, even though holdings and transactions are fetched separately.
+        """
+        if self._instrument_metadata is not None:
+            return list(self._instrument_metadata.values())
+        api_key = self.config.credentials.get("api_key", "")
+        headers = _auth_headers(
+            api_key, self.config.credentials.get("api_secret")
+        )
+        try:
+            resp = await self._get(
+                "/api/v0/equity/metadata/instruments", headers=headers
+            )
+            resp.raise_for_status()
+            payload = resp.json()
+            instruments = payload if isinstance(payload, list) else []
+            self._instrument_metadata = {
+                str(
+                    item.get("ticker") or item.get("symbol") or ""
+                ).upper(): item
+                for item in instruments
+                if isinstance(item, dict)
+                and (item.get("ticker") or item.get("symbol"))
+            }
+            return instruments
+        except httpx.HTTPStatusError as exc:
+            # Older/demo Trading212 API deployments may not expose this
+            # optional endpoint. Keep the data sync usable in that case.
+            if exc.response.status_code == 404:
+                self._instrument_metadata = {}
+                return []
+            _raise_for_status(exc.response)
+            raise  # unreachable
+        except (httpx.TimeoutException, httpx.HTTPError) as exc:
+            msg = "Trading212 instrument metadata request failed"
             raise TransientError(msg) from exc
 
     async def fetch_holdings(
@@ -236,15 +374,43 @@ class Trading212Connector(Connector):
             return []
 
         observed_at = datetime.now(UTC)
+        instruments = await self.fetch_instruments()
+        by_ticker = {
+            str(item.get("ticker") or item.get("symbol") or "").upper(): item
+            for item in instruments
+            if isinstance(item, dict)
+        }
         items = await self.fetch_portfolio()
         holdings: list[RawHolding] = []
         for item in items:
-            ticker = str(item.get("ticker", ""))
-            quantity = Decimal(str(item.get("quantity", "0")))
+            # Normalise missing/null optional fields gracefully: never
+            # let a provider-side null crash the whole holdings fetch or
+            # leak the literal string "None" into the datamodel.
+            ticker_raw = item.get("ticker")
+            ticker = str(ticker_raw).strip() if ticker_raw is not None else ""
+            instrument = by_ticker.get(ticker.upper(), {})
+            public_ticker, display_name, venue = _normalise_instrument(ticker)
+            metadata_isin = _metadata_value(instrument, "isin", "ISIN")
+            metadata_name = _metadata_value(instrument, "name", "shortName")
+            metadata_ticker = _metadata_value(instrument, "ticker", "symbol")
+            metadata_venue = _metadata_value(
+                instrument, "exchange", "exchangeCode", "venue"
+            )
+            quantity = _safe_quantity(item.get("quantity"))
+            scale = _price_scale(ticker)
             average_price = _optional_decimal(item.get("averagePrice"))
+            if average_price is not None:
+                average_price *= scale
             current_price = _optional_decimal(item.get("currentPrice"))
-            currency = str(item.get("currencyCode") or self._account_currency)
-            frontend = str(item.get("frontend", "")).upper()
+            if current_price is not None:
+                current_price *= scale
+            currency = str(
+                item.get("currencyCode")
+                or instrument.get("currencyCode")
+                or instrument.get("currency")
+                or self._account_currency
+            )
+            frontend = str(item.get("frontend") or "").upper()
             security_type = "etf" if frontend == "ETF" else "stock"
             holdings.append(
                 RawHolding(
@@ -252,9 +418,25 @@ class Trading212Connector(Connector):
                     observed_at=observed_at,
                     quantity=quantity,
                     security_reference=SecurityReference(
-                        external_id=ticker,
-                        ticker=ticker,
-                        name=str(item.get("name") or ticker),
+                        # Use the public exchange-qualified symbol as the
+                        # canonical lookup key.  This lets an existing
+                        # security be reused after the broker's internal
+                        # ``*_EQ`` identifier is normalised.
+                        external_id=ticker or None,
+                        ticker=(
+                            metadata_ticker or public_ticker or ticker or None
+                        ),
+                        name=(
+                            metadata_name
+                            or (
+                                display_name
+                                if display_name != ticker
+                                else None
+                            )
+                            or str(item.get("name") or display_name or None)
+                        ),
+                        isin=metadata_isin,
+                        venue=metadata_venue or venue,
                         currency_code=currency,
                         security_type=security_type,
                     ),
@@ -271,6 +453,7 @@ class Trading212Connector(Connector):
                     provider_metadata={
                         "initial_fill_date": item.get("initialFillDate"),
                         "frontend": item.get("frontend"),
+                        "trading212_ticker": ticker,
                     },
                 )
             )
@@ -287,9 +470,9 @@ class Trading212Connector(Connector):
             msg = "Trading212Connector not authenticated"
             raise PermanentError(msg)
 
-        # Fetch fresh cash balance
+        # Reuse the cash response from authenticate() for this sync run.
         api_key = self.config.credentials.get("api_key", "")
-        cash_data = await self._fetch_cash(api_key)
+        cash_data = self._cash_data or await self._fetch_cash(api_key)
 
         return [
             RawAccount(
@@ -318,11 +501,13 @@ class Trading212Connector(Connector):
             api_key, self.config.credentials.get("api_secret")
         )
         try:
-            resp = await self._http.get(
+            resp = await self._get(
                 "/api/v0/equity/account/cash", headers=headers
             )
             resp.raise_for_status()
-            return resp.json()
+            data = resp.json()
+            self._cash_data = data
+            return data
         except httpx.HTTPStatusError as exc:
             _raise_for_status(exc.response)
             raise  # unreachable
@@ -341,8 +526,10 @@ class Trading212Connector(Connector):
         *,
         account_id: str | None = None,
         limit: int | None = None,
+        to: datetime | None = None,
     ) -> list[RawTransaction]:
-        """Fetch orders and cash transactions since *since*.
+        """Fetch orders and cash transactions since *since* (optionally
+        up to *to*).
 
         Combines data from two Trading212 endpoints:
 
@@ -361,9 +548,14 @@ class Trading212Connector(Connector):
             account_id: If set, only return transactions matching this
                 account ID.
             limit: Maximum number of transactions to return.
+            to: Optional exclusive upper bound; only return transactions
+                occurring before this time (Trading212's ``to`` query
+                parameter).  When omitted, the provider returns all
+                transactions up to the present.
 
         Returns:
-            A combined, chronologically-sorted list of raw transactions.
+            A combined, chronologically-sorted list of raw transactions,
+            deduplicated by ``external_transaction_id``.
         """
         if not self._account_id:
             msg = "Trading212Connector not authenticated"
@@ -373,43 +565,107 @@ class Trading212Connector(Connector):
         if account_id is not None and account_id != self._account_id:
             return []
 
+        if to is not None and to <= since:
+            msg = (
+                f"Trading212 date range invalid: 'to' ({to.isoformat()}) "
+                f"must be after 'since' ({since.isoformat()})"
+            )
+            raise PermanentError(msg)
+
         api_key = self.config.credentials.get("api_key", "")
 
         # Fetch from both endpoints concurrently
-        order_txns = await self._fetch_order_history(api_key, since, limit)
-        cash_txns = await self._fetch_transaction_history(api_key, since, limit)
+        order_txns = await self._fetch_order_history(
+            api_key, since, limit, to=to
+        )
+        cash_txns = await self._fetch_transaction_history(
+            api_key, since, limit, to=to
+        )
 
         all_txns: list[RawTransaction] = list(order_txns) + list(cash_txns)
+        await self.fetch_instruments()
+        all_txns = [self._enrich_transaction_security(txn) for txn in all_txns]
+        # Deduplicate by provider external id (orders are prefixed
+        # ``order_``, cash transactions ``txn_``; a same-id collision
+        # between the two lists would otherwise double-persist).
+        seen: set[str] = set()
+        deduped: list[RawTransaction] = []
+        for txn in all_txns:
+            key = txn.external_transaction_id
+            if key in seen:
+                continue
+            seen.add(key)
+            deduped.append(txn)
+
         # Sort chronologically by occurred_at (most recent first)
-        all_txns.sort(key=lambda t: t.occurred_at, reverse=True)
+        deduped.sort(key=lambda t: t.occurred_at, reverse=True)
 
-        if limit and len(all_txns) > limit:
-            all_txns = all_txns[:limit]
+        if limit and len(deduped) > limit:
+            deduped = deduped[:limit]
 
-        return all_txns
+        return deduped
+
+    def _enrich_transaction_security(
+        self, transaction: RawTransaction
+    ) -> RawTransaction:
+        """Add Trading212 instrument-master identifiers to a history row."""
+        reference = transaction.security_reference
+        if reference is None or not reference.ticker:
+            return transaction
+        item = (self._instrument_metadata or {}).get(
+            reference.ticker.upper(), {}
+        )
+        if not item:
+            return transaction
+        isin = _metadata_value(item, "isin", "ISIN") or reference.isin
+        name = _metadata_value(item, "name", "shortName") or reference.name
+        venue = _metadata_value(
+            item, "exchange", "exchangeCode", "venue"
+        ) or reference.venue
+        currency = (
+            _metadata_value(item, "currencyCode", "currency")
+            or reference.currency_code
+        )
+        enriched = reference.model_copy(
+            update={
+                "isin": isin,
+                "name": name,
+                "venue": venue,
+                "currency_code": currency,
+            }
+        )
+        return transaction.model_copy(update={"security_reference": enriched})
 
     async def _fetch_order_history(
         self,
         api_key: str,
         since: datetime,
         limit: int | None,
+        to: datetime | None = None,
     ) -> list[RawTransaction]:
         """Fetch buy/sell order history with pagination."""
         items: list[RawTransaction] = []
         ps = min(limit, _DEFAULT_PAGE_SIZE) if limit else _DEFAULT_PAGE_SIZE
         path = f"/api/v0/equity/history/orders?limit={ps}"
+        seen_paths: set[str] = set()
         # Trading212 uses from/to query params in ISO-8601
         since_str = since.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
         path += f"&from={since_str}"
+        if to is not None:
+            to_str = to.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+            path += f"&to={to_str}"
 
         headers = _auth_headers(
             api_key, self.config.credentials.get("api_secret")
         )
 
         while path:
+            if path in seen_paths:
+                break
+            seen_paths.add(path)
             url = path
             try:
-                resp = await self._http.get(url, headers=headers)
+                resp = await self._get(url, headers=headers)
                 resp.raise_for_status()
                 data = resp.json()
             except httpx.HTTPStatusError as exc:
@@ -423,13 +679,18 @@ class Trading212Connector(Connector):
                 raise TransientError(msg) from exc
 
             order_list: list[dict[str, Any]] = data.get("items", [])
+            oldest_in_page: datetime | None = None
             for order in order_list:
                 txn = _parse_order(order, self._account_id or "trading212")
+                if oldest_in_page is None or txn.occurred_at < oldest_in_page:
+                    oldest_in_page = txn.occurred_at
                 if txn.occurred_at >= since:
                     items.append(txn)
                     if limit and len(items) >= limit:
                         return items
 
+            if oldest_in_page is not None and oldest_in_page < since:
+                break
             path = data.get("nextPagePath")
 
         return items
@@ -439,23 +700,31 @@ class Trading212Connector(Connector):
         api_key: str,
         since: datetime,
         limit: int | None,
+        to: datetime | None = None,
     ) -> list[RawTransaction]:
         """Fetch cash transaction history (dividends, deposits, etc.)
         with pagination."""
         items: list[RawTransaction] = []
         ps = min(limit, _DEFAULT_PAGE_SIZE) if limit else _DEFAULT_PAGE_SIZE
         path = f"/api/v0/equity/history/transactions?limit={ps}"
+        seen_paths: set[str] = set()
         since_str = since.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
         path += f"&from={since_str}"
+        if to is not None:
+            to_str = to.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+            path += f"&to={to_str}"
 
         headers = _auth_headers(
             api_key, self.config.credentials.get("api_secret")
         )
 
         while path:
+            if path in seen_paths:
+                break
+            seen_paths.add(path)
             url = path
             try:
-                resp = await self._http.get(url, headers=headers)
+                resp = await self._get(url, headers=headers)
                 resp.raise_for_status()
                 data = resp.json()
             except httpx.HTTPStatusError as exc:
@@ -469,15 +738,20 @@ class Trading212Connector(Connector):
                 raise TransientError(msg) from exc
 
             txn_list: list[dict[str, Any]] = data.get("items", [])
+            oldest_in_page: datetime | None = None
             for txn_data in txn_list:
                 txn = _parse_cash_transaction(
                     txn_data, self._account_id or "trading212"
                 )
+                if oldest_in_page is None or txn.occurred_at < oldest_in_page:
+                    oldest_in_page = txn.occurred_at
                 if txn.occurred_at >= since:
                     items.append(txn)
                     if limit and len(items) >= limit:
                         return items
 
+            if oldest_in_page is not None and oldest_in_page < since:
+                break
             path = data.get("nextPagePath")
 
         return items
@@ -521,6 +795,10 @@ def _raise_for_status(response: httpx.Response) -> None:
     status = response.status_code
     if status == 429:
         retry_after = _parse_retry_after(response)
+        reset_at = _parse_rate_limit_reset(response)
+        if reset_at is not None:
+            reset_delay = max(0.0, reset_at - time()) + 1.0
+            retry_after = max(retry_after or 0.0, reset_delay)
         msg = "Trading212 rate limit exceeded"
         raise RateLimitError(msg, retry_after=retry_after)
     if status in (401, 403):
@@ -536,6 +814,17 @@ def _raise_for_status(response: httpx.Response) -> None:
 def _parse_retry_after(response: httpx.Response) -> float | None:
     """Extract ``Retry-After`` header value in seconds."""
     value = response.headers.get("Retry-After")
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except ValueError:
+        return None
+
+
+def _parse_rate_limit_reset(response: httpx.Response) -> float | None:
+    """Return the provider's reset epoch from ``x-ratelimit-reset``."""
+    value = response.headers.get("x-ratelimit-reset")
     if value is None:
         return None
     try:
@@ -624,7 +913,10 @@ def _parse_order(
     side = data.get("side", "")
     total = Decimal(str(data.get("total", "0")))
     currency = data.get("currencyCode", "EUR")
-    filled_time = _parse_t212_datetime(data.get("filledTime"))
+    filled_time_raw = data.get("filledTime")
+    filled_time = (
+        _parse_t212_datetime(filled_time_raw) if filled_time_raw else None
+    )
     creation_time = _parse_t212_datetime(data.get("creationTime"))
     status_raw = data.get("status", "")
     filled_price = data.get("filledPrice")
@@ -637,18 +929,30 @@ def _parse_order(
     # Amount is outflow (negative) for buys, inflow (positive) for sells
     amount = -total if side.upper() == "BUY" else total
 
+    # Fees: Trading212 reports tax + stamp duty separately; both reduce
+    # the net cash flow of the order.
+    fee_total = (Decimal(str(tax or 0))) + (Decimal(str(stamp_duty or 0)))
+
     return RawTransaction(
         external_transaction_id=f"order_{order_id}",
         external_account_id=account_id,
         amount=amount,
         currency_code=currency,
-        occurred_at=creation_time,
+        # A filled order occurred at execution time. For pending orders
+        # Trading212 leaves filledTime null; retain creation time instead of
+        # converting the missing timestamp to the Unix epoch.
+        occurred_at=filled_time or creation_time,
         booked_at=filled_time or creation_time,
         description=f"{side} {quantity} x {ticker}"
         if ticker
         else f"{side} order {order_id}",
         transaction_type=_map_order_side(side),
         quantity=Decimal(str(quantity)) if quantity else None,
+        unit_price=(
+            Decimal(str(filled_price)) if filled_price is not None else None
+        ),
+        fee_amount=fee_total or None,
+        fee_currency_code=currency if fee_total else None,
         status=_map_order_status(status_raw),
         security_reference=SecurityReference(
             external_id=ticker or None,
@@ -686,7 +990,23 @@ def _parse_cash_transaction(
 
     Covers dividends, deposits, withdrawals, interest, and fees.
     """
-    txn_id = data.get("id", "")
+    # The live API omits ``id`` for some cash-transaction types.  Falling
+    # back to an empty string makes every such record look like ``txn_`` and
+    # the connector-level deduplication then collapses the whole history to
+    # one row.  ``reference`` is provider-generated for those responses; the
+    # remaining fields make the fallback deterministic for older payloads.
+    txn_id = data.get("id")
+    if txn_id in (None, ""):
+        txn_id = data.get("reference") or "|".join(
+            str(data.get(field, ""))
+            for field in (
+                "type",
+                "dateTime",
+                "amount",
+                "currencyCode",
+                "ticker",
+            )
+        )
     t212_type = data.get("type", "")
     amount = Decimal(str(data.get("amount", "0")))
     currency = data.get("currencyCode", "EUR")
@@ -705,6 +1025,10 @@ def _parse_cash_transaction(
     if ticker:
         description = f"{ticker} {description}"
 
+    # For fee/tax cash transactions, surface the provider-reported
+    # amount as a positive fee (mirrors how orders report tax/stamp duty).
+    fee_amount = abs(amount) if canonical_type in ("fee", "tax") else None
+
     return RawTransaction(
         external_transaction_id=f"txn_{txn_id}",
         external_account_id=account_id,
@@ -715,6 +1039,8 @@ def _parse_cash_transaction(
         description=description,
         transaction_type=canonical_type,
         status="booked",
+        fee_amount=fee_amount,
+        fee_currency_code=currency if fee_amount is not None else None,
         security_reference=SecurityReference(
             external_id=str(ticker),
             ticker=str(ticker),
@@ -736,4 +1062,25 @@ def _optional_decimal(value: Any) -> Decimal | None:
     """Parse an optional provider number without turning null into zero."""
     if value is None or value == "":
         return None
+    return Decimal(str(value))
+
+
+def _metadata_value(item: dict[str, Any], *keys: str) -> str | None:
+    """Return the first non-empty provider metadata value as text."""
+    for key in keys:
+        value = item.get(key)
+        if value not in (None, ""):
+            return str(value).strip()
+    return None
+
+
+def _safe_quantity(value: Any) -> Decimal:
+    """Parse a holding quantity, defaulting to zero on null/missing.
+
+    Trading212 reports ``quantity`` as a number, but defensive parsing
+    keeps a malformed/null portfolio item from crashing the whole
+    holdings fetch (quantity is a required ``RawHolding`` field).
+    """
+    if value is None or value == "":
+        return Decimal(0)
     return Decimal(str(value))

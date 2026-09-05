@@ -4,16 +4,25 @@ from __future__ import annotations
 
 from datetime import datetime
 from decimal import Decimal
-from typing import ClassVar
+from typing import Any, ClassVar
 from uuid import UUID as _UUID
 
-from sqlalchemy import DateTime, ForeignKey, Numeric, String, UniqueConstraint
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import (
+    JSON,
+    DateTime,
+    ForeignKey,
+    Numeric,
+    String,
+    UniqueConstraint,
+)
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from finance_sync.db import Base, pk_uuid
 from finance_sync.models.enums import TransactionStatus, TransactionType
 from finance_sync.models.mixins import TimestampMixin
+
+_JSON = JSON().with_variant(JSONB(), "postgresql")
 
 
 class Transaction(TimestampMixin, Base):
@@ -27,6 +36,10 @@ class Transaction(TimestampMixin, Base):
             "connection_id",
             "external_transaction_id",
             name="uq_transactions_provider",
+            # NULL connection_ids must still deduplicate (re-sync without
+            # a connection scope would otherwise insert duplicates because
+            # plain UNIQUE treats NULLs as distinct).
+            postgresql_nulls_not_distinct=True,
         ),
     )
 
@@ -126,9 +139,85 @@ class Transaction(TimestampMixin, Base):
         nullable=False,
         comment="'pending', 'booked', 'reversed', 'cancelled'",
     )
+    tombstoned_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     provider_fingerprint: Mapped[str | None] = mapped_column(
         String(128), nullable=True, comment="Provider-side checksum / hash"
+    )
+    provider_metadata_contract: Mapped[dict[str, Any] | None] = mapped_column(
+        _JSON,
+        nullable=True,
+        comment="Versioned, privacy-filtered provider fields",
+    )
+    merchant_name: Mapped[str | None] = mapped_column(
+        String(256), nullable=True
+    )
+    merchant_id: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    merchant_city: Mapped[str | None] = mapped_column(
+        String(128), nullable=True
+    )
+    merchant_country: Mapped[str | None] = mapped_column(
+        String(64), nullable=True
+    )
+    counterparty_name: Mapped[str | None] = mapped_column(
+        String(256), nullable=True
+    )
+    counterparty_account_reference: Mapped[str | None] = mapped_column(
+        String(256), nullable=True
+    )
+    merchant_category_code: Mapped[str | None] = mapped_column(
+        String(8), nullable=True
+    )
+    original_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    original_status: Mapped[str | None] = mapped_column(
+        String(64), nullable=True
+    )
+    authorization_status: Mapped[str | None] = mapped_column(
+        String(32), nullable=True
+    )
+    settlement_status: Mapped[str | None] = mapped_column(
+        String(32), nullable=True
+    )
+    source_record_hash: Mapped[str | None] = mapped_column(
+        String(128), nullable=True
+    )
+    cashflow_bucket: Mapped[str | None] = mapped_column(
+        String(32), nullable=True
+    )
+    cashflow_suggestion: Mapped[dict[str, Any] | None] = mapped_column(
+        _JSON, nullable=True
+    )
+    classification_source: Mapped[str | None] = mapped_column(
+        String(64), nullable=True
+    )
+    classification_override: Mapped[str | None] = mapped_column(
+        String(64), nullable=True
+    )
+    gross_amount: Mapped[Decimal | None] = mapped_column(
+        Numeric(24, 8), nullable=True
+    )
+    gross_currency_code: Mapped[str | None] = mapped_column(
+        String(3), nullable=True
+    )
+    net_amount: Mapped[Decimal | None] = mapped_column(
+        Numeric(24, 8), nullable=True
+    )
+    net_currency_code: Mapped[str | None] = mapped_column(
+        String(3), nullable=True
+    )
+    tax_amount: Mapped[Decimal | None] = mapped_column(
+        Numeric(24, 8), nullable=True
+    )
+    tax_currency_code: Mapped[str | None] = mapped_column(
+        String(3), nullable=True
+    )
+    refund_amount: Mapped[Decimal | None] = mapped_column(
+        Numeric(24, 8), nullable=True
+    )
+    refund_currency_code: Mapped[str | None] = mapped_column(
+        String(3), nullable=True
     )
     revision: Mapped[int] = mapped_column(default=1, nullable=False)
 

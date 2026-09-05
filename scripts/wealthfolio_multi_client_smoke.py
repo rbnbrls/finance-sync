@@ -37,7 +37,7 @@ from datetime import UTC, datetime
 sys.path.insert(
     0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src")
 )
-from finance_sync.monitoring.wealthfolio_monitor import (  # noqa: E402
+from finance_sync.monitoring.wealthfolio_monitor import (
     check_export_freshness,
     load_delivery_freshness,
 )
@@ -183,7 +183,7 @@ def main(argv: list[str] | None = None) -> int:
     else:
         try:
             deliveries = load_delivery_freshness(database_url)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             print(f"   FAIL: cannot read delivery cursors: {exc}")
             return 1
         result = check_export_freshness(

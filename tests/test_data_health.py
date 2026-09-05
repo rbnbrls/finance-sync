@@ -238,6 +238,7 @@ async def test_additional_health_issues_cover_duplicate_balances_and_imports() -
         skipped_count=1,
     )
     session = _Session(
+        _Result(scalars=[]),
         _Result(rows=[("bunq", "account-1", 2, 10, 20)]),
         _Result(scalars=[run]),
     )
@@ -259,6 +260,109 @@ async def test_additional_health_issues_cover_duplicate_balances_and_imports() -
 
 
 @pytest.mark.asyncio
+async def test_failed_legacy_export_is_visible_in_data_health() -> None:
+    run = SimpleNamespace(
+        id="export-1",
+        exporter_type="wealthfolio",
+        target_id="legacy",
+        status="failed",
+        started_at=datetime(2026, 8, 25, 10, 0, tzinfo=UTC),
+    )
+    session = _Session(
+        _Result(rows=[run]),
+        _Result(rows=[]),
+        _Result(scalars=[]),
+    )
+
+    issues = await DataHealthService(
+        cast("AsyncSession", session),
+        "tenant-a",
+        permissions={"destinations:read", "destinations:write"},
+    )._additional_issues()
+
+    export_issue = next(
+        issue for issue in issues if issue.category == "failed_export"
+    )
+    assert export_issue.action.key == "retry_export"
+    assert export_issue.action.path.endswith("/wealthfolio/runs/export-1/retry")
+
+
+@pytest.mark.asyncio
+async def test_canonical_data_health_checks_expose_record_details() -> None:
+    now = datetime(2026, 8, 25, 10, 0, tzinfo=UTC)
+    session = _Session(
+        _Result(rows=[("tx-1", "Broker", "Koop zonder prijs", now)]),
+        _Result(rows=[("tx-2", "Broker", "Corporate action", now)]),
+        _Result(rows=[("account-1", "Broker", -10)]),
+        _Result(
+            rows=[
+                (
+                    "account-1",
+                    "Broker",
+                    -75,
+                    "EUR",
+                    now.date(),
+                    "Pensioeninleg",
+                )
+            ]
+        ),
+        _Result(rows=[("holding-1", "Broker", "VWCE")]),
+        _Result(rows=[("security-1", "Onbekende security")]),
+    )
+
+    issues = await DataHealthService(
+        cast("AsyncSession", session),
+        "tenant-a",
+        permissions={
+            "transactions:read",
+            "accounts:read",
+            "holdings:read",
+        },
+    )._canonical_data_issues()
+
+    assert [issue.category for issue in issues] == [
+        "incomplete_transaction",
+        "zero_cost_transaction",
+        "negative_balance",
+        "unbalanced_transfer",
+        "incomplete_holding",
+        "incomplete_security_identity",
+    ]
+    assert issues[0].action.key == "view_transactions"
+    assert issues[0].details == ["Broker · 2026-08-25 · Koop zonder prijs"]
+    assert issues[3].impact_count == 1
+    assert issues[4].action.key == "view_holdings"
+
+
+@pytest.mark.asyncio
+async def test_wealthfolio_preflight_exposes_destination_quality_issues() -> None:
+    session = _Session(
+        _Result(rows=[("ACME", "quote rejected")]),
+        _Result(rows=[("Broker", datetime(2026, 8, 25).date(), -10)]),
+        _Result(rows=[]),
+        _Result(rows=[("holding-1", "Broker", "ACME")]),
+        _Result(rows=[("holding-2", "Broker", "VWCE")]),
+    )
+
+    issues = await DataHealthService(
+        cast("AsyncSession", session),
+        "tenant-a",
+        permissions={"enrichment:write", "transactions:read"},
+    )._wealthfolio_preflight_issues()
+
+    assert [issue.category for issue in issues] == [
+        "quote_sync_failure",
+        "negative_valuation",
+        "incomplete_valuation",
+        "incomplete_cost_basis",
+    ]
+    assert issues[0].action.key == "refresh_quotes"
+    assert issues[1].action.key == "view_transactions"
+    assert issues[2].impact_count == 1
+    assert issues[3].impact_count == 1
+
+
+@pytest.mark.asyncio
 async def test_changed_provider_data_gets_provider_sync_action() -> None:
     session = _Session(_Result(rows=[("bunq", 3)]))
     source = DataHealthSource(
@@ -273,7 +377,7 @@ async def test_changed_provider_data_gets_provider_sync_action() -> None:
     assert issues[0].category == "provider_data_changed"
     assert issues[0].impact_count == 3
     assert issues[0].action.key == "sync_connection"
-    assert issues[0].action.path.endswith("connection-bunq")
+    assert issues[0].action.path.endswith("connection-bunq/start")
 
 
 @pytest.mark.parametrize(

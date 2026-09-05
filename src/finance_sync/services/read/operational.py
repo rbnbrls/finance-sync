@@ -113,9 +113,35 @@ class OperationalReadService:
             description=t.description,
             transaction_type=TransactionType(str(t.transaction_type)),
             status=str(t.status),
+            tombstoned_at=t.tombstoned_at,
             provider_key=t.provider_key,
             created_at=t.created_at,
             updated_at=t.updated_at,
+            provider_metadata_contract=t.provider_metadata_contract,
+            merchant_name=t.merchant_name,
+            merchant_id=t.merchant_id,
+            merchant_city=t.merchant_city,
+            merchant_country=t.merchant_country,
+            counterparty_name=t.counterparty_name,
+            counterparty_account_reference=t.counterparty_account_reference,
+            merchant_category_code=t.merchant_category_code,
+            original_type=t.original_type,
+            original_status=t.original_status,
+            authorization_status=t.authorization_status,
+            settlement_status=t.settlement_status,
+            source_record_hash=t.source_record_hash,
+            cashflow_bucket=t.cashflow_bucket,
+            cashflow_suggestion=t.cashflow_suggestion,
+            classification_source=t.classification_source,
+            classification_override=t.classification_override,
+            gross_amount=t.gross_amount,
+            gross_currency_code=t.gross_currency_code,
+            net_amount=t.net_amount,
+            net_currency_code=t.net_currency_code,
+            tax_amount=t.tax_amount,
+            tax_currency_code=t.tax_currency_code,
+            refund_amount=t.refund_amount,
+            refund_currency_code=t.refund_currency_code,
         )
 
     async def list_transactions(
@@ -426,6 +452,15 @@ class OperationalReadService:
             status=str(t.status),
             created_at=t.created_at,
             updated_at=t.updated_at,
+            provider_metadata_contract=t.provider_metadata_contract,
+            merchant_id=t.merchant_id,
+            merchant_category_code=t.merchant_category_code,
+            original_status=t.original_status,
+            authorization_status=t.authorization_status,
+            settlement_status=t.settlement_status,
+            source_record_hash=t.source_record_hash,
+            refund_amount=t.refund_amount,
+            refund_currency_code=t.refund_currency_code,
         )
 
     async def list_account_balances(
@@ -817,6 +852,9 @@ class OperationalReadService:
                 SyncRunResponse(
                     id=str(sr.id),
                     connector=sr.connector,
+                    connection_id=(
+                        str(sr.connection_id) if sr.connection_id else None
+                    ),
                     status=str(sr.status),
                     started_at=sr.started_at,
                     completed_at=sr.completed_at,

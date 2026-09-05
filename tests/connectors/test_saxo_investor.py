@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import TYPE_CHECKING
+from pathlib import Path
 
 import pytest
 from openpyxl import Workbook
@@ -12,9 +12,6 @@ from openpyxl import Workbook
 from finance_sync.connectors.exceptions import PermanentError
 from finance_sync.connectors.models import ConnectorConfig
 from finance_sync.connectors.saxo_investor import SaxoInvestorConnector
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 HEADERS = [
     "Instrument",
@@ -45,6 +42,24 @@ TRANSACTION_HEADERS = [
     "Instrument ISIN",
     "Instrumentvaluta",
     "Type",
+]
+
+CURRENT_TRANSACTION_HEADERS = [
+    "Klant-id",
+    "Transactiedatum",
+    "Valutadatum",
+    "Type",
+    "Instrument",
+    "Instrument ISIN",
+    "Instrumentvaluta",
+    "Uitwisselingsbeschrijving",
+    "Instrumentsymbool",
+    "Acties",
+    "Boekingsbedrag",
+    "Order-ID",
+    "Omrekeningskoers",
+    "Van derivaat",
+    "Onderliggend instrumenttype",
 ]
 
 
@@ -166,7 +181,8 @@ async def test_imports_saxo_positions_as_holdings(tmp_path: Path) -> None:
         "holdings",
     }
     assert account.external_account_id == "saxo-investor-my-saxo"
-    assert account.current_balance == Decimal(256)
+    assert account.current_balance is None
+    assert account.net_asset_value == 256
     assert len(holdings) == 2
     assert holdings[0].observed_at == datetime(2026, 8, 23, tzinfo=UTC)
     assert holdings[0].security_reference.isin == "NL0000000001"
@@ -225,9 +241,89 @@ async def test_imports_saxo_transactions_and_combines_both_exports(
 
     assert len(imported) == 2
     assert imported[0].transaction_type == "purchase"
+    assert imported[0].quantity == 1000
+    assert imported[0].unit_price == Decimal("1.91")
     assert imported[0].security_reference.isin == "US75574V1016"
     assert imported[0].fee_amount == Decimal("4.92")
     assert len(await connector.fetch_holdings()) == 2
+
+
+@pytest.mark.asyncio
+async def test_attached_saxo_exports_detect_both_roles() -> None:
+    """The supplied Saxo exports are accepted as one two-file import."""
+    positions = Path(
+        "/Users/ruben/Downloads/Posities_28-aug-2026_17_33_40.xlsx"
+    )
+    transactions = Path(
+        "/Users/ruben/Downloads/Transactions_15996986_2022-07-13_2026-08-28.xlsx"
+    )
+    if not positions.exists() or not transactions.exists():
+        pytest.skip("voorbeeldbestanden zijn niet beschikbaar")
+    connector = SaxoInvestorConnector(
+        ConnectorConfig(
+            provider_type="saxo_investor",
+            options={"export_paths": [str(positions), str(transactions)]},
+        )
+    )
+    await connector.authenticate()
+    assert connector.export_roles == {"positions", "transactions"}
+    assert len(await connector.fetch_holdings()) == 9
+    assert (
+        len(
+            await connector.fetch_transactions(datetime.min.replace(tzinfo=UTC))
+        )
+        == 250
+    )
+
+
+@pytest.mark.asyncio
+async def test_imports_current_saxo_transaction_export_schema(
+    tmp_path: Path,
+) -> None:
+    """Current Saxo exports use Type and omit the booking currency column."""
+    path = tmp_path / "Transactions_15996986_2022-07-13_2026-08-28.xlsx"
+    workbook = Workbook()
+    sheet = workbook.active
+    assert sheet is not None
+    sheet.append(CURRENT_TRANSACTION_HEADERS)
+    sheet.append(
+        [
+            "15996986",
+            46244,
+            46241,
+            "Geldoverboeking",
+            "Ready Capital Corp.",
+            "US75574U1016",
+            "USD",
+            "New York Stock Exchange",
+            "RC:xnys",
+            "Securities Lending inkomsten",
+            0.03,
+            None,
+            0.86636316,
+            "No",
+            None,
+        ]
+    )
+    workbook.save(path)
+
+    connector = SaxoInvestorConnector(
+        ConnectorConfig(
+            provider_type="saxo_investor", options={"export_path": str(path)}
+        )
+    )
+
+    await connector.authenticate()
+    imported = await connector.fetch_transactions(
+        datetime.min.replace(tzinfo=UTC)
+    )
+
+    assert len(imported) == 1
+    assert imported[0].occurred_at == datetime(2026, 8, 10, tzinfo=UTC)
+    assert imported[0].currency_code == "EUR"
+    assert imported[0].transaction_type == "interest"
+    assert imported[0].fee_amount is None
+    assert imported[0].security_reference.isin == "US75574U1016"
 
 
 @pytest.mark.asyncio
@@ -371,6 +467,8 @@ async def test_skips_transaction_rows_with_missing_booking_amount(
     assert account.provider_metadata is not None
     assert account.provider_metadata.get("skipped_transaction_rows") == 2
     assert account.provider_metadata.get("transactions_count") == 1
+    assert account.current_balance == Decimal("-1633.37")
+    assert account.provider_metadata.get("cash_balance") == "-1633.37"
 
 
 @pytest.mark.asyncio

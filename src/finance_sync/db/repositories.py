@@ -8,7 +8,7 @@ to the corresponding SQLAlchemy model.
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import cast
+from typing import Any, cast
 
 from finance_sync.db.repository import Repository
 from finance_sync.models import (
@@ -110,6 +110,29 @@ class EnrichmentFreshnessRepository(Repository[EnrichmentFreshness]):
 class TransactionRepository(Repository[Transaction]):
     model_class = Transaction
 
+    #: Mutable columns refreshed on conflict (matches the per-row
+    #: persistence path's ``fields`` tuple).  ``account_id`` is
+    #: deliberately excluded: the conflict target never changes and the
+    #: per-row path never mutates it either.
+    _UPDATABLE_COLUMNS: tuple[str, ...] = (
+        "security_id",
+        "amount",
+        "currency_code",
+        "amount_in_base",
+        "base_currency_code",
+        "fx_rate",
+        "occurred_at",
+        "booked_at",
+        "transaction_type",
+        "description",
+        "quantity",
+        "unit_price",
+        "fee_amount",
+        "fee_currency_code",
+        "status",
+        "provider_fingerprint",
+    )
+
     async def get_by_external_id(
         self,
         tenant_id: str,
@@ -134,6 +157,129 @@ class TransactionRepository(Repository[Transaction]):
             )
         results = await self.list(*filters, limit=1)
         return results[0] if results else None
+
+    async def upsert(
+        self,
+        tenant_id: str,
+        provider_key: str,
+        external_transaction_id: str,
+        *,
+        account_id: str,
+        connection_id: str | None = None,
+        values: dict[str, object] | None = None,
+        **fields: object,
+    ) -> Transaction:
+        """Insert or update a single transaction atomically.
+
+        Executes one ``INSERT ... ON CONFLICT (tenant_id, provider_key,
+        connection_id, external_transaction_id) DO UPDATE ... RETURNING``
+        statement against the caller's transaction.  The conflict target
+        is the ``uq_transactions_provider`` unique constraint (rebuilt as
+        ``NULLS NOT DISTINCT`` by migration 0046), so rows whose
+        ``connection_id`` is NULL still deduplicate.
+
+        *fields* (or the equivalent ``values`` mapping) are the fetched
+        column values; every updatable column is overwritten with the
+        latest value on conflict.  NULL incoming values are treated as
+        "not reported": ``COALESCE`` keeps the existing column value, so
+        a provider that stops reporting an optional field (e.g. a
+        security reference that no longer resolves) never nulls out a
+        previously-set value — the same semantics as the per-row
+        persistence path.
+
+        The ``DO UPDATE`` clause is gated by ``IS DISTINCT FROM`` change
+        detection, so re-upserting identical data is a no-op: the row is
+        neither updated nor returned, ``revision`` is not bumped, and no
+        outbox ``*.updated`` event is emitted.  ``revision`` increments
+        only on a real change; ``updated_at`` is refreshed by the
+        statement itself (the ORM ``onupdate`` event does not fire for
+        Core-level ``ON CONFLICT DO UPDATE``).
+
+        The method never commits or rolls back: it participates in the
+        caller's transaction (the per-account UnitOfWork) and only
+        flushes the session, matching :meth:`Repository.add` / update.
+
+        Returns the upserted entity populated with database defaults
+        (``RETURNING`` carries every column).
+        """
+        from uuid import uuid4
+
+        from sqlalchemy import func, or_
+        from sqlalchemy.dialects.postgresql import insert
+
+        if values is None:
+            values = fields
+        row = {
+            "id": uuid4(),
+            "tenant_id": tenant_id,
+            "provider_key": provider_key,
+            "connection_id": connection_id,
+            "external_transaction_id": external_transaction_id,
+            "account_id": account_id,
+            "revision": 1,
+            **values,
+        }
+
+        stmt = insert(Transaction).values(**row)
+        excluded = stmt.excluded
+        set_: dict[str, Any] = {}
+        where: list[Any] = []
+        for column in self._UPDATABLE_COLUMNS:
+            # COALESCE(excluded.col, transactions.col) keeps the existing
+            # value when the incoming row carries NULL; the WHERE gate
+            # then fires exactly when the incoming value is non-NULL and
+            # differs, so a NULL incoming value never counts as a change.
+            incoming = func.coalesce(
+                getattr(excluded, column), getattr(Transaction, column)
+            )
+            set_[column] = incoming
+            where.append(
+                incoming.is_distinct_from(getattr(Transaction, column))
+            )
+        # revision is a side-effect counter: bump it only when a mutable
+        # column actually changed (the WHERE gate above), never because
+        # the VALUES row happens to carry a different value.
+        set_["revision"] = Transaction.revision + 1
+        set_["updated_at"] = func.now()
+        stmt = stmt.on_conflict_do_update(
+            index_elements=[
+                "tenant_id",
+                "provider_key",
+                "connection_id",
+                "external_transaction_id",
+            ],
+            set_=set_,
+            # OR-gate: update when ANY mutable column differs.  An
+            # AND-gate would require every column to differ — NULL
+            # incoming values (coalesce → existing) would make their
+            # clause ``existing IS DISTINCT FROM existing`` = false and
+            # the whole gate would never fire.
+            where=where[0] if len(where) == 1 else or_(*where),
+        )
+        result = await self._session.execute(stmt.returning(Transaction))
+        entity = result.scalar_one_or_none()
+        if entity is not None:
+            # ``RETURNING`` returns the ORM entity directly, already
+            # bound to the session; flush makes it visible to the rest
+            # of the transaction.  Refresh is unnecessary — RETURNING
+            # carries every column.
+            await self._session.flush()
+        else:
+            # No conflict and no change: the row already exists with
+            # identical values.  Re-load it so callers get an entity.
+            entity = await self.get_by_external_id(
+                tenant_id=tenant_id,
+                provider_key=provider_key,
+                external_transaction_id=external_transaction_id,
+                connection_id=connection_id,
+            )
+            if entity is None:  # pragma: no cover - defensive
+                msg = (
+                    "upsert returned no row and reload found nothing "
+                    f"for {provider_key}/{external_transaction_id}"
+                )
+                raise RuntimeError(msg)
+        return entity
 
     async def find_duplicate_candidates(
         self,
@@ -329,6 +475,69 @@ class CardTransactionRepository(Repository[CardTransaction]):
 
 class HoldingRepository(Repository[Holding]):
     model_class = Holding
+
+    async def upsert(
+        self,
+        tenant_id: str,
+        account_id: str,
+        security_id: str,
+        observed_at: datetime,
+        source: str,
+        *,
+        values: dict[str, object] | None = None,
+        **fields: object,
+    ) -> Holding:
+        """Insert or update one holding snapshot in the caller's transaction.
+
+        The snapshot identity is enforced by ``uq_holdings_snapshot``.  All
+        fetched holding attributes are refreshed on conflict, while the
+        method deliberately leaves commit/rollback responsibility to the
+        owning unit of work.
+        """
+        from uuid import uuid4
+
+        from sqlalchemy import func
+        from sqlalchemy.dialects.postgresql import insert
+
+        if values is None:
+            values = fields
+        row = {
+            "id": uuid4(),
+            "tenant_id": tenant_id,
+            "account_id": account_id,
+            "security_id": security_id,
+            "observed_at": observed_at,
+            "source": source,
+            **values,
+        }
+
+        stmt = insert(Holding).values(**row)
+        excluded = stmt.excluded
+        mutable_columns = (
+            "quantity",
+            "cost_basis",
+            "cost_basis_currency",
+            "market_value",
+            "currency_code",
+            "price",
+            "price_currency",
+        )
+        set_ = {column: getattr(excluded, column) for column in mutable_columns}
+        set_["updated_at"] = func.now()
+        stmt = stmt.on_conflict_do_update(
+            index_elements=[
+                "tenant_id",
+                "account_id",
+                "security_id",
+                "observed_at",
+                "source",
+            ],
+            set_=set_,
+        )
+        result = await self._session.execute(stmt.returning(Holding))
+        entity = result.scalar_one()
+        await self._session.flush()
+        return entity
 
     async def get_by_snapshot(
         self,

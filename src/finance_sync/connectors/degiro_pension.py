@@ -184,6 +184,16 @@ class DegiroPensionConnector(Connector):
     display_name = "DEGIRO Pensioen"
     sdk_version = "0.1.0"
     supported_resources = frozenset({"accounts", "transactions", "holdings"})
+    ingestion_methods = ("file",)
+    import_wizard = {
+        "files": [
+            {"key": "account", "label": "Accountoverzicht", "required": True},
+            {"key": "transactions", "label": "Transacties", "required": True},
+            {"key": "portfolio", "label": "Portefeuille", "required": True},
+        ],
+        "accept": [".csv", ".xlsx", ".xls"],
+        "preview": True,
+    }
     rate_limit_policy = None
 
     def __init__(self, config: ConnectorConfig) -> None:
@@ -266,6 +276,7 @@ class DegiroPensionConnector(Connector):
                     if self._snapshot_at
                     else None,
                     "cash_included_in_current_balance": True,
+                    "supports_multi_currency_cash": False,
                 },
             )
         ]
@@ -366,9 +377,12 @@ class DegiroPensionConnector(Connector):
                 )
                 raise PermanentError(message)
             self._transactions = self._deduplicate(transactions)
-            self._holdings = holdings
+            self._holdings = self._fill_missing_cost_basis(
+                holdings, self._transactions, report
+            )
             report.rows_imported = len(self._transactions) + len(holdings)
             self._reports = reports
+            self.validation_report = report
         except PermanentError:
             self.validation_report = report
             raise
@@ -377,7 +391,88 @@ class DegiroPensionConnector(Connector):
             self.validation_report = report
             message = f"DEGIRO-export kon niet worden gelezen: {exc}"
             raise PermanentError(message) from exc
-        self.validation_report = report
+
+    @staticmethod
+    def _fill_missing_cost_basis(
+        holdings: list[RawHolding],
+        transactions: list[RawTransaction],
+        report: ImportValidationReport,
+    ) -> list[RawHolding]:
+        """Derive missing portfolio GAK values from the transactions export.
+
+        DEGIRO's Portfolio export does not always include a GAK column.  The
+        Transactions export still contains the authoritative trade quantity,
+        price and fees, so calculate a weighted-average remaining cost per
+        ISIN.  The value stored on ``RawHolding`` is the total cost basis;
+        Wealthfolio later converts it to average cost per unit.
+        """
+        state: dict[str, tuple[Decimal, Decimal]] = {}
+        ordered = sorted(transactions, key=lambda item: item.occurred_at)
+        for transaction in ordered:
+            reference = transaction.security_reference
+            isin = reference.isin if reference is not None else None
+            if (
+                not isin
+                or transaction.transaction_type not in {"purchase", "sale"}
+                or transaction.quantity is None
+                or transaction.unit_price is None
+                or transaction.quantity == 0
+            ):
+                continue
+            quantity = abs(transaction.quantity)
+            unit_price = abs(transaction.unit_price)
+            open_quantity, open_cost = state.get(
+                isin, (Decimal(0), Decimal(0))
+            )
+            if transaction.transaction_type == "purchase":
+                state[isin] = (
+                    open_quantity + quantity,
+                    open_cost
+                    + quantity * unit_price
+                    + abs(transaction.fee_amount or Decimal(0)),
+                )
+                continue
+            average_cost = (
+                open_cost / open_quantity if open_quantity else Decimal(0)
+            )
+            state[isin] = (
+                max(open_quantity - quantity, Decimal(0)),
+                max(open_cost - quantity * average_cost, Decimal(0)),
+            )
+
+        filled = 0
+        result: list[RawHolding] = []
+        for holding in holdings:
+            if holding.cost_basis is not None:
+                result.append(holding)
+                continue
+            isin = holding.security_reference.isin
+            derived_quantity, derived_cost = state.get(
+                isin, (Decimal(0), Decimal(0))
+            )
+            if derived_quantity <= 0 or derived_cost <= 0:
+                result.append(holding)
+                continue
+            # A mismatch means the transaction export is incomplete for this
+            # position. Do not invent a cost basis from a partial history.
+            if derived_quantity != abs(holding.quantity):
+                report.warnings.append(
+                    f"GAK niet afgeleid voor {isin}: transacties bevatten "
+                    f"{derived_quantity} stuks, portefeuille "
+                    f"{holding.quantity}."
+                )
+                result.append(holding)
+                continue
+            holding.cost_basis = derived_cost
+            holding.cost_basis_currency = holding.currency_code
+            filled += 1
+            result.append(holding)
+        if filled:
+            report.warnings.append(
+                f"GAK afgeleid uit transacties voor {filled} "
+                "portefeuilleposities."
+            )
+        return result
 
     def _read_table(self, path: Path) -> tuple[list[str], list[list[Any]]]:
         suffix = path.suffix.lower()
@@ -414,6 +509,13 @@ class DegiroPensionConnector(Connector):
                 if sheet is None:
                     message = f"{path.name}: het werkboek heeft geen werkblad"
                     raise ValueError(message)
+                # DEGIRO's XLSX exports currently declare ``dimension A1``
+                # even when the sheet contains many populated cells. In
+                # read-only mode openpyxl trusts that stale dimension and
+                # would return only the first cell. Force a scan of the real
+                # worksheet bounds before reading the table.
+                if sheet.calculate_dimension() in {"A1", "A1:A1"}:
+                    sheet.reset_dimensions()
                 table = [list(row) for row in sheet.iter_rows(values_only=True)]
             finally:
                 workbook.close()
@@ -520,6 +622,11 @@ class DegiroPensionConnector(Connector):
             if not any(_clean(v) for v in values):
                 continue
             try:
+                if not _clean(row.get("Datum", "Date")):
+                    # DEGIRO sometimes wraps a long product name onto a
+                    # continuation row without a date or transaction data.
+                    report.rows_skipped += 1
+                    continue
                 occurred = _parse_datetime(
                     row.get("Datum", "Date"), row.get("Tijd", "Time")
                 )
@@ -550,8 +657,21 @@ class DegiroPensionConnector(Connector):
                         "Transactiekosten",
                         "Transactiekosten en/of",
                         "Transactiekosten en/of kosten van derden",
+                        "Transactiekosten en/of kosten van derden EUR",
                         "Transaction and/or third party fees",
                     )
+                )
+                autofx_fee = _decimal(
+                    row.get(
+                        "AutoFX Kosten",
+                        "AutoFX fees",
+                        "AutoFX costs",
+                    )
+                )
+                total_fee = (
+                    abs(fee or Decimal(0)) + abs(autofx_fee or Decimal(0))
+                    if fee is not None or autofx_fee is not None
+                    else None
                 )
                 fee_currency = _currency(
                     row.get("Valuta", "Currency", occurrence=2),
@@ -622,9 +742,9 @@ class DegiroPensionConnector(Connector):
                         status="booked",
                         quantity=quantity,
                         unit_price=price,
-                        fee_amount=abs(fee) if fee is not None else None,
+                        fee_amount=total_fee,
                         fee_currency_code=fee_currency
-                        if fee is not None
+                        if total_fee is not None
                         else None,
                         security_reference=SecurityReference(
                             external_id=isin or None,
@@ -645,6 +765,12 @@ class DegiroPensionConnector(Connector):
                             "transaction_fee": str(fee)
                             if fee is not None
                             else None,
+                            "autofx_fee": str(autofx_fee)
+                            if autofx_fee is not None
+                            else None,
+                            "total_fee": str(total_fee)
+                            if total_fee is not None
+                            else None,
                         },
                     )
                 )
@@ -659,6 +785,13 @@ class DegiroPensionConnector(Connector):
     ) -> list[RawTransaction]:
         parsed: list[RawTransaction] = []
         signatures: Counter[str] = Counter()
+        # DEGIRO records a foreign-currency dividend first, followed by a
+        # separate ``Valuta Debitering`` and EUR ``Valuta Creditering``. The
+        # technical rows are not economic transactions, but the debit carries
+        # the exact historical FX rate needed for the EUR cash projection.
+        pending_cash_fx: list[tuple[Decimal, Decimal]] = []
+        latest_balance_at: datetime | None = None
+        latest_balance: Decimal | None = None
         for number, values in enumerate(source.rows, start=2):
             row = _Row(source.headers, values)
             try:
@@ -667,11 +800,43 @@ class DegiroPensionConnector(Connector):
                     continue
                 lowered = description.casefold()
                 if self._is_technical_statement_row(lowered):
+                    if "valuta debitering" in lowered:
+                        fx = _decimal(
+                            row.get(
+                                "FX mutatie",
+                                "Wisselkoers",
+                                "FX",
+                                "Exchange rate",
+                            )
+                        )
+                        mutation_raw = row.get("Mutatie", "Change", "Amount")
+                        mutation_currency = _currency(mutation_raw, default="")
+                        if mutation_currency:
+                            mutation_raw = row.after(
+                                "Mutatie", "Change", "Amount"
+                            )
+                        mutation = _decimal(mutation_raw)
+                        if (
+                            mutation is not None
+                            and mutation_currency == "USD"
+                            and fx not in (None, 0)
+                        ):
+                            pending_cash_fx.append((abs(mutation), fx))
                     report.rows_skipped += 1
                     continue
                 occurred = _parse_datetime(
                     row.get("Datum", "Date"), row.get("Tijd", "Time")
                 )
+                balance_raw = row.get("Saldo", "Balance")
+                balance_currency = _currency(balance_raw, default="")
+                if balance_currency:
+                    balance_raw = row.after("Saldo", "Balance")
+                balance = _decimal(balance_raw)
+                if balance is not None and (
+                    latest_balance_at is None or occurred >= latest_balance_at
+                ):
+                    latest_balance_at = occurred
+                    latest_balance = balance
                 order_id = _clean(row.get("Order ID", "Order Id", "OrderID"))
                 if order_id in self._trade_order_ids and self._is_trade_fee(
                     lowered
@@ -680,18 +845,64 @@ class DegiroPensionConnector(Connector):
                     continue
                 isin = _clean(row.get("ISIN")).upper()
                 product = _clean(row.get("Product"))
-                amount = _decimal(
-                    row.get("Mutatie", "Change", "Amount"), required=True
-                )
+                mutation_raw = row.get("Mutatie", "Change", "Amount")
+                # Current DEGIRO XLSX files put the currency immediately
+                # before the numeric mutation (with an unlabeled spacer
+                # column). Older exports put the numeric value directly in
+                # the named column, so support both layouts.
+                mutation_currency = _currency(mutation_raw, default="")
+                if mutation_currency:
+                    mutation_raw = row.after("Mutatie", "Change", "Amount")
+                if mutation_raw in (None, ""):
+                    # Balance-only rows are common in the Account export
+                    # (for example the cash-sweep header rows). They update
+                    # the account balance but are not transactions.
+                    report.rows_skipped += 1
+                    continue
+                amount = _decimal(mutation_raw, required=True)
+                mutation_after = row.after("Mutatie", "Change", "Amount")
                 currency = _currency(
                     row.get("Valuta", "Currency", occurrence=1)
-                    or row.after("Mutatie", "Change", "Amount")
+                    or _currency(mutation_after, default="")
+                    or mutation_currency
                     or row.get("Valuta", "Currency")
                 )
-                fx = _decimal(row.get("FX mutatie", "FX", "Exchange rate"))
+                fx = _decimal(
+                    row.get(
+                        "FX mutatie",
+                        "Wisselkoers",
+                        "FX",
+                        "Exchange rate",
+                    )
+                )
                 transaction_type = self._statement_type(
                     lowered, amount or Decimal(0)
                 )
+                projected_fx = None
+                if currency != "EUR" and transaction_type in {
+                    "dividend",
+                    "interest",
+                    "deposit",
+                    "withdrawal",
+                    "fee",
+                    "tax",
+                }:
+                    for index, (remaining, rate) in enumerate(pending_cash_fx):
+                        # One DEGIRO FX debit can settle several dividends
+                        # together (for example USD 124.34 covering two
+                        # dividend rows). Allocate the same broker rate to
+                        # each component until the debit is consumed.
+                        if remaining < abs(amount):
+                            continue
+                        projected_fx = rate
+                        leftover = remaining - abs(amount)
+                        if leftover:
+                            pending_cash_fx[index] = (leftover, rate)
+                        else:
+                            pending_cash_fx.pop(index)
+                        break
+                    if projected_fx is not None:
+                        fx = projected_fx
                 signature = _hash(
                     "account_statement",
                     order_id,
@@ -715,6 +926,14 @@ class DegiroPensionConnector(Connector):
                         description=description,
                         transaction_type=transaction_type,
                         status="booked",
+                        amount_in_base=(
+                            amount / fx
+                            if amount is not None and fx not in (None, 0)
+                            else None
+                        ),
+                        base_currency_code="EUR"
+                        if fx not in (None, 0)
+                        else None,
                         security_reference=SecurityReference(
                             external_id=isin or None,
                             isin=isin or None,
@@ -728,6 +947,13 @@ class DegiroPensionConnector(Connector):
                         provider_metadata={
                             "report_type": "account_statement",
                             "order_id": order_id or None,
+                            "source_currency": currency,
+                            "fx_rate": str(fx) if fx is not None else None,
+                            "fx_projection_source": (
+                                "paired_valuta_debitering"
+                                if projected_fx is not None
+                                else None
+                            ),
                         },
                     )
                 )
@@ -735,6 +961,12 @@ class DegiroPensionConnector(Connector):
                 report.errors.append(
                     f"{source.source.name}, regel {number}: {exc}"
                 )
+        # An Account/statement export has no positions, but it does contain
+        # the latest cash balance. Preserve it as the account balance when no
+        # portfolio export was supplied.
+        if self._portfolio_total is None and latest_balance is not None:
+            self._portfolio_total = latest_balance
+            self._cash_total = latest_balance
         return parsed
 
     @staticmethod

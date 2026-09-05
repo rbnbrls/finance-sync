@@ -303,6 +303,14 @@ class Settings(BaseSettings):
         validation_alias="ACTUAL_BUDGET_BATCH_SIZE",
         description="Max transactions per export batch.",
     )
+    actual_budget_transfer_account_name_overrides: dict[str, str] = Field(
+        default_factory=dict,
+        validation_alias="ACTUAL_BUDGET_TRANSFER_ACCOUNT_NAME_OVERRIDES",
+        description=(
+            "JSON mapping from canonical counterparty account references "
+            "to Actual Budget account names."
+        ),
+    )
 
     # ── Securo exporter ─────────────────────────────────────────────
     exporter_securo_enabled: bool = Field(
@@ -405,6 +413,17 @@ class Settings(BaseSettings):
         validation_alias="WEALTHFOLIO_PASSWORD",
         description="Password for Wealthfolio self-hosted authentication.",
     )
+    wealthfolio_request_timeout: float = Field(
+        default=90.0,
+        ge=30.0,
+        validation_alias="WEALTHFOLIO_REQUEST_TIMEOUT",
+        description=(
+            "HTTP request timeout in seconds for the Wealthfolio push API. "
+            "Defaults above the server-side WF_REQUEST_TIMEOUT_MS cap (30s) "
+            "so a slow holdings recalculation is not cut off by the client; "
+            "raise together with the server cap for very large portfolios."
+        ),
+    )
 
     # ── Firefly III exporter ─────────────────────────────────────────
     exporter_firefly_enabled: bool = Field(
@@ -437,6 +456,20 @@ class Settings(BaseSettings):
     firefly_account_name_overrides: dict[str, str] = Field(
         default_factory=dict,
         validation_alias="FIREFLY_ACCOUNT_NAME_OVERRIDES",
+    )
+    firefly_budget_name_map: dict[str, str] = Field(
+        default_factory=dict,
+        validation_alias="FIREFLY_BUDGET_NAME_MAP",
+        description=(
+            "JSON mapping from canonical categories to Firefly budgets."
+        ),
+    )
+    firefly_bill_name_map: dict[str, str] = Field(
+        default_factory=dict,
+        validation_alias="FIREFLY_BILL_NAME_MAP",
+        description=(
+            "JSON mapping from canonical categories to Firefly bills."
+        ),
     )
 
     # ── Ghostfolio exporter ──────────────────────────────────────────
@@ -673,6 +706,31 @@ class Settings(BaseSettings):
         description="Port for the worker health HTTP server.",
     )
 
+    # ── Autoscaling safety ────────────────────────────────────────
+    # Keep scale-up and scale-down thresholds apart (hysteresis) and
+    # hold a worker count stable during cooldown. Workers with active
+    # leases are drained before they are stopped.
+    autoscaling_scale_up_queue_depth: int = Field(
+        default=50,
+        ge=1,
+        validation_alias="AUTOSCALING_SCALE_UP_QUEUE_DEPTH",
+    )
+    autoscaling_scale_down_queue_depth: int = Field(
+        default=10,
+        ge=0,
+        validation_alias="AUTOSCALING_SCALE_DOWN_QUEUE_DEPTH",
+    )
+    autoscaling_cooldown_seconds: int = Field(
+        default=60,
+        ge=0,
+        validation_alias="AUTOSCALING_COOLDOWN_SECONDS",
+    )
+    autoscaling_drain_timeout_seconds: int = Field(
+        default=300,
+        ge=1,
+        validation_alias="AUTOSCALING_DRAIN_TIMEOUT_SECONDS",
+    )
+
     # ── Worker: bunq sync job ──────────────────────────────────────
     worker_job_bunq_sync_enabled: bool = Field(
         default=True,
@@ -710,6 +768,12 @@ class Settings(BaseSettings):
         default=1,
         ge=1,
         validation_alias="WORKER_JOB_TRADING212_SYNC_INTERVAL_HOURS",
+    )
+    sync_run_stale_after_minutes: int = Field(
+        default=360,
+        ge=30,
+        validation_alias="SYNC_RUN_STALE_AFTER_MINUTES",
+        description="Age after which a worker-orphaned running sync is recovered.",
     )
 
     # ── DEGIRO file imports ────────────────────────────────────────
@@ -780,6 +844,16 @@ class Settings(BaseSettings):
         validation_alias="WORKER_JOB_PRICE_ENRICHMENT_MARKET_CLOSE",
         description="Market close time (EST) for price enrichment "
         "window, e.g. '16:00'.",
+    )
+    worker_job_data_quality_repair_enabled: bool = Field(
+        default=False,
+        validation_alias="WORKER_JOB_DATA_QUALITY_REPAIR_ENABLED",
+        description="Continuously repair verifiable identity and quote issues.",
+    )
+    worker_job_data_quality_repair_interval_minutes: int = Field(
+        default=60,
+        ge=5,
+        validation_alias="WORKER_JOB_DATA_QUALITY_REPAIR_INTERVAL_MINUTES",
     )
 
     # ── Worker: Nightly reconciliation job ─────────────────────────

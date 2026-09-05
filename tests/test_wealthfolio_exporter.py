@@ -38,11 +38,18 @@ from finance_sync.exporter.wealthfolio.transaction_mapper import (
     WF_ACTIVITY_TRANSFER_IN,
     WF_ACTIVITY_TRANSFER_OUT,
     WF_ACTIVITY_WITHDRAWAL,
+    InvalidFxRateError,
+    UnresolvedCashCurrencyError,
     UnresolvedSecurityExportError,
     map_holding_to_wf_row,
     map_holdings_to_csv,
+    map_security_catalog_to_csv,
+    map_security_to_wf_asset,
+    map_tax_lot_to_wf_row,
+    map_tax_lots_to_csv,
     map_transaction_to_wf_row,
     map_transactions_to_csv,
+    validate_fx_observation,
 )
 from finance_sync.models.transaction import Transaction
 
@@ -186,12 +193,68 @@ class TestWealthfolioConfig:
         assert config.instrument_type_overrides == {"crypto": "CRYPTO"}
 
 
+class TestWealthfolioExportMonitoring:
+    async def test_failed_export_is_captured_by_glitchtip(self) -> None:
+        """Exporter failures must enter the event-driven GlitchTip path."""
+        from finance_sync.exporter.wealthfolio import exporter as module
+
+        session = MagicMock()
+        session.flush = AsyncMock()
+        session.commit = AsyncMock()
+        factory = MagicMock()
+        factory.return_value.__aenter__ = AsyncMock(return_value=session)
+        factory.return_value.__aexit__ = AsyncMock(return_value=None)
+        service = WealthfolioExporter(
+            factory, WealthfolioConfig(), tenant_id="tenant-1"
+        )
+        failure = RuntimeError("Wealthfolio unavailable")
+
+        with (
+            patch.object(service, "_load_accounts", side_effect=failure),
+            patch.object(service, "_complete_run", new=AsyncMock()),
+            patch.object(module, "capture_connector_exception") as capture,
+        ):
+            result = await service.run_export(since=datetime.now(UTC))
+
+        assert result.status == "failed"
+        capture.assert_called_once()
+        assert capture.call_args.args[0] is failure
+        assert capture.call_args.kwargs["connector"] == "wealthfolio"
+
+
 # ═══════════════════════════════════════════════════════════════════════
 # Tests for transaction mapper
 # ═══════════════════════════════════════════════════════════════════════
 
 
 class TestTransactionMapper:
+    def test_map_complete_asset_identity(self) -> None:
+        sec = _make_mock_security()
+        listing = MagicMock(
+            ticker="AAPL.NY",
+            mic="XNYS",
+            currency_code="USD",
+        )
+        asset = map_security_to_wf_asset(sec, listing=listing)
+        assert asset["isin"] == sec.isin
+        assert asset["displayCode"] == "AAPL.NY"
+        assert asset["exchangeMic"] == "XNYS"
+        assert asset["providerId"] == "FINANCE_SYNC"
+        assert asset["quoteCcy"] == "USD"
+
+    def test_fx_direction_is_explicit_and_validated(self) -> None:
+        validate_fx_observation(
+            base_currency="EUR",
+            quote_currency="USD",
+            rate=Decimal("1.08"),
+        )
+        with pytest.raises(InvalidFxRateError):
+            validate_fx_observation(
+                base_currency="EUR",
+                quote_currency="USD",
+                rate=Decimal(0),
+            )
+
     def test_normalise_exchange_qualified_tickers_for_reconciliation(
         self,
     ) -> None:
@@ -272,6 +335,53 @@ class TestTransactionMapper:
         assert row["activityType"] == WF_ACTIVITY_DIVIDEND
         assert row["symbol"] == "VOO"
         assert row["amount"] == "50.00"
+
+    def test_map_foreign_dividend_to_eur_using_base_amount(self) -> None:
+        """EUR-only accounts must not create a second USD cash ledger."""
+        sec = _make_mock_security(ticker="VOO")
+        txn = _make_mock_transaction(
+            transaction_type="dividend",
+            amount=Decimal("50.00"),
+            amount_in_base=Decimal("46.20"),
+            base_currency_code="EUR",
+            currency_code="USD",
+            security_id=sec.id,
+        )
+        row = map_transaction_to_wf_row(
+            txn,
+            security=sec,
+            account_currency="EUR",
+        )
+        assert row["currency"] == "EUR"
+        assert row["amount"] == "46.20"
+        assert row["metadata"]["financeSync"]["sourceCurrency"] == "USD"
+
+    def test_map_foreign_cash_without_fx_is_a_finding(self) -> None:
+        sec = _make_mock_security(ticker="VOO")
+        txn = _make_mock_transaction(
+            transaction_type="dividend",
+            amount=Decimal("50.00"),
+            currency_code="USD",
+            security_id=sec.id,
+        )
+        with pytest.raises(UnresolvedCashCurrencyError):
+            map_transaction_to_wf_row(txn, security=sec, account_currency="EUR")
+
+    def test_map_foreign_cash_using_provider_fx(self) -> None:
+        sec = _make_mock_security(ticker="VOO")
+        txn = _make_mock_transaction(
+            transaction_type="dividend",
+            amount=Decimal("50.00"),
+            currency_code="USD",
+            fx_rate=Decimal("1.25"),
+            security_id=sec.id,
+        )
+        row = map_transaction_to_wf_row(
+            txn, security=sec, account_currency="EUR"
+        )
+        assert row["currency"] == "EUR"
+        assert row["amount"] == "40.00"
+        assert row["fxRate"] == "1.25"
 
     def test_map_interest(self) -> None:
         txn = _make_mock_transaction(
@@ -361,6 +471,48 @@ class TestTransactionMapper:
         assert "Buy AAPL" in row["comment"]
         assert "ID: txn_ext_001" in row["comment"]
 
+    def test_financial_correctness_fields_are_native_and_stable(self) -> None:
+        txn = _make_mock_transaction(
+            transaction_type="tax",
+            amount=Decimal("-7.50"),
+            status="reversed",
+            external_transaction_id="txn_tax_001",
+        )
+        row = map_transaction_to_wf_row(txn, import_run_id="run-001")
+
+        assert row["tax"] == "7.50"
+        assert row["settlementDate"] == "2025-06-15T14:00:00+00:00"
+        assert row["status"] == "VOID"
+        assert row["needsReview"] is True
+        assert row["sourceSystem"] == "FINANCE_SYNC"
+        assert row["sourceRecordId"] == "txn_tax_001"
+        assert row["sourceGroupId"].endswith(":acct_001")
+        assert len(row["idempotencyKey"]) == 64
+        assert row["importRunId"] == "run-001"
+
+    def test_status_mapping_preserves_pending_for_review(self) -> None:
+        txn = _make_mock_transaction(status="pending")
+        row = map_transaction_to_wf_row(txn)
+        assert row["status"] == "PENDING"
+        assert row["needsReview"] is True
+
+    def test_api_activity_carries_native_financial_correctness_fields(
+        self,
+    ) -> None:
+        txn = _make_mock_transaction(
+            transaction_type="tax", amount=Decimal("-7.50")
+        )
+        row = map_transaction_to_wf_row(txn, import_run_id="run-001")
+        activity = _wf_row_to_api_activity(row, account_id="wf-account")
+
+        assert activity["tax"] == 7.5
+        assert activity["settlementDate"] == row["settlementDate"]
+        assert activity["status"] == "POSTED"
+        assert activity["needsReview"] is False
+        assert activity["sourceRecordId"] == row["sourceRecordId"]
+        assert activity["idempotencyKey"] == row["idempotencyKey"]
+        assert activity["importRunId"] == "run-001"
+
     def test_api_activity_includes_quote_ccy(self) -> None:
         """The import endpoint requires price currency (quoteCcy).
 
@@ -407,6 +559,35 @@ class TestTransactionMapper:
         with pytest.raises(UnresolvedSecurityExportError):
             map_holding_to_wf_row(holding, security=None)
 
+    def test_map_tax_lot_preserves_cost_basis_and_realized_pl(self) -> None:
+        lot = MagicMock(
+            id="lot-1",
+            account_id="acct-1",
+            security_id="sec-1",
+            purchase_transaction_id="buy-1",
+            sale_transaction_id="sell-1",
+            acquired_at=datetime(2024, 1, 2, 12, tzinfo=UTC),
+            closed_at=datetime(2025, 1, 2, 12, tzinfo=UTC),
+            quantity=Decimal(10),
+            remaining_quantity=Decimal(0),
+            cost_basis_total=Decimal(1000),
+            cost_basis_per_unit=Decimal(100),
+            currency_code="EUR",
+            cost_basis_method="fifo",
+            realized_pl=Decimal("125.50"),
+            realized_pl_currency="EUR",
+            has_wash_sale_adjustment=False,
+            disallowed_loss=None,
+        )
+        row = map_tax_lot_to_wf_row(lot, security=_make_mock_security())
+        assert row["acquiredAt"] == "2024-01-02T12:00:00+00:00"
+        assert row["remainingQuantity"] == "0.00"
+        assert row["costBasisTotal"] == "1000.00"
+        assert row["realizedPL"] == "125.50"
+        assert row["costBasisMethod"] == "fifo"
+        assert row["sourceRecordId"] == "lot-1"
+        assert map_tax_lots_to_csv([lot]).count("\n") == 2
+
     def test_map_transactions_to_csv_content(self) -> None:
         """Full CSV content includes header and all rows."""
         sec = _make_mock_security()
@@ -446,6 +627,25 @@ class TestTransactionMapper:
 
     def test_map_holdings_to_csv_empty(self) -> None:
         assert map_holdings_to_csv([]) == ""
+
+    def test_map_security_catalog_preserves_identity_and_metadata(self) -> None:
+        security = _make_mock_security(security_type="benchmark")
+        listing = MagicMock(ticker="SPX", mic="XNYS", currency_code="USD")
+        metadata = MagicMock(
+            metadata_type="sector_exposure",
+            metadata_json={"technology": 0.3},
+        )
+
+        csv = map_security_catalog_to_csv(
+            [security],
+            listings={security.id: listing},
+            metadata={security.id: [metadata]},
+        )
+
+        assert "SPX" in csv
+        assert "XNYS" in csv
+        assert "sector_exposure" in csv
+        assert "EQUITY" in csv
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -1003,6 +1203,12 @@ class TestWealthfolioPushCursor:
         result = {"imported": 0, "skipped": 0, "failed": 0}
         result.update(push_overrides)
         client.push_activities = AsyncMock(return_value=result)
+        client.delete_accounts_not_owned_by_finance_sync = AsyncMock(
+            return_value=0
+        )
+        client.delete_activities_not_in = AsyncMock(return_value=0)
+        client.delete_activities = AsyncMock(return_value=0)
+        client.get_performance_history = AsyncMock(return_value={"series": []})
         return client
 
     def _patch_push_deps(
@@ -1034,6 +1240,9 @@ class TestWealthfolioPushCursor:
         ).start()
         patch.object(exporter, "_load_accounts", return_value=accounts).start()
         patch.object(exporter, "_load_securities", return_value={}).start()
+        patch.object(
+            exporter, "_transaction_external_ids", return_value=set()
+        ).start()
         patch.object(
             exporter,
             "_ensure_wf_account",
@@ -1124,6 +1333,45 @@ class TestWealthfolioPushCursor:
             await exporter.push_to_wealthfolio(wf_client, since=fallback)
 
         assert fetch_mock.await_args.kwargs["since"] == fallback
+
+    @pytest.mark.asyncio
+    async def test_push_cleans_accounts_outside_current_dataset(
+        self, exporter: WealthfolioExporter
+    ) -> None:
+        """Every push scopes Wealthfolio to the current finance-sync data."""
+        acct = _make_mock_account()
+        with patch.object(
+            exporter, "_get_wealthfolio_delivery", return_value=None
+        ):
+            wf_client, _fetch_mock, _complete_mock = self._patch_push_deps(
+                exporter,
+                accounts=[acct],
+                txns_by_account={},
+            )
+            await exporter.push_to_wealthfolio(wf_client)
+
+        wf_client.delete_accounts_not_owned_by_finance_sync.assert_awaited_once_with(
+            {f"finance-sync:{exporter._tenant_id}:{acct.id}"}
+        )
+
+    @pytest.mark.asyncio
+    async def test_named_destination_does_not_prune_shared_accounts(
+        self, exporter: WealthfolioExporter
+    ) -> None:
+        """A named destination must not delete another projection's accounts."""
+        exporter._target_id = "destination-1"
+        acct = _make_mock_account()
+        with patch.object(
+            exporter, "_get_wealthfolio_delivery", return_value=None
+        ):
+            wf_client, _fetch_mock, _complete_mock = self._patch_push_deps(
+                exporter,
+                accounts=[acct],
+                txns_by_account={},
+            )
+            await exporter.push_to_wealthfolio(wf_client)
+
+        wf_client.delete_accounts_not_owned_by_finance_sync.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_push_includes_all_owner_accounts_from_explicit_list(

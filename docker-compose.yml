@@ -58,10 +58,13 @@ services:
       dockerfile: Dockerfile
     container_name: finance-sync-app
     restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "8000:8000"
     environment:
       APP_ENVIRONMENT: ${APP_ENVIRONMENT:-prod}
+      STAGING_CONNECTOR_BASE_URL: ${STAGING_CONNECTOR_BASE_URL:-http://app:8000/api/v1/staging-providers}
       APP_NAME: ${APP_NAME:-finance-sync}
       APP_VERSION: ${APP_VERSION:-0.7.3}
       # Keep this namespaced so an unrelated host DEBUG value cannot prevent
@@ -112,6 +115,7 @@ services:
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
       GITHUB_REPO: ${GITHUB_REPO:-rbnbrls/finance-sync}
       DEGIRO_IMPORT_STAGING_DIRECTORY: /tmp/finance-sync/import-staging
+      WORKER_JOB_DATA_QUALITY_REPAIR_ENABLED: ${WORKER_JOB_DATA_QUALITY_REPAIR_ENABLED:-true}
     volumes:
       - encryption_keys:/app/keys  # Mount for encryption key files if needed
       - degiro_import_staging:/var/lib/finance-sync/import-staging
@@ -136,12 +140,16 @@ services:
       dockerfile: Dockerfile
     container_name: finance-sync-worker
     restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     entrypoint: ["python", "-m", "finance_sync.worker"]
     ports:
       - "9090:9090"
     environment:
       APP_ENVIRONMENT: ${APP_ENVIRONMENT:-prod}
+      STAGING_CONNECTOR_BASE_URL: ${STAGING_CONNECTOR_BASE_URL:-http://app:8000/api/v1/staging-providers}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      WORKER_JOB_DATA_QUALITY_REPAIR_ENABLED: ${WORKER_JOB_DATA_QUALITY_REPAIR_ENABLED:-true}
       GLITCHTIP_ENABLED: ${GLITCHTIP_ENABLED:-false}
       GLITCHTIP_DSN: ${GLITCHTIP_DSN:-}
       GLITCHTIP_SAMPLE_RATE: ${GLITCHTIP_SAMPLE_RATE:-1.0}

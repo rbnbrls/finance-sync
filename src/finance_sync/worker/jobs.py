@@ -37,6 +37,8 @@ from finance_sync.services.degiro_import import (
     execute_run,
     validate_local_files,
 )
+from finance_sync.services.incident_reporting import report_connector_failure
+from finance_sync.services.retry_lock import retry_lease
 from finance_sync.sync.orchestrator import SyncOrchestrator
 from finance_sync.sync.outbox_publisher import OutboxPublisher
 
@@ -282,13 +284,22 @@ async def sync_connector_job(
             return {
                 "tenant_id": _tenant.id,
                 "connection_id": _connection_id,
-                "status": result.status.value,
+                "status": (
+                    "skipped"
+                    if result.error_category == "already_running"
+                    else result.status.value
+                ),
                 "accounts_synced": result.accounts_synced,
                 "transactions_synced": result.transactions_synced,
                 "holdings_synced": result.holdings_synced,
                 "unresolved_securities": result.unresolved_securities,
                 "duration_s": round(result.duration_s, 2),
                 "error": result.error_message,
+                "reason": (
+                    "already_running"
+                    if result.error_category == "already_running"
+                    else None
+                ),
             }
 
         try:
@@ -306,6 +317,13 @@ async def sync_connector_job(
             # Note: auto-reconciliation is handled inside run_sync() in
             # the orchestrator — no need to run it again here.
         except Exception as exc:
+            await report_connector_failure(
+                container.settings,
+                exc,
+                connector=provider_key,
+                operation="sync_connection",
+                connection_id=connection_id,
+            )
             tenant_result = {
                 "tenant_id": tenant.id,
                 "connection_id": connection_id,
@@ -807,14 +825,15 @@ async def enrich_prices_job(container: Container) -> dict[str, Any]:
             # Determine the best identifier to use for the quote lookup
             identifier: str | None = None
             id_type: str = "ticker"
-            if security.ticker:
+            # ISIN is globally stable and avoids ambiguous exchange tickers.
+            if security.isin:
+                identifier = security.isin
+                id_type = "isin"
+            elif security.ticker:
                 identifier = security.ticker
             elif security.figi:
                 identifier = security.figi
                 id_type = "figi"
-            elif security.isin:
-                identifier = security.isin
-                id_type = "isin"
 
             if not identifier:
                 continue
@@ -845,6 +864,33 @@ async def enrich_prices_job(container: Container) -> dict[str, Any]:
         failed=failed,
     )
     return {"enriched": enriched, "failed": failed}
+
+
+async def data_quality_repair_job(container: Container) -> dict[str, Any]:
+    """Continuously apply safe, deterministic Data Health repairs."""
+    from finance_sync.models.tenant import Tenant
+    from finance_sync.services.data_quality_repair import (
+        DataQualityRepairService,
+    )
+
+    results: dict[str, Any] = {}
+    async with container.session_factory() as session:
+        tenants = (await session.execute(select(Tenant))).scalars().all()
+        for tenant in tenants:
+            try:
+                results[str(tenant.id)] = await DataQualityRepairService(
+                    session, container.settings
+                ).run(str(tenant.id))
+            except Exception as exc:
+                logger.exception(
+                    "data_quality_repair_failed",
+                    tenant_id=str(tenant.id),
+                    error=type(exc).__name__,
+                )
+                results[str(tenant.id)] = {"error": type(exc).__name__}
+        await session.commit()
+    logger.info("data_quality_repair_complete", tenants=len(results))
+    return {"tenants": results}
 
 
 async def nightly_reconciliation_job(container: Container) -> dict[str, Any]:
@@ -1082,6 +1128,7 @@ async def export_wealthfolio_job(container: Container) -> dict[str, Any]:
         config=WealthfolioClientConfig(
             base_url=server_url,
             password=password,
+            request_timeout=settings.wealthfolio_request_timeout,
         ),
     )
 
@@ -1091,14 +1138,45 @@ async def export_wealthfolio_job(container: Container) -> dict[str, Any]:
         for tenant in tenants:
             tenant_log = log.bind(tenant_id=tenant.id)
             try:
-                exporter = WealthfolioExporter(
-                    session_factory=container.session_factory,
-                    wf_config=wf_config,
-                    tenant_id=tenant.id,
+                lease = (
+                    retry_lease(
+                        container.redis_client,
+                        tenant_id=str(tenant.id),
+                        kind="destination-export",
+                        item_id="legacy",
+                    )
+                    if settings.redis_url is not None
+                    else None
                 )
-                result = await exporter.push_to_wealthfolio(
-                    wf_client=wf_client,
-                )
+                if lease is not None:
+                    async with lease:
+                        if not lease.acquired:
+                            tenant_log.info("export_job_tenant_skipped_overlap")
+                            summary.append(
+                                {
+                                    "tenant_id": tenant.id,
+                                    "status": "skipped",
+                                    "reason": "export_in_progress",
+                                }
+                            )
+                            continue
+                        exporter = WealthfolioExporter(
+                            session_factory=container.session_factory,
+                            wf_config=wf_config,
+                            tenant_id=tenant.id,
+                        )
+                        result = await exporter.push_to_wealthfolio(
+                            wf_client=wf_client,
+                        )
+                else:
+                    exporter = WealthfolioExporter(
+                        session_factory=container.session_factory,
+                        wf_config=wf_config,
+                        tenant_id=tenant.id,
+                    )
+                    result = await exporter.push_to_wealthfolio(
+                        wf_client=wf_client,
+                    )
                 tenant_status = (
                     "failed" if result.get("errors") else "completed"
                 )
@@ -1108,6 +1186,7 @@ async def export_wealthfolio_job(container: Container) -> dict[str, Any]:
                     imported=result.get("imported", 0),
                     skipped=result.get("skipped", 0),
                     failed=result.get("failed", 0),
+                    accounts_removed=result.get("accounts_removed", 0),
                     run_id=result.get("run_id"),
                 )
                 summary.append(
@@ -1117,10 +1196,18 @@ async def export_wealthfolio_job(container: Container) -> dict[str, Any]:
                         "imported": result.get("imported", 0),
                         "skipped": result.get("skipped", 0),
                         "failed": result.get("failed", 0),
+                        "accounts_removed": result.get("accounts_removed", 0),
                         "run_id": result.get("run_id"),
                     },
                 )
             except Exception as exc:
+                await report_connector_failure(
+                    settings,
+                    exc,
+                    connector="wealthfolio",
+                    operation="delivery_sweep",
+                    correlation_id=str(tenant.id),
+                )
                 tenant_log.error(
                     "export_job_tenant_failed",
                     error=str(exc)[:300],

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import traceback
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any, cast
 
@@ -18,6 +19,7 @@ from finance_sync.connectors.exceptions import (
 from finance_sync.models import (
     ConnectorState,
     Credential,
+    Transaction,
 )
 from finance_sync.models.enums import (
     ReconciliationRunStatus,
@@ -26,6 +28,8 @@ from finance_sync.models.enums import (
 from finance_sync.observability.connector_metrics import (
     record_connector_operation,
 )
+from finance_sync.observability.glitchtip import capture_connector_exception
+from finance_sync.services.incident_reporting import report_connector_failure
 from finance_sync.sync.cards_pipeline import (
     BunqCardsSyncResult,
     CardsSyncMixin,
@@ -63,7 +67,12 @@ from finance_sync.sync.sync_cursor import (
     get_connector_cursors,
     upsert_sync_cursor,
 )
-from finance_sync.sync.sync_run import complete_sync_run, start_sync_run
+from finance_sync.sync.sync_run import (
+    SyncAlreadyRunningError,
+    complete_sync_run,
+    recover_stale_sync_runs,
+    start_sync_run,
+)
 
 if TYPE_CHECKING:
     from datetime import datetime as dt_type
@@ -342,6 +351,25 @@ class SyncOrchestrator(CardsSyncMixin):
 
         # Record the attempt on the connection row so the control-panel
         # UI can show per-connection status even while the run is live.
+        if connection_id:
+            async with self._session_factory() as recovery_session:
+                recovered = await recover_stale_sync_runs(
+                    recovery_session,
+                    connection_id=connection_id,
+                    stale_after_minutes=int(
+                        getattr(
+                            self._settings,
+                            "sync_run_stale_after_minutes",
+                            360,
+                        )
+                    ),
+                )
+                await recovery_session.commit()
+                if recovered:
+                    log.warning(
+                        "stale_sync_runs_recovered",
+                        recovered=recovered,
+                    )
         await self._mark_connection_attempt(connection_id, log)
 
         connector = self._registry.get_connector(config)
@@ -522,10 +550,7 @@ class SyncOrchestrator(CardsSyncMixin):
             # A tenant holds at most a handful of connections per
             # provider; select the row scoped to this connection in
             # Python instead of chaining dynamic SQL filters.
-            row = next(
-                (r for r in rows.all() if r.connection_id == connection_id),
-                None,
-            )
+            row = self._connector_state_row(rows.all(), connection_id)
         state = getattr(row, "state", None) if row is not None else None
         if not isinstance(state, dict) or not state:
             return {}
@@ -555,10 +580,7 @@ class SyncOrchestrator(CardsSyncMixin):
                     ConnectorState.provider_key == provider_key,
                 )
             )
-            row = next(
-                (r for r in rows.all() if r.connection_id == connection_id),
-                None,
-            )
+            row = self._connector_state_row(rows.all(), connection_id)
             if row is None:
                 session.add(
                     ConnectorState(
@@ -571,6 +593,28 @@ class SyncOrchestrator(CardsSyncMixin):
             else:
                 row.state = state
             await session.commit()
+
+    @staticmethod
+    def _connector_state_row(
+        rows: Sequence[ConnectorState],
+        connection_id: str | None,
+    ) -> ConnectorState | None:
+        """Find state across PostgreSQL UUID and string representations."""
+        if connection_id is None:
+            return next(
+                (row for row in rows if row.connection_id is None),
+                None,
+            )
+        target = str(connection_id)
+        return next(
+            (
+                row
+                for row in rows
+                if row.connection_id is not None
+                and str(row.connection_id) == target
+            ),
+            None,
+        )
 
     # ── Bunq cards / scheduled payments sync ──────────────────────────
 
@@ -685,10 +729,14 @@ class SyncOrchestrator(CardsSyncMixin):
 
         uow = _UnitOfWork(session)
         run = None
+        run_id: str | None = None
         accounts_synced = 0
         transactions_synced = 0
         holdings_synced = 0
         unresolved_keys: set[str] = set()
+        transaction_report: dict[str, int] = {}
+        current_operation = "start_sync_run"
+        current_account_id: str | None = None
 
         # Account selection: when the connection pins a set of provider
         # account ids, only those accounts are synced (and their
@@ -718,26 +766,49 @@ class SyncOrchestrator(CardsSyncMixin):
                     connector=provider_type,
                     connection_id=connection_id,
                 )
-                log = log.bind(sync_run_id=str(run.id))
+                run_id = str(run.id)
+                log = log.bind(sync_run_id=run_id)
 
                 if compatibility_error:
                     raise PermanentError(compatibility_error)
 
                 # 2. Authenticate
+                current_operation = "authenticate"
                 await connector.authenticate()
                 log.debug("authenticated")
 
                 # 3. Fetch + upsert accounts through an isolated stage.
+                current_operation = "fetch_accounts"
                 account_result = await AccountSyncStage(persistence).run(
                     uow,
                     connector,
                     selected_accounts=selected_accounts,
                     connection_id=context.connection_id,
+                    persist=False,
                 )
                 canonical_accounts = account_result.accounts
                 supports_holdings = account_result.supports_holdings
                 accounts_synced = len(canonical_accounts)
                 log.debug("accounts_fetched", count=accounts_synced)
+
+                # A configured account selection is an import contract, not
+                # merely a best-effort filter.  If the provider no longer
+                # returns any selected account (for example after an account
+                # id changed), completing here would stamp the connection as
+                # successful while writing no data at all.
+                if selected_set is not None and not canonical_accounts:
+                    selection_error = (
+                        "Account selection validation failed: "
+                        "none of the selected accounts was returned by the "
+                        "provider"
+                    )
+                    raise PermanentError(selection_error)
+
+                # Commit the run and account rows before processing resources.
+                # Resource writes are isolated below, one transaction per
+                # account, so a failed account cannot roll back a previously
+                # completed account (or leave this account partially written).
+                await uow.commit()
 
                 # 4. Fetch + upsert transactions per account.  Each
                 #    account resumes from its own stored cursor when one
@@ -760,64 +831,152 @@ class SyncOrchestrator(CardsSyncMixin):
                         resources=sorted(cursors),
                     )
                 for ca in canonical_accounts:
+                    current_account_id = ca.external_account_id
                     acct_since = cursors.get(ca.external_account_id, since)
+                    # Persist the account, cash and holdings first.  Holdings
+                    # are a current snapshot and must remain visible even if
+                    # a long historical transaction fetch later hits a
+                    # provider rate limit.
+                    account_holdings = 0
+                    account_holdings_unresolved: set[str] = set()
+                    async with _UnitOfWork(session) as holdings_uow:
+                        current_operation = "persist_account"
+                        acct = await persistence.persist_account(
+                            holdings_uow,
+                            ca,
+                            connection_id=connection_id,
+                        )
+                        account_id = str(getattr(acct, "id", ""))
+                        if not account_id:
+                            log.warning(
+                                "account_persistence_returned_no_id",
+                                external_account_id=ca.external_account_id,
+                            )
+                            continue
+                        if (
+                            provider_type == "trading212"
+                            and ca.external_account_id not in cursors
+                        ):
+                            lookback_days = getattr(
+                                connector, "initial_sync_lookback_days", None
+                            )
+                            if lookback_days:
+                                acct_since = min(
+                                    acct_since,
+                                    datetime.now(UTC)
+                                    - timedelta(days=lookback_days),
+                                )
+                        # Trading212 historically produced ``txn_`` for cash
+                        # records without an API id.  The connector now uses
+                        # stable fallbacks, but an existing cursor would
+                        # otherwise permanently skip the older records.  A
+                        # targeted one-time backfill repairs such accounts;
+                        # normal incremental syncs keep using their cursor.
+                        if (
+                            provider_type == "trading212"
+                            and ca.external_account_id in cursors
+                        ):
+                            legacy_txn = await holdings_uow.session.scalar(
+                                select(Transaction.id)
+                                .where(
+                                    Transaction.account_id == account_id,
+                                    Transaction.provider_key == provider_type,
+                                    Transaction.external_transaction_id
+                                    == "txn_",
+                                )
+                                .limit(1)
+                            )
+                            if legacy_txn is not None:
+                                lookback_days = getattr(
+                                    connector,
+                                    "initial_sync_lookback_days",
+                                    3650,
+                                )
+                                acct_since = datetime.now(UTC) - timedelta(
+                                    days=lookback_days
+                                )
+                                log.info(
+                                    "trading212_legacy_history_backfill",
+                                    account_id=account_id,
+                                    lookback_days=lookback_days,
+                                )
+                        await persistence.persist_cash_balances(
+                            holdings_uow, account_id, ca
+                        )
+                        if supports_holdings:
+                            current_operation = "fetch_holdings"
+                            raw_holdings = (
+                                await connector._rate_limited_fetch_holdings(  # type: ignore[attr-defined]
+                                    account_id=ca.external_account_id
+                                )
+                            )
+                            canonical_holdings = connector.transform_holdings(
+                                raw_holdings
+                            )
+                            current_operation = "persist_holdings"
+                            holdings_result = await HoldingsSyncStage(
+                                persistence
+                            ).run(
+                                holdings_uow,
+                                canonical_holdings,
+                                account_id=account_id,
+                                provider_key=provider_type,
+                            )
+                            account_holdings = holdings_result.count
+                            account_holdings_unresolved.update(
+                                holdings_result.unresolved_keys
+                            )
+                            if provider_type == "trading212":
+                                holdings_value = sum(
+                                    (
+                                        holding.market_value or 0
+                                        for holding in canonical_holdings
+                                    ),
+                                    0,
+                                )
+                                cash_value = ca.current_balance or 0
+                                acct.net_asset_value = (
+                                    cash_value + holdings_value
+                                )
+                                await holdings_uow.session.flush()
+
+                    current_operation = "fetch_transactions"
                     raw_txns = await connector._rate_limited_fetch_transactions(  # type: ignore[attr-defined]
                         acct_since, account_id=ca.external_account_id
                     )
                     canonical_txns = connector.transform_transactions(raw_txns)
-
-                    # Resolve the canonical account ID for FK
-                    acct = await uow.accounts.get_by_external_id(
-                        self._tenant_id,
-                        provider_type,
-                        ca.external_account_id,
-                        connection_id=connection_id,
-                    )
-                    if acct is None:
-                        log.warning(
-                            "account_not_found_for_transactions",
-                            external_account_id=ca.external_account_id,
-                        )
-                        continue
-
-                    transaction_result = await TransactionSyncStage(
-                        persistence
-                    ).run(
-                        uow,
-                        canonical_txns,
-                        account_id=str(acct.id),
-                        provider_type=provider_type,
-                        connection_id=connection_id,
-                    )
-                    transactions_synced += transaction_result.count
-                    unresolved_keys.update(transaction_result.unresolved_keys)
-
-                    if supports_holdings:
-                        raw_holdings = (
-                            await connector._rate_limited_fetch_holdings(  # type: ignore[attr-defined]
-                                account_id=ca.external_account_id
-                            )
-                        )
-                        canonical_holdings = connector.transform_holdings(
-                            raw_holdings
-                        )
-                        holdings_result = await HoldingsSyncStage(
+                    account_transactions = 0
+                    account_unresolved: set[str] = set()
+                    async with _UnitOfWork(session) as transaction_uow:
+                        current_operation = "persist_transactions"
+                        transaction_result = await TransactionSyncStage(
                             persistence
                         ).run(
-                            uow,
-                            canonical_holdings,
-                            account_id=str(acct.id),
-                            provider_key=provider_type,
+                            transaction_uow,
+                            canonical_txns,
+                            account_id=account_id,
+                            provider_type=provider_type,
+                            connection_id=connection_id,
                         )
-                        holdings_synced += holdings_result.count
-                        unresolved_keys.update(holdings_result.unresolved_keys)
-
+                        account_transactions = transaction_result.count
+                        account_unresolved = set(
+                            transaction_result.unresolved_keys
+                        )
+                        current_operation = "persist_sync_cursor"
+                        await upsert_sync_cursor(
+                            transaction_uow.session,
+                            tenant_id=self._tenant_id,
+                            connector=provider_type,
+                            resource=ca.external_account_id,
+                            cursor=start_ts,
+                            connection_id=connection_id,
+                        )
+                    transactions_synced += account_transactions
+                    transaction_result.add_to_report(transaction_report)
+                    holdings_synced += account_holdings
+                    unresolved_keys.update(account_unresolved)
+                    unresolved_keys.update(account_holdings_unresolved)
                 log.debug("transactions_fetched", count=transactions_synced)
-
-                # 5. Complete the run and advance the sync cursors —
-                #    both only happen on success, atomically inside the
-                #    same UoW transaction (a failure rolls everything
-                #    back so the next run retries the same window).
                 await complete_sync_run(
                     uow,
                     run,
@@ -825,6 +984,13 @@ class SyncOrchestrator(CardsSyncMixin):
                     items_processed=(
                         accounts_synced + transactions_synced + holdings_synced
                     ),
+                    report={
+                        **transaction_report,
+                        "accounts": accounts_synced,
+                        "transactions": transactions_synced,
+                        "holdings": holdings_synced,
+                        "unresolved": len(unresolved_keys),
+                    },
                     cursor=start_ts,
                 )
                 if supports_holdings or unresolved_keys:
@@ -838,16 +1004,10 @@ class SyncOrchestrator(CardsSyncMixin):
                         holdings=holdings_synced,
                         unresolved_securities=len(unresolved_keys),
                     )
-                for ca in canonical_accounts:
-                    await upsert_sync_cursor(
-                        uow.session,
-                        tenant_id=self._tenant_id,
-                        connector=provider_type,
-                        resource=ca.external_account_id,
-                        cursor=start_ts,
-                        connection_id=connection_id,
-                    )
-
+                # The outer UoW committed before the account loop and marks
+                # itself as committed, so explicitly persist this final run
+                # status/event transaction.
+                await session.commit()
             # If we get here, the UoW committed successfully
             end_ts = _dt.now(UTC)
             return SyncResult(
@@ -860,7 +1020,33 @@ class SyncOrchestrator(CardsSyncMixin):
                 duration_s=(end_ts - start_ts).total_seconds(),
             )
 
+        except SyncAlreadyRunningError as exc:
+            # A second trigger is a normal operational race (scheduler vs
+            # manual sync). Do not create a second run or call the provider.
+            end_ts = _dt.now(UTC)
+            log.info("sync_skipped_already_running", error=str(exc))
+            return SyncResult(
+                status=SyncRunStatus.FAILED,
+                accounts_synced=0,
+                transactions_synced=0,
+                holdings_synced=0,
+                unresolved_securities=0,
+                error_message="Sync overgeslagen: er draait al een sync",
+                error_category="already_running",
+                error_type=type(exc).__name__,
+                duration_s=(end_ts - start_ts).total_seconds(),
+            )
         except PermanentError as exc:
+            await report_connector_failure(
+                self._settings,
+                exc,
+                connector=provider_type,
+                operation=current_operation,
+                connection_id=connection_id,
+                provider_account_id=current_account_id,
+                correlation_id=run_id,
+                fallback_capture=capture_connector_exception,
+            )
             end_ts = _dt.now(UTC)
             await self._mark_run_failed(
                 session,
@@ -878,10 +1064,21 @@ class SyncOrchestrator(CardsSyncMixin):
                 unresolved_securities=len(unresolved_keys),
                 error_message=str(exc),
                 error_type=type(exc).__name__,
+                error_category=categorize_sync_error(exc),
                 error_kind=classify_sync_error(exc).value,
                 duration_s=(end_ts - start_ts).total_seconds(),
             )
         except RateLimitError as exc:
+            await report_connector_failure(
+                self._settings,
+                exc,
+                connector=provider_type,
+                operation=current_operation,
+                connection_id=connection_id,
+                provider_account_id=current_account_id,
+                correlation_id=run_id,
+                fallback_capture=capture_connector_exception,
+            )
             end_ts = _dt.now(UTC)
             retry_after_at = (
                 end_ts + timedelta(seconds=exc.retry_after)
@@ -917,6 +1114,16 @@ class SyncOrchestrator(CardsSyncMixin):
                 duration_s=(end_ts - start_ts).total_seconds(),
             )
         except (TransientError, ConnectorError) as exc:
+            await report_connector_failure(
+                self._settings,
+                exc,
+                connector=provider_type,
+                operation=current_operation,
+                connection_id=connection_id,
+                provider_account_id=current_account_id,
+                correlation_id=run_id,
+                fallback_capture=capture_connector_exception,
+            )
             end_ts = _dt.now(UTC)
             await self._mark_run_failed(
                 session,
@@ -939,11 +1146,22 @@ class SyncOrchestrator(CardsSyncMixin):
                 duration_s=(end_ts - start_ts).total_seconds(),
             )
         except Exception as exc:
+            await report_connector_failure(
+                self._settings,
+                exc,
+                connector=provider_type,
+                operation=current_operation,
+                connection_id=connection_id,
+                provider_account_id=current_account_id,
+                correlation_id=run_id,
+                fallback_capture=capture_connector_exception,
+            )
             end_ts = _dt.now(UTC)
             error_message = safe_sync_error_message(exc)
             log.error(
                 "sync_pipeline_failed",
                 error_type=type(exc).__name__,
+                error_category=categorize_sync_error(exc),
                 error_kind=classify_sync_error(exc).value,
                 error=str(exc)[:500],
             )
@@ -963,15 +1181,10 @@ class SyncOrchestrator(CardsSyncMixin):
                 unresolved_securities=len(unresolved_keys),
                 error_message=error_message,
                 error_type=type(exc).__name__,
+                error_category=categorize_sync_error(exc),
                 error_kind=classify_sync_error(exc).value,
                 duration_s=(end_ts - start_ts).total_seconds(),
             )
-
-    # ── Cards pipeline ─────────────────────────────────────────────
-
-    # ── Entity upsert helpers ──────────────────────────────────────
-
-    # ── Failure handling ───────────────────────────────────────────
 
     async def _mark_run_failed(
         self,

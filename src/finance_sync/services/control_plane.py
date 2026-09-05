@@ -22,7 +22,6 @@ from finance_sync.models import (
     Security,
     SyncRun,
     SyncSchedule,
-    Transaction,
     UnresolvedSecurity,
 )
 from finance_sync.models.reconciliation import (
@@ -204,12 +203,16 @@ class ControlPlaneService:
         schedule: SyncSchedule | None,
         permissions: set[str] | None = None,
     ) -> ControlPlaneConnection:
+        file_import_pending = row.provider_key in {
+            "degiro_pension",
+            "saxo_investor",
+        } and not bool(getattr(row, "encrypted_payload", None))
         status = (
             "paused"
             if row.status == "paused"
             else (
                 "error"
-                if row.last_error
+                if row.last_error and not file_import_pending
                 else ("healthy" if row.last_success_at else "pending")
             )
         )
@@ -220,8 +223,16 @@ class ControlPlaneService:
             status=status,
             last_attempt_at=row.last_attempt_at,
             last_success_at=row.last_success_at,
-            last_error=sanitize_error(row.last_error or "") or None,
-            last_error_category=getattr(row, "last_error_category", None),
+            last_error=(
+                None
+                if file_import_pending
+                else sanitize_error(row.last_error or "") or None
+            ),
+            last_error_category=(
+                None
+                if file_import_pending
+                else getattr(row, "last_error_category", None)
+            ),
             last_test_at=getattr(row, "last_test_at", None),
             last_test_status=getattr(row, "last_test_status", None),
             last_test_error=getattr(row, "last_test_error", None),
@@ -234,7 +245,7 @@ class ControlPlaneService:
                 ),
                 action(
                     "sync_connection",
-                    f"/api/v1/sync/connections/{row.id}",
+                    f"/api/v1/sync/connections/{row.id}/start",
                     permissions=permissions,
                     disabled_reason=(
                         "De verbinding is gepauzeerd."
@@ -316,7 +327,7 @@ class ControlPlaneService:
                         row.last_error or "De laatste poging is mislukt."
                     ),
                     action=action(
-                        "view_data_source",
+                        "edit_connection",
                         f"/api/v1/connectors/configs/{row.id}",
                         permissions=self._permissions,
                     ),
@@ -365,27 +376,6 @@ class ControlPlaneService:
         issues: list[ControlPlaneIssue] = []
         for row in rows:
             candidates = await self._security_candidates(row)
-            transaction_count = int(
-                await self._session.scalar(
-                    select(func.count(Transaction.id)).where(
-                        Transaction.tenant_id == self._tenant_id,
-                        Transaction.provider_key == row.provider_key,
-                    )
-                )
-                or 0
-            )
-            holding_count = int(
-                await self._session.scalar(
-                    select(func.count(Holding.id))
-                    .join(Account, Account.id == Holding.account_id)
-                    .where(
-                        Holding.tenant_id == self._tenant_id,
-                        Account.tenant_id == self._tenant_id,
-                        Account.provider_key == row.provider_key,
-                    )
-                )
-                or 0
-            )
             issues.append(
                 ControlPlaneIssue(
                     id=f"security-unresolved:{row.id}",
@@ -402,7 +392,11 @@ class ControlPlaneService:
                     ),
                     provider=row.provider_key,
                     external_record_id=row.external_security_id,
-                    impact_count=transaction_count + holding_count,
+                    # This is one unresolved provider identity.  Counting
+                    # every transaction/holding from the provider here made
+                    # one missing mapping appear as thousands of separate
+                    # issues (for example 2695 for Trading212).
+                    impact_count=1,
                     candidate_securities=candidates,
                     confidence=(
                         candidates[0]["confidence"] if candidates else None
@@ -490,6 +484,14 @@ class ControlPlaneService:
                     )
                     if value
                 ),
+                affected_transaction_ids=[
+                    str(value)
+                    for value in (
+                        result.transaction_id_a,
+                        result.transaction_id_b,
+                    )
+                    if value
+                ],
             )
             for result in results
         ]
@@ -516,8 +518,8 @@ class ControlPlaneService:
                     "holdings hebben geen waardering."
                 ),
                 action=action(
-                    "view_data_source",
-                    "/api/v1/enrichment/status",
+                    "refresh_quotes",
+                    "/api/v1/enrichment/refresh-quotes",
                     permissions=self._permissions,
                 ),
             )
@@ -597,26 +599,46 @@ class ControlPlaneService:
         total_count = int(total or 0)
         holdings_without_valuation = int(
             await self._session.scalar(
-                select(func.count(Holding.id)).where(
+                select(func.count(Holding.id))
+                .outerjoin(
+                    EnrichmentFreshness,
+                    EnrichmentFreshness.security_id == Holding.security_id,
+                )
+                .where(
                     Holding.tenant_id == self._tenant_id,
                     Holding.market_value.is_(None),
+                    (EnrichmentFreshness.status.is_(None))
+                    | (EnrichmentFreshness.status != "unavailable_accepted"),
                 )
             )
             or 0
         )
+        accepted_ids = {
+            str(getattr(row, "security_id", ""))
+            for row in rows
+            if getattr(row, "status", None) == "unavailable_accepted"
+        }
+        active_rows = [
+            row
+            for row in rows
+            if getattr(row, "status", None) != "unavailable_accepted"
+        ]
+        total_count = max(total_count - len(accepted_ids), 0)
         cutoff = self._now - self._freshness_limit
         fresh = sum(
             1
-            for row in rows
+            for row in active_rows
             if row.last_quote_fetch and row.last_quote_fetch >= cutoff
         )
         stale = sum(
             1
-            for row in rows
+            for row in active_rows
             if row.last_quote_fetch and row.last_quote_fetch < cutoff
         )
-        without_quote = max(total_count - len(rows), 0) + sum(
-            1 for row in rows if row.last_quote_fetch is None
+        without_quote = max(total_count - len(active_rows), 0) + sum(
+            1
+            for row in active_rows
+            if row.last_quote_fetch is None
         )
         latest = max((row.updated_at for row in rows), default=None)
         by_source: dict[str, dict[str, int]] = {}
@@ -658,7 +680,8 @@ class ControlPlaneService:
                     category_bucket["stale"] += 1
         status = (
             "fresh"
-            if total_count and fresh == total_count
+            if (total_count and fresh == total_count)
+            or (not total_count and accepted_ids)
             else (
                 "unavailable"
                 if not total_count
@@ -808,6 +831,11 @@ class ControlPlaneService:
                         else None
                     ),
                     failed_export_count=failed_count,
+                    delivery_checkpoint=(
+                        getattr(latest_export, "delivery_checkpoint", None)
+                        if latest_export is not None
+                        else None
+                    ),
                     actions=[
                         action(
                             "test_destination",

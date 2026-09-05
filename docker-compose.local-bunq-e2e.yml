@@ -1,0 +1,27 @@
+# Local-only bunq -> Finance Sync -> Wealthfolio E2E overlay.
+services:
+  bunq-mock:
+    image: python:3.12-alpine
+    container_name: finance-sync-bunq-mock
+    restart: unless-stopped
+    command: ["python", "/app/bunq_fixture_mock.py"]
+    volumes:
+      - ./scripts/bunq_fixture_mock.py:/app/bunq_fixture_mock.py:ro
+      - ./deploy/staging/fixtures/2026-07/bunq:/fixtures:ro
+    ports:
+      - "8787:8787"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8787/health"]
+      interval: 2s
+      timeout: 3s
+      retries: 10
+
+  app:
+    depends_on:
+      bunq-mock:
+        condition: service_healthy
+
+  worker:
+    depends_on:
+      bunq-mock:
+        condition: service_healthy

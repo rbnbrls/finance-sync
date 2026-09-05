@@ -32,6 +32,12 @@ artifacts commit-bound. See [docs/RELEASING.md](docs/RELEASING.md).
 - Optional MCP server (`python -m finance_sync.mcp`) and CLI exporters and
   reconciliation commands.
 
+Nieuwe gegevens voeg je toe via de dashboardpagina **Importeren**. Kies eerst
+de tegenpartij; daarna toont de wizard de beschikbare API-koppeling of
+bestandsimport. Bestaande connectorprofielen zijn bereikbaar via
+**Bestaande koppelingen beheren**. Bestandsimports voor DEGIRO, SaxoInvestor,
+CSV en handmatige expenses gebruiken dezelfde dispatch- en uploadhistorie.
+
 ## Quick start with Docker Compose
 
 Create a `.env` with at least `POSTGRES_PASSWORD`, `SECRET_KEY` and
@@ -119,6 +125,8 @@ Start at [docs/README.md](docs/README.md). The most useful references are:
 - [Market intelligence](docs/market-intelligence.md) and
   [holding relevance](docs/holding-relevance.md)
 - [MCP server](docs/mcp-server.md)
+- [Wealthfolio live delivery](docs/wealthfolio-live-runbook.md), including
+  safe deployment and two-run verification.
 - [Migrations and upgrades](docs/MIGRATIONS.md) and
   [release operations](docs/RELEASING.md)
 

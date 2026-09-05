@@ -12,6 +12,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
+import httpx
 import pytest
 
 from finance_sync.connectors.exceptions import (
@@ -21,6 +22,7 @@ from finance_sync.connectors.exceptions import (
 )
 from finance_sync.connectors.models import (
     CanonicalAccountData,
+    CanonicalHoldingData,
     CanonicalTransactionData,
     ConnectorConfig,
     RawTransaction,
@@ -29,13 +31,24 @@ from finance_sync.connectors.trading212 import (
     _map_order_side,
     _map_order_status,
     _map_transaction_type,
+    _normalise_instrument,
     _parse_cash_transaction,
     _parse_order,
     _parse_t212_datetime,
+    _price_scale,
+)
+from tests.connectors.fixtures.trading212_api_fixtures import (
+    ACCOUNT_CASH_RESPONSE,
+    ACCOUNT_INFO_RESPONSE,
+    SELECTED_ACCOUNT_IDS,
+    SELECTED_ACCOUNT_INFO_RESPONSE,
 )
 
 if TYPE_CHECKING:
     from finance_sync.connectors.trading212 import Trading212Connector
+    from tests.connectors.trading212.conftest import (
+        Trading212MockTransport,
+    )
 
 # ═══════════════════════════════════════════════════════════════════════
 # Contract tests (from ConnectorContractTest template)
@@ -256,6 +269,52 @@ class TestTrading212ConnectorContract:
             assert ct.transaction_type
             assert ct.status
 
+    async def test_transform_transactions_maps_datamodel_fields(
+        self,
+        t212_connector: Trading212Connector,
+    ) -> None:
+        """Full fetch → transform pipeline populates every datamodel field.
+
+        Acceptance criterion: running the fetch step produces a list of
+        Transaction objects matching the finance-sync Transaction
+        datamodel schema (ticker, type, quantity, price, currency, fees,
+        executed_at, account_id, external_id) with no data loss.
+        """
+        from tests.connectors.fixtures.trading212_api_fixtures import (
+            DIVIDEND_AAPL,
+            ORDER_BUY_AAPL,
+        )
+
+        raw = [
+            _parse_order(ORDER_BUY_AAPL, "12345678"),
+            _parse_cash_transaction(DIVIDEND_AAPL, "12345678"),
+        ]
+        canonical = t212_connector.transform_transactions(raw)
+        assert len(canonical) == 2
+
+        order, dividend = canonical
+
+        # Order: full datamodel mapping
+        assert order.external_transaction_id == "order_10000001"
+        assert order.external_account_id == "12345678"
+        assert order.transaction_type == "purchase"
+        assert order.quantity == Decimal(10)
+        assert order.unit_price == Decimal("175.50")
+        assert order.currency_code == "EUR"
+        assert order.occurred_at is not None  # executed_at
+        assert order.status == "booked"
+        # Ticker is carried on the security reference
+        assert order.security_reference is not None
+        assert order.security_reference.ticker == "AAPL"
+        assert order.security_reference.external_id == "AAPL"
+
+        # Dividend: no data loss, type + amount intact
+        assert dividend.external_transaction_id == "txn_20000001"
+        assert dividend.transaction_type == "dividend"
+        assert dividend.amount == Decimal("15.00")
+        assert dividend.security_reference is not None
+        assert dividend.security_reference.ticker == "AAPL"
+
     # ── Name ───────────────────────────────────────────────────────────
 
     async def test_name_is_string(
@@ -304,11 +363,106 @@ class TestTrading212ConnectorAuth:
         assert t212_connector._account_id == "12345678"
         assert t212_connector._account_currency == "EUR"
 
+    async def test_fetch_accounts_reuses_authenticated_cash_response(
+        self,
+        t212_connector: Trading212Connector,
+        t212_mock_transport: Trading212MockTransport,
+    ) -> None:
+        await t212_connector.authenticate()
+        await t212_connector.fetch_accounts()
+        cash_calls = [
+            call
+            for call in t212_mock_transport.call_log
+            if "/account/cash" in str(call["url"])
+        ]
+        assert len(cash_calls) == 1
+
+    async def test_selected_account_response_can_be_injected(
+        self,
+        t212_connector_config: ConnectorConfig,
+        t212_mock_transport_factory,
+    ) -> None:
+        """The shared transport supports selected-account scenarios."""
+        import httpx
+
+        from finance_sync.connectors.trading212 import Trading212Connector
+
+        transport = t212_mock_transport_factory(
+            response_overrides={
+                "/api/v0/equity/account/info": SELECTED_ACCOUNT_INFO_RESPONSE
+            }
+        )
+        client = httpx.AsyncClient(
+            base_url="https://live.trading212.com", transport=transport
+        )
+        connector = Trading212Connector(
+            t212_connector_config, http_client=client
+        )
+
+        await connector.authenticate()
+
+        assert connector._account_id in SELECTED_ACCOUNT_IDS
+
 
 class TestTrading212ConnectorPagination:
     """Pagination for order and transaction history."""
 
     pytestmark = pytest.mark.asyncio
+
+    async def test_history_requests_never_exceed_api_cap(
+        self,
+        t212_connector_config: ConnectorConfig,
+        t212_mock_transport: object,
+    ) -> None:
+        """History requests must never send ``limit`` above the API cap.
+
+        Regression test for issue #505: ``_DEFAULT_PAGE_SIZE`` was 100,
+        but Trading212 rejects ``limit > 50`` with HTTP 400
+        ``{"detail": "Limit cannot be greater than 50"}``, which aborted
+        the whole sync.  Every request to /history/orders and
+        /history/transactions must carry ``limit <= 50``.
+        """
+        import httpx
+
+        from finance_sync.connectors.trading212 import (
+            _DEFAULT_PAGE_SIZE,
+            Trading212Connector,
+        )
+
+        assert _DEFAULT_PAGE_SIZE <= 50
+
+        http_client = httpx.AsyncClient(
+            base_url="https://live.trading212.com",
+            transport=t212_mock_transport,  # type: ignore[arg-type]
+        )
+        conn = Trading212Connector(
+            config=t212_connector_config,
+            http_client=http_client,
+        )
+        await conn.authenticate()
+        conn._account_id = "12345678"
+        since = datetime(2024, 1, 1, tzinfo=UTC)
+
+        # Fetch with no explicit limit -> page size must be the default (50)
+        await conn._fetch_order_history("test_t212_api_key_abc123", since, None)
+        await conn._fetch_transaction_history(
+            "test_t212_api_key_abc123", since, None
+        )
+
+        # Fetch with an explicit limit above the cap -> clamped to 50
+        await conn._fetch_order_history(
+            "test_t212_api_key_abc123", since, limit=1000
+        )
+
+        history_urls = [
+            str(call["url"])
+            for call in t212_mock_transport.call_log  # type: ignore[attr-defined]
+            if "/history/" in str(call["url"])
+        ]
+        assert history_urls, "expected history requests to be recorded"
+        for url in history_urls:
+            # httpx keeps 'limit=50' as the raw query fragment
+            assert "limit=50" in url, f"limit exceeds API cap in {url}"
 
     async def test_order_history_pagination(
         self,
@@ -364,6 +518,118 @@ class TestTrading212ConnectorPagination:
         )
         # Should have transactions from both pages
         assert len(txns) == 6  # all 6 transactions from both pages
+
+    async def test_fetch_transactions_with_date_range(
+        self,
+        t212_connector_config: ConnectorConfig,
+        t212_mock_transport: object,
+    ) -> None:
+        """fetch_transactions should pass ``to`` as a query parameter.
+
+        The ``to`` parameter bounds the upper end of the window, so a
+        date-range fetch only ever returns the first page of fixtures.
+        """
+        import httpx
+
+        from finance_sync.connectors.trading212 import Trading212Connector
+
+        http_client = httpx.AsyncClient(
+            base_url="https://live.trading212.com",
+            transport=t212_mock_transport,  # type: ignore[arg-type]
+        )
+        conn = Trading212Connector(
+            config=t212_connector_config,
+            http_client=http_client,
+        )
+        await conn.authenticate()
+        conn._account_id = "12345678"
+        since = datetime(2024, 1, 1, tzinfo=UTC)
+        to = datetime(2024, 6, 30, tzinfo=UTC)
+
+        txns = await conn.fetch_transactions(since=since, to=to)
+        assert isinstance(txns, list)
+
+        urls = [
+            str(call["url"])
+            for call in t212_mock_transport.call_log  # type: ignore[attr-defined]
+        ]
+        history_urls = [u for u in urls if "/history/" in u]
+        assert history_urls, "expected history requests to be recorded"
+        # The first (non-cursor) request carries both from= and to=;
+        # follow-up pages use the provider's own cursor URL unchanged.
+        initial = [u for u in history_urls if "cursor=" not in u]
+        assert initial, "expected an initial history request"
+        for url in initial:
+            assert "from=2024-01-01T00:00:00.000Z" in url
+            assert "to=2024-06-30T00:00:00.000Z" in url, f"missing to= in {url}"
+
+    async def test_fetch_transactions_invalid_date_range(
+        self,
+        t212_connector_config: ConnectorConfig,
+        t212_mock_transport: object,
+    ) -> None:
+        """A ``to`` at or before ``since`` must raise PermanentError."""
+        import httpx
+
+        from finance_sync.connectors.exceptions import PermanentError
+        from finance_sync.connectors.trading212 import Trading212Connector
+
+        http_client = httpx.AsyncClient(
+            base_url="https://live.trading212.com",
+            transport=t212_mock_transport,  # type: ignore[arg-type]
+        )
+        conn = Trading212Connector(
+            config=t212_connector_config,
+            http_client=http_client,
+        )
+        await conn.authenticate()
+        conn._account_id = "12345678"
+        since = datetime(2024, 1, 1, tzinfo=UTC)
+
+        with pytest.raises(PermanentError, match="date range invalid"):
+            await conn.fetch_transactions(
+                since=since, to=datetime(2024, 1, 1, tzinfo=UTC)
+            )
+        with pytest.raises(PermanentError, match="date range invalid"):
+            await conn.fetch_transactions(
+                since=since, to=datetime(2023, 12, 31, tzinfo=UTC)
+            )
+
+    async def test_fetch_transactions_deduplicates_by_external_id(
+        self,
+        t212_connector_config: ConnectorConfig,
+        t212_mock_transport: object,
+    ) -> None:
+        """Duplicate external ids across endpoints must be collapsed.
+
+        The connector merges order history and cash transaction history;
+        a defensive dedup pass guarantees the acceptance criterion
+        "no duplicates" holds at the fetch layer even if the provider
+        ever returns the same id from both endpoints.
+        """
+        import httpx
+
+        from finance_sync.connectors.trading212 import Trading212Connector
+
+        http_client = httpx.AsyncClient(
+            base_url="https://live.trading212.com",
+            transport=t212_mock_transport,  # type: ignore[arg-type]
+        )
+        conn = Trading212Connector(
+            config=t212_connector_config,
+            http_client=http_client,
+        )
+        await conn.authenticate()
+        conn._account_id = "12345678"
+        since = datetime(2024, 1, 1, tzinfo=UTC)
+
+        txns = await conn.fetch_transactions(since=since)
+        ids = [t.external_transaction_id for t in txns]
+        assert len(ids) == len(set(ids)), f"duplicate ids: {ids}"
+
+        # Orders use order_ prefix, cash transactions txn_ prefix
+        prefixes = {i.split("_")[0] for i in ids}
+        assert prefixes == {"order", "txn"}
 
 
 class TestTrading212DatetimeParsing:
@@ -465,6 +731,68 @@ class TestTrading212OrderParsing:
         assert meta.get("filled_price") == 175.50
         assert meta.get("quantity") == 10.0
 
+    def test_parse_order_populates_unit_price(self) -> None:
+        """Orders should surface the filled price as unit_price."""
+        from tests.connectors.fixtures.trading212_api_fixtures import (
+            ORDER_BUY_AAPL,
+        )
+
+        txn = _parse_order(ORDER_BUY_AAPL, "12345678")
+        assert txn.unit_price == Decimal("175.50")
+
+    def test_parse_order_with_fees(self) -> None:
+        """Tax + stamp duty should surface as a positive fee_amount."""
+        from tests.connectors.fixtures.trading212_api_fixtures import (
+            ORDER_BUY_AAPL,
+        )
+
+        order_with_fees = dict(ORDER_BUY_AAPL)
+        order_with_fees["tax"] = 1.50
+        order_with_fees["stampDuty"] = 2.00
+
+        txn = _parse_order(order_with_fees, "12345678")
+        assert txn.fee_amount == Decimal("3.50")
+        assert txn.fee_currency_code == "EUR"
+
+    def test_parse_order_uses_execution_time_and_pending_creation_time(
+        self,
+    ) -> None:
+        """Use filledTime for execution, creationTime when still pending."""
+        from tests.connectors.fixtures.trading212_api_fixtures import (
+            ORDER_BUY_AAPL,
+            ORDER_PENDING,
+        )
+
+        filled = _parse_order(ORDER_BUY_AAPL, "12345678")
+        assert filled.occurred_at == datetime(
+            2024, 1, 15, 10, 0, 30, tzinfo=UTC
+        )
+        assert filled.booked_at == filled.occurred_at
+
+        pending = _parse_order(ORDER_PENDING, "12345678")
+        assert pending.occurred_at == datetime(2025, 6, 20, 18, 0, tzinfo=UTC)
+        assert pending.booked_at == pending.occurred_at
+
+    def test_parse_order_without_fees(self) -> None:
+        """Orders without tax/stamp duty should have no fee_amount."""
+        from tests.connectors.fixtures.trading212_api_fixtures import (
+            ORDER_BUY_AAPL,
+        )
+
+        txn = _parse_order(ORDER_BUY_AAPL, "12345678")
+        assert txn.fee_amount is None
+        assert txn.fee_currency_code is None
+
+    def test_parse_pending_order_no_fees(self) -> None:
+        """A pending order has no filled price, so unit_price is None."""
+        from tests.connectors.fixtures.trading212_api_fixtures import (
+            ORDER_PENDING,
+        )
+
+        txn = _parse_order(ORDER_PENDING, "12345678")
+        assert txn.unit_price is None
+        assert txn.fee_amount is None
+
 
 class TestTrading212CashTransactionParsing:
     """Cash transaction parsing (dividends, deposits, etc.)."""
@@ -491,6 +819,50 @@ class TestTrading212CashTransactionParsing:
         txn = _parse_cash_transaction(DEPOSIT_1, "12345678")
         assert txn.amount == Decimal("5000.00")
         assert txn.transaction_type == "deposit"
+
+    def test_parse_cash_transaction_without_id_uses_stable_fallback(self) -> None:
+        """Live cash-history payloads may omit id without collapsing rows."""
+        txn = _parse_cash_transaction(
+            {
+                "type": "DIVIDEND",
+                "dateTime": "2026-09-04T04:09:25.915Z",
+                "amount": 0.72,
+                "currencyCode": "EUR",
+                "reference": "provider-reference-1",
+                "ticker": "AAPL",
+            },
+            "12345678",
+        )
+        assert txn.external_transaction_id == "txn_provider-reference-1"
+        assert txn.external_transaction_id != "txn_"
+
+    def test_parse_cash_transaction_without_id_or_reference_is_unique(self) -> None:
+        """Rows without provider identifiers must not collapse to ``txn_``."""
+        base = {
+            "type": "DIVIDEND",
+            "currencyCode": "EUR",
+            "ticker": "AAPL",
+        }
+        first = _parse_cash_transaction(
+            {
+                **base,
+                "dateTime": "2026-09-04T04:09:25.915Z",
+                "amount": 0.72,
+            },
+            "12345678",
+        )
+        second = _parse_cash_transaction(
+            {
+                **base,
+                "dateTime": "2026-09-05T04:09:25.915Z",
+                "amount": 0.73,
+            },
+            "12345678",
+        )
+
+        assert first.external_transaction_id != "txn_"
+        assert second.external_transaction_id != "txn_"
+        assert first.external_transaction_id != second.external_transaction_id
 
     def test_parse_withdrawal(self) -> None:
         """A withdrawal should parse with negative amount."""
@@ -521,9 +893,32 @@ class TestTrading212CashTransactionParsing:
         txn = _parse_cash_transaction(FEE_1, "12345678")
         assert txn.amount == Decimal("-2.50")
         assert txn.transaction_type == "fee"
+        assert txn.fee_amount == Decimal("2.50")
+        assert txn.fee_currency_code == "EUR"
+
+    def test_parse_dividend_no_fee(self) -> None:
+        """A dividend should not carry a fee_amount."""
+        from tests.connectors.fixtures.trading212_api_fixtures import (
+            DIVIDEND_AAPL,
+        )
+
+        txn = _parse_cash_transaction(DIVIDEND_AAPL, "12345678")
+        assert txn.fee_amount is None
+        assert txn.fee_currency_code is None
 
 
 class TestTrading212Mapping:
+    def test_london_prices_are_scaled_from_gbx(self) -> None:
+        assert _price_scale("WISEl_EQ") == Decimal("0.01")
+        assert _price_scale("AAPL_US_EQ") == Decimal(1)
+
+    def test_normalise_dutch_instrument(self) -> None:
+        assert _normalise_instrument("BESIa_EQ") == (
+            "BESI:XAMS",
+            "BE Semiconductor Industries",
+            "XAMS",
+        )
+
     """Transaction type and status mapping."""
 
     def test_map_order_sides(self) -> None:
@@ -570,6 +965,138 @@ class TestTrading212Mapping:
         assert _map_transaction_type("Deposit") == "deposit"
 
 
+class TestTrading212HoldingsMapping:
+    """Holdings fetch + transform into the canonical datamodel.
+
+    Acceptance criterion for the holdings step: fetching the portfolio
+    and transforming the result produces ``CanonicalHoldingData`` objects
+    matching the finance-sync Holding datamodel (ticker, quantity,
+    average price, currency, account_id, observed_at) with no data loss,
+    and missing/optional provider fields are handled gracefully.
+    """
+
+    async def test_fetch_holdings_handles_missing_and_null_fields(
+        self,
+        t212_connector: Trading212Connector,
+        t212_mock_transport: Trading212MockTransport,
+    ) -> None:
+        """Null/missing optional fields must not crash or leak "None"."""
+        from tests.connectors.fixtures.trading212_api_fixtures import (
+            PORTFOLIO_RESPONSE,
+        )
+
+        # Simulate provider quirks: null ticker, null quantity, missing
+        # averagePrice/currentPrice/frontend/currencyCode.
+        quirky_items = [
+            {
+                "ticker": None,
+                "quantity": None,
+                "averagePrice": None,
+                "currentPrice": None,
+                "frontend": None,
+            },
+            {
+                "ticker": "  ",
+                "quantity": 3.0,
+                "averagePrice": 10.0,
+                "currentPrice": 11.0,
+                "currencyCode": None,
+            },
+            dict(PORTFOLIO_RESPONSE[0]),
+        ]
+        t212_mock_transport.handler = lambda request: (  # type: ignore[attr-defined]
+            httpx.Response(
+                200,
+                json=(
+                    ACCOUNT_CASH_RESPONSE
+                    if request.url.path.endswith("/cash")
+                    else ACCOUNT_INFO_RESPONSE
+                    if request.url.path.endswith("/info")
+                    else quirky_items
+                ),
+            )
+            if request.url.path != "/api/v0/equity/portfolio"
+            else httpx.Response(200, json=quirky_items)
+        )
+
+        await t212_connector.authenticate()
+        holdings = await t212_connector.fetch_holdings(account_id="12345678")
+
+        # All three items map without crashing.
+        assert len(holdings) == 3
+
+        # Null ticker -> empty/None, never the string "None".
+        assert holdings[0].security_reference.ticker is None
+        assert holdings[0].security_reference.external_id is None
+        # Null quantity -> 0 rather than a crash.
+        assert holdings[0].quantity == Decimal(0)
+        assert holdings[0].cost_basis is None
+        assert holdings[0].market_value is None
+        # Currency falls back to the account currency.
+        assert holdings[0].currency_code == "EUR"
+
+        # Blank ticker -> None; missing currency falls back to account.
+        assert holdings[1].security_reference.ticker is None
+        assert holdings[1].currency_code == "EUR"
+        assert holdings[1].quantity == Decimal("3.0")
+        assert holdings[1].cost_basis == Decimal("30.0")
+
+        # Normal item unchanged (no data loss).
+        assert holdings[2].security_reference.ticker == "AAPL"
+        assert holdings[2].quantity == Decimal("10.0")
+        assert holdings[2].cost_basis == Decimal("1755.0")
+
+    async def test_transform_holdings_maps_full_datamodel(
+        self,
+        t212_connector: Trading212Connector,
+        t212_mock_transport: Trading212MockTransport,
+    ) -> None:
+        """transform_holdings maps every Holding datamodel field."""
+
+        await t212_connector.authenticate()
+        raw = await t212_connector.fetch_holdings(account_id="12345678")
+        assert len(raw) == 3
+
+        canonical = t212_connector.transform_holdings(raw)
+        assert len(canonical) == len(raw)
+
+        # Every canonical holding maps 1:1 from the raw fetch (no data loss).
+        for holding in canonical:
+            assert isinstance(holding, CanonicalHoldingData)
+            assert holding.provider_key == "trading212"
+            assert holding.external_account_id == "12345678"
+            assert holding.observed_at is not None
+            assert holding.source == "provider_sync"
+
+        aapl = canonical[0]
+        # Ticker lives on the security reference.
+        assert aapl.security_reference.ticker == "AAPL"
+        assert aapl.security_reference.external_id == "AAPL"
+        assert aapl.security_reference.name == "AAPL"
+        assert aapl.security_reference.currency_code == "EUR"
+        assert aapl.security_reference.security_type == "stock"
+        # Quantity, average price (cost basis / qty), currency, account.
+        assert aapl.quantity == Decimal("10.0")
+        assert aapl.cost_basis == Decimal("1755.0")
+        assert aapl.cost_basis_currency == "EUR"
+        assert aapl.market_value == Decimal("1800.0")
+        assert aapl.currency_code == "EUR"
+        assert aapl.price == Decimal("180.00")
+        assert aapl.price_currency == "EUR"
+
+        # ETF frontend maps to security_type "etf".
+        etf = canonical[2]
+        assert etf.security_reference.security_type == "etf"
+        assert etf.quantity == Decimal("50.0")
+        assert etf.cost_basis == Decimal("6250.0")
+
+    async def test_fetch_holdings_mismatched_account_returns_empty(
+        self, t212_connector: Trading212Connector
+    ) -> None:
+        """fetch_holdings for a different account returns no data."""
+        await t212_connector.authenticate()
+        assert await t212_connector.fetch_holdings(account_id="other") == []
+
 class TestTrading212ConnectorErrorHandling:
     """Error classification and handling."""
 
@@ -597,6 +1124,30 @@ class TestTrading212ConnectorErrorHandling:
 
         with pytest.raises(RateLimitError):
             await conn.authenticate()
+
+    async def test_targeted_api_error_fixture(
+        self,
+        t212_connector_config: ConnectorConfig,
+        t212_mock_transport_factory,
+    ) -> None:
+        """The shared transport can fail one endpoint without network I/O."""
+        import httpx
+
+        from finance_sync.connectors.trading212 import Trading212Connector
+
+        transport = t212_mock_transport_factory(
+            error_status=503,
+            error_paths={"/api/v0/equity/account/cash"},
+        )
+        client = httpx.AsyncClient(
+            base_url="https://live.trading212.com", transport=transport
+        )
+        connector = Trading212Connector(
+            t212_connector_config, http_client=client
+        )
+
+        with pytest.raises(TransientError):
+            await connector.authenticate()
 
     async def test_authentication_error(
         self,
@@ -806,17 +1357,16 @@ class TestTrading212ConnectorErrorHandling:
     def test_rate_limit_policy_retries_transient_errors(self) -> None:
         """The Trading212 policy must retry transient failures robustly.
 
-        The observed production failure was a transient provider outage
-        that exhausted the old ``max_retries=3`` / ``backoff_base=1.0``
-        policy after ~7 seconds.  The policy now retries longer so a
-        brief outage does not surface as a sync failure.
+        The policy uses a small retry budget so a 429 does not create a
+        burst of follow-up calls against the provider.
         """
         from finance_sync.connectors.trading212 import Trading212Connector
 
         policy = Trading212Connector.rate_limit_policy
         assert policy is not None
-        assert policy.max_retries >= 5
-        assert policy.backoff_base >= 2.0
+        assert policy.max_retries == 2
+        assert policy.backoff_base >= 5.0
+        assert policy.max_requests == 6
 
     async def test_account_id_mismatch_returns_empty(
         self, t212_connector: Trading212Connector

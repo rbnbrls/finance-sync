@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import traceback
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import structlog
 from sqlalchemy import select
@@ -47,6 +47,7 @@ from finance_sync.exporter.actual_budget.transaction_mapper import (
 )
 from finance_sync.exporter.models import ExportRun
 from finance_sync.models import Account, Transaction
+from finance_sync.observability.glitchtip import capture_connector_exception
 from finance_sync.sync.errors import categorize_export_error
 
 if TYPE_CHECKING:
@@ -146,6 +147,17 @@ class ActualBudgetExporter:
     Thread-safe: yes (all AB client I/O runs via ``asyncio.to_thread``).
     """
 
+    capabilities = {
+        "accounts": "write",
+        "transactions": "write",
+        "categories": "read_write",
+        "transfers": "write",
+        "splits": "write",
+        "notes": "write",
+        "budgets": "read_write",
+        "bidirectional": False,
+    }
+
     def __init__(
         self,
         session_factory: async_sessionmaker[AsyncSession],
@@ -221,6 +233,7 @@ class ActualBudgetExporter:
                 started_at=start_ts,
                 exporter_type="actual-budget",
                 target_id=self._target_id,
+                account_scope=list(account_ids) if account_ids else None,
             )
             session.add(run)
             await session.flush()
@@ -271,18 +284,70 @@ class ActualBudgetExporter:
                         )
 
                         # Map to AB format
-                        mapped = [
-                            map_transaction(
-                                t,
-                                ab_account_name=ab_acct["name"],
+                        transfer_txns: list[Transaction] = []
+                        mapped: list[dict[str, Any]] = []
+                        delivered_ids: list[str] = []
+                        for transaction in txns:
+                            counterparty = (
+                                transaction.counterparty_account_reference
                             )
-                            for t in txns
-                        ]
+                            destination_name = (
+                                self._ab_config.transfer_account_name_overrides.get(
+                                    str(counterparty or "")
+                                )
+                                if transaction.transaction_type == "transfer"
+                                else None
+                            )
+                            if destination_name:
+                                transfer_txns.append(transaction)
+                                continue
+                            mapped.append(
+                                map_transaction(
+                                    transaction,
+                                    ab_account_name=ab_acct["name"],
+                                    category_name=_category_name(transaction),
+                                )
+                            )
 
                         if max_transactions:
                             mapped = mapped[:max_transactions]
 
                         txns_attempted += len(mapped)
+
+                        for transaction in transfer_txns:
+                            counterparty = str(
+                                transaction.counterparty_account_reference
+                            )
+                            destination_name = (
+                                self._ab_config.transfer_account_name_overrides[
+                                    counterparty
+                                ]
+                            )
+                            reference = f"finance-sync:{transaction.id}"
+                            if await client.transfer_exists(reference):
+                                delivered_ids.append(str(transaction.id))
+                                continue
+                            destination = await client.get_or_create_account(
+                                destination_name,
+                                off_budget=self._ab_config.default_off_budget,
+                            )
+                            source_name = ab_acct["name"]
+                            target_name = destination["name"]
+                            if transaction.amount > 0:
+                                source_name, target_name = (
+                                    target_name,
+                                    source_name,
+                                )
+                            await client.create_transfer(
+                                date=transaction.occurred_at.date(),
+                                source_account=source_name,
+                                destination_account=target_name,
+                                amount=abs(int(transaction.amount * 100)),
+                                notes=reference,
+                            )
+                            txns_exported += 1
+                            delivered_ids.append(str(transaction.id))
+                        txns_attempted += len(transfer_txns)
 
                         # Import into AB using reconcile (dedup-aware)
                         batch_ok = await client.import_transactions_batch(
@@ -293,7 +358,14 @@ class ActualBudgetExporter:
                         txns_failed += len(mapped) - batch_ok
 
                         # Mark exported transactions and update delivery cursor
-                        exported_ids = [t.id for t in txns[: len(mapped)]]
+                        exported_ids = (
+                            delivered_ids
+                            + [
+                                str(t.id)
+                                for t in txns
+                                if t not in transfer_txns
+                            ][:batch_ok]
+                        )
                         await self._mark_exported(session, exported_ids)
                         await self._update_export_delivery(
                             session,
@@ -348,6 +420,12 @@ class ActualBudgetExporter:
                 run.transactions_failed = txns_failed
                 await session.commit()
                 self._log.error("export_connection_failed", error=str(exc))
+                capture_connector_exception(
+                    exc,
+                    connector="actual-budget",
+                    operation="export",
+                    correlation_id=str(run.id),
+                )
                 return ExportResult(
                     status="failed",
                     accounts_mapped=accts_mapped,
@@ -358,7 +436,7 @@ class ActualBudgetExporter:
                     duration_s=(end_ts - start_ts).total_seconds(),
                     run_id=str(run.id),
                 )
-            except Exception:
+            except Exception as exc:
                 await session.rollback()
                 end_ts = datetime.now(UTC)
                 tb = traceback.format_exc()
@@ -371,6 +449,12 @@ class ActualBudgetExporter:
                 run.transactions_failed = txns_failed
                 await session.commit()
                 self._log.error("export_failed", traceback=tb)
+                capture_connector_exception(
+                    exc,
+                    connector="actual-budget",
+                    operation="export",
+                    correlation_id=str(run.id),
+                )
                 return ExportResult(
                     status="failed",
                     accounts_mapped=accts_mapped,
@@ -718,3 +802,13 @@ def _default_since() -> datetime:
     from datetime import timedelta
 
     return datetime.now(UTC) - timedelta(days=90)
+
+
+def _category_name(transaction: Transaction) -> str | None:
+    suggestion: Any = getattr(transaction, "cashflow_suggestion", None)
+    if isinstance(suggestion, dict):
+        mapping = cast(dict[str, Any], suggestion)
+        value = mapping.get("value") or mapping.get("category")
+    else:
+        value = getattr(suggestion, "value", suggestion)
+    return str(value) if value else None

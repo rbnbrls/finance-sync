@@ -23,6 +23,58 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+
+class ProviderMetadata(BaseModel):
+    """Versioned, privacy-filtered provider extensions."""
+
+    schema_version: str = "1"
+    source_object_type: str | None = None
+    fields: dict[str, Any] = Field(default_factory=dict)
+
+
+class RawCashBalance(BaseModel):
+    """Point-in-time provider cash balance in one currency."""
+
+    amount: Decimal
+    currency_code: str = Field(max_length=3)
+    balance_kind: str = "available"
+    observed_at: datetime
+
+
+class SourceReference(BaseModel):
+    """Relation to one or more provider object revisions."""
+
+    object_type: str
+    external_ids: list[str] = Field(default_factory=list)
+    provider_revisions: list[str] = Field(default_factory=list)
+
+
+class CategorySuggestion(BaseModel):
+    value: str
+    source: str
+    confidence: float | None = Field(default=None, ge=0, le=1)
+    taxonomy: str | None = None
+
+
+class TransactionSplitData(BaseModel):
+    amount: Decimal
+    currency_code: str
+    percentage: Decimal | None = None
+    category_suggestion: CategorySuggestion | None = None
+    destination: str | None = None
+    provenance: str = "user"
+
+
+class TransactionAnnotationData(BaseModel):
+    annotation_type: str
+    content_hash: str | None = None
+    mime_type: str | None = None
+    safe_reference: str | None = None
+    owner: str | None = None
+    retention_until: datetime | None = None
+    destination_reference: str | None = None
+
+
 # ── Raw (provider-native) models ────────────────────────────────────────
 
 
@@ -53,6 +105,10 @@ class RawAccount(BaseModel):
     available_balance: Decimal | None = Field(
         default=None, description="Available balance (may differ from current)"
     )
+    net_asset_value: Decimal | None = Field(
+        default=None, description="Total account value including investments"
+    )
+    cash_balances: list[RawCashBalance] = Field(default_factory=list)
     iso_currency_code: str | None = Field(
         default=None,
         description="ISO-4217 code for the balance values, if different "
@@ -63,6 +119,7 @@ class RawAccount(BaseModel):
         description="Provider-specific attributes that don't fit the "
         "standard schema",
     )
+    capabilities: dict[str, bool] | None = Field(default=None)
 
 
 class RawTransaction(BaseModel):
@@ -128,6 +185,34 @@ class RawTransaction(BaseModel):
     amount_in_base: Decimal | None = Field(default=None)
     base_currency_code: str | None = Field(default=None)
     fx_rate: Decimal | None = Field(default=None)
+    provider_metadata_contract: ProviderMetadata | None = None
+    merchant_name: str | None = None
+    merchant_id: str | None = None
+    merchant_city: str | None = None
+    merchant_country: str | None = None
+    counterparty_name: str | None = None
+    counterparty_account_reference: str | None = None
+    merchant_category_code: str | None = None
+    original_type: str | None = None
+    original_status: str | None = None
+    authorization_status: str | None = None
+    settlement_status: str | None = None
+    source_record_hash: str | None = None
+    cashflow_bucket: str | None = None
+    cashflow_suggestion: CategorySuggestion | None = None
+    classification_source: str | None = None
+    classification_override: str | None = None
+    gross_amount: Decimal | None = None
+    gross_currency_code: str | None = None
+    net_amount: Decimal | None = None
+    net_currency_code: str | None = None
+    tax_amount: Decimal | None = None
+    tax_currency_code: str | None = None
+    refund_amount: Decimal | None = None
+    refund_currency_code: str | None = None
+    source_references: list[SourceReference] = Field(
+        default_factory=lambda: list[SourceReference]()
+    )
 
 
 class SecurityReference(BaseModel):
@@ -193,9 +278,12 @@ class CanonicalAccountData(BaseModel):
     )
     current_balance: Decimal | None = Field(default=None)
     available_balance: Decimal | None = Field(default=None)
+    net_asset_value: Decimal | None = Field(default=None)
+    cash_balances: list[RawCashBalance] = Field(default_factory=list)
     iso_currency_code: str | None = Field(default=None)
     provider_metadata: dict[str, Any] | None = Field(default=None)
     is_active: bool = Field(default=True)
+    capabilities: dict[str, bool] | None = Field(default=None)
 
 
 class CanonicalTransactionData(BaseModel):
@@ -235,6 +323,7 @@ class CanonicalTransactionData(BaseModel):
     unit_price: Decimal | None = Field(default=None)
     fee_amount: Decimal | None = Field(default=None)
     fee_currency_code: str | None = Field(default=None, max_length=3)
+    provider_metadata: dict[str, Any] | None = Field(default=None)
     status: str = Field(
         default="pending",
         description="pending/booked/reversed/cancelled",
@@ -244,6 +333,40 @@ class CanonicalTransactionData(BaseModel):
     amount_in_base: Decimal | None = Field(default=None)
     base_currency_code: str | None = Field(default=None)
     fx_rate: Decimal | None = Field(default=None)
+    provider_metadata_contract: ProviderMetadata | None = None
+    merchant_name: str | None = None
+    merchant_id: str | None = None
+    merchant_city: str | None = None
+    merchant_country: str | None = None
+    counterparty_name: str | None = None
+    counterparty_account_reference: str | None = None
+    merchant_category_code: str | None = None
+    original_type: str | None = None
+    original_status: str | None = None
+    authorization_status: str | None = None
+    settlement_status: str | None = None
+    source_record_hash: str | None = None
+    cashflow_bucket: str | None = None
+    cashflow_suggestion: CategorySuggestion | None = None
+    classification_source: str | None = None
+    classification_override: str | None = None
+    gross_amount: Decimal | None = None
+    gross_currency_code: str | None = None
+    net_amount: Decimal | None = None
+    net_currency_code: str | None = None
+    tax_amount: Decimal | None = None
+    tax_currency_code: str | None = None
+    refund_amount: Decimal | None = None
+    refund_currency_code: str | None = None
+    source_references: list[SourceReference] = Field(
+        default_factory=lambda: list[SourceReference]()
+    )
+    splits: list[TransactionSplitData] = Field(
+        default_factory=lambda: list[TransactionSplitData]()
+    )
+    annotations: list[TransactionAnnotationData] = Field(
+        default_factory=lambda: list[TransactionAnnotationData]()
+    )
 
 
 class CanonicalHoldingData(BaseModel):
@@ -353,6 +476,18 @@ class RawCardTransaction(BaseModel):
         "e.g. 'PENDING', 'BOOKED', 'REVERSED'",
     )
     provider_metadata: dict[str, Any] | None = Field(default=None)
+    provider_metadata_contract: ProviderMetadata | None = None
+    merchant_id: str | None = None
+    merchant_category_code: str | None = None
+    original_status: str | None = None
+    authorization_status: str | None = None
+    settlement_status: str | None = None
+    source_record_hash: str | None = None
+    refund_amount: Decimal | None = None
+    refund_currency_code: str | None = None
+    source_references: list[SourceReference] = Field(
+        default_factory=lambda: list[SourceReference]()
+    )
 
 
 class CanonicalScheduledPaymentData(BaseModel):
@@ -432,6 +567,19 @@ class CanonicalCardTransactionData(BaseModel):
     status: str = Field(
         default="pending",
         description="pending/booked/reversed/cancelled",
+    )
+    provider_metadata: dict[str, Any] | None = None
+    provider_metadata_contract: ProviderMetadata | None = None
+    merchant_id: str | None = None
+    merchant_category_code: str | None = None
+    original_status: str | None = None
+    authorization_status: str | None = None
+    settlement_status: str | None = None
+    source_record_hash: str | None = None
+    refund_amount: Decimal | None = None
+    refund_currency_code: str | None = None
+    source_references: list[SourceReference] = Field(
+        default_factory=lambda: list[SourceReference]()
     )
 
 

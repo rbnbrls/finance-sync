@@ -33,8 +33,14 @@ ACTION_CATALOG: dict[str, ActionSpec] = {
     "view_transactions": ActionSpec(
         "view_transactions", "Transacties bekijken", "GET", "transactions:read"
     ),
+    "view_holdings": ActionSpec(
+        "view_holdings", "Posities bekijken", "GET", "holdings:read"
+    ),
     "view_imports": ActionSpec(
         "view_imports", "Importdetails bekijken", "GET", "connectors:read"
+    ),
+    "open_file_import": ActionSpec(
+        "open_file_import", "Bestanden uploaden", "GET", "connectors:read"
     ),
     "edit_connection": ActionSpec(
         "edit_connection", "Bewerken", "GET", "connectors:read"
@@ -53,6 +59,15 @@ ACTION_CATALOG: dict[str, ActionSpec] = {
     ),
     "view_data_source": ActionSpec(
         "view_data_source", "Bron bekijken", "GET", "enrichment:read"
+    ),
+    "refresh_quotes": ActionSpec(
+        "refresh_quotes", "Koersen bijwerken", "POST", "enrichment:write"
+    ),
+    "accept_unavailable_quotes": ActionSpec(
+        "accept_unavailable_quotes",
+        "Ontbrekende koersen accepteren",
+        "POST",
+        "enrichment:write",
     ),
     "test_destination": ActionSpec(
         "test_destination", "Bestemming testen", "POST", "destinations:write"
@@ -78,6 +93,9 @@ ACTION_CATALOG: dict[str, ActionSpec] = {
         "POST",
         "destinations:write",
         True,
+    ),
+    "view_export": ActionSpec(
+        "view_export", "Export bekijken", "GET", "destinations:read"
     ),
     "view_reconciliation": ActionSpec(
         "view_reconciliation", "Finding bekijken", "GET", "reconciliation:read"
