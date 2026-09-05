@@ -711,16 +711,32 @@ class WealthfolioExporter:
         )
         if len({holding.observed_at.date() for holding in holdings}) <= 1:
             return []
-        rows: list[dict[str, Any]] = []
+        snapshots_by_date: dict[str, dict[str, Any]] = {}
         for holding in holdings:
             try:
-                rows.append(
-                    map_holding_to_wf_row(
-                        holding,
-                        security=security_map.get(holding.security_id),
-                        default_currency=self._wf_config.default_currency,
-                    )
+                row = map_holding_to_wf_row(
+                    holding,
+                    security=security_map.get(holding.security_id),
+                    default_currency=self._wf_config.default_currency,
                 )
+                snapshot = snapshots_by_date.setdefault(
+                    row["date"],
+                    {"date": row["date"], "positions": [], "cashBalances": {}},
+                )
+                position = {
+                    "symbol": row["symbol"],
+                    "isin": row.get("isin", ""),
+                    "quantity": row["quantity"],
+                    "avgCost": row["avgCost"] or None,
+                    "currency": row["currency"],
+                }
+                if holding.market_value is not None and holding.quantity:
+                    position["quoteMode"] = "MANUAL"
+                    position["price"] = str(
+                        Decimal(holding.market_value)
+                        / Decimal(holding.quantity)
+                    )
+                snapshot["positions"].append(position)
             except UnresolvedSecurityExportError as exc:
                 return [
                     {
@@ -729,7 +745,9 @@ class WealthfolioExporter:
                         "error": str(exc),
                     }
                 ]
-        result = await wf_client.import_holdings(rows, wf_account_id)
+        result = await wf_client.import_holdings(
+            list(snapshots_by_date.values()), wf_account_id
+        )
         if result.get("validationErrors"):
             return [
                 {
@@ -1026,6 +1044,28 @@ class WealthfolioExporter:
                 .order_by(Holding.observed_at, Holding.security_id)
             )
             return list(result.scalars().all())
+
+    async def _has_historical_holdings(self, account_id: str) -> bool:
+        """Return whether an account has more than one valuation date."""
+        async with self._session_factory() as session:
+            result = await session.execute(
+                select(Holding.observed_at)
+                .where(
+                    Holding.tenant_id == self._tenant_id,
+                    Holding.account_id == account_id,
+                )
+                .order_by(Holding.observed_at)
+            )
+            scalar_result = result.scalars()
+            if inspect.isawaitable(scalar_result):
+                scalar_result = await scalar_result
+            values = scalar_result.all()
+            if inspect.isawaitable(values):
+                values = await values
+            dates: set[str] = {
+                observed_at.date().isoformat() for observed_at in values
+            }
+            return len(dates) > 1
 
     async def _fetch_tax_lots(self, *, account_id: str) -> list[TaxLot]:
         """Fetch open and closed lots for one exported account."""
@@ -1364,7 +1404,10 @@ class WealthfolioExporter:
                     )
                     wf_account_id = str(wf_account["id"])
                     performance_account_ids.append(wf_account_id)
-                    if full_sync or rebuild:
+                    has_history = await self._has_historical_holdings(
+                        fs_acct.id
+                    )
+                    if full_sync or rebuild or has_history:
                         errors.extend(
                             await self._sync_historical_holdings(
                                 wf_client=wf_client,
