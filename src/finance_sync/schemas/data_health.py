@@ -35,6 +35,10 @@ DataHealthCategory = Literal[
     "negative_balance",
     "incomplete_holding",
     "incomplete_security_identity",
+    "quote_sync_failure",
+    "negative_valuation",
+    "incomplete_valuation",
+    "incomplete_cost_basis",
 ]
 
 

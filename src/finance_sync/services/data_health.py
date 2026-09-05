@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from decimal import Decimal
 from typing import TYPE_CHECKING, cast
 
 from sqlalchemy import and_, func, or_, select
@@ -10,6 +11,7 @@ from sqlalchemy import and_, func, or_, select
 from finance_sync.exporter.models import ExportRun
 from finance_sync.models import (
     Account,
+    EnrichmentFreshness,
     Holding,
     ImportRun,
     Security,
@@ -28,7 +30,6 @@ from finance_sync.services.data_quality import DataQualityService
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Sequence
-    from decimal import Decimal
 
     from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -99,6 +100,7 @@ class DataHealthService:
         # without a database session; preserve the projection-only mode.
         if getattr(self, "_session", None) is not None:
             issues.extend(await self._canonical_data_issues())
+            issues.extend(await self._wealthfolio_preflight_issues())
         stale_data = {
             "securities_stale": control.freshness.securities_stale,
             "securities_without_quote": (
@@ -212,6 +214,244 @@ class DataHealthService:
                     provider=source.provider,
                     source="transactions",
                     action=source_action,
+                )
+            )
+        return issues
+
+    async def _wealthfolio_preflight_issues(self) -> list[DataHealthIssue]:
+        """Find defects that Wealthfolio cannot represent safely.
+
+        Wealthfolio derives performance from activities, valuations and
+        market-data records.  These checks run against the canonical source
+        data before export, so the GUI can explain and repair the input rather
+        than exposing a misleading destination-side warning.
+        """
+        issues: list[DataHealthIssue] = []
+
+        quote_rows = (
+            await self._session.execute(
+                select(Security.name, EnrichmentFreshness.error_message)
+                .join(
+                    EnrichmentFreshness,
+                    EnrichmentFreshness.security_id == Security.id,
+                )
+                .join(Holding, Holding.security_id == Security.id)
+                .where(
+                    Holding.tenant_id == self._tenant_id,
+                    EnrichmentFreshness.status == "failed",
+                )
+                .distinct()
+                .order_by(Security.name)
+            )
+        ).all()
+        if quote_rows:
+            issues.append(
+                DataHealthIssue(
+                    id="wealthfolio:quote-sync-failures",
+                    category="quote_sync_failure",
+                    severity="error",
+                    title="Koerssync naar Wealthfolio mislukt",
+                    description=(
+                        "Een of meer actuele of historische koersen konden "
+                        "niet worden opgeslagen. Controleer ISIN, beurs, "
+                        "valuta en de ingestelde marktdata-provider voordat "
+                        "je exporteert."
+                    ),
+                    impact_count=len(quote_rows),
+                    source="market_data",
+                    details=[
+                        f"{name}: {error or 'onbekende fout'}"
+                        for name, error in quote_rows[:10]
+                    ],
+                    action=action(
+                        "refresh_quotes",
+                        "/api/v1/enrichment/refresh-quotes",
+                        permissions=self._permissions,
+                    ),
+                )
+            )
+
+        negative_rows = (
+            await self._session.execute(
+                select(
+                    Account.name,
+                    func.date(Holding.observed_at),
+                    func.sum(Holding.market_value),
+                )
+                .join(Account, Account.id == Holding.account_id)
+                .where(
+                    Holding.tenant_id == self._tenant_id,
+                    Holding.market_value.is_not(None),
+                )
+                .group_by(Account.name, func.date(Holding.observed_at))
+                .having(func.sum(Holding.market_value) < 0)
+                .order_by(func.date(Holding.observed_at))
+            )
+        ).all()
+        cash_rows = (
+            await self._session.execute(
+                select(
+                    Transaction.account_id,
+                    Account.name,
+                    Transaction.amount,
+                    Transaction.occurred_at,
+                    Transaction.transaction_type,
+                )
+                .join(Account, Account.id == Transaction.account_id)
+                .where(Transaction.tenant_id == self._tenant_id)
+                .order_by(Transaction.account_id, Transaction.occurred_at)
+            )
+        ).all()
+        running_cash: dict[str, Decimal] = {}
+        negative_cash: list[tuple[str, str, object, Decimal]] = []
+        for (
+            account_id,
+            name,
+            amount,
+            occurred_at,
+            _transaction_type,
+        ) in cash_rows:
+            balance = running_cash.get(str(account_id), Decimal(0))
+            balance += Decimal(str(amount))
+            running_cash[str(account_id)] = balance
+            if balance < 0:
+                negative_cash.append(
+                    (str(account_id), str(name), occurred_at, balance)
+                )
+        negative_history = [*negative_rows, *negative_cash]
+        if negative_history:
+            issues.append(
+                DataHealthIssue(
+                    id="wealthfolio:negative-valuation-history",
+                    category="negative_valuation",
+                    severity="error",
+                    title="Negatieve portfoliowaardering in historie",
+                    description=(
+                        "Wealthfolio kan rendement niet betrouwbaar berekenen "
+                        "als een historische waardering onder nul komt. Dit "
+                        "wijst meestal op ontbrekende aankoop-, stortings- of "
+                        "transferactiviteiten."
+                    ),
+                    impact_count=len(negative_history),
+                    source="holdings_and_transactions",
+                    details=[
+                        (
+                            f"{row[0]} · {row[1]}: {row[2]}"
+                            if len(row) == 3
+                            else f"{row[1]} · {row[2]}: {row[3]}"
+                        )
+                        for row in negative_history[:10]
+                    ],
+                    action=action(
+                        "view_transactions",
+                        "/api/v1/transactions",
+                        permissions=self._permissions,
+                    ),
+                )
+            )
+
+        valuation_rows = (
+            await self._session.execute(
+                select(Holding.id, Account.name, Security.name)
+                .join(Account, Account.id == Holding.account_id)
+                .join(Security, Security.id == Holding.security_id)
+                .where(
+                    Holding.tenant_id == self._tenant_id,
+                    or_(
+                        Holding.market_value.is_(None),
+                        Holding.price.is_(None),
+                    ),
+                )
+                .order_by(Holding.observed_at.desc())
+                .limit(1000)
+            )
+        ).all()
+        if valuation_rows:
+            issues.append(
+                DataHealthIssue(
+                    id="wealthfolio:incomplete-valuations",
+                    category="incomplete_valuation",
+                    severity="error",
+                    title="Waarderingsregels zijn niet compleet",
+                    description=(
+                        "Elke snapshot die naar Wealthfolio gaat moet een "
+                        "marktwaarde of een betrouwbare koers hebben. Vul de "
+                        "koers aan of accepteer de security expliciet als "
+                        "marktdata niet beschikbaar is."
+                    ),
+                    impact_count=len(valuation_rows),
+                    source="holdings",
+                    details=[
+                        f"{name} in {account}"
+                        for _id, account, name in valuation_rows[:10]
+                    ],
+                    action=action(
+                        "refresh_quotes",
+                        "/api/v1/enrichment/refresh-quotes",
+                        permissions=self._permissions,
+                    ),
+                )
+            )
+
+        latest_holdings = (
+            select(
+                Holding.account_id,
+                Holding.security_id,
+                func.max(Holding.observed_at).label("latest_observed_at"),
+            )
+            .where(
+                Holding.tenant_id == self._tenant_id,
+                Holding.quantity != 0,
+            )
+            .group_by(Holding.account_id, Holding.security_id)
+            .subquery()
+        )
+        cost_rows = (
+            await self._session.execute(
+                select(Holding.id, Account.name, Security.name)
+                .join(Account, Account.id == Holding.account_id)
+                .join(Security, Security.id == Holding.security_id)
+                .join(
+                    latest_holdings,
+                    and_(
+                        latest_holdings.c.account_id == Holding.account_id,
+                        latest_holdings.c.security_id == Holding.security_id,
+                        latest_holdings.c.latest_observed_at
+                        == Holding.observed_at,
+                    ),
+                )
+                .where(
+                    Holding.tenant_id == self._tenant_id,
+                    Holding.cost_basis.is_(None),
+                )
+                .order_by(Security.name)
+                .limit(1000)
+            )
+        ).all()
+        if cost_rows:
+            issues.append(
+                DataHealthIssue(
+                    id="wealthfolio:incomplete-cost-basis",
+                    category="incomplete_cost_basis",
+                    severity="warning",
+                    title="Posities missen cost basis",
+                    description=(
+                        "Wealthfolio kan de marktwaarde tonen, maar geen "
+                        "betrouwbare winst/verliesberekening maken zonder "
+                        "verkrijgingsprijs. Herstel de aankoopactiviteiten of "
+                        "leg de verkrijgingsprijs vast."
+                    ),
+                    impact_count=len(cost_rows),
+                    source="holdings",
+                    details=[
+                        f"{name} in {account}"
+                        for _id, account, name in cost_rows[:10]
+                    ],
+                    action=action(
+                        "view_transactions",
+                        "/api/v1/transactions?type=purchase",
+                        permissions=self._permissions,
+                    ),
                 )
             )
         return issues

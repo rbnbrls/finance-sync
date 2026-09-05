@@ -1334,6 +1334,18 @@
         }
 
         function renderDataHealthIssueTools(issue) {
+            if (issue.category === 'quote_sync_failure') {
+                return `<div class="health-repair-list"><strong>Koersen herstellen</strong><span class="field-hint">Controleer eerst ISIN, beurs en prijsvaluta. Daarna kun je de koersprovider opnieuw uitvoeren.</span><button type="button" class="btn btn-secondary btn-sm" onclick="runHealthIssueAction(this, '${escapeHtml(issue.action?.path || '/enrichment/refresh-quotes')}')">Koersen bijwerken</button></div>`;
+            }
+            if (issue.category === 'incomplete_valuation') {
+                return `<div class="health-repair-list"><strong>Waardering compleet maken</strong><span class="field-hint">Ontbrekende koersen worden opnieuw opgehaald. Als marktdata niet bestaat, accepteer de security als bewuste uitzondering.</span><button type="button" class="btn btn-secondary btn-sm" onclick="runHealthIssueAction(this, '${escapeHtml(issue.action?.path || '/enrichment/refresh-quotes')}')">Waardering opnieuw opbouwen</button></div>`;
+            }
+            if (issue.category === 'negative_valuation') {
+                return `<div class="health-repair-list"><strong>Historische waarde herstellen</strong><span class="field-hint">Controleer ontbrekende stortingen, aankopen en Transfer In-activiteiten vóór de eerste aankoop.</span></div>`;
+            }
+            if (issue.category === 'incomplete_cost_basis') {
+                return `<div class="health-repair-list"><strong>Cost basis herstellen</strong><span class="field-hint">Leg per aankoop de hoeveelheid en verkrijgingsprijs vast; zonder die gegevens kan Wealthfolio geen winst/verlies berekenen.</span></div>`;
+            }
             if (issue.category === 'freshness') {
                 return `<div class="health-repair-list"><span class="field-hint">Als marktdata voor deze securities niet beschikbaar is, kun je dit als bewuste uitzondering vastleggen.</span><button type="button" class="btn btn-secondary btn-sm" onclick="acceptUnavailableQuotes(this)">Ontbrekende koersen accepteren</button></div>`;
             }
@@ -1346,6 +1358,18 @@
                 return `<div class="health-repair-list"><strong>Betrokken transacties</strong>${ids.map(id => `<div class="health-repair-row"><code>${escapeHtml(String(id).slice(0, 8))}</code><button type="button" class="btn btn-danger btn-sm" onclick="tombstoneHealthTransaction('${escapeHtml(id)}')">Markeer duplicaat</button></div>`).join('')}<span class="field-hint">Kies alleen de transactie die aantoonbaar dubbel is. De bronhistorie blijft bewaard.</span></div>`;
             }
             return '';
+        }
+
+        async function runHealthIssueAction(button, path) {
+            button.disabled = true;
+            try {
+                await api('POST', path, {});
+                toast('Data health actie uitgevoerd. Controle wordt vernieuwd.', 'success');
+                await loadOverview();
+                await loadDataHealth();
+            } catch (error) {
+                toast(error?.message || 'De data health actie kon niet worden uitgevoerd.', 'error');
+            } finally { button.disabled = false; }
         }
 
         async function acceptUnavailableQuotes(button) {

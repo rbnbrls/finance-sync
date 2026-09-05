@@ -56,6 +56,7 @@ from finance_sync.exporter.wealthfolio.transaction_mapper import (
 )
 from finance_sync.models import (
     Account,
+    EnrichmentFreshness,
     FxRate,
     Holding,
     Security,
@@ -829,9 +830,50 @@ class WealthfolioExporter:
                     date=str(price.timestamp.date()),
                     error=str(exc)[:512],
                 )
+                await self._record_wealthfolio_quote_failure(
+                    security_id=price.security_id,
+                    error=str(exc),
+                )
                 continue
+            await self._clear_wealthfolio_quote_failure(
+                security_id=price.security_id,
+            )
             synced += 1
         return synced
+
+    async def _record_wealthfolio_quote_failure(
+        self, *, security_id: str, error: str
+    ) -> None:
+        """Persist destination quote failures for the Data health page."""
+        async with self._session_factory() as session:
+            freshness = await session.scalar(
+                select(EnrichmentFreshness).where(
+                    EnrichmentFreshness.security_id == security_id
+                )
+            )
+            if freshness is None:
+                freshness = EnrichmentFreshness(security_id=security_id)
+                session.add(freshness)
+            freshness.status = "failed"
+            freshness.data_source = "wealthfolio"
+            freshness.error_message = error[:1024]
+            await session.commit()
+
+    async def _clear_wealthfolio_quote_failure(
+        self, *, security_id: str
+    ) -> None:
+        """Clear a previously recorded failure after a successful quote."""
+        async with self._session_factory() as session:
+            freshness = await session.scalar(
+                select(EnrichmentFreshness).where(
+                    EnrichmentFreshness.security_id == security_id
+                )
+            )
+            if freshness is None or freshness.data_source != "wealthfolio":
+                return
+            freshness.status = "resolved"
+            freshness.error_message = None
+            await session.commit()
 
     async def _sync_fx_history(self, wf_client: WealthfolioClient) -> int:
         """Project canonical FX observations into Wealthfolio FX assets."""

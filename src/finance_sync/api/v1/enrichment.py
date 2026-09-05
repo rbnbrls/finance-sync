@@ -82,8 +82,11 @@ async def refresh_quotes(
         .where(
             Holding.tenant_id == auth.tenant_id,
             ~Security.id.in_(accepted_ids) if accepted_ids else True,
-            (EnrichmentFreshness.last_quote_fetch.is_(None))
-            | (EnrichmentFreshness.last_quote_fetch < cutoff)
+            (
+                (EnrichmentFreshness.last_quote_fetch.is_(None))
+                | (EnrichmentFreshness.last_quote_fetch < cutoff)
+                | (EnrichmentFreshness.status == "failed")
+            ),
         )
     )
     securities = list(stale_result.scalars().all())

@@ -335,6 +335,34 @@ async def test_canonical_data_health_checks_expose_record_details() -> None:
 
 
 @pytest.mark.asyncio
+async def test_wealthfolio_preflight_exposes_destination_quality_issues() -> None:
+    session = _Session(
+        _Result(rows=[("ACME", "quote rejected")]),
+        _Result(rows=[("Broker", datetime(2026, 8, 25).date(), -10)]),
+        _Result(rows=[]),
+        _Result(rows=[("holding-1", "Broker", "ACME")]),
+        _Result(rows=[("holding-2", "Broker", "VWCE")]),
+    )
+
+    issues = await DataHealthService(
+        cast("AsyncSession", session),
+        "tenant-a",
+        permissions={"enrichment:write", "transactions:read"},
+    )._wealthfolio_preflight_issues()
+
+    assert [issue.category for issue in issues] == [
+        "quote_sync_failure",
+        "negative_valuation",
+        "incomplete_valuation",
+        "incomplete_cost_basis",
+    ]
+    assert issues[0].action.key == "refresh_quotes"
+    assert issues[1].action.key == "view_transactions"
+    assert issues[2].impact_count == 1
+    assert issues[3].impact_count == 1
+
+
+@pytest.mark.asyncio
 async def test_changed_provider_data_gets_provider_sync_action() -> None:
     session = _Session(_Result(rows=[("bunq", 3)]))
     source = DataHealthSource(
