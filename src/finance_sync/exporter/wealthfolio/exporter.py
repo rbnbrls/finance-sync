@@ -1404,10 +1404,13 @@ class WealthfolioExporter:
                     )
                     wf_account_id = str(wf_account["id"])
                     performance_account_ids.append(wf_account_id)
-                    has_history = await self._has_historical_holdings(
-                        fs_acct.id
+                    delivery_cursor = await self._delivery_cursor(
+                        account_id=fs_acct.id,
                     )
-                    if full_sync or rebuild or has_history:
+                    if full_sync or rebuild or (
+                        delivery_cursor is None
+                        and await self._has_historical_holdings(fs_acct.id)
+                    ):
                         errors.extend(
                             await self._sync_historical_holdings(
                                 wf_client=wf_client,
@@ -1444,9 +1447,6 @@ class WealthfolioExporter:
                     # one exists (idempotent resume after partial failure).
                     # The (occurred_at, id) tuple excludes the boundary
                     # transaction so nothing already delivered is re-pushed.
-                    delivery_cursor = await self._delivery_cursor(
-                        account_id=fs_acct.id,
-                    )
                     if full_sync or rebuild:
                         txns = await self._fetch_pending_transactions(
                             account_id=fs_acct.id,
