@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING, cast
 
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, exists, func, or_, select
 
 from finance_sync.exporter.models import ExportRun
 from finance_sync.models import (
@@ -15,6 +15,7 @@ from finance_sync.models import (
     Holding,
     ImportRun,
     Security,
+    TaxLot,
     Transaction,
 )
 from finance_sync.schemas.data_health import (
@@ -239,6 +240,7 @@ class DataHealthService:
                 .where(
                     Holding.tenant_id == self._tenant_id,
                     EnrichmentFreshness.status == "failed",
+                    EnrichmentFreshness.data_source == "wealthfolio",
                 )
                 .distinct()
                 .order_by(Security.name)
@@ -357,10 +359,9 @@ class DataHealthService:
                 .join(Security, Security.id == Holding.security_id)
                 .where(
                     Holding.tenant_id == self._tenant_id,
-                    or_(
-                        Holding.market_value.is_(None),
-                        Holding.price.is_(None),
-                    ),
+                    Holding.quantity != 0,
+                    Holding.market_value.is_(None),
+                    Holding.price.is_(None),
                 )
                 .order_by(Holding.observed_at.desc())
                 .limit(1000)
@@ -423,6 +424,14 @@ class DataHealthService:
                 .where(
                     Holding.tenant_id == self._tenant_id,
                     Holding.cost_basis.is_(None),
+                    ~exists(
+                        select(TaxLot.id).where(
+                            TaxLot.tenant_id == self._tenant_id,
+                            TaxLot.account_id == Holding.account_id,
+                            TaxLot.security_id == Holding.security_id,
+                            TaxLot.remaining_quantity > 0,
+                        )
+                    ),
                 )
                 .order_by(Security.name)
                 .limit(1000)
@@ -447,6 +456,7 @@ class DataHealthService:
                         f"{name} in {account}"
                         for _id, account, name in cost_rows[:10]
                     ],
+                    affected_transaction_ids=[],
                     action=action(
                         "view_transactions",
                         "/api/v1/transactions?type=purchase",
@@ -842,9 +852,9 @@ class DataHealthService:
                 .join(Security, Security.id == Holding.security_id)
                 .where(
                     Holding.tenant_id == self._tenant_id,
-                    or_(
-                        Holding.price.is_(None), Holding.market_value.is_(None)
-                    ),
+                    Holding.quantity != 0,
+                    Holding.price.is_(None),
+                    Holding.market_value.is_(None),
                 )
                 .order_by(Holding.observed_at.desc())
                 .limit(100)
@@ -867,6 +877,7 @@ class DataHealthService:
                         f"{row[2]} in {row[1]}"
                         for row in incomplete_holdings[:10]
                     ],
+                    affected_transaction_ids=[],
                     action=action(
                         "view_holdings",
                         "/api/v1/holdings",

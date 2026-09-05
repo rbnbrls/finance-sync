@@ -943,17 +943,19 @@
         .chain-card { padding:24px 24px 27px; margin-bottom:16px; }
         .chain-card .card-header { margin-bottom:22px; }
         .chain-subtitle { color:var(--text-muted); font-size:.82rem; margin-top:5px; }
-        .chain { display:flex; align-items:center; width:100%; overflow-x:auto; padding:5px 1px 10px; }
-        .chain-node { flex:1 1 0; min-width:145px; display:flex; align-items:center; gap:10px; }
-        .chain-node:last-of-type { flex:0 1 205px; }
+        /* The chain is a stepper, not a horizontal carousel.  Keeping every
+           step in the card makes the complete data path visible without
+           forcing the user to discover a sideways scrollbar. */
+        .chain { display:flex; flex-direction:column; align-items:stretch; width:100%; overflow:visible; padding:2px 1px 4px; }
+        .chain-node { width:100%; min-width:0; display:flex; align-items:center; gap:10px; padding:3px 0; }
         .chain-circle { width:42px; height:42px; flex:0 0 42px; border-radius:13px; display:grid; place-items:center; font-size:1.15rem; background:color-mix(in srgb, var(--accent) 13%, transparent); color:var(--accent); border:1px solid color-mix(in srgb, var(--accent) 25%, var(--border)); }
         .chain-circle.center { background:color-mix(in srgb, var(--accent-secondary) 13%, transparent); color:var(--accent-secondary); border-color:color-mix(in srgb, var(--accent-secondary) 25%, var(--border)); }
         .chain-circle.exporter { background:rgba(139,92,246,.13); color:#a78bfa; border-color:rgba(139,92,246,.3); }
-        .chain-label { font-weight:650; font-size:.84rem; white-space:nowrap; }
-        .chain-meta { color:var(--text-muted); font-size:.72rem; margin-top:3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:130px; }
-        .chain-line { flex:0 0 42px; height:1px; background:var(--border); position:relative; margin:0 7px; }
-        .chain-line::after { content:""; position:absolute; right:0; top:-3px; border-left:6px solid var(--border); border-top:3px solid transparent; border-bottom:3px solid transparent; }
-        .chain-add { flex:0 0 42px; height:42px; border:1px dashed color-mix(in srgb, var(--accent) 65%, var(--border)); border-radius:13px; background:transparent; color:var(--accent); font-size:1.35rem; cursor:pointer; display:grid; place-items:center; margin-left:9px; transition:background .15s, border-color .15s; }
+        .chain-label { font-weight:650; font-size:.84rem; overflow-wrap:anywhere; }
+        .chain-meta { color:var(--text-muted); font-size:.72rem; margin-top:3px; overflow-wrap:anywhere; }
+        .chain-line { flex:0 0 18px; width:2px; height:18px; background:var(--border); position:relative; margin:0 0 0 20px; }
+        .chain-line::after { content:""; position:absolute; left:-3px; bottom:-1px; border-top:6px solid var(--border); border-left:3px solid transparent; border-right:3px solid transparent; }
+        .chain-add { flex:0 0 42px; width:42px; height:42px; border:1px dashed color-mix(in srgb, var(--accent) 65%, var(--border)); border-radius:13px; background:transparent; color:var(--accent); font-size:1.35rem; cursor:pointer; display:grid; place-items:center; margin-top:7px; transition:background .15s, border-color .15s; }
         .chain-add:hover { background:color-mix(in srgb, var(--accent) 10%, transparent); border-color:var(--accent); }
         .overview-empty { color:var(--text-muted); font-size:.84rem; padding:14px 0 4px; }
         .control-status { display:flex; justify-content:space-between; align-items:center; gap:16px; padding:18px 20px; margin-bottom:16px; border:1px solid var(--border); border-radius:14px; background:var(--surface); }
@@ -988,6 +990,16 @@
         .control-table td { font-size:.8rem; }
         .control-table .muted { color:var(--text-muted); }
         .control-actions { display:flex; gap:6px; flex-wrap:wrap; }
+        .duplicate-review { margin-top:14px; padding:16px; border:1px solid var(--border); border-radius:12px; background:var(--surface-2); }
+        .duplicate-review h3 { margin:7px 0 4px; font-size:.95rem; }
+        .duplicate-review-grid { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:12px; margin-top:14px; }
+        .duplicate-review-card { padding:13px; border:1px solid var(--border); border-radius:10px; background:var(--surface); }
+        .duplicate-review-card h3 { margin:0 0 10px; }
+        .duplicate-review-fields { display:grid; grid-template-columns: minmax(100px, .8fr) 1.2fr; gap:5px 10px; margin:0; font-size:.76rem; }
+        .duplicate-review-fields dt { color:var(--text-muted); }
+        .duplicate-review-fields dd { margin:0; overflow-wrap:anywhere; }
+        .duplicate-review-actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:14px; }
+        @media (max-width:700px) { .duplicate-review-grid { grid-template-columns:1fr; } }
         .action-result { margin-top:8px; font-size:.78rem; color:var(--text-muted); }
         .action-result.success { color:var(--green); }
         .action-result.error { color:var(--red); }
@@ -1000,7 +1012,7 @@
         .sync-activity-item .spinner { flex:0 0 auto; }
         .sync-activity-item small { color:var(--text-muted); margin-left:auto; }
         @media (max-width: 760px) { .control-status, .issue-card { flex-direction:column; align-items:stretch; } .quality-grid { grid-template-columns:repeat(2, minmax(0, 1fr)); } }
-        @media (max-width: 760px) { .overview-grid { grid-template-columns:1fr; } .overview-runs { grid-column:auto; } .run-summary { grid-template-columns:repeat(2,1fr); } .overview-header { align-items:flex-start; flex-direction:column; gap:8px; } .chain { padding-bottom:14px; } }
+        @media (max-width: 760px) { .overview-grid { grid-template-columns:1fr; } .overview-runs { grid-column:auto; } .run-summary { grid-template-columns:repeat(2,1fr); } .overview-header { align-items:flex-start; flex-direction:column; gap:8px; } }
         @media (max-width: 420px) { .run-summary { grid-template-columns:1fr 1fr; gap:8px; } .run-stat { padding:11px; } .overview-value { font-size:1.85rem; } }
     </style>
     <link rel="stylesheet" href="/static/brand.css">
@@ -1076,6 +1088,7 @@
         <div id="section-data-health" class="hidden" role="region" aria-labelledby="data-health-title">
             <div class="overview-header">
                 <div><div class="overview-kicker">Datakwaliteitsworkflow</div><h1 class="page-title" id="data-health-title">Data health</h1><p class="page-subtitle" style="margin-bottom:0;">Zie wat aandacht nodig heeft en herstel problemen vanuit één overzicht.</p></div>
+                <button type="button" class="btn btn-primary" onclick="runDataQualityRepair(this)"><span class="mdi mdi-auto-fix"></span> Kwaliteit herstellen</button>
                 <button type="button" class="btn btn-secondary" onclick="runDataQualityCheck(this)"><span class="mdi mdi-shield-search-outline"></span> Nu controleren</button>
                 <button type="button" class="btn btn-secondary btn-sm" onclick="loadDataHealth()"><span class="mdi mdi-refresh"></span> Vernieuwen</button>
             </div>
@@ -1219,6 +1232,7 @@
         let token = localStorage.getItem('fs_token');
         let connectors = [];     // available connector types
         let connectorCatalog = [];
+        const MARKET_DATA_KEYS = new Set(['openfigi', 'ecb', 'stooq', 'finnhub', 'twelve_data', 'alpha_vantage', 'yahoo_finance', 'boerse_frankfurt']);
         let configs = [];        // saved configs (one entry per connection)
         let connectionHealth = {}; // read-only three-level health projection
         let degiroRuns = [];     // path-free DEGIRO import status
@@ -1334,17 +1348,32 @@
         }
 
         function renderDataHealthIssueTools(issue) {
-            if (issue.category === 'quote_sync_failure') {
-                return `<div class="health-repair-list"><strong>Koersen herstellen</strong><span class="field-hint">Controleer eerst ISIN, beurs en prijsvaluta. Daarna kun je de koersprovider opnieuw uitvoeren.</span><button type="button" class="btn btn-secondary btn-sm" onclick="runHealthIssueAction(this, '${escapeHtml(issue.action?.path || '/enrichment/refresh-quotes')}')">Koersen bijwerken</button></div>`;
+            if (issue.category === 'quote_sync_failure' || issue.category === 'stale_prices') {
+                return `<div class="health-repair-list"><strong>Koersen herstellen</strong><span class="field-hint">Controleer eerst ISIN, beurs en prijsvaluta. Daarna kun je de koersprovider opnieuw uitvoeren.</span><button type="button" class="btn btn-secondary btn-sm" onclick="runHealthIssueAction(this, '${escapeHtml(issue.action?.path || '/enrichment/refresh-quotes')}')">Koersen bijwerken</button>${trading212ProviderHelp()}</div>`;
             }
             if (issue.category === 'incomplete_valuation') {
                 return `<div class="health-repair-list"><strong>Waardering compleet maken</strong><span class="field-hint">Ontbrekende koersen worden opnieuw opgehaald. Als marktdata niet bestaat, accepteer de security als bewuste uitzondering.</span><button type="button" class="btn btn-secondary btn-sm" onclick="runHealthIssueAction(this, '${escapeHtml(issue.action?.path || '/enrichment/refresh-quotes')}')">Waardering opnieuw opbouwen</button></div>`;
             }
             if (issue.category === 'negative_valuation') {
-                return `<div class="health-repair-list"><strong>Historische waarde herstellen</strong><span class="field-hint">Controleer ontbrekende stortingen, aankopen en Transfer In-activiteiten vóór de eerste aankoop.</span></div>`;
+                return `<div class="health-repair-list"><strong>Historische waarde herstellen</strong><span class="field-hint">Controleer ontbrekende stortingen, aankopen en Transfer In-activiteiten vóór de eerste aankoop.</span><button type="button" class="btn btn-secondary btn-sm" onclick="openHealthData('${escapeHtml(issue.action?.path || '/api/v1/transactions')}')">Transacties beoordelen</button><button type="button" class="btn btn-secondary btn-sm" onclick="runDataQualityCheck(this)">Opnieuw controleren</button></div>`;
             }
             if (issue.category === 'incomplete_cost_basis') {
-                return `<div class="health-repair-list"><strong>Cost basis herstellen</strong><span class="field-hint">Leg per aankoop de hoeveelheid en verkrijgingsprijs vast; zonder die gegevens kan Wealthfolio geen winst/verlies berekenen.</span></div>`;
+                return `<div class="health-repair-list"><strong>Cost basis herstellen</strong><span class="field-hint">Leg per aankoop de hoeveelheid en verkrijgingsprijs vast; zonder die gegevens kan Wealthfolio geen winst/verlies berekenen.</span><button type="button" class="btn btn-secondary btn-sm" onclick="openHealthData('${escapeHtml(issue.action?.path || '/api/v1/transactions?type=purchase')}')">Aankopen beoordelen</button><button type="button" class="btn btn-secondary btn-sm" onclick="runDataQualityCheck(this)">Opnieuw controleren</button></div>`;
+            }
+            if (issue.category === 'incomplete_holding' || issue.category === 'incomplete_valuation') {
+                return `<div class="health-repair-list"><strong>Waardering herstellen</strong><span class="field-hint">Werk eerst beurs, ISIN en prijsvaluta bij. Haal daarna koersen opnieuw op; accepteer alleen bewust ontbrekende marktdata.</span><button type="button" class="btn btn-secondary btn-sm" onclick="runHealthIssueAction(this, '${escapeHtml(issue.action?.path || '/api/v1/enrichment/refresh-quotes')}')">Koersen en waardering bijwerken</button><button type="button" class="btn btn-secondary btn-sm" onclick="openHealthData('/api/v1/holdings')">Posities bekijken</button>${trading212ProviderHelp()}</div>`;
+            }
+            if (issue.category === 'unbalanced_transfer') {
+                return `<div class="health-repair-list"><strong>Transfers koppelen</strong><span class="field-hint">Controleer beide kanten van iedere transfer. Markeer een externe storting/opname als externe geldstroom of herstel de ontbrekende tegenboeking.</span><button type="button" class="btn btn-secondary btn-sm" onclick="openHealthData('${escapeHtml(issue.action?.path || '/api/v1/transactions?type=transfer')}')">Transfers bekijken</button><button type="button" class="btn btn-secondary btn-sm" onclick="runDataQualityCheck(this)">Opnieuw controleren</button></div>`;
+            }
+            if (issue.category === 'incomplete_security_identity' || issue.category === 'unresolved_security' || issue.category === 'security_mapping') {
+                return `<div class="health-repair-list"><strong>Security identificeren</strong><span class="field-hint">Vraag Trading212's instrument-master op. ISIN, ticker, beurs, naam en prijsvaluta worden in de mapping-queue opgeslagen; start daarna een Trading212-sync.</span><button type="button" class="btn btn-secondary btn-sm" onclick="runHealthIssueAction(this, '/api/v1/enrichment/refresh-trading212-identities')">Trading212-identiteiten ophalen</button><button type="button" class="btn btn-secondary btn-sm" onclick="openHealthData('${escapeHtml(issue.action?.path || '/api/v1/holdings')}')">Securities bekijken</button></div>`;
+            }
+            if (issue.category === 'incomplete_import' || issue.category === 'missing_transactions') {
+                return `<div class="health-repair-list"><strong>Brondata aanvullen</strong><span class="field-hint">Open de importdetails, herstel afgewezen bestanden of records en voer de import opnieuw uit.</span><button type="button" class="btn btn-secondary btn-sm" onclick="openHealthData('${escapeHtml(issue.action?.path || '#uploads')}')">Import bekijken</button></div>`;
+            }
+            if (issue.category === 'duplicate_accounts' || issue.category === 'balance_conflict' || issue.category === 'negative_balance') {
+                return `<div class="health-repair-list"><strong>Accountgegevens controleren</strong><span class="field-hint">Controleer de provideridentiteit, het actuele saldo en ontbrekende stortingen vóór je opnieuw exporteert.</span><button type="button" class="btn btn-secondary btn-sm" onclick="openHealthData('${escapeHtml(issue.action?.path || '/api/v1/accounts')}')">Accounts bekijken</button></div>`;
             }
             if (issue.category === 'freshness') {
                 return `<div class="health-repair-list"><span class="field-hint">Als marktdata voor deze securities niet beschikbaar is, kun je dit als bewuste uitzondering vastleggen.</span><button type="button" class="btn btn-secondary btn-sm" onclick="acceptUnavailableQuotes(this)">Ontbrekende koersen accepteren</button></div>`;
@@ -1355,9 +1384,22 @@
                 return `<div class="health-repair-list"><strong>Herstel per transactie</strong>${ids.map(id => `<div class="health-repair-row"><code>${escapeHtml(String(id).slice(0, 8))}</code><button type="button" class="btn btn-secondary btn-sm" onclick="correctHealthTransaction('${escapeHtml(id)}', { transaction_type: 'transfer' })">Classificeer als Transfer In</button><label>Verkrijgingsprijs <input class="health-price-input" id="health-price-${escapeHtml(id)}" inputmode="decimal" type="number" min="0" step="0.0001" placeholder="bijv. 12,50"></label><button type="button" class="btn btn-secondary btn-sm" onclick="correctHealthTransaction('${escapeHtml(id)}', { unit_price: document.getElementById('health-price-${escapeHtml(id)}')?.value })">Opslaan</button></div>`).join('')}</div>`;
             }
             if (issue.category === 'reconciliation') {
-                return `<div class="health-repair-list"><strong>Betrokken transacties</strong>${ids.map(id => `<div class="health-repair-row"><code>${escapeHtml(String(id).slice(0, 8))}</code><button type="button" class="btn btn-danger btn-sm" onclick="tombstoneHealthTransaction('${escapeHtml(id)}')">Markeer duplicaat</button></div>`).join('')}<span class="field-hint">Kies alleen de transactie die aantoonbaar dubbel is. De bronhistorie blijft bewaard.</span></div>`;
+                return `<div class="health-repair-list"><strong>Betrokken transacties</strong><div class="field-hint">Open de finding om beide transacties volledig te vergelijken. Daar kun je één transactie behouden of aangeven dat beide terecht zijn.</div><button type="button" class="btn btn-secondary btn-sm" onclick="openReconciliationDetail(${JSON.stringify(issue.action?.path || '')})">Details vergelijken</button></div>`;
             }
             return '';
+        }
+
+        function trading212ProviderHelp() {
+            return `<details class="health-provider-help"><summary>Wealthfolio custom provider instellen</summary><div class="field-hint">Wealthfolio → Settings → Market Data → Add Custom Provider</div><dl class="duplicate-review-fields"><dt>URL (Mac/Docker)</dt><dd><code>http://host.docker.internal:8000/api/v1/market-data/trading212/latest?symbol={SYMBOL}</code></dd><dt>Formaat</dt><dd>JSON</dd><dt>Price path</dt><dd><code>$.price</code></dd><dt>Currency path</dt><dd><code>$.currency</code></dd><dt>Date path</dt><dd><code>$.date</code></dd><dt>Header</dt><dd><code>X-API-Key: &lt;finance-sync read-only key&gt;</code></dd></dl><div class="field-hint">Geef het provider-account een voorkeur per asset. Gebruik bij dezelfde security een ticker- of ISIN-override als de brokernaam afwijkt.</div></details>`;
+        }
+
+        function openHealthData(path) {
+            if (!path || path.startsWith('#')) { window.location.hash = path || '#uploads'; return; }
+            if (path.includes('/transactions')) window.location.hash = '#viewer';
+            else if (path.includes('/holdings')) window.location.hash = '#viewer';
+            else if (path.includes('/accounts')) window.location.hash = '#accounts';
+            else if (path.includes('file-uploads')) window.location.hash = '#uploads';
+            else window.location.hash = '#data-health';
         }
 
         async function runHealthIssueAction(button, path) {
@@ -1417,6 +1459,20 @@
             finally { if (button) { button.dataset.busy = 'false'; button.disabled = false; button.removeAttribute('aria-busy'); } }
         }
 
+        async function runDataQualityRepair(button) {
+            if (button?.dataset.busy === 'true') return;
+            if (button) { button.dataset.busy = 'true'; button.disabled = true; button.setAttribute('aria-busy', 'true'); }
+            try {
+                const result = await api('POST', '/control-plane/data-health/repair', {});
+                const identity = result?.identity || {};
+                const quotes = result?.quotes || {};
+                toast(`${identity.resolved_by_isin || 0} identiteiten gekoppeld; ${quotes.updated || 0} koersen bijgewerkt.`, 'success');
+                await loadOverview();
+                await loadDataHealth();
+            } catch (error) { toast(error?.message || 'De kwaliteitsreparatie kon niet worden uitgevoerd.', 'error'); }
+            finally { if (button) { button.dataset.busy = 'false'; button.disabled = false; button.removeAttribute('aria-busy'); } }
+        }
+
         function reconciliationRunIdFromPath(path) {
             const match = String(path || '').match(/\/reconciliation\/([^/?#]+)/);
             return match ? decodeURIComponent(match[1]) : '';
@@ -1436,11 +1492,33 @@
                 const run = data.run || {};
                 const results = data.results || [];
                 detail.setAttribute('aria-busy', 'false');
-                detail.innerHTML = `<div class="card-header"><div><div class="overview-kicker">Reconciliatie</div><h2>Finding details</h2><p class="chain-subtitle">Run ${escapeHtml(run.id || runId)} · ${escapeHtml(readableStatus(run.status))} · ${escapeHtml(formatControlDate(run.completed_at || run.started_at))}</p></div><button type="button" class="btn btn-secondary btn-sm" onclick="closeReconciliationDetail()">Terug naar issues</button></div>${results.length ? `<div class="control-table-wrap"><table class="data-table control-table"><thead><tr><th>Type</th><th>Ernst</th><th>Omschrijving</th><th>Records</th></tr></thead><tbody>${results.map(result => `<tr><td>${escapeHtml(readableStatus(result.kind))}</td><td><span class="severity severity-${escapeHtml(result.severity)}">${escapeHtml(result.severity)}</span></td><td>${escapeHtml(result.description || 'Controleer de betrokken bronrecords.')}</td><td>${escapeHtml([result.transaction_id_a, result.transaction_id_b].filter(Boolean).join(' · ') || [result.external_transaction_id_a, result.external_transaction_id_b].filter(Boolean).join(' · ') || '—')}</td></tr>`).join('')}</tbody></table></div>` : '<div class="overview-empty">Deze reconciliatierun bevat geen zichtbare findings.</div>'}`;
+                detail.innerHTML = `<div class="card-header"><div><div class="overview-kicker">Reconciliatie</div><h2>Finding details</h2><p class="chain-subtitle">Run ${escapeHtml(run.id || runId)} · ${escapeHtml(readableStatus(run.status))} · ${escapeHtml(formatControlDate(run.completed_at || run.started_at))}</p></div><button type="button" class="btn btn-secondary btn-sm" onclick="closeReconciliationDetail()">Terug naar issues</button></div>${results.length ? results.map(result => renderReconciliationResult(result)).join('') : '<div class="overview-empty">Deze reconciliatierun bevat geen zichtbare findings.</div>'}`;
             } catch (error) {
                 detail.setAttribute('aria-busy', 'false');
                 detail.innerHTML = `<div class="alert alert-error inline-error" role="alert"><div class="inline-error-msg"><strong>Finding kon niet worden geladen</strong><span>${escapeHtml(error?.message || 'De details zijn tijdelijk niet beschikbaar.')}</span></div><button type="button" class="btn btn-secondary btn-sm" onclick="openReconciliationDetail(${JSON.stringify(path)})">Opnieuw proberen</button></div>`;
             }
+        }
+
+        function renderReconciliationResult(result) {
+            const txs = result.transactions || [];
+            if (result.kind !== 'duplicate_transaction' || txs.length < 2) {
+                return `<article class="health-repair-list"><strong>${escapeHtml(result.description || 'Finding')}</strong><div class="field-hint">${escapeHtml([result.transaction_id_a, result.transaction_id_b].filter(Boolean).join(' · ') || 'Geen transactiegegevens beschikbaar')}</div></article>`;
+            }
+            const card = (tx) => `<div class="duplicate-review-card"><h3>${escapeHtml(tx.security_name || tx.description || 'Transactie')}</h3><dl class="duplicate-review-fields"><dt>Datum</dt><dd>${escapeHtml(formatControlDate(tx.occurred_at))}</dd><dt>Bedrag</dt><dd>${escapeHtml(`${tx.amount ?? '—'} ${tx.currency_code || ''}`)}</dd><dt>Type</dt><dd>${escapeHtml(tx.transaction_type || '—')}</dd><dt>Aantal / koers</dt><dd>${escapeHtml(`${tx.quantity ?? '—'} / ${tx.unit_price ?? '—'} ${tx.currency_code || ''}`)}</dd><dt>Transactiekosten</dt><dd>${escapeHtml(`${tx.fee_amount ?? '—'} ${tx.fee_currency_code || ''}`)}</dd><dt>Rekening</dt><dd>${escapeHtml(tx.account_name || tx.account_id || '—')}</dd><dt>Broker-ID</dt><dd><code>${escapeHtml(tx.external_transaction_id || '—')}</code></dd><dt>Status</dt><dd>${escapeHtml(readableStatus(tx.status))}</dd><dt>Omschrijving</dt><dd>${escapeHtml(tx.description || '—')}</dd></dl></div>`;
+            return `<article class="duplicate-review"><div><span class="severity severity-${escapeHtml(result.severity)}">${escapeHtml(result.severity)}</span><h3>Welke transactie moet behouden blijven?</h3><p>${escapeHtml(result.description || '')}</p></div><div class="duplicate-review-grid">${card(txs[0])}${card(txs[1])}</div><div class="duplicate-review-actions"><button type="button" class="btn btn-danger btn-sm" onclick="reviewDuplicate(${JSON.stringify(result.transaction_id_a)}, ${JSON.stringify(result.transaction_id_b)}, 'keep_a', ${JSON.stringify(pathForReconciliationResult(result))})">Transactie A behouden</button><button type="button" class="btn btn-danger btn-sm" onclick="reviewDuplicate(${JSON.stringify(result.transaction_id_a)}, ${JSON.stringify(result.transaction_id_b)}, 'keep_b', ${JSON.stringify(pathForReconciliationResult(result))})">Transactie B behouden</button><button type="button" class="btn btn-secondary btn-sm" onclick="reviewDuplicate(${JSON.stringify(result.transaction_id_a)}, ${JSON.stringify(result.transaction_id_b)}, 'keep_both', ${JSON.stringify(pathForReconciliationResult(result))})">Beide behouden</button></div></article>`;
+        }
+
+        function pathForReconciliationResult(result) { return `/api/v1/reconciliation/${encodeURIComponent(result.run_id)}`; }
+
+        async function reviewDuplicate(transactionA, transactionB, decision, reloadPath) {
+            const message = decision === 'keep_both' ? 'Beide transacties behouden en deze melding sluiten?' : 'De andere transactie zacht markeren als duplicaat?';
+            if (!window.confirm(message)) return;
+            try {
+                await api('POST', '/api/v1/reconciliation/duplicates/decision', { transaction_id_a: transactionA, transaction_id_b: transactionB, decision });
+                toast('Duplicate-beoordeling opgeslagen.', 'success');
+                await loadDataHealth();
+                await openReconciliationDetail(reloadPath);
+            } catch (error) { toast(error?.message || 'Beoordeling opslaan mislukt.', 'error'); }
         }
 
         function closeReconciliationDetail() {
@@ -2048,7 +2126,9 @@
             configs = cfgs || [];
             degiroConfigs = (cfgs || []).filter(c => c.provider_type === 'degiro_pension');
             const healthResults = await Promise.allSettled(configs.map(c =>
-                api('GET', `/connectors/${encodeURIComponent(c.id || c.connection_id)}/health`)
+                MARKET_DATA_KEYS.has(c.provider_type)
+                    ? Promise.resolve({ overall_status: c.options?.enabled === false ? 'disabled' : 'healthy' })
+                    : api('GET', `/connectors/${encodeURIComponent(c.id || c.connection_id)}/health`)
             ));
             connectionHealth = {};
             healthResults.forEach((result, index) => {
@@ -2162,8 +2242,16 @@
             let html = degiroPanel;
             for (const provider of providerOrder) {
                 const conns = byProvider[provider];
-                if (!conns) continue;
                 const meta = connectors.find(c => c.name === provider);
+                if (!conns && MARKET_DATA_KEYS.has(provider) && meta) {
+                    html += renderMarketDataCard(meta, null);
+                    continue;
+                }
+                if (!conns) continue;
+                if (MARKET_DATA_KEYS.has(provider)) {
+                    html += renderMarketDataCard(meta, conns[0]);
+                    continue;
+                }
                 const displayName = escapeHtml(String((meta && meta.display_name) || provider));
                 html += `
                     <div class="provider-group" style="margin-bottom:24px;">
@@ -2181,6 +2269,39 @@
             }
             container.innerHTML = html;
             container.setAttribute('aria-busy', 'false');
+        }
+
+        function renderMarketDataCard(meta, cfg) {
+            const provider = String(meta.name);
+            const enabled = cfg ? cfg.options?.enabled !== false : true;
+            const needsKey = (meta.credential_fields || []).some(f => f.required);
+            const configured = !!cfg && !!cfg.is_configured;
+            const active = enabled && (!needsKey || configured);
+            const state = !enabled ? 'Uit' : (needsKey && !configured ? 'Configuratie vereist' : 'Aan');
+            const action = cfg
+                ? `<button type="button" class="btn btn-secondary btn-sm" onclick="toggleMarketDataProvider('${escapeHtml(String(cfg.id))}', ${enabled ? 'false' : 'true'})">${enabled ? 'Uitschakelen' : 'Inschakelen'}</button>`
+                : `<button type="button" class="btn btn-success btn-sm" onclick="enableMarketDataProvider('${escapeHtml(provider)}')">Inschakelen</button>`;
+            const setup = needsKey
+                ? `<button type="button" class="btn btn-secondary btn-sm" onclick="openConfigModal('${escapeHtml(provider)}', '${cfg ? escapeHtml(String(cfg.id)) : ''}')">${configured ? 'API-key wijzigen' : 'Configureren'}</button>`
+                : `<a class="btn btn-secondary btn-sm" href="${escapeHtml(String(meta.documentation_url || '#'))}" target="_blank" rel="noopener">Documentatie</a>`;
+            return `<div class="provider-group" style="margin-bottom:24px;"><div class="provider-group-header"><h2>${escapeHtml(String(meta.display_name))}<span style="color:var(--text-muted);font-size:0.8rem;font-weight:500;"> · marktdata</span></h2></div><div class="connector-grid"><div class="connector-card"><div class="top"><div class="name">${escapeHtml(String(meta.display_name))}</div><span class="badge ${active ? 'connected' : 'pending'}">${state}</span></div><div class="desc">${escapeHtml(String(meta.description || 'Marktdata'))}</div><div class="conn-meta"><div class="meta-row"><span>Configuratie</span><span>${needsKey ? (configured ? 'API-key opgeslagen' : 'API-key vereist') : 'Geen sleutel nodig'}</span></div><div class="meta-row"><span>Gebruik in repairjob</span><span>${active ? 'Ja' : 'Nee'}</span></div></div><div class="actions">${action}${setup}</div></div></div></div>`;
+        }
+
+        async function enableMarketDataProvider(provider) {
+            try {
+                await api('POST', '/connectors/configs', { provider_type: provider, credentials: {}, options: { enabled: true } });
+                toast('Marktdata-provider ingeschakeld.', 'success');
+                await loadConnectors();
+            } catch (error) { toast(error?.message || 'Provider kon niet worden ingeschakeld.', 'error'); }
+        }
+
+        async function toggleMarketDataProvider(connectionId, enabled) {
+            try {
+                const cfg = findConfig(connectionId);
+                await api('PUT', `/connectors/configs/${encodeURIComponent(connectionId)}`, { options: { ...(cfg?.options || {}), enabled } });
+                toast(enabled ? 'Marktdata-provider ingeschakeld.' : 'Marktdata-provider uitgeschakeld.', 'success');
+                await loadConnectors();
+            } catch (error) { toast(error?.message || 'Providerstatus kon niet worden gewijzigd.', 'error'); }
         }
 
         function findConfig(connectionId) {
@@ -3806,10 +3927,79 @@
                     <button class="btn btn-sm" onclick="destinationAction('${escapeHtml(d.id)}', '${d.status === 'active' ? 'pause' : 'activate'}')">${d.status === 'active' ? 'Pauzeren' : 'Activeren'}</button>
                     <button class="btn btn-sm btn-danger" onclick="deleteDestination('${escapeHtml(d.id)}')">Verwijderen</button></div></div>`;
             }).join('');
-            container.innerHTML = `<div class="connector-toolbar"><button class="btn btn-primary" onclick="openDestinationWizard()">+ Exporter toevoegen</button></div>
+            container.innerHTML = `<div class="connector-toolbar"><button class="btn btn-primary" onclick="openDestinationWizard()">+ Exporter toevoegen</button><button class="btn btn-secondary" onclick="openCustomProviderWizard()"><span class="mdi mdi-chart-line"></span> Wealthfolio market-data provider</button></div>
                 ${cards ? `<div class="connector-grid">${cards}</div>` : '<div class="empty-state"><div class="icon mdi mdi-database-outline"></div><p>Nog geen exporters. Je datalake blijft volledig bruikbaar; voeg alleen een downstream-app toe wanneer je die wilt gebruiken.</p><button class="btn btn-primary" onclick="openDestinationWizard()"><span class="mdi mdi-plus"></span> Exporter toevoegen</button></div>'}`;
             const runs = document.getElementById('exporter-runs');
             if (runs) runs.innerHTML = '';
+        }
+
+        function customProviderBaseUrls() {
+            const browserBase = window.location.origin.replace(/\/$/, '');
+            const dockerBase = browserBase.replace(/:\/\/(localhost|127\.0\.0\.1)(?=[:/]|$)/i, '//host.docker.internal');
+            return { browser: browserBase, docker: dockerBase, shared: 'http://app:8000' };
+        }
+
+        function copyCustomProviderValue(value, button) {
+            const write = navigator.clipboard?.writeText(value);
+            if (!write) return toast('Kopiëren lukt niet; selecteer de waarde handmatig.', 'error');
+            write.then(() => {
+                const original = button.textContent;
+                button.textContent = 'Gekopieerd';
+                setTimeout(() => { button.textContent = original; }, 1200);
+            }).catch(() => toast('Kopiëren lukt niet; selecteer de waarde handmatig.', 'error'));
+        }
+
+        function providerValue(label, value) {
+            return `<div class="form-group"><label>${label}</label><div style="display:flex;gap:8px;align-items:stretch;"><code style="display:block;flex:1;padding:10px;background:var(--surface-muted);border:1px solid var(--border);border-radius:6px;overflow-wrap:anywhere;">${escapeHtml(value)}</code><button type="button" class="btn btn-secondary btn-sm" onclick="copyCustomProviderValue(${JSON.stringify(value)}, this)">Kopiëren</button></div></div>`;
+        }
+
+        function openCustomProviderWizard() {
+            const urls = customProviderBaseUrls();
+            const state = { step: 1, rawKey: '', symbol: '', test: null, existing: [] };
+            const modal = document.createElement('div');
+            modal.className = 'modal-overlay'; modal.id = 'custom-provider-wizard-modal';
+            document.getElementById('modal-container').appendChild(modal);
+            const render = () => {
+                const latestBrowser = `${urls.browser}/api/v1/market-data/latest?symbol={SYMBOL}`;
+                const latestDocker = `${urls.docker}/api/v1/market-data/latest?symbol={SYMBOL}`;
+                const historyDocker = `${urls.docker}/api/v1/market-data/history?symbol={SYMBOL}&from={FROM}&to={TO}`;
+                let body = '';
+                if (state.step === 1) body = `<p>Deze wizard maakt een least-privilege API-key en toont de waarden voor Wealthfolio → Settings → Market Data → Add custom provider.</p><div class="alert alert-info"><strong>Bron van waarheid:</strong> finance-sync levert de actuele quote uit de laatst bekende brokerholding en historische koersen uit de lokale price store.</div><div class="form-group"><label for="custom-provider-symbol">Testsymbool of ISIN (optioneel)</label><input id="custom-provider-symbol" value="${escapeHtml(state.symbol)}" placeholder="bijv. BESI:XAMS of NL0012866412"><p class="field-hint">Gebruik een symbool dat in finance-sync bekend is. Je kunt dit later per Wealthfolio-asset overschrijven.</p></div>`;
+                if (state.step === 2) body = `<p>Maak één sleutel aan die alleen marktdata mag lezen. De ruwe sleutel wordt één keer getoond en wordt niet in finance-sync opgeslagen.</p>${state.existing.length ? `<div class="alert alert-info">Er bestaan al ${state.existing.length} actieve API-key(s). Een bestaande ruwe sleutel kan niet opnieuw worden getoond; maak alleen een nieuwe sleutel als je hem niet meer hebt.</div>` : ''}<button type="button" class="btn btn-primary" id="custom-provider-create-key" onclick="createCustomProviderKey()">Read-only API-key maken</button><div id="custom-provider-key-result" style="margin-top:14px;">${state.rawKey ? `<div class="alert alert-warning"><strong>Bewaar deze sleutel nu.</strong></div>${providerValue('X-API-Key-waarde', state.rawKey)}` : ''}</div>`;
+                if (state.step === 3) body = `<p>Vul deze waarden letterlijk in in de Wealthfolio-wizard.</p><h3 style="font-size:.95rem;margin:16px 0 10px;">Aanbevolen URL vanuit een Wealthfolio Docker-container</h3>${providerValue('Latest URL', latestDocker)}${providerValue('Historical URL', historyDocker)}<p class="field-hint">Gebruik voor een gedeeld Docker-netwerk als host <code>http://app:8000</code>. Draait Wealthfolio buiten Docker, gebruik dan de browser-URL hieronder.</p>${providerValue('Browser latest URL', latestBrowser)}<h3 style="font-size:.95rem;margin:16px 0 10px;">JSON-paden</h3>${providerValue('Latest price path', '$.price')}${providerValue('Latest date path', '$.date')}${providerValue('Historical price path', '$.data[*].price')}${providerValue('Historical date path', '$.data[*].date')}${providerValue('Currency path', '$.currency')}${providerValue('Authentication header', 'X-API-Key: ' + (state.rawKey || '<jouw read-only key>'))}`;
+                if (state.step === 4) body = `<div class="alert alert-success"><strong>Finance-sync is klaar voor Wealthfolio custom market data.</strong></div><p>Test de latest URL in Wealthfolio met een echte ticker of ISIN. Als Wealthfolio in Docker draait, moet de URL naar <code>host.docker.internal</code> wijzen; gebruik niet <code>localhost</code>.</p>${state.test ? `<div class="alert ${state.test.ok ? 'alert-success' : 'alert-error'}">${escapeHtml(state.test.message)}</div>` : ''}<button type="button" class="btn btn-secondary" onclick="testCustomProvider()">Provider testen${state.symbol ? ` (${escapeHtml(state.symbol)})` : ''}</button>`;
+                const progress = `<p class="field-hint">Stap ${state.step} van 4 — ${['Controleren', 'Sleutel', 'Wealthfolio-waarden', 'Testen'][state.step - 1]}</p>`;
+                modal.innerHTML = `<div class="modal" style="width:760px;max-width:calc(100vw - 32px);" role="dialog" aria-modal="true" aria-labelledby="custom-provider-wizard-title"><h2 id="custom-provider-wizard-title">Wealthfolio custom market-data provider</h2>${progress}<div id="custom-provider-wizard-body">${body}</div><div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal()">Annuleren</button>${state.step > 1 ? '<button class="btn" onclick="customProviderBack()">Terug</button>' : ''}${state.step < 4 ? `<button class="btn btn-primary" onclick="customProviderNext()">Volgende</button>` : '<button class="btn btn-primary" onclick="closeModal()">Klaar</button>'}</div></div>`;
+            };
+            window.customProviderBack = () => { state.step--; render(); };
+            window.customProviderNext = async () => {
+                if (state.step === 1) state.symbol = document.getElementById('custom-provider-symbol')?.value.trim() || '';
+                if (state.step === 2 && !state.rawKey) return toast('Maak eerst de read-only API-key.', 'error');
+                if (state.step < 4) { state.step++; render(); }
+            };
+            window.createCustomProviderKey = async () => {
+                const button = document.getElementById('custom-provider-create-key');
+                if (button) button.disabled = true;
+                try {
+                    const created = await api('POST', '/auth/api-keys', { name: 'Wealthfolio custom market data', permissions: 'market-data:read' });
+                    state.rawKey = created.raw_key;
+                    render();
+                    toast('Read-only API-key gemaakt. Bewaar hem direct.', 'success');
+                } catch (e) { if (button) button.disabled = false; toast(e.message || 'API-key maken mislukt.', 'error'); }
+            };
+            window.testCustomProvider = async () => {
+                if (!state.rawKey) return toast('Maak eerst de read-only API-key.', 'error');
+                if (!state.symbol) return toast('Vul eerst een testsymbool of ISIN in.', 'error');
+                try {
+                    const url = `${urls.browser}/api/v1/market-data/latest?symbol=${encodeURIComponent(state.symbol)}`;
+                    const response = await fetch(url, { headers: { 'X-API-Key': state.rawKey } });
+                    const data = await response.json();
+                    state.test = response.ok ? { ok: true, message: `Provider antwoordt: ${data.price} ${data.currency} (${data.source}).` } : { ok: false, message: data.detail || `HTTP ${response.status}` };
+                } catch (e) { state.test = { ok: false, message: e.message || 'Provider is niet bereikbaar.' }; }
+                render();
+            };
+            api('GET', '/auth/api-keys').then(keys => { state.existing = (keys || []).filter(k => k.is_active && (k.permissions || '').split(' ').includes('market-data:read')); render(); }).catch(() => {});
+            openModal(modal); render();
         }
 
         function openDestinationWizard(targetId) {

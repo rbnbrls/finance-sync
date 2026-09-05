@@ -66,6 +66,10 @@ from finance_sync.models import (
     Transaction,
 )
 from finance_sync.observability.glitchtip import capture_connector_exception
+from finance_sync.services.wealthfolio_preflight import (
+    validate_holdings,
+    validate_transaction_stream,
+)
 from finance_sync.sync.errors import categorize_export_error
 
 if TYPE_CHECKING:
@@ -220,6 +224,7 @@ class WealthfolioExporter:
         accts_mapped = 0
         csv_files: list[str] = []
         extension_transactions: list[Transaction] = []
+        preflight_manifest: dict[str, object] | None = None
         _since = since or await self._last_export_time()
 
         # ── Create ExportRun ──────────────────────────────────────
@@ -247,12 +252,22 @@ class WealthfolioExporter:
 
             if not fs_accounts:
                 log.info("no_accounts_to_export")
+                preflight_manifest = {
+                    "version": 1,
+                    "contract": "wealthfolio-source-projection-v1",
+                    "status": "ready",
+                    "accounts": {},
+                    "blocking_findings": 0,
+                    "warnings": 0,
+                }
+                await self._store_preflight_manifest(run, preflight_manifest)
                 await self._complete_run(
                     run,
                     status="completed",
                     attempted=0,
                     exported=0,
                     failed=0,
+                    preflight_manifest=preflight_manifest,
                 )
                 return WealthfolioExportResult(
                     status="completed",
@@ -262,6 +277,10 @@ class WealthfolioExporter:
 
             # Pre-load securities for symbol resolution
             security_map = await self._load_securities()
+            preflight_manifest = await self._build_preflight_manifest(
+                fs_accounts
+            )
+            await self._store_preflight_manifest(run, preflight_manifest)
 
             # Emit every known security, including instruments without an
             # activity in the selected period (for example benchmarks).
@@ -436,6 +455,11 @@ class WealthfolioExporter:
 
             # ── Complete the run ──────────────────────────────────
             end_ts = datetime.now(UTC)
+            if preflight_manifest is not None:
+                preflight_manifest["post_export"] = {
+                    "status": "written",
+                    "findings": 0,
+                }
             await self._complete_run(
                 run,
                 status="completed",
@@ -443,6 +467,7 @@ class WealthfolioExporter:
                 exported=txns_exported,
                 _skipped=txns_skipped,
                 failed=txns_failed,
+                preflight_manifest=preflight_manifest,
             )
             log.info(
                 "wealthfolio_export_completed",
@@ -479,6 +504,7 @@ class WealthfolioExporter:
                 exported=txns_exported,
                 _skipped=txns_skipped,
                 failed=txns_failed,
+                preflight_manifest=preflight_manifest,
             )
             raise
         except Exception as exc:
@@ -492,6 +518,7 @@ class WealthfolioExporter:
                 exported=txns_exported,
                 _skipped=txns_skipped,
                 failed=txns_failed,
+                preflight_manifest=preflight_manifest,
             )
             self._log.error(
                 "wealthfolio_export_failed",
@@ -710,10 +737,27 @@ class WealthfolioExporter:
         holdings = await self._fetch_historical_holdings(
             account_id=fs_account.id
         )
+        lot_cost_basis = await self._load_open_cost_basis(fs_account.id)
+        preflight = validate_holdings(holdings)
+        for finding in preflight.blocking_findings:
+            self._log.warning(
+                "wealthfolio_holding_quarantined",
+                account=fs_account.name,
+                holding_id=finding.record_id,
+                category=finding.category,
+                reason=finding.message,
+            )
+        holdings = preflight.exportable_holdings
         if len({holding.observed_at.date() for holding in holdings}) <= 1:
             return []
         snapshots_by_date: dict[str, dict[str, Any]] = {}
         for holding in holdings:
+            # A zero-quantity row is a closure marker in the canonical source,
+            # not a position that Wealthfolio should value.  Sending it as a
+            # historical position can resurrect a delisted security after
+            # the broker has already removed it from the live positions file.
+            if holding.quantity is None or Decimal(str(holding.quantity)) == 0:
+                continue
             try:
                 row = map_holding_to_wf_row(
                     holding,
@@ -731,12 +775,19 @@ class WealthfolioExporter:
                     "avgCost": row["avgCost"] or None,
                     "currency": row["currency"],
                 }
+                if not position["avgCost"]:
+                    fallback = lot_cost_basis.get(holding.security_id)
+                    if fallback is not None:
+                        position["avgCost"] = str(fallback[0])
                 if holding.market_value is not None and holding.quantity:
                     position["quoteMode"] = "MANUAL"
                     position["price"] = str(
                         Decimal(holding.market_value)
                         / Decimal(holding.quantity)
                     )
+                elif holding.price is not None:
+                    position["quoteMode"] = "MANUAL"
+                    position["price"] = str(holding.price)
                 snapshot["positions"].append(position)
             except UnresolvedSecurityExportError as exc:
                 return [
@@ -746,9 +797,14 @@ class WealthfolioExporter:
                         "error": str(exc),
                     }
                 ]
-        result = await wf_client.import_holdings(
-            list(snapshots_by_date.values()), wf_account_id
-        )
+        snapshots = [
+            snapshot
+            for snapshot in snapshots_by_date.values()
+            if snapshot["positions"] or snapshot["cashBalances"]
+        ]
+        if not snapshots:
+            return []
+        result = await wf_client.import_holdings(snapshots, wf_account_id)
         if result.get("validationErrors"):
             return [
                 {
@@ -769,26 +825,35 @@ class WealthfolioExporter:
         prices = await self._load_security_prices(set(security_map))
         if not prices:
             return 0
+        quarantined = await self._wealthfolio_quote_quarantine()
         assets = await wf_client.get_assets()
-        by_identity: dict[str, str] = {}
+        by_identity: dict[str, tuple[str, bool]] = {}
         for asset in assets:
             if not asset.get("id"):
                 continue
+            manual_mode = str(asset.get("quoteMode") or "").upper() == "MANUAL"
             for value in (
                 asset.get("displayCode"),
                 asset.get("symbol"),
                 asset.get("isin"),
             ):
                 if value:
-                    by_identity[str(value).upper()] = str(asset["id"])
+                    by_identity[str(value).upper()] = (
+                        str(asset["id"]),
+                        manual_mode,
+                    )
 
         synced = 0
         for price in prices:
             security = security_map.get(price.security_id)
             close = price.price_close
-            if security is None or close is None:
+            if (
+                security is None
+                or close is None
+                or price.security_id in quarantined
+            ):
                 continue
-            asset_id = next(
+            asset_match = next(
                 (
                     by_identity.get(str(value).upper())
                     for value in (security.ticker, security.isin)
@@ -796,7 +861,15 @@ class WealthfolioExporter:
                 ),
                 None,
             )
-            if asset_id is None:
+            if asset_match is None:
+                continue
+            asset_id, manual_mode = asset_match
+            # Current broker snapshots use connector-owned manual quotes.
+            # Historical market-data enrichment must not overwrite those
+            # quotes with a provider price (which can turn an authoritative
+            # Saxo NAV into a different Wealthfolio NAV immediately after a
+            # successful holdings reconciliation).
+            if manual_mode:
                 continue
             timestamp = price.timestamp.astimezone(UTC).isoformat()
             try:
@@ -840,6 +913,22 @@ class WealthfolioExporter:
             )
             synced += 1
         return synced
+
+    async def _wealthfolio_quote_quarantine(self) -> set[str]:
+        """Return assets whose unchanged quote payload was rejected.
+
+        A rejected historical quote must not be retried on every export.  The
+        data-health action or a changed source quote clears this quarantine;
+        the account/holdings projection remains independently exportable.
+        """
+        async with self._session_factory() as session:
+            rows = await session.execute(
+                select(EnrichmentFreshness.security_id).where(
+                    EnrichmentFreshness.data_source == "wealthfolio",
+                    EnrichmentFreshness.status == "failed",
+                )
+            )
+            return {str(value) for value in rows.scalars().all()}
 
     async def _record_wealthfolio_quote_failure(
         self, *, security_id: str, error: str
@@ -1058,7 +1147,13 @@ class WealthfolioExporter:
                 )
             )
             result = await session.execute(stmt)
-            all_holdings = list(result.scalars().all())
+            scalar_result = result.scalars()
+            if inspect.isawaitable(scalar_result):
+                scalar_result = await scalar_result
+            rows = scalar_result.all()
+            if inspect.isawaitable(rows):
+                rows = await rows
+            all_holdings = list(rows)
 
             # Deduplicate: keep only the latest per security_id
             seen: set[str] = set()
@@ -1315,6 +1410,7 @@ class WealthfolioExporter:
         failed: int = 0,
         _skipped: int = 0,
         error_message: str | None = None,
+        preflight_manifest: dict[str, object] | None = None,
     ) -> None:
         """Update the ExportRun record with final status."""
         if run is None:
@@ -1329,8 +1425,107 @@ class WealthfolioExporter:
             if error_message is not None:
                 run.error_message = error_message
                 run.error_category = categorize_export_error(error_message)
+            if preflight_manifest is not None:
+                run.preflight_manifest = preflight_manifest
             await session.flush()
             await session.commit()
+
+    async def _store_preflight_manifest(
+        self,
+        run: ExportRun,
+        manifest: dict[str, object],
+    ) -> None:
+        """Persist the contract result before downstream writes begin."""
+        async with self._session_factory() as session:
+            persisted = await session.merge(run)
+            persisted.preflight_manifest = manifest
+            await session.commit()
+
+    async def _build_preflight_manifest(
+        self,
+        accounts: list[Account],
+    ) -> dict[str, object]:
+        """Validate the exact source slice selected for this export."""
+        all_transactions: list[Transaction] = []
+        holdings_by_account: dict[str, list[Holding]] = {}
+        for account in accounts:
+            holdings = await self._fetch_current_holdings(
+                account_id=account.id
+            )
+            holdings_by_account[str(account.id)] = holdings
+            all_transactions.extend(
+                await self._fetch_all_active_transactions(account.id)
+            )
+
+        transaction_findings = validate_transaction_stream(all_transactions)
+        account_manifests: dict[str, object] = {}
+        total_blocking = 0
+        total_warnings = 0
+        for account in accounts:
+            holdings = holdings_by_account[str(account.id)]
+            holding_result = validate_holdings(holdings)
+            account_transactions = {
+                str(txn.id)
+                for txn in all_transactions
+                if txn.account_id == account.id
+            }
+            account_findings = [
+                finding
+                for finding in transaction_findings
+                if finding.record_id in account_transactions
+            ]
+            blocking = [
+                *holding_result.blocking_findings,
+                *[
+                    item
+                    for item in account_findings
+                    if item.severity == "error"
+                ],
+            ]
+            warnings = [
+                item
+                for item in [*holding_result.findings, *account_findings]
+                if item.severity == "warning"
+            ]
+            total_blocking += len(blocking)
+            total_warnings += len(warnings)
+            account_manifests[str(account.id)] = {
+                "account_name": account.name,
+                "holdings_seen": len(holdings),
+                "holdings_exportable": len(
+                    holding_result.exportable_holdings
+                ),
+                "holdings_quarantined": len(
+                    holding_result.quarantined_holdings
+                ),
+                "transactions_seen": len(account_transactions),
+                "blocking_findings": [
+                    {
+                        "category": item.category,
+                        "record_id": item.record_id,
+                        "message": item.message,
+                    }
+                    for item in blocking
+                ],
+                "warnings": [
+                    {
+                        "category": item.category,
+                        "record_id": item.record_id,
+                        "message": item.message,
+                    }
+                    for item in warnings
+                ],
+            }
+        return {
+            "version": 1,
+            "contract": "wealthfolio-source-projection-v1",
+            "status": "blocked" if total_blocking else (
+                "degraded" if total_warnings else "ready"
+            ),
+            "accounts": account_manifests,
+            "blocking_findings": total_blocking,
+            "warnings": total_warnings,
+        }
 
     # ── Push to Wealthfolio instance ───────────────────────────────
 
@@ -1387,6 +1582,7 @@ class WealthfolioExporter:
         errors: list[dict[str, str]] = []
         accounts_removed = 0
         performance_account_ids: list[str] = []
+        preflight_manifest: dict[str, object] | None = None
 
         # ── Create ExportRun ──────────────────────────────────────
         async with self._session_factory() as session:
@@ -1413,6 +1609,10 @@ class WealthfolioExporter:
             )
             fs_accounts = accounts or await self._load_accounts(None)
             security_map = await self._load_securities()
+            preflight_manifest = await self._build_preflight_manifest(
+                fs_accounts
+            )
+            await self._store_preflight_manifest(run, preflight_manifest)
 
             # Wealthfolio is a projection of the selected finance-sync data.
             # Remove every account outside the exact current dataset before
@@ -1485,6 +1685,20 @@ class WealthfolioExporter:
                                 ),
                             ),
                         )
+                    # On a full/rebuild sync, reconcile the broker's current
+                    # positions before importing the potentially large
+                    # historical transaction stream.  A stalled or rejected
+                    # transaction batch must not leave the destination's
+                    # previous live holdings (for example a delisted
+                    # security) contributing to NAV.
+                    if full_sync or rebuild:
+                        early_findings = await self._sync_and_reconcile_holdings(
+                            wf_client=wf_client,
+                            fs_account=fs_acct,
+                            wf_account_id=wf_account_id,
+                            security_map=security_map,
+                        )
+                        errors.extend(early_findings)
                     # Resume from the per-account delivery cursor when
                     # one exists (idempotent resume after partial failure).
                     # The (occurred_at, id) tuple excludes the boundary
@@ -1527,10 +1741,39 @@ class WealthfolioExporter:
                     if max_transactions:
                         txns = txns[:max_transactions]
 
+                    transaction_findings = validate_transaction_stream(txns)
+                    blocked_transaction_ids = {
+                        finding.record_id
+                        for finding in transaction_findings
+                        if finding.severity == "error"
+                    }
+                    for finding in transaction_findings:
+                        if finding.severity != "error":
+                            log.warning(
+                                "wealthfolio_transaction_degraded",
+                                account=fs_acct.name,
+                                transaction_id=finding.record_id,
+                                category=finding.category,
+                                reason=finding.message,
+                            )
+                            continue
+                        errors.append(
+                            {
+                                "account_id": fs_acct.id,
+                                "account_name": fs_acct.name,
+                                "error": (
+                                    f"Transactie {finding.record_id} is "
+                                    f"geïsoleerd: {finding.message}"
+                                ),
+                            }
+                        )
+
                     # Map to Wealthfolio API format
                     wf_activities: list[dict[str, Any]] = []
                     mapped_txns: list[Transaction] = []
                     for txn in txns:
+                        if str(txn.id) in blocked_transaction_ids:
+                            continue
                         sec = (
                             security_map.get(txn.security_id)
                             if txn.security_id
@@ -1741,6 +1984,11 @@ class WealthfolioExporter:
                 status = "completed"
                 error_message = None
 
+            if preflight_manifest is not None:
+                preflight_manifest["post_export"] = {
+                    "status": "reconciled" if not errors else "degraded",
+                    "findings": len(errors),
+                }
             await self._complete_run(
                 run,
                 status=status,
@@ -1749,6 +1997,7 @@ class WealthfolioExporter:
                 _skipped=txns_skipped,
                 failed=txns_failed,
                 error_message=error_message,
+                preflight_manifest=preflight_manifest,
             )
             log.info(
                 "wealthfolio_push_completed",
@@ -1760,13 +2009,16 @@ class WealthfolioExporter:
                 errors=len(errors),
                 accounts_removed=accounts_removed,
             )
-            return {
+            result_payload: dict[str, Any] = {
                 "imported": txns_imported,
                 "skipped": txns_skipped,
                 "failed": txns_failed,
                 "run_id": str(run.id),
                 "errors": errors,
             }
+            if accounts_removed:
+                result_payload["accounts_removed"] = accounts_removed
+            return result_payload
         except asyncio.CancelledError:
             await self._complete_run(
                 run,
@@ -1776,6 +2028,7 @@ class WealthfolioExporter:
                 exported=txns_imported,
                 _skipped=txns_skipped,
                 failed=txns_failed,
+                preflight_manifest=preflight_manifest,
             )
             raise
         except Exception:
@@ -1788,6 +2041,7 @@ class WealthfolioExporter:
                 exported=txns_imported,
                 _skipped=txns_skipped,
                 failed=txns_failed,
+                preflight_manifest=preflight_manifest,
             )
             self._log.error(
                 "wealthfolio_push_failed",
@@ -1855,10 +2109,30 @@ class WealthfolioExporter:
         if not self._wf_config.export_holdings:
             return []
         holdings = await self._fetch_current_holdings(account_id=fs_account.id)
+        preflight = validate_holdings(holdings)
+        lot_cost_basis = await self._load_open_cost_basis(fs_account.id)
         source_rows: list[dict[str, Any]] = []
         findings: list[dict[str, str]] = []
+        for finding in preflight.blocking_findings:
+            self._log.warning(
+                "wealthfolio_holding_quarantined",
+                account=fs_account.name,
+                holding_id=finding.record_id,
+                category=finding.category,
+                reason=finding.message,
+            )
+            findings.append(
+                {
+                    "account_id": fs_account.id,
+                    "account_name": fs_account.name,
+                    "error": (
+                        f"Holding {finding.record_id} is geïsoleerd: "
+                        f"{finding.message}"
+                    ),
+                }
+            )
         snapshot: dict[str, Any] | None = None
-        for holding in holdings:
+        for holding in preflight.exportable_holdings:
             security = security_map.get(holding.security_id)
             try:
                 row = map_holding_to_wf_row(
@@ -1866,6 +2140,10 @@ class WealthfolioExporter:
                     security=security,
                     default_currency=self._wf_config.default_currency,
                 )
+                if not row["avgCost"]:
+                    fallback = lot_cost_basis.get(holding.security_id)
+                    if fallback is not None:
+                        row["avgCost"] = str(fallback[0])
                 # Wealthfolio's market-data providers do not reliably resolve
                 # exchange-qualified symbols (or ISINs) for every listing.
                 # Preserve finance-sync's authoritative EUR valuation in the
@@ -1876,6 +2154,8 @@ class WealthfolioExporter:
                         Decimal(holding.market_value)
                         / Decimal(holding.quantity)
                     )
+                elif holding.price is not None:
+                    row["snapshotPrice"] = str(holding.price)
                 source_rows.append(row)
             except UnresolvedSecurityExportError:
                 findings.append(
@@ -2125,6 +2405,53 @@ class WealthfolioExporter:
                 continue
             findings.append(finding)
         return findings
+
+    async def _load_open_cost_basis(
+        self, account_id: str
+    ) -> dict[str, tuple[Decimal, str]]:
+        """Derive per-unit basis from open lots without mutating holdings."""
+        async with self._session_factory() as session:
+            result = await session.execute(
+                select(TaxLot).where(
+                    TaxLot.tenant_id == self._tenant_id,
+                    TaxLot.account_id == account_id,
+                    TaxLot.remaining_quantity > 0,
+                )
+            )
+            scalar_result = result.scalars()
+            if inspect.isawaitable(scalar_result):
+                scalar_result = await scalar_result
+            rows = scalar_result.all()
+            if inspect.isawaitable(rows):
+                rows = await rows
+            lots = list(rows)
+
+        totals: dict[str, tuple[Decimal, Decimal, str]] = {}
+        for lot in lots:
+            original_qty = Decimal(str(lot.quantity))
+            remaining_qty = Decimal(str(lot.remaining_quantity))
+            if original_qty <= 0 or remaining_qty <= 0:
+                continue
+            remaining_cost = (
+                Decimal(str(lot.cost_basis_total))
+                * remaining_qty
+                / original_qty
+            )
+            cost, quantity, currency = totals.get(
+                lot.security_id,
+                (Decimal(0), Decimal(0), str(lot.currency_code)),
+            )
+            totals[lot.security_id] = (
+                cost + remaining_cost,
+                quantity + remaining_qty,
+                currency,
+            )
+
+        return {
+            security_id: (cost / quantity, currency)
+            for security_id, (cost, quantity, currency) in totals.items()
+            if quantity > 0
+        }
 
     async def _reconcile_activity_totals(
         self,
@@ -2612,6 +2939,7 @@ def _holdings_snapshot_payload(
             ),
         }
         for row in rows
+        if Decimal(str(row.get("quantity") or 0)) != 0
     ]
     cash = (
         {cash_currency: str(cash_balance)}

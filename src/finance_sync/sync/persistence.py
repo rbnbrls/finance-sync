@@ -289,6 +289,27 @@ class AccountPersistence:
             external_account_id=account.external_account_id,
             connection_id=connection_id,
         )
+        # Older Trading212 API responses sometimes failed the account-info
+        # call and the connector used the literal fallback ``trading212``.
+        # When the real broker id becomes available, adopt that legacy row
+        # instead of creating a second local account.  This preserves any
+        # holdings already imported during the degraded run.
+        if (
+            existing is None
+            and account.provider_key == "trading212"
+            and account.external_account_id != "trading212"
+        ):
+            legacy = await uow.session.scalar(
+                select(Account).where(
+                    Account.tenant_id == self._tenant_id,
+                    Account.provider_key == "trading212",
+                    Account.connection_id == connection_id,
+                    Account.external_account_id == "trading212",
+                )
+            )
+            if legacy is not None:
+                legacy.external_account_id = account.external_account_id
+                existing = legacy
         fields = (
             "name",
             "account_type",

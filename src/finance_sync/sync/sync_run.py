@@ -6,10 +6,16 @@ records inside a UnitOfWork transaction.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
+
+from sqlalchemy import select, update
 
 from finance_sync.models import SyncRun
 from finance_sync.models.enums import SyncRunStatus
+
+
+class SyncAlreadyRunningError(RuntimeError):
+    """Raised when a connection already owns an active sync run."""
 
 
 async def start_sync_run(
@@ -28,6 +34,19 @@ async def start_sync_run(
 
     Returns the created ``SyncRun`` instance.
     """
+    if connection_id is not None:
+        active = await uow.session.scalar(  # type: ignore[union-attr]
+            select(SyncRun.id)
+            .where(
+                SyncRun.connection_id == connection_id,
+                SyncRun.status == SyncRunStatus.RUNNING,
+            )
+            .limit(1)
+        )
+        if active is not None:
+            message = f"Connection already has sync run {active} in progress"
+            raise SyncAlreadyRunningError(message)
+
     run = SyncRun(
         connector=connector,
         connection_id=connection_id,
@@ -37,6 +56,37 @@ async def start_sync_run(
     # uow.session.add() — the caller provides a UoW with an active session
     uow.session.add(run)  # type: ignore[union-attr]
     return run
+
+
+async def recover_stale_sync_runs(
+    session: object,
+    *,
+    connection_id: str,
+    stale_after_minutes: int,
+) -> int:
+    """Close runs left behind by a crashed/restarted worker.
+
+    Only runs older than the explicit safety window are recovered; a normal
+    long-running provider sync is therefore not interrupted.
+    """
+    cutoff = datetime.now(UTC) - timedelta(minutes=stale_after_minutes)
+    result = await session.execute(  # type: ignore[union-attr]
+        update(SyncRun)
+        .where(
+            SyncRun.connection_id == connection_id,
+            SyncRun.status == SyncRunStatus.RUNNING,
+            SyncRun.started_at < cutoff,
+        )
+        .values(
+            status=SyncRunStatus.FAILED,
+            completed_at=datetime.now(UTC),
+            error_message=(
+                "Run automatisch beëindigd: worker was niet meer actief"
+            ),
+            error_category="stale_run",
+        )
+    )
+    return int(result.rowcount or 0)
 
 
 async def complete_sync_run(

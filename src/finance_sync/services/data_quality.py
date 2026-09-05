@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 from sqlalchemy import func, select
 
 from finance_sync.models import (
+    DuplicateReview,
     ReconciliationResult,
     ReconciliationRun,
     Transaction,
@@ -59,6 +60,31 @@ class DataQualityService:
                 )
             ).scalars()
         )
+        reviews = set(
+            await self._session.scalars(
+                select(DuplicateReview.pair_key).where(
+                    DuplicateReview.tenant_id == self._tenant_id
+                )
+            )
+        )
+        results = [
+            result
+            for result in results
+            if not (
+                str(result.kind) == "duplicate_transaction"
+                and result.transaction_id_a
+                and result.transaction_id_b
+                and ":".join(
+                    sorted(
+                        (
+                            str(result.transaction_id_a),
+                            str(result.transaction_id_b),
+                        )
+                    )
+                )
+                in reviews
+            )
+        ]
         issues = [self._issue(result) for result in results]
         by_kind: dict[str, int] = {}
         by_severity: dict[str, int] = {}

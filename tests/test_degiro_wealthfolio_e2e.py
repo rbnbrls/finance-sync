@@ -325,6 +325,36 @@ def test_holdings_snapshot_corrects_missing_and_stale_positions() -> None:
     assert all("TARGET:" in row["comment"] for row in corrections)
 
 
+def test_holdings_snapshot_does_not_export_zero_quantity_closure_rows() -> None:
+    """A closed/delisted security cannot be reintroduced by a snapshot."""
+    snapshot = _holdings_snapshot_payload(
+        [
+            {
+                "symbol": "NL0012015705",
+                "isin": "NL0012015705",
+                "quantity": "0",
+                "avgCost": "20.00",
+                "currency": "EUR",
+                "snapshotPrice": "20.14",
+            },
+            {
+                "symbol": "AGN:XAMS",
+                "isin": "BMG0112X1056",
+                "quantity": "428",
+                "avgCost": "5.69",
+                "currency": "EUR",
+                "snapshotPrice": "7.954",
+            },
+        ],
+        cash_balance=Decimal("743.15"),
+        cash_currency="EUR",
+    )
+
+    assert [row["isin"] for row in snapshot["positions"]] == [
+        "BMG0112X1056"
+    ]
+
+
 def test_holdings_snapshot_allows_wealthfolio_two_decimal_quantity_rounding() -> (
     None
 ):

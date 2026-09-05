@@ -22,7 +22,6 @@ from finance_sync.models import (
     Security,
     SyncRun,
     SyncSchedule,
-    Transaction,
     UnresolvedSecurity,
 )
 from finance_sync.models.reconciliation import (
@@ -377,27 +376,6 @@ class ControlPlaneService:
         issues: list[ControlPlaneIssue] = []
         for row in rows:
             candidates = await self._security_candidates(row)
-            transaction_count = int(
-                await self._session.scalar(
-                    select(func.count(Transaction.id)).where(
-                        Transaction.tenant_id == self._tenant_id,
-                        Transaction.provider_key == row.provider_key,
-                    )
-                )
-                or 0
-            )
-            holding_count = int(
-                await self._session.scalar(
-                    select(func.count(Holding.id))
-                    .join(Account, Account.id == Holding.account_id)
-                    .where(
-                        Holding.tenant_id == self._tenant_id,
-                        Account.tenant_id == self._tenant_id,
-                        Account.provider_key == row.provider_key,
-                    )
-                )
-                or 0
-            )
             issues.append(
                 ControlPlaneIssue(
                     id=f"security-unresolved:{row.id}",
@@ -414,7 +392,11 @@ class ControlPlaneService:
                     ),
                     provider=row.provider_key,
                     external_record_id=row.external_security_id,
-                    impact_count=transaction_count + holding_count,
+                    # This is one unresolved provider identity.  Counting
+                    # every transaction/holding from the provider here made
+                    # one missing mapping appear as thousands of separate
+                    # issues (for example 2695 for Trading212).
+                    impact_count=1,
                     candidate_securities=candidates,
                     confidence=(
                         candidates[0]["confidence"] if candidates else None

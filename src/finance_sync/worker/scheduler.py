@@ -22,6 +22,7 @@ from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
 from finance_sync.worker.jobs import (
+    data_quality_repair_job,
     enrich_prices_job,
     export_wealthfolio_job,
     holding_relevance_build_job,
@@ -105,30 +106,51 @@ def sync_jobstore_url(engine_url: str | None) -> str | None:
 # ── Scheduler wrapper ─────────────────────────────────────────────────
 
 
-# Module-level job entrypoint registry.
+# Module-level active scheduler registry.
 #
 # APScheduler's SQLAlchemyJobStore pickles job callables into PostgreSQL.
 # Closures over ``self`` and bound methods of WorkerScheduler are not
 # picklable ("This Job cannot be serialized since the reference to its
 # callable could not be determined" — observed on the production worker,
 # 2026-08-16).  Monitored jobs are therefore registered as a module-level
-# function with ``(scheduler_key, job_id, func)`` arguments; the entrypoint
-# resolves the owning scheduler from module state at run time.
+# function with a stable ``job_id`` argument; the entrypoint resolves the
+# owning scheduler from module state at run time.  Persisting ``id(self)`` and
+# a function object in the job arguments made jobs restored after a worker
+# restart point at a scheduler instance that no longer existed.  The job then
+# appeared to execute successfully while doing no work.
 _schedulers: dict[int, WorkerScheduler] = {}
+_active_scheduler: WorkerScheduler | None = None
 
 
 async def _monitored_job_entrypoint(
-    scheduler_key: int,
-    job_id: str,
-    func: Any,
+    job_id_or_scheduler_key: str | int,
+    legacy_job_id: str | None = None,
+    legacy_func: Any | None = None,
 ) -> None:
-    """Run *func* on the scheduler instance identified by *scheduler_key*."""
-    scheduler = _schedulers.get(scheduler_key)
+    """Run a persisted job on the currently active worker scheduler.
+
+    The optional legacy arguments keep direct callers and jobs persisted by
+    older builds compatible during one rolling restart.  Newly registered
+    jobs persist only their stable job id.
+    """
+    global _active_scheduler
+    if legacy_job_id is not None:
+        # Compatibility with the pre-fix persisted shape.
+        scheduler = _schedulers.get(int(job_id_or_scheduler_key))
+        job_id = legacy_job_id
+        func = legacy_func
+    else:
+        scheduler = _active_scheduler
+        job_id = str(job_id_or_scheduler_key)
+        func = scheduler.job_function(job_id) if scheduler else None
     if scheduler is None:
         logger.error(
             "job_dropped_no_active_scheduler",
             job_id=job_id,
         )
+        return
+    if func is None:
+        logger.error("job_dropped_unknown_job", job_id=job_id)
         return
     await scheduler.run_monitored_job(job_id, func)
 
@@ -155,14 +177,19 @@ class WorkerScheduler:
         self._monitor = monitor
         self._scheduler = self._build_scheduler()
         self._job_ids: list[str] = []
+        self._job_functions: dict[str, Any] = {}
         self._running_jobs: set[str] = set()
 
     # ── Public API ───────────────────────────────────────────────────
 
     async def start(self) -> None:
         """Start the scheduler and register all configured jobs."""
+        # Load the persistent job store while paused.  Registration must see
+        # already-persisted jobs so legacy records can be removed before any
+        # overdue job is allowed to fire.
+        self._scheduler.start(paused=True)
         self._register_jobs()
-        self._scheduler.start()
+        self._scheduler.resume()
         logger.info(
             "scheduler_started",
             jobs=self.job_summary(),
@@ -174,6 +201,9 @@ class WorkerScheduler:
             self._scheduler.shutdown(wait=True)
             logger.info("scheduler_stopped")
         _schedulers.pop(id(self), None)
+        global _active_scheduler
+        if _active_scheduler is self:
+            _active_scheduler = None
 
     def pause(self) -> None:
         """Pause the scheduler — no new jobs fire."""
@@ -193,6 +223,10 @@ class WorkerScheduler:
     def running_jobs(self) -> list[str]:
         """Return list of currently executing job IDs."""
         return list(self._running_jobs)
+
+    def job_function(self, job_id: str) -> Any | None:
+        """Resolve a registered monitored job for the persistence stub."""
+        return self._job_functions.get(job_id)
 
     async def wait_for_completion(self) -> None:
         """Wait for all currently running jobs to complete."""
@@ -257,6 +291,32 @@ class WorkerScheduler:
     def _register_jobs(self) -> None:
         """Register all scheduled jobs based on settings."""
         settings = self._settings
+
+        # A persistent APScheduler store can retain a job after its feature
+        # flag is disabled.  Leaving that row in place makes the old
+        # module-level entrypoint fire on every interval and report a false
+        # ``job_dropped_no_active_scheduler`` error.  Remove the known
+        # optional sweep before evaluating the current setting.
+        if not settings.worker_job_export_enabled:
+            try:
+                if cast("Any", self._scheduler).get_job(
+                    "export_wealthfolio"
+                ) is not None:
+                    cast("Any", self._scheduler).remove_job(
+                        "export_wealthfolio"
+                    )
+                    logger.info(
+                        "scheduled_job_removed_disabled",
+                        job_id="export_wealthfolio",
+                    )
+            except Exception:
+                # Scheduler startup must remain available even if a stale
+                # persistent row cannot be inspected or removed.
+                logger.warning(
+                    "scheduled_job_cleanup_failed",
+                    job_id="export_wealthfolio",
+                    error=traceback.format_exc()[-1000:],
+                )
 
         # ── Tenant schedule dispatch (minute tick) ──────────────────
         # The per-tenant sync_schedules drive *when* each connection /
@@ -353,6 +413,15 @@ class WorkerScheduler:
                 trigger=trigger,
             )
 
+        if getattr(settings, "worker_job_data_quality_repair_enabled", False):
+            self._add_job(
+                "data_quality_repair",
+                data_quality_repair_job,
+                trigger=IntervalTrigger(
+                    minutes=settings.worker_job_data_quality_repair_interval_minutes,
+                ),
+            )
+
         # ── Nightly reconciliation job ──────────────────────────────
         if settings.worker_job_reconciliation_enabled:
             cron_parts = settings.worker_job_reconciliation_cron.split()
@@ -421,14 +490,24 @@ class WorkerScheduler:
         resolves job callables to ``module:qualname`` textual references for
         persistent stores, so closures, bound methods and ``functools.partial``
         all fail ("reference to its callable could not be determined").  The
-        owning scheduler, job id and target function travel as plain (picklable)
-        job args.
+        The job id is the only persisted argument; the active scheduler keeps
+        the in-process function mapping.
         """
+        global _active_scheduler
         _schedulers[id(self)] = self
-        cast("Any", self._scheduler).add_job(
+        _active_scheduler = self
+        self._job_functions[job_id] = func
+        scheduler = cast("Any", self._scheduler)
+        # APScheduler may keep the deserialised state of a legacy job when
+        # replacing a record whose callable/args changed across releases.
+        # Remove it first so the persisted entry is guaranteed to contain
+        # only the current stable job id.
+        if scheduler.get_job(job_id) is not None:
+            scheduler.remove_job(job_id)
+        scheduler.add_job(
             _monitored_job_entrypoint,
             trigger=trigger,
-            args=[id(self), job_id, func],
+            args=[job_id],
             id=job_id,
             name=job_id.replace("_", " ").title(),
             replace_existing=True,

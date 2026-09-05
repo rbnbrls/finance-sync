@@ -7,7 +7,7 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any, cast
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -31,9 +31,208 @@ from finance_sync.models.holding import Holding
 from finance_sync.models.market_data_exception import MarketDataException
 from finance_sync.models.security import Security
 from finance_sync.models.security_listing import SecurityListing
+from finance_sync.models.unresolved_security import UnresolvedSecurity
 from finance_sync.services.auth import decrypt_credential
 
 router = APIRouter(tags=["enrichment"])
+
+
+@router.get("/market-data/trading212/latest")
+async def trading212_latest_quote(
+    symbol: str,
+    auth: AuthContext = Depends(require_permission("market-data", "read")),
+    session: AsyncSession = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> dict[str, object]:
+    """Serve a Wealthfolio custom-provider quote from Trading212.
+
+    Wealthfolio calls this endpoint with its canonical ticker (or an asset
+    override).  Finance-sync resolves it against Trading212's live portfolio
+    and instrument master, so Wealthfolio never has to understand broker
+    symbols such as ``BESIA_EQ``.
+    """
+    credentials = (
+        await session.execute(
+            select(Credential)
+            .where(
+                Credential.tenant_id == auth.tenant_id,
+                Credential.provider_key == "trading212",
+                Credential.status == "active",
+            )
+            .order_by(Credential.updated_at.desc())
+        )
+    ).scalars().all()
+    if not credentials:
+        raise HTTPException(status_code=404, detail="Trading212 niet geconfigureerd")
+
+    requested = symbol.strip().upper()
+    for credential in credentials:
+        raw = decrypt_credential(
+            credential.encrypted_payload, credential.nonce, settings
+        )
+        try:
+            credentials_data = json.loads(raw)
+        except (TypeError, json.JSONDecodeError):
+            credentials_data = {"api_key": raw}
+        connector = ConnectorRegistry().get_connector(
+            ConnectorConfig(
+                provider_type="trading212",
+                credentials=(
+                    credentials_data if isinstance(credentials_data, dict) else {}
+                ),
+                options=_options(credential),
+            )
+        )
+        try:
+            await connector.authenticate()
+            portfolio = await connector.fetch_portfolio()
+            instruments = await connector.fetch_instruments()
+        except Exception:
+            continue
+        metadata_by_ticker = {
+            str(item.get("ticker") or item.get("symbol") or "").upper(): item
+            for item in instruments
+            if isinstance(item, dict)
+        }
+        for item in portfolio:
+            if not isinstance(item, dict):
+                continue
+            provider_ticker = str(item.get("ticker") or "").upper()
+            metadata = metadata_by_ticker.get(provider_ticker, {})
+            normalized_ticker, _, _ = _normalise_instrument(provider_ticker)
+            candidates = {
+                provider_ticker,
+                provider_ticker.rsplit(":", 1)[-1],
+                normalized_ticker.upper(),
+                normalized_ticker.rsplit(":", 1)[-1].upper(),
+                str(metadata.get("ticker") or metadata.get("symbol") or "").upper(),
+                str(metadata.get("isin") or metadata.get("ISIN") or "").upper(),
+            }
+            if requested not in candidates:
+                continue
+            price = item.get("currentPrice")
+            if price is None:
+                break
+            price_value = Decimal(str(price)) * _price_scale(provider_ticker)
+            currency = str(
+                item.get("currencyCode")
+                or metadata.get("currencyCode")
+                or metadata.get("currency")
+                or "EUR"
+            ).upper()
+            return {
+                "price": str(price_value),
+                "currency": currency,
+                "date": datetime.now(UTC).date().isoformat(),
+                "symbol": provider_ticker,
+                "source": "trading212",
+            }
+    raise HTTPException(status_code=404, detail=f"Geen Trading212-koers voor {symbol}")
+
+
+@router.post("/enrichment/refresh-trading212-identities")
+async def refresh_trading212_identities(
+    auth: AuthContext = Depends(require_permission("securities", "write")),
+    session: AsyncSession = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> dict[str, object]:
+    """Fetch Trading212's instrument master and refresh unresolved identities.
+
+    Trading212 portfolio/history responses contain provider tickers but not
+    consistently stable identifiers.  This endpoint explicitly calls the
+    provider metadata API, updates the unresolved queue with ISIN, name,
+    venue and currency, and links rows whose ISIN already exists locally.
+    A subsequent Trading212 sync applies those mappings to holdings and
+    transactions.
+    """
+    credentials = (
+        await session.execute(
+            select(Credential)
+            .where(
+                Credential.tenant_id == auth.tenant_id,
+                Credential.provider_key == "trading212",
+                Credential.status == "active",
+            )
+            .order_by(Credential.updated_at.desc())
+        )
+    ).scalars().all()
+    if not credentials:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Geen actieve Trading212-verbinding gevonden.",
+        )
+
+    unresolved = list(
+        (
+            await session.execute(
+                select(UnresolvedSecurity).where(
+                    UnresolvedSecurity.tenant_id == auth.tenant_id,
+                    UnresolvedSecurity.provider_key == "trading212",
+                    UnresolvedSecurity.resolved_security_id.is_(None),
+                )
+            )
+        ).scalars()
+    )
+    fetched = 0
+    resolved = 0
+    updated = 0
+    for credential in credentials:
+        raw = decrypt_credential(
+            credential.encrypted_payload, credential.nonce, settings
+        )
+        try:
+            secret_values = json.loads(raw)
+        except (TypeError, json.JSONDecodeError):
+            secret_values = {"api_key": raw}
+        connector = ConnectorRegistry().get_connector(
+            ConnectorConfig(
+                provider_type="trading212",
+                credentials=secret_values if isinstance(secret_values, dict) else {},
+                options=_options(credential),
+            )
+        )
+        await connector.authenticate()
+        instruments = await connector.fetch_instruments()  # type: ignore[attr-defined]
+        fetched += len(instruments)
+        by_key = {
+            key: item
+            for item in instruments
+            if isinstance(item, dict)
+            for key in {
+                str(item.get("ticker") or item.get("symbol") or "").upper()
+            }
+            if key
+        }
+        for record in unresolved:
+            item = by_key.get(
+                str(record.external_security_id or record.raw_ticker).upper()
+            ) or by_key.get(str(record.raw_ticker or "").upper())
+            if not item:
+                continue
+            record.raw_isin = str(item.get("isin") or item.get("ISIN") or "") or None
+            record.raw_ticker = str(item.get("ticker") or item.get("symbol") or record.raw_ticker or "") or None
+            record.raw_name = str(item.get("name") or item.get("shortName") or record.raw_name or "") or None
+            record.raw_currency_code = str(item.get("currencyCode") or item.get("currency") or record.raw_currency_code or "") or None
+            record.raw_metadata = json.dumps(item, sort_keys=True, default=str)
+            record.resolution_method = "trading212_metadata"
+            updated += 1
+            if record.raw_isin:
+                candidate = await session.scalar(
+                    select(Security).where(Security.isin == record.raw_isin.upper())
+                )
+                if candidate is not None:
+                    record.resolved_security_id = str(candidate.id)
+                    record.resolution_method = "auto_isin"
+                    resolved += 1
+    await session.commit()
+    return {
+        "provider": "trading212",
+        "instruments_fetched": fetched,
+        "unresolved_updated": updated,
+        "resolved_by_isin": resolved,
+        "sync_required": True,
+        "message": "Start daarna opnieuw een Trading212-sync om holdings en transacties te koppelen.",
+    }
 
 
 def _options(credential: Credential) -> dict[str, Any]:

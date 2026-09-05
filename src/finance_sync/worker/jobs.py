@@ -284,13 +284,22 @@ async def sync_connector_job(
             return {
                 "tenant_id": _tenant.id,
                 "connection_id": _connection_id,
-                "status": result.status.value,
+                "status": (
+                    "skipped"
+                    if result.error_category == "already_running"
+                    else result.status.value
+                ),
                 "accounts_synced": result.accounts_synced,
                 "transactions_synced": result.transactions_synced,
                 "holdings_synced": result.holdings_synced,
                 "unresolved_securities": result.unresolved_securities,
                 "duration_s": round(result.duration_s, 2),
                 "error": result.error_message,
+                "reason": (
+                    "already_running"
+                    if result.error_category == "already_running"
+                    else None
+                ),
             }
 
         try:
@@ -857,6 +866,33 @@ async def enrich_prices_job(container: Container) -> dict[str, Any]:
     return {"enriched": enriched, "failed": failed}
 
 
+async def data_quality_repair_job(container: Container) -> dict[str, Any]:
+    """Continuously apply safe, deterministic Data Health repairs."""
+    from finance_sync.models.tenant import Tenant
+    from finance_sync.services.data_quality_repair import (
+        DataQualityRepairService,
+    )
+
+    results: dict[str, Any] = {}
+    async with container.session_factory() as session:
+        tenants = (await session.execute(select(Tenant))).scalars().all()
+        for tenant in tenants:
+            try:
+                results[str(tenant.id)] = await DataQualityRepairService(
+                    session, container.settings
+                ).run(str(tenant.id))
+            except Exception as exc:
+                logger.exception(
+                    "data_quality_repair_failed",
+                    tenant_id=str(tenant.id),
+                    error=type(exc).__name__,
+                )
+                results[str(tenant.id)] = {"error": type(exc).__name__}
+        await session.commit()
+    logger.info("data_quality_repair_complete", tenants=len(results))
+    return {"tenants": results}
+
+
 async def nightly_reconciliation_job(container: Container) -> dict[str, Any]:
     """Nightly full reconciliation: re-sync all connectors for all tenants
     and run reconciliation analysis on the fresh data.
@@ -1150,6 +1186,7 @@ async def export_wealthfolio_job(container: Container) -> dict[str, Any]:
                     imported=result.get("imported", 0),
                     skipped=result.get("skipped", 0),
                     failed=result.get("failed", 0),
+                    accounts_removed=result.get("accounts_removed", 0),
                     run_id=result.get("run_id"),
                 )
                 summary.append(
@@ -1159,6 +1196,7 @@ async def export_wealthfolio_job(container: Container) -> dict[str, Any]:
                         "imported": result.get("imported", 0),
                         "skipped": result.get("skipped", 0),
                         "failed": result.get("failed", 0),
+                        "accounts_removed": result.get("accounts_removed", 0),
                         "run_id": result.get("run_id"),
                     },
                 )

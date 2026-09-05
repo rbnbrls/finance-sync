@@ -128,6 +128,76 @@ def _release_response(row: ConnectorRelease) -> ConnectorReleaseResponse:
 # ── Singleton registry ──────────────────────────────────────────────────
 _registry: ConnectorRegistry | None = None
 
+# Market-data sources are configuration objects, not transaction connectors.
+# They live in the same UX because users should be able to manage the whole
+# enrichment chain in one place.  The repair service consumes the enabled
+# sources in priority order; credentials are still encrypted by the normal
+# connector-config endpoint.
+MARKET_DATA_PROVIDERS: tuple[dict[str, Any], ...] = (
+    {
+        "name": "openfigi",
+        "display_name": "OpenFIGI",
+        "credential_fields": [{"key": "api_key", "label": "API key", "type": "password", "required": False}],
+        "description": "Instrument-identiteit en ISIN/FIGI/ticker-mapping",
+        "documentation_url": "https://www.openfigi.com/api/documentation",
+    },
+    {
+        "name": "ecb",
+        "display_name": "ECB wisselkoersen",
+        "credential_fields": [],
+        "description": "Officiële dagelijkse EUR-wisselkoersen",
+        "documentation_url": "https://data.ecb.europa.eu/help/api/data",
+    },
+    {
+        "name": "stooq",
+        "display_name": "Stooq",
+        "credential_fields": [],
+        "description": "Gratis dagelijkse historische koersen",
+        "documentation_url": "https://stooq.com/q/d/l/",
+    },
+    {
+        "name": "finnhub",
+        "display_name": "Finnhub",
+        "credential_fields": [{"key": "api_key", "label": "API key", "type": "password", "required": True}],
+        "description": "Actuele marktkoersen en historische reeksen",
+        "documentation_url": "https://finnhub.io/docs/api/quote",
+    },
+    {
+        "name": "twelve_data",
+        "display_name": "Twelve Data",
+        "credential_fields": [{"key": "api_key", "label": "API key", "type": "password", "required": True}],
+        "description": "Actuele en historische koersen via credits",
+        "documentation_url": "https://twelvedata.com/docs/introduction/quickstart",
+    },
+    {
+        "name": "alpha_vantage",
+        "display_name": "Alpha Vantage",
+        "credential_fields": [{"key": "api_key", "label": "API key", "type": "password", "required": True}],
+        "description": "Koersen en historische data; gratis quota is beperkt",
+        "documentation_url": "https://www.alphavantage.co/support/",
+    },
+    {
+        "name": "yahoo_finance",
+        "display_name": "Yahoo Finance",
+        "credential_fields": [],
+        "description": "Gratis marktdata zonder configuratie",
+        "documentation_url": "https://wealthfolio.app/docs/concepts/market-data-and-fx/",
+    },
+    {
+        "name": "boerse_frankfurt",
+        "display_name": "Börse Frankfurt",
+        "credential_fields": [],
+        "description": "Marktdata voor Europese instrumenten",
+        "documentation_url": "https://wealthfolio.app/docs/concepts/market-data-and-fx/",
+    },
+)
+_MARKET_DATA_KEYS = {item["name"] for item in MARKET_DATA_PROVIDERS}
+_MARKET_DATA_NO_SECRET_KEYS = {
+    item["name"]
+    for item in MARKET_DATA_PROVIDERS
+    if not item["credential_fields"]
+}
+
 
 def _get_registry() -> ConnectorRegistry:
     global _registry
@@ -469,7 +539,7 @@ def _credential_response(row: Credential) -> ConnectorConfigResponse:
     """Build the public response for a credential row (no secrets)."""
     options: Any = {}
     is_configured = bool(row.encrypted_payload) or row.provider_key in (
-        _NON_SECRET_PROVIDERS
+        _NON_SECRET_PROVIDERS | _MARKET_DATA_NO_SECRET_KEYS
     )
     label = row.description
     with contextlib.suppress(json.JSONDecodeError, TypeError):
@@ -482,6 +552,12 @@ def _credential_response(row: Credential) -> ConnectorConfigResponse:
     if not label or label.lstrip().startswith("{"):
         metadata = _get_registry().list_connectors().get(row.provider_key, {})
         label = str(metadata.get("display_name", row.provider_key))
+        if row.provider_key in _MARKET_DATA_KEYS:
+            label = next(
+                item["display_name"]
+                for item in MARKET_DATA_PROVIDERS
+                if item["name"] == row.provider_key
+            )
     return ConnectorConfigResponse(
         id=str(row.id),
         connection_id=str(row.id),
@@ -936,6 +1012,31 @@ async def list_available_connectors(
                 ),
             )
         )
+    result.extend(
+        ConnectorInfo(
+                name=str(item["name"]),
+                display_name=str(item["display_name"]),
+                sdk_version="market-data-v1",
+                credential_fields=cast(
+                    list[dict[str, object]], item["credential_fields"]
+                ),
+                option_fields=[
+                    {
+                        "key": "enabled",
+                        "label": "Bron gebruiken",
+                        "type": "boolean",
+                        "required": False,
+                        "default": True,
+                    }
+                ],
+                capabilities=["quotes", "historical_prices"],
+                configuration_mode="user",
+                ingestion_methods=["api"],
+                documentation_url=str(item["documentation_url"]),
+                auth_mode=("credentials" if item["credential_fields"] else "none"),
+        )
+        for item in MARKET_DATA_PROVIDERS
+        )
     return result
 
 
@@ -1099,6 +1200,8 @@ async def create_connector_config(
 
     credentials = body.credentials
     options = body.options
+    if body.provider_type in _MARKET_DATA_KEYS:
+        options = {"enabled": True, **options}
     if is_staging_managed(body.provider_type, settings):
         try:
             credentials, options = staging_connector_config(
@@ -1117,7 +1220,7 @@ async def create_connector_config(
 
     # Validate provider_type exists
     registry = _get_registry()
-    if body.provider_type not in registry:
+    if body.provider_type not in registry and body.provider_type not in _MARKET_DATA_KEYS:
         available = registry.available
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -1152,9 +1255,17 @@ async def create_connector_config(
     # Merge human-readable label into options so it survives updates
     merged_options = dict(options)
     default_label = str(
-        _get_registry().list_connectors()
-        .get(body.provider_type, {})
-        .get("display_name", body.provider_type)
+        _get_registry().list_connectors().get(body.provider_type, {}).get(
+            "display_name",
+            next(
+                (
+                    item["display_name"]
+                    for item in MARKET_DATA_PROVIDERS
+                    if item["name"] == body.provider_type
+                ),
+                body.provider_type,
+            ),
+        )
     )
     merged_options["_label"] = body.description or default_label
 

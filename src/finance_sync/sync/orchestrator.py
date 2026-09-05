@@ -67,7 +67,12 @@ from finance_sync.sync.sync_cursor import (
     get_connector_cursors,
     upsert_sync_cursor,
 )
-from finance_sync.sync.sync_run import complete_sync_run, start_sync_run
+from finance_sync.sync.sync_run import (
+    SyncAlreadyRunningError,
+    complete_sync_run,
+    recover_stale_sync_runs,
+    start_sync_run,
+)
 
 if TYPE_CHECKING:
     from datetime import datetime as dt_type
@@ -346,6 +351,25 @@ class SyncOrchestrator(CardsSyncMixin):
 
         # Record the attempt on the connection row so the control-panel
         # UI can show per-connection status even while the run is live.
+        if connection_id:
+            async with self._session_factory() as recovery_session:
+                recovered = await recover_stale_sync_runs(
+                    recovery_session,
+                    connection_id=connection_id,
+                    stale_after_minutes=int(
+                        getattr(
+                            self._settings,
+                            "sync_run_stale_after_minutes",
+                            360,
+                        )
+                    ),
+                )
+                await recovery_session.commit()
+                if recovered:
+                    log.warning(
+                        "stale_sync_runs_recovered",
+                        recovered=recovered,
+                    )
         await self._mark_connection_attempt(connection_id, log)
 
         connector = self._registry.get_connector(config)
@@ -996,6 +1020,22 @@ class SyncOrchestrator(CardsSyncMixin):
                 duration_s=(end_ts - start_ts).total_seconds(),
             )
 
+        except SyncAlreadyRunningError as exc:
+            # A second trigger is a normal operational race (scheduler vs
+            # manual sync). Do not create a second run or call the provider.
+            end_ts = _dt.now(UTC)
+            log.info("sync_skipped_already_running", error=str(exc))
+            return SyncResult(
+                status=SyncRunStatus.FAILED,
+                accounts_synced=0,
+                transactions_synced=0,
+                holdings_synced=0,
+                unresolved_securities=0,
+                error_message="Sync overgeslagen: er draait al een sync",
+                error_category="already_running",
+                error_type=type(exc).__name__,
+                duration_s=(end_ts - start_ts).total_seconds(),
+            )
         except PermanentError as exc:
             await report_connector_failure(
                 self._settings,

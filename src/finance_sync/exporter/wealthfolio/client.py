@@ -422,21 +422,31 @@ class WealthfolioClient:
         self,
         provider_account_ids: set[str],
     ) -> int:
-        """Remove accounts that are not part of the current export dataset.
+        """Reconcile the managed Wealthfolio account projection.
 
         Wealthfolio is a projection of finance-sync for this exporter.  The
         provider account identity is the ownership boundary; names and the
-        broad ``FINANCE_SYNC`` provider label are not sufficient because old
-        smoke/test accounts may use a different identity format.
+        broad ``FINANCE_SYNC`` provider label are not sufficient for matching.
+        Managed stale accounts are removed, and duplicate managed accounts
+        with the same provider identity are collapsed to one record.
+
+        The legacy finance-sync destination owns the complete account set in
+        Wealthfolio, so old smoke/test and manually-created records are
+        removed too.
         """
         accounts = await self.get_accounts()
         removed = 0
+        retained_provider_ids: set[str] = set()
         for account in accounts:
             account_id = account.get("id")
             if not account_id:
                 continue
             provider_account_id = str(account.get("providerAccountId") or "")
-            if provider_account_id in provider_account_ids:
+            if (
+                provider_account_id in provider_account_ids
+                and provider_account_id not in retained_provider_ids
+            ):
+                retained_provider_ids.add(provider_account_id)
                 continue
             await self.delete_account(str(account_id))
             removed += 1

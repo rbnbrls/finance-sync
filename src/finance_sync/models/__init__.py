@@ -28,6 +28,7 @@ from finance_sync.models.datamart import (
     DataMartGrant,
 )
 from finance_sync.models.detected_subscription import DetectedSubscription
+from finance_sync.models.duplicate_review import DuplicateReview
 from finance_sync.models.enrichment_freshness import EnrichmentFreshness
 from finance_sync.models.market_data_exception import MarketDataException
 from finance_sync.models.enums import (

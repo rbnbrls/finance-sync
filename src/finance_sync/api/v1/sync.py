@@ -249,6 +249,8 @@ async def _run_connection_sync(
         )
         run_id = await _latest_run_id(db, cred.provider_key, str(cred.id))
         status = str(result.status.value)
+        if getattr(result, "error_category", None) == "already_running":
+            status = "running"
         await _record_sync_audit(
             db,
             tenant_id=tenant_id,

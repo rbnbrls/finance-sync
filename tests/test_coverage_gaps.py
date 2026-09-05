@@ -24,7 +24,11 @@ from finance_sync.api.v1.file_uploads import (
     _normalise,
     list_file_upload_runs,
 )
-from finance_sync.api.v1.market_data import _live_quote, _parse_options
+from finance_sync.api.v1.market_data import (
+    _live_quote,
+    _local_quote,
+    _parse_options,
+)
 from finance_sync.api.v1.webhooks import (
     CreateWebhookRequest,
     _get_service,
@@ -645,6 +649,50 @@ async def test_market_data_live_quote_without_connection_raises_404(
     with pytest.raises(HTTPException) as error:
         await _live_quote(MagicMock(), MagicMock(), _auth(), "AAPL", None)
     assert error.value.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_market_data_local_quote_prefers_current_holding(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The custom-provider endpoint must expose the broker snapshot value."""
+    security = SimpleNamespace(
+        id="security-1",
+        ticker="BESI",
+        isin="NL0012866412",
+        currency_code="EUR",
+    )
+    holding = SimpleNamespace(
+        price=Decimal("192.30"),
+        market_value=Decimal("1923.00"),
+        quantity=10,
+        price_currency="EUR",
+        currency_code="EUR",
+        observed_at=datetime(2026, 9, 1, 12, 0, tzinfo=UTC),
+        source="provider_sync",
+    )
+    monkeypatch.setattr(
+        "finance_sync.api.v1.market_data._security",
+        AsyncMock(return_value=security),
+    )
+    db = MagicMock()
+    db.execute = AsyncMock(
+        return_value=SimpleNamespace(
+            scalars=lambda: SimpleNamespace(first=lambda: holding)
+        )
+    )
+
+    result = await _local_quote(db, MagicMock(), _auth(), "BESI:XAMS")
+
+    assert result == {
+        "symbol": "BESI",
+        "isin": "NL0012866412",
+        "price": 192.30,
+        "currency": "EUR",
+        "timestamp": "2026-09-01T12:00:00+00:00",
+        "date": "2026-09-01",
+        "source": "finance-sync:provider_sync",
+    }
 
 
 class _Scheduler:

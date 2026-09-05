@@ -769,6 +769,12 @@ class Settings(BaseSettings):
         ge=1,
         validation_alias="WORKER_JOB_TRADING212_SYNC_INTERVAL_HOURS",
     )
+    sync_run_stale_after_minutes: int = Field(
+        default=360,
+        ge=30,
+        validation_alias="SYNC_RUN_STALE_AFTER_MINUTES",
+        description="Age after which a worker-orphaned running sync is recovered.",
+    )
 
     # ── DEGIRO file imports ────────────────────────────────────────
     degiro_import_staging_directory: Path = Field(
@@ -838,6 +844,16 @@ class Settings(BaseSettings):
         validation_alias="WORKER_JOB_PRICE_ENRICHMENT_MARKET_CLOSE",
         description="Market close time (EST) for price enrichment "
         "window, e.g. '16:00'.",
+    )
+    worker_job_data_quality_repair_enabled: bool = Field(
+        default=False,
+        validation_alias="WORKER_JOB_DATA_QUALITY_REPAIR_ENABLED",
+        description="Continuously repair verifiable identity and quote issues.",
+    )
+    worker_job_data_quality_repair_interval_minutes: int = Field(
+        default=60,
+        ge=5,
+        validation_alias="WORKER_JOB_DATA_QUALITY_REPAIR_INTERVAL_MINUTES",
     )
 
     # ── Worker: Nightly reconciliation job ─────────────────────────

@@ -14,7 +14,7 @@ from decimal import Decimal
 from typing import Any, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from finance_sync.api.deps.auth import AuthContext, require_permission
@@ -29,7 +29,9 @@ from finance_sync.dependencies import get_db, get_settings
 from finance_sync.enrichment.models import PriceObservation
 from finance_sync.enrichment.price_store import PriceStore
 from finance_sync.models.credential import Credential
+from finance_sync.models.holding import Holding
 from finance_sync.models.security import Security
+from finance_sync.models.security_listing import SecurityListing
 from finance_sync.services.auth import decrypt_credential
 
 router = APIRouter(prefix="/market-data", tags=["market-data"])
@@ -69,12 +71,86 @@ async def _credentials(
 async def _security(
     db: AsyncSession, *, auth: AuthContext, symbol: str
 ) -> Security | None:
+    requested = symbol.strip().upper()
+    bare = requested.rsplit(":", 1)[-1]
     result = await db.execute(
-        select(Security).where(
-            or_(Security.ticker == symbol, Security.isin == symbol)
+        select(Security)
+        .outerjoin(SecurityListing, SecurityListing.security_id == Security.id)
+        .where(
+            or_(
+                func.upper(Security.ticker) == requested,
+                func.upper(Security.isin) == requested,
+                func.upper(SecurityListing.ticker) == requested,
+                func.upper(SecurityListing.ticker) == bare,
+            )
         )
+        .limit(1)
     )
     return result.scalars().first()
+
+
+async def _local_quote(
+    db: AsyncSession,
+    settings: Settings,
+    auth: AuthContext,
+    symbol: str,
+) -> dict[str, Any]:
+    """Return the tenant's latest authoritative quote for a security.
+
+    Current holdings are preferred over the generic price cache because
+    broker snapshots may contain a more authoritative closing price than a
+    third-party enrichment feed.  The price cache remains the fallback for
+    securities that are not currently held.
+    """
+    security = await _security(db, auth=auth, symbol=symbol)
+    if security is None:
+        raise HTTPException(status_code=404, detail=f"Security not found: {symbol}")
+
+    holding = (
+        await db.execute(
+            select(Holding)
+            .where(
+                Holding.tenant_id == auth.tenant_id,
+                Holding.security_id == security.id,
+                Holding.quantity > 0,
+            )
+            .order_by(Holding.observed_at.desc())
+            .limit(1)
+        )
+    ).scalars().first()
+    if holding is not None:
+        price = holding.price
+        if price is None and holding.market_value is not None and holding.quantity:
+            price = Decimal(holding.market_value) / Decimal(holding.quantity)
+        if price is not None:
+            return {
+                "symbol": security.ticker or security.isin or symbol,
+                "isin": security.isin,
+                "price": float(price),
+                "currency": (
+                    holding.price_currency
+                    or holding.currency_code
+                    or security.currency_code
+                ).upper(),
+                "timestamp": holding.observed_at.isoformat(),
+                "date": holding.observed_at.date().isoformat(),
+                "source": f"finance-sync:{holding.source}",
+            }
+
+    observation = await PriceStore(db, settings).get_latest_price(str(security.id))
+    if observation is None or observation.price_close is None:
+        raise HTTPException(status_code=404, detail=f"No quote available for {symbol}")
+    return {
+        "symbol": security.ticker or security.isin or symbol,
+        "isin": security.isin,
+        "price": float(observation.price_close),
+        "currency": (
+            observation.currency_code or security.currency_code
+        ).upper(),
+        "timestamp": observation.timestamp.isoformat(),
+        "date": observation.timestamp.date().isoformat(),
+        "source": observation.source,
+    }
 
 
 async def _live_quote(
@@ -180,8 +256,20 @@ async def latest_quote(
     db: AsyncSession = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ) -> dict[str, Any]:
-    """Return one current quote, suitable for Wealthfolio JSONPath ``$.price``."""
-    return await _live_quote(db, settings, auth, symbol, connection_id)
+    """Return one quote, suitable for Wealthfolio JSONPath ``$.price``.
+
+    The generic endpoint serves finance-sync's canonical holdings/price data
+    first and falls back to Trading212 live data for compatibility with the
+    original provider-specific integration.
+    """
+    if connection_id:
+        return await _live_quote(db, settings, auth, symbol, connection_id)
+    try:
+        return await _local_quote(db, settings, auth, symbol)
+    except HTTPException as local_error:
+        if local_error.status_code != 404:
+            raise
+        return await _live_quote(db, settings, auth, symbol, None)
 
 
 @router.get("/history")

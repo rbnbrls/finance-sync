@@ -6,19 +6,31 @@ from datetime import UTC, datetime
 from decimal import (
     Decimal,
 )
-from typing import Any, cast
+from typing import Any, Literal, cast
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from finance_sync.api.deps.auth import (
     AuthContext,
     get_read_scope,
     require_permission,
 )
-from finance_sync.dependencies import get_container
+from finance_sync.db.uow import UnitOfWork
+from finance_sync.dependencies import get_container, get_db
+from finance_sync.models import (
+    Account,
+    DuplicateReview,
+    Security,
+    Transaction,
+    TransactionLifecycleEvent,
+)
 from finance_sync.services.reconciliation import ReconciliationService
 from finance_sync.services.visibility import ReadScope
+from finance_sync.sync.persistence import TransactionPersistence
 
 router = APIRouter(prefix="/reconciliation", tags=["reconciliation"])
 
@@ -173,6 +185,39 @@ class ReconciliationResultResponse(BaseModel):
     description: str | None = None
     details: dict[str, Any] | None = None
     created_at: datetime | None = None
+    transactions: list[TransactionReviewResponse] = Field(default_factory=list)
+
+
+class TransactionReviewResponse(BaseModel):
+    """The source and canonical fields needed to assess a duplicate."""
+
+    id: str
+    external_transaction_id: str
+    provider_key: str
+    account_id: str
+    account_name: str | None = None
+    security_id: str | None = None
+    security_name: str | None = None
+    occurred_at: datetime
+    booked_at: datetime | None = None
+    amount: Decimal
+    currency_code: str
+    quantity: Decimal | None = None
+    unit_price: Decimal | None = None
+    fee_amount: Decimal | None = None
+    fee_currency_code: str | None = None
+    transaction_type: str
+    description: str | None = None
+    status: str
+    tombstoned_at: datetime | None = None
+    provider_metadata_contract: dict[str, Any] | None = None
+
+
+class DuplicateDecisionRequest(BaseModel):
+    transaction_id_a: str
+    transaction_id_b: str
+    decision: Literal["keep_a", "keep_b", "keep_both"]
+    finding_id: str | None = None
 
 
 class ReconciliationRunListResponse(BaseModel):
@@ -197,6 +242,7 @@ class ReconciliationRunDetailResponse(BaseModel):
 ReconciliationRunDetailResponse.model_rebuild()
 ReconciliationRunListResponse.model_rebuild()
 ReconciliationRunResponse.model_rebuild()
+ReconciliationResultResponse.model_rebuild()
 
 
 # ── Helpers ───────────────────────────────────────────────────────────
@@ -473,10 +519,154 @@ async def get_reconciliation_run(
             status_code=status.HTTP_404_NOT_FOUND, detail="Not found"
         )
 
+    transaction_ids = {
+        transaction_id
+        for result in results
+        for transaction_id in (
+            getattr(result, "transaction_id_a", None),
+            getattr(result, "transaction_id_b", None),
+        )
+        if transaction_id
+    }
+    transaction_details: dict[str, TransactionReviewResponse] = {}
+    if transaction_ids:
+        async with container.session_factory() as db:
+            rows = await db.execute(
+                select(Transaction, Account.name, Security.name)
+                .join(Account, Account.id == Transaction.account_id)
+                .outerjoin(Security, Security.id == Transaction.security_id)
+                .where(
+                    Transaction.tenant_id == auth.tenant_id,
+                    Transaction.id.in_(transaction_ids),
+                    Transaction.account_id.in_(scope.account_ids_subquery()),
+                )
+            )
+            for tx, account_name, security_name in rows:
+                transaction_details[str(tx.id)] = TransactionReviewResponse(
+                    id=str(tx.id),
+                    external_transaction_id=tx.external_transaction_id,
+                    provider_key=tx.provider_key,
+                    account_id=str(tx.account_id),
+                    account_name=account_name,
+                    security_id=str(tx.security_id) if tx.security_id else None,
+                    security_name=security_name,
+                    occurred_at=tx.occurred_at,
+                    booked_at=tx.booked_at,
+                    amount=tx.amount,
+                    currency_code=tx.currency_code,
+                    quantity=tx.quantity,
+                    unit_price=tx.unit_price,
+                    fee_amount=tx.fee_amount,
+                    fee_currency_code=tx.fee_currency_code,
+                    transaction_type=str(tx.transaction_type),
+                    description=tx.description,
+                    status=str(tx.status),
+                    tombstoned_at=tx.tombstoned_at,
+                    provider_metadata_contract=tx.provider_metadata_contract,
+                )
+
+    def result_response(result: object) -> dict[str, Any]:
+        payload = _result_to_response(result).model_dump()
+        payload["transactions"] = [
+            transaction_details[transaction_id].model_dump()
+            for transaction_id in (
+                getattr(result, "transaction_id_a", None),
+                getattr(result, "transaction_id_b", None),
+            )
+            if transaction_id and str(transaction_id) in transaction_details
+        ]
+        return payload
+
     return {
         "run": _run_to_response(run).model_dump(),
-        "results": [_result_to_response(r).model_dump() for r in results],
+        "results": [result_response(r) for r in results],
         "total_results": total,
         "result_limit": result_limit,
         "result_offset": result_offset,
+    }
+
+
+@router.post("/duplicates/decision", response_model=dict[str, Any])
+async def decide_duplicate(
+    body: DuplicateDecisionRequest,
+    auth: AuthContext = Depends(require_permission("transactions", "write")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Record a duplicate decision and optionally tombstone one transaction."""
+    if body.transaction_id_a == body.transaction_id_b:
+        raise HTTPException(status_code=400, detail="Transactions must differ")
+    ids = {body.transaction_id_a, body.transaction_id_b}
+    rows = list(
+        (
+            await db.execute(
+                select(Transaction).where(
+                    Transaction.tenant_id == auth.tenant_id,
+                    Transaction.id.in_(ids),
+                )
+            )
+        ).scalars()
+    )
+    if len(rows) != 2:
+        raise HTTPException(status_code=404, detail="Transaction not found")
+
+    pair_key = ":".join(sorted(ids))
+    kept_id = (
+        body.transaction_id_a if body.decision == "keep_a" else
+        body.transaction_id_b if body.decision == "keep_b" else None
+    )
+    review = await db.scalar(
+        select(DuplicateReview).where(
+            DuplicateReview.tenant_id == auth.tenant_id,
+            DuplicateReview.pair_key == pair_key,
+        )
+    )
+    if review is None:
+        review = DuplicateReview(
+            tenant_id=auth.tenant_id,
+            transaction_id_a=body.transaction_id_a,
+            transaction_id_b=body.transaction_id_b,
+            pair_key=pair_key,
+            decision=body.decision,
+            kept_transaction_id=kept_id,
+            actor=str(auth.user.id) if auth.user else None,
+        )
+        db.add(review)
+    else:
+        review.decision = body.decision
+        review.kept_transaction_id = kept_id
+
+    actor = str(auth.user.id) if auth.user else None
+    for transaction in rows:
+        db.add(
+            TransactionLifecycleEvent(
+                tenant_id=auth.tenant_id,
+                transaction_id=transaction.id,
+                event_type="duplicate_review",
+                idempotency_key=(
+                    f"duplicate-review:{pair_key}:{body.decision}:"
+                    f"{transaction.id}:{uuid4()}"
+                ),
+                payload={
+                    "decision": body.decision,
+                    "pair_key": pair_key,
+                    "finding_id": body.finding_id,
+                },
+                actor=actor,
+                provenance="user_override",
+                source_revision=transaction.revision,
+            )
+        )
+    if kept_id is not None:
+        async with UnitOfWork(db) as uow:
+            await TransactionPersistence(auth.tenant_id).tombstone_transaction(
+                uow,
+                body.transaction_id_b if kept_id == body.transaction_id_a else body.transaction_id_a,
+                actor=actor,
+            )
+    await db.commit()
+    return {
+        "pair_key": pair_key,
+        "decision": body.decision,
+        "kept_transaction_id": kept_id,
+        "status": "reviewed",
     }

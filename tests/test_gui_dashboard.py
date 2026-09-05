@@ -533,6 +533,20 @@ def test_dashboard_wizard_modal_is_accessible(client: TestClient) -> None:
     assert "aria-required" in html
 
 
+def test_dashboard_ships_wealthfolio_custom_provider_wizard(
+    client: TestClient,
+) -> None:
+    html = _dashboard_html(client)
+    assert "openCustomProviderWizard" in html
+    assert "Wealthfolio custom market-data provider" in html
+    assert "POST', '/auth/api-keys'" in html
+    assert "market-data:read" in html
+    assert "/api/v1/market-data/latest?symbol={SYMBOL}" in html
+    assert "/api/v1/market-data/history?symbol={SYMBOL}&from={FROM}&to={TO}" in html
+    assert "$.data[*].price" in html
+    assert "X-API-Key" in html
+
+
 def test_dashboard_wizard_escaping_prevents_xss(client: TestClient) -> None:
     """Connector names/descriptions coming from the API are HTML-escaped
     before they are interpolated into the DOM."""

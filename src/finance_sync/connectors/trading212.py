@@ -194,6 +194,7 @@ class Trading212Connector(Connector):
         self._account_id: str | None = None
         self._account_currency: str = "EUR"
         self._cash_data: dict[str, Any] | None = None
+        self._instrument_metadata: dict[str, dict[str, Any]] | None = None
 
     async def _get(
         self, url: str, *, headers: dict[str, str]
@@ -320,7 +321,16 @@ class Trading212Connector(Connector):
             raise TransientError(msg) from exc
 
     async def fetch_instruments(self) -> list[dict[str, Any]]:
-        """Fetch Trading212's instrument master for ISIN/name matching."""
+        """Fetch Trading212's instrument master for ISIN/name matching.
+
+        The portfolio and history endpoints expose broker symbols such as
+        ``BESIA_EQ`` but omit stable identifiers.  The metadata endpoint is
+        the provider-of-record for ISIN, display name, venue and currency.
+        Cache it for the lifetime of a sync so one sync consumes one metadata
+        request, even though holdings and transactions are fetched separately.
+        """
+        if self._instrument_metadata is not None:
+            return list(self._instrument_metadata.values())
         api_key = self.config.credentials.get("api_key", "")
         headers = _auth_headers(
             api_key, self.config.credentials.get("api_secret")
@@ -331,8 +341,22 @@ class Trading212Connector(Connector):
             )
             resp.raise_for_status()
             payload = resp.json()
-            return payload if isinstance(payload, list) else []
+            instruments = payload if isinstance(payload, list) else []
+            self._instrument_metadata = {
+                str(
+                    item.get("ticker") or item.get("symbol") or ""
+                ).upper(): item
+                for item in instruments
+                if isinstance(item, dict)
+                and (item.get("ticker") or item.get("symbol"))
+            }
+            return instruments
         except httpx.HTTPStatusError as exc:
+            # Older/demo Trading212 API deployments may not expose this
+            # optional endpoint. Keep the data sync usable in that case.
+            if exc.response.status_code == 404:
+                self._instrument_metadata = {}
+                return []
             _raise_for_status(exc.response)
             raise  # unreachable
         except (httpx.TimeoutException, httpx.HTTPError) as exc:
@@ -350,6 +374,12 @@ class Trading212Connector(Connector):
             return []
 
         observed_at = datetime.now(UTC)
+        instruments = await self.fetch_instruments()
+        by_ticker = {
+            str(item.get("ticker") or item.get("symbol") or "").upper(): item
+            for item in instruments
+            if isinstance(item, dict)
+        }
         items = await self.fetch_portfolio()
         holdings: list[RawHolding] = []
         for item in items:
@@ -358,7 +388,14 @@ class Trading212Connector(Connector):
             # leak the literal string "None" into the datamodel.
             ticker_raw = item.get("ticker")
             ticker = str(ticker_raw).strip() if ticker_raw is not None else ""
+            instrument = by_ticker.get(ticker.upper(), {})
             public_ticker, display_name, venue = _normalise_instrument(ticker)
+            metadata_isin = _metadata_value(instrument, "isin", "ISIN")
+            metadata_name = _metadata_value(instrument, "name", "shortName")
+            metadata_ticker = _metadata_value(instrument, "ticker", "symbol")
+            metadata_venue = _metadata_value(
+                instrument, "exchange", "exchangeCode", "venue"
+            )
             quantity = _safe_quantity(item.get("quantity"))
             scale = _price_scale(ticker)
             average_price = _optional_decimal(item.get("averagePrice"))
@@ -367,7 +404,12 @@ class Trading212Connector(Connector):
             current_price = _optional_decimal(item.get("currentPrice"))
             if current_price is not None:
                 current_price *= scale
-            currency = str(item.get("currencyCode") or self._account_currency)
+            currency = str(
+                item.get("currencyCode")
+                or instrument.get("currencyCode")
+                or instrument.get("currency")
+                or self._account_currency
+            )
             frontend = str(item.get("frontend") or "").upper()
             security_type = "etf" if frontend == "ETF" else "stock"
             holdings.append(
@@ -380,18 +422,21 @@ class Trading212Connector(Connector):
                         # canonical lookup key.  This lets an existing
                         # security be reused after the broker's internal
                         # ``*_EQ`` identifier is normalised.
-                        external_id=(
-                            ticker or None
-                            if public_ticker == ticker
-                            else None
+                        external_id=ticker or None,
+                        ticker=(
+                            metadata_ticker or public_ticker or ticker or None
                         ),
-                        ticker=public_ticker or ticker or None,
                         name=(
-                            display_name
-                            if display_name != ticker
-                            else str(item.get("name") or display_name or None)
+                            metadata_name
+                            or (
+                                display_name
+                                if display_name != ticker
+                                else None
+                            )
+                            or str(item.get("name") or display_name or None)
                         ),
-                        venue=venue,
+                        isin=metadata_isin,
+                        venue=metadata_venue or venue,
                         currency_code=currency,
                         security_type=security_type,
                     ),
@@ -538,6 +583,8 @@ class Trading212Connector(Connector):
         )
 
         all_txns: list[RawTransaction] = list(order_txns) + list(cash_txns)
+        await self.fetch_instruments()
+        all_txns = [self._enrich_transaction_security(txn) for txn in all_txns]
         # Deduplicate by provider external id (orders are prefixed
         # ``order_``, cash transactions ``txn_``; a same-id collision
         # between the two lists would otherwise double-persist).
@@ -557,6 +604,37 @@ class Trading212Connector(Connector):
             deduped = deduped[:limit]
 
         return deduped
+
+    def _enrich_transaction_security(
+        self, transaction: RawTransaction
+    ) -> RawTransaction:
+        """Add Trading212 instrument-master identifiers to a history row."""
+        reference = transaction.security_reference
+        if reference is None or not reference.ticker:
+            return transaction
+        item = (self._instrument_metadata or {}).get(
+            reference.ticker.upper(), {}
+        )
+        if not item:
+            return transaction
+        isin = _metadata_value(item, "isin", "ISIN") or reference.isin
+        name = _metadata_value(item, "name", "shortName") or reference.name
+        venue = _metadata_value(
+            item, "exchange", "exchangeCode", "venue"
+        ) or reference.venue
+        currency = (
+            _metadata_value(item, "currencyCode", "currency")
+            or reference.currency_code
+        )
+        enriched = reference.model_copy(
+            update={
+                "isin": isin,
+                "name": name,
+                "venue": venue,
+                "currency_code": currency,
+            }
+        )
+        return transaction.model_copy(update={"security_reference": enriched})
 
     async def _fetch_order_history(
         self,
@@ -985,6 +1063,15 @@ def _optional_decimal(value: Any) -> Decimal | None:
     if value is None or value == "":
         return None
     return Decimal(str(value))
+
+
+def _metadata_value(item: dict[str, Any], *keys: str) -> str | None:
+    """Return the first non-empty provider metadata value as text."""
+    for key in keys:
+        value = item.get(key)
+        if value not in (None, ""):
+            return str(value).strip()
+    return None
 
 
 def _safe_quantity(value: Any) -> Decimal:
