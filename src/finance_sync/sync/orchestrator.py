@@ -81,6 +81,7 @@ if TYPE_CHECKING:
         AsyncSession,
         async_sessionmaker,
     )
+
     from finance_sync.connectors.base import Connector
     from finance_sync.connectors.models import (
         ConnectorConfig,
