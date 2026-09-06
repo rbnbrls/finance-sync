@@ -536,6 +536,8 @@ class TestSyncOrchestratorRunPipeline:
         assert result.error_message is None
 
         mock_connector.authenticate.assert_awaited_once()
+        report = mock_complete_run.await_args.kwargs["report"]
+        assert report["account_external_ids"] == ["ext_acc_1"]
 
     @patch("finance_sync.sync.orchestrator.start_sync_run")
     async def test_permanent_error_handling(

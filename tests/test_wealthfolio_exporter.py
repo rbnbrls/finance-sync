@@ -28,6 +28,7 @@ from finance_sync.exporter.wealthfolio.exporter import (
     _wf_row_to_api_activity,
 )
 from finance_sync.exporter.wealthfolio.transaction_mapper import (
+    WF_ACTIVITY_ADJUSTMENT,
     WF_ACTIVITY_BUY,
     WF_ACTIVITY_DEPOSIT,
     WF_ACTIVITY_DIVIDEND,
@@ -296,6 +297,24 @@ class TestTransactionMapper:
         assert row["activityType"] == WF_ACTIVITY_SELL
         assert row["symbol"] == "MSFT"
         assert row["instrumentType"] == "EQUITY"
+
+    def test_map_corporate_action_as_adjustment(self) -> None:
+        sec = _make_mock_security(ticker="VWCE")
+        txn = _make_mock_transaction(
+            transaction_type="corporate_action",
+            amount=Decimal(0),
+            description="Stock split",
+            security_id=sec.id,
+            quantity=Decimal(2),
+            unit_price=Decimal(50),
+        )
+
+        row = map_transaction_to_wf_row(txn, security=sec)
+
+        assert row["activityType"] == WF_ACTIVITY_ADJUSTMENT
+        assert row["symbol"] == "VWCE"
+        assert row["quantity"] == "2.00"
+        assert row["subtype"] == "CORPORATE_ACTION"
 
     def test_map_deposit(self) -> None:
         txn = _make_mock_transaction(

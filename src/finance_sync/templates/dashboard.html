@@ -1330,7 +1330,7 @@
             const sourceRows = (data.sources || []).map(source => `<tr><td><strong>${escapeHtml(source.provider)}</strong></td><td>${controlBadge(source.status)}</td><td>${escapeHtml(formatControlDate(source.last_success_at))}</td><td>${escapeHtml(source.accounts)} accounts · ${escapeHtml(source.transactions)} transacties</td></tr>`).join('');
             if (sources) { sources.setAttribute('aria-busy', 'false'); sources.innerHTML = sourceRows ? `<div class="control-table-wrap"><table class="data-table control-table"><thead><tr><th>Bron</th><th>Status</th><th>Laatste succesvolle sync</th><th>Dekking</th></tr></thead><tbody>${sourceRows}</tbody></table></div>` : '<div class="overview-empty">Nog geen bronnen geconfigureerd.</div>'; }
             const issues = document.getElementById('data-health-issues');
-            if (issues) { issues.setAttribute('aria-busy', 'false'); issues.innerHTML = (data.issues || []).length ? data.issues.map(issue => `<article class="issue-card"><div><span class="severity severity-${escapeHtml(issue.severity)}">${escapeHtml(issue.severity)}</span><h3>${escapeHtml(issue.title)}</h3><p>${escapeHtml(issue.description)}</p>${issue.provider ? `<span class="muted">Bron: ${escapeHtml(issue.provider)}</span>` : ''}${issue.impact_count ? `<span class="muted"> · Impact: ${escapeHtml(issue.impact_count)}</span>` : ''}${renderDataHealthIssueTools(issue)}<div class="action-result" id="health-result-${escapeHtml(issue.id)}" aria-live="polite" tabindex="-1"></div></div><div class="control-actions">${renderControlActions([issue.action], `health-result-${issue.id}`)}</div></article>`).join('') : '<div class="overview-empty">Geen open problemen. De datastroom werkt zoals verwacht.</div>'; }
+            if (issues) { issues.setAttribute('aria-busy', 'false'); issues.innerHTML = (data.issues || []).length ? data.issues.map(issue => `<article class="issue-card"><div><span class="severity severity-${escapeHtml(issue.severity)}">${escapeHtml(issue.severity)}</span><h3>${escapeHtml(issue.title)}</h3><p>${escapeHtml(issue.description)}</p>${issue.provider ? `<span class="muted">Bron: ${escapeHtml(issue.provider)}</span>` : ''}${issue.impact_count ? `<span class="muted"> · Impact: ${escapeHtml(issue.impact_count)}</span>` : ''}${renderDestinationParity(issue)}${renderDataHealthIssueTools(issue)}<div class="action-result" id="health-result-${escapeHtml(issue.id)}" aria-live="polite" tabindex="-1"></div></div><div class="control-actions">${renderControlActions([issue.action], `health-result-${issue.id}`)}</div></article>`).join('') : '<div class="overview-empty">Geen open problemen. De datastroom werkt zoals verwacht.</div>'; }
             if (issues && Array.isArray(data.issues)) {
                 issues.querySelectorAll('.issue-card').forEach((card, index) => {
                     const details = data.issues[index]?.details || [];
@@ -1387,6 +1387,28 @@
                 return `<div class="health-repair-list"><strong>Betrokken transacties</strong><div class="field-hint">Open de finding om beide transacties volledig te vergelijken. Daar kun je één transactie behouden of aangeven dat beide terecht zijn.</div><button type="button" class="btn btn-secondary btn-sm" onclick="openReconciliationDetail(${JSON.stringify(issue.action?.path || '')})">Details vergelijken</button></div>`;
             }
             return '';
+        }
+
+        function renderDestinationParity(issue) {
+            if (issue.category !== 'destination_drift') return '';
+            const evidence = issue.evidence || {};
+            const status = evidence.health_status || evidence.post_export_status || evidence.preflight_status;
+            const attempted = evidence.transactions_attempted;
+            const exported = evidence.transactions_exported;
+            const failed = evidence.transactions_failed;
+            const parity = evidence.parity_counts || {};
+            const unmapped = evidence.unmapped_remote_accounts ?? parity.unmapped_remote_accounts;
+            const stale = evidence.stale_remote_activities ?? parity.stale_remote_activities;
+            const metrics = attempted !== undefined
+                ? `<span class="field-hint">Activiteiten: ${escapeHtml(exported ?? 0)} van ${escapeHtml(attempted ?? 0)} afgeleverd${failed ? ` · ${escapeHtml(failed)} mislukt` : ''}.</span>`
+                : '';
+            const parityMetrics = unmapped !== undefined || stale !== undefined
+                ? `<span class="field-hint">Remote afwijkingen: ${escapeHtml(unmapped ?? 0)} niet-gemapte account(s) · ${escapeHtml(stale ?? 0)} stale activiteit(en).</span>`
+                : '';
+            const persisted = Object.keys(parity).length
+                ? `<details class="health-parity-detail"><summary>Persistente parity-samenvatting</summary><dl class="duplicate-review-fields"><dt>Remote accounts</dt><dd>${escapeHtml(parity.remote_accounts ?? 0)}</dd><dt>Remote assets</dt><dd>${escapeHtml(parity.remote_assets ?? 0)}</dd><dt>Remote activiteiten</dt><dd>${escapeHtml(parity.remote_activities ?? 0)}</dd><dt>Canonical activiteiten</dt><dd>${escapeHtml(parity.canonical_activities ?? 0)}</dd></dl></details>`
+                : '';
+            return `<div class="health-repair-list"><strong>Destination parity</strong>${status ? `<span class="field-hint">Remote status: ${escapeHtml(status)}.</span>` : ''}${metrics}${parityMetrics}${persisted}<span class="field-hint">Controleer de bestemming opnieuw; remote payloads en secrets worden niet getoond.</span></div>`;
         }
 
         function trading212ProviderHelp() {
@@ -2010,15 +2032,15 @@
         }
 
         function viewerAccountValue(item) {
-            return viewerAccountIsBroker(item) && item.net_asset_value != null
-                ? item.net_asset_value
-                : item.current_balance;
+            if (viewerAccountIsBroker(item)) return item.net_asset_value;
+            return item.current_balance;
         }
 
         function viewerTotalsByCurrency(items, valueKey) {
             const totals = {};
             items.forEach(item => {
                 const currency = String(item.currency_code || 'EUR').toUpperCase();
+                if (item[valueKey] == null) return;
                 const value = Number(item[valueKey]);
                 if (Number.isFinite(value)) totals[currency] = (totals[currency] || 0) + value;
             });
@@ -2039,7 +2061,7 @@
                     ? `${first.provider_key || 'Provider'} · verbinding ${String(first.connection_id).slice(0, 8)}`
                     : `${first.provider_key || 'Onbekende provider'} · legacy verbinding`;
                 const detailRows = group.map(item => {
-                    return `<tr class="viewer-account-detail"><td><span class="viewer-account-indent">${viewerCell(item.name)}</span></td><td>${viewerCell(item.account_type)}</td><td>${viewerMoney(viewerAccountValue(item), item.currency_code)}</td><td>${viewerMoney(item.available_balance, item.currency_code)}</td><td>${viewerCell(String(item.currency_code || 'EUR').toUpperCase())}</td><td>${item.is_active ? '<span class="badge connected">Actief</span>' : '<span class="badge pending">Inactief</span>'}</td></tr>`;
+                    return `<tr class="viewer-account-detail"><td><span class="viewer-account-indent">${viewerCell(item.name)}</span></td><td>${viewerCell(item.account_type)}</td><td>${viewerMoney(viewerAccountValue(item), item.currency_code)}</td><td>${viewerMoney(item.available_balance, item.currency_code)}</td><td>${viewerCell(String(item.currency_code || 'EUR').toUpperCase())}</td><td>${item.is_active ? '<span class="badge connected">Actief</span>' : '<span class="badge pending">Inactief</span>'}</td><td><button type="button" class="btn btn-danger btn-sm" onclick="deleteViewerAccount('${encodeURIComponent(String(item.id))}')"><span class="mdi mdi-delete-outline"></span> Verwijder</button></td></tr>`;
                 }).join('');
                 const valueTotals = {};
                 group.forEach(item => {
@@ -2048,9 +2070,20 @@
                     if (Number.isFinite(value)) valueTotals[currency] = (valueTotals[currency] || 0) + value;
                 });
                 const valueTotalHtml = Object.entries(valueTotals).map(([currency, value]) => viewerMoney(value, currency)).join('<br>') || '—';
-                return `<tbody class="viewer-account-group"><tr class="viewer-account-summary"><td><button type="button" class="viewer-chevron" aria-expanded="false" aria-controls="viewer-account-details-${index}" onclick="toggleViewerAccountGroup(${index}, this)"><span class="mdi mdi-chevron-right" aria-hidden="true"></span><span><strong>${viewerCell(label)}</strong><br><span class="field-hint">${group.length} account${group.length === 1 ? '' : 's'} · totaal per valuta</span></span></button></td><td>${viewerCell(first.provider_key)}</td><td>${valueTotalHtml}</td><td>${viewerTotalsByCurrency(group, 'available_balance')}</td><td>${[...new Set(group.map(item => String(item.currency_code || 'EUR').toUpperCase()))].map(viewerCell).join('<br>')}</td><td>${group.every(item => item.is_active) ? '<span class="badge connected">Actief</span>' : '<span class="badge pending">Controleer</span>'}</td></tr><tr id="viewer-account-details-${index}" class="viewer-account-details hidden"><td colspan="6"><table class="data-table viewer-nested-table"><thead><tr><th>Account</th><th>Type</th><th>${viewerAccountIsBroker(first) ? 'NAV' : 'Saldo'}</th><th>Beschikbaar cash</th><th>Valuta</th><th>Status</th></tr></thead><tbody>${detailRows}</tbody></table></td></tr></tbody>`;
+                return `<tbody class="viewer-account-group"><tr class="viewer-account-summary"><td><button type="button" class="viewer-chevron" aria-expanded="false" aria-controls="viewer-account-details-${index}" onclick="toggleViewerAccountGroup(${index}, this)"><span class="mdi mdi-chevron-right" aria-hidden="true"></span><span><strong>${viewerCell(label)}</strong><br><span class="field-hint">${group.length} account${group.length === 1 ? '' : 's'} · totaal per valuta</span></span></button></td><td>${viewerCell(first.provider_key)}</td><td>${valueTotalHtml}</td><td>${viewerTotalsByCurrency(group, 'available_balance')}</td><td>${[...new Set(group.map(item => String(item.currency_code || 'EUR').toUpperCase()))].map(viewerCell).join('<br>')}</td><td>${group.every(item => item.is_active) ? '<span class="badge connected">Actief</span>' : '<span class="badge pending">Controleer</span>'}</td></tr><tr id="viewer-account-details-${index}" class="viewer-account-details hidden"><td colspan="7"><table class="data-table viewer-nested-table"><thead><tr><th>Account</th><th>Type</th><th>${viewerAccountIsBroker(first) ? 'NAV' : 'Saldo'}</th><th>Beschikbaar cash</th><th>Valuta</th><th>Status</th><th>Actie</th></tr></thead><tbody>${detailRows}</tbody></table></td></tr></tbody>`;
             }).join('');
-            return `<div class="viewer-table-note">NAV = netto asset value van een broker. Beschikbaar cash wordt per valuta getoond.</div><div style="overflow-x:auto;"><table class="data-table"><thead><tr><th>Verbinding</th><th>Provider</th><th>NAV / saldo</th><th>Beschikbaar cash</th><th>Valuta</th><th>Status</th></tr></thead>${rows}</table></div>`;
+            return `<div class="viewer-table-note">NAV = netto asset value van een broker. Beschikbaar cash wordt per valuta getoond. Verwijderen wist het account en alle lokaal geïmporteerde data.</div><div style="overflow-x:auto;"><table class="data-table"><thead><tr><th>Verbinding</th><th>Provider</th><th>NAV / saldo</th><th>Beschikbaar cash</th><th>Valuta</th><th>Status</th></tr></thead>${rows}</table></div>`;
+        }
+
+        async function deleteViewerAccount(accountId) {
+            if (!confirm('Verwijder dit account en alle lokaal geïmporteerde data? Dit kan niet ongedaan worden.')) return;
+            try {
+                await api('DELETE', `/accounts/${accountId}`);
+                toast('Account en lokale data verwijderd', 'info');
+                await loadViewer();
+            } catch (e) {
+                toast(`Account verwijderen mislukt: ${e.message}`, 'error');
+            }
         }
 
         let viewerHoldingsState = { items: [], query: '', sortBy: '', direction: 'asc' };
@@ -3060,7 +3093,7 @@
                 await validateGenericImportFiles();
                 const endpoint = '/connectors/file-uploads/dispatch';
                 const response = await fetch(`${API_BASE}${endpoint}`, { method: 'POST', headers, body: form }); const data = await response.json(); if (!response.ok) throw new Error(data.detail || 'Import mislukt.');
-                if (provider === 'degiro_pension') { fileUploadState.runId = data.id; const p = data.preview || {}; const missing = p.missing_report_types || []; const holdingsWarning = Number(p.holdings ?? 0) === 0 || missing.includes('portfolio'); result.innerHTML = `<div class="alert alert-success" role="status"><strong>Controle afgerond.</strong> De drie bestanden zijn verwerkt en samengevoegd.</div><div class="degiro-wizard-summary"><div class="degiro-wizard-summary-item"><strong>${escapeHtml(String(p.transactions ?? 0))}</strong><span>transacties</span></div><div class="degiro-wizard-summary-item"><strong>${escapeHtml(String(p.holdings ?? 0))}</strong><span>holdings</span></div><div class="degiro-wizard-summary-item"><strong>${escapeHtml(String(p.rows ?? 0))}</strong><span>regels gelezen</span></div></div>${holdingsWarning ? '<div class="alert alert-warning" role="alert"><strong>Holdings ontbreken.</strong> Account.xlsx en Transactions.xlsx bevatten saldo en activiteiten, maar geen actuele positiesnapshot. Upload ook het DEGIRO-portefeuilleoverzicht om holdings en performance in Wealthfolio betrouwbaar te kunnen reconciliëren.</div>' : ''}<button type="button" class="btn btn-success" onclick="confirmSelectedFileImport()">Import bevestigen</button>`; }
+                if (provider === 'degiro_pension') { fileUploadState.runId = data.id; const p = data.preview || {}; const missing = p.missing_report_types || []; const holdingsWarning = Number(p.holdings ?? 0) === 0 || missing.includes('portfolio'); const confirmAction = missing.length ? '<button type="button" class="btn btn-secondary" onclick="resetImportFlow()">Nieuwe upload starten</button>' : '<button type="button" class="btn btn-success" onclick="confirmSelectedFileImport()">Import bevestigen</button>'; result.innerHTML = `<div class="alert alert-success" role="status"><strong>Controle afgerond.</strong> De bestanden zijn gecontroleerd.</div><div class="degiro-wizard-summary"><div class="degiro-wizard-summary-item"><strong>${escapeHtml(String(p.transactions ?? 0))}</strong><span>transacties</span></div><div class="degiro-wizard-summary-item"><strong>${escapeHtml(String(p.holdings ?? 0))}</strong><span>holdings</span></div><div class="degiro-wizard-summary-item"><strong>${escapeHtml(String(p.rows ?? 0))}</strong><span>regels gelezen</span></div></div>${holdingsWarning ? '<div class="alert alert-warning" role="alert"><strong>Holdings ontbreken.</strong> Account.xlsx en Transactions.xlsx bevatten saldo en activiteiten, maar geen actuele positiesnapshot. Upload ook het DEGIRO-portefeuilleoverzicht om holdings en NAV betrouwbaar te kunnen reconciliëren. De import kan pas worden bevestigd wanneer alle drie rapporten aanwezig zijn.</div>' : ''}${confirmAction}`; }
                 else if (provider === 'saxo_investor') {
                     fileUploadState.processing = false;
                     result.innerHTML = `<div class="alert alert-success" role="status"><strong>Controle en import afgerond.</strong> ${escapeHtml(String(data.holdings ?? 0))} posities en ${escapeHtml(String(data.transactions ?? 0))} transacties zijn ingeladen.</div><div class="field-hint" style="margin-top:10px;">Je wordt automatisch doorgestuurd naar Viewer…</div>`;
@@ -3521,6 +3554,7 @@
                 const hasDeselected = accounts.some(a => previousSet.has(String(a.id)) && !checkedSet.has(String(a.id)));
                 let html = '<div class="selection-warning"><span class="mdi mdi-alert-outline"></span> Changing the account selection never removes already-imported history.</div>';
                 html += `<div id="accounts-list">${renderAccountCheckboxes(accounts, preselected)}</div>`;
+                html += `<div class="field-hint" style="margin-top:14px;">${accounts.map(a => `<button type="button" class="btn btn-danger btn-sm" style="margin:4px 4px 0 0;" onclick="deleteLinkedAccount('${escapeHtml(String(connectionId))}', '${escapeHtml(String(a.id))}')"><span class="mdi mdi-delete-outline"></span> Verwijder ${escapeHtml(String(a.label || a.id))}</button>`).join('')}</div>`;
                 html += `
                     <div class="form-group" style="margin-top:12px;">
                         <div class="checkbox-wrap">
@@ -3591,6 +3625,19 @@
             } catch (e) {
                 toast(`Could not save the selection: ${e.message}`, 'error');
                 btn.disabled = false;
+            }
+        }
+
+        async function deleteLinkedAccount(connectionId, externalAccountId) {
+            if (!confirm(`Verwijder account ${externalAccountId} en alle lokaal geïmporteerde data? Dit kan niet ongedaan worden.`)) return;
+            try {
+                await api('DELETE', `/connectors/configs/${encodeURIComponent(connectionId)}/accounts/${encodeURIComponent(externalAccountId)}`);
+                toast('Account en lokale data verwijderd', 'info');
+                connTestAccounts[connectionId] = null;
+                closeModal();
+                await loadConnectors();
+            } catch (e) {
+                toast(`Account verwijderen mislukt: ${e.message}`, 'error');
             }
         }
 
@@ -4071,7 +4118,12 @@
                 }
                 temp = await api('POST', '/destinations', { target_type: state.target_type, display_name: state.display_name || 'Testverbinding', configuration, secret, datasets: DESTINATION_INFO[state.target_type].datasets });
                 const tested = await api('POST', `/destinations/${temp.id}/test`);
-                result.textContent = tested.message;
+                const aggregateParity = tested.parity || {};
+                const aggregateParityText = `<div class="field-hint">Remote afwijkingen: ${escapeHtml(aggregateParity.unmapped_remote_accounts ?? 0)} unmapped account(s) · ${escapeHtml(aggregateParity.stale_remote_activities ?? 0)} stale activiteit(en).</div>`;
+                const accountParity = Array.isArray(tested.parity_accounts) && tested.parity_accounts.length
+                    ? `<div class="field-hint">Per account: ${tested.parity_accounts.map(item => `<span class="health-parity-account"><code>${escapeHtml(String(item.account_id || '').slice(0, 8))}</code> · ${escapeHtml(item.remote_activities ?? 0)} remote / ${escapeHtml(item.canonical_activities ?? 0)} canonical · ${escapeHtml(item.missing_activities ?? 0)} ontbrekend · ${escapeHtml(item.stale_remote_activities ?? 0)} stale</span>`).join('')}</div>`
+                    : '';
+                result.innerHTML = `<span>${escapeHtml(String(tested.message || ''))}</span>${aggregateParityText}${accountParity}`;
             } catch (e) {
                 result.textContent = e.message || 'Test mislukt.';
             } finally {

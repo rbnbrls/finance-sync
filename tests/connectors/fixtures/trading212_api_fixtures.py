@@ -30,6 +30,30 @@ ACCOUNT_INFO_RESPONSE: dict[str, Any] = {
     "currencyCode": "EUR",
 }
 
+INSTRUMENT_METADATA_RESPONSE: list[dict[str, Any]] = [
+    {
+        "ticker": "AAPL",
+        "isin": "US0378331005",
+        "name": "Apple Inc.",
+        "exchange": "XNAS",
+        "currencyCode": "EUR",
+    },
+    {
+        "ticker": "TSLA",
+        "isin": "US88160R1014",
+        "name": "Tesla, Inc.",
+        "exchange": "XNAS",
+        "currencyCode": "EUR",
+    },
+    {
+        "ticker": "VWCE.DE",
+        "isin": "IE00BK5BQT80",
+        "name": "Vanguard FTSE All-World UCITS ETF",
+        "exchange": "XETR",
+        "currencyCode": "EUR",
+    },
+]
+
 # A second account response is useful when exercising connection-level
 # account selection.  The API returns one selected brokerage account at a
 # time; selection itself is persisted by finance-sync, not by Trading212.

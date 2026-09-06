@@ -34,6 +34,7 @@ from finance_sync.sync.persistence import SyncPersistence
 from tests.connectors.fixtures.trading212_api_fixtures import (
     ACCOUNT_CASH_RESPONSE,
     ACCOUNT_INFO_RESPONSE,
+    INSTRUMENT_METADATA_RESPONSE,
     ORDER_HISTORY_RESPONSE,
     PORTFOLIO_RESPONSE,
     TRANSACTION_HISTORY_RESPONSE,
@@ -81,6 +82,8 @@ class Trading212PipelineTransport(httpx.MockTransport):
             if self.malformed_portfolio:
                 return httpx.Response(200, json={"unexpected": "shape"})
             return httpx.Response(200, json=PORTFOLIO_RESPONSE)
+        if path == "/api/v0/equity/metadata/instruments":
+            return httpx.Response(200, json=INSTRUMENT_METADATA_RESPONSE)
         if path == "/api/v0/equity/history/orders":
             return httpx.Response(200, json=ORDER_HISTORY_RESPONSE)
         if path == "/api/v0/equity/history/transactions":

@@ -990,6 +990,10 @@ class SyncOrchestrator(CardsSyncMixin):
                     report={
                         **transaction_report,
                         "accounts": accounts_synced,
+                        "account_external_ids": [
+                            ca.external_account_id
+                            for ca in canonical_accounts
+                        ],
                         "transactions": transactions_synced,
                         "holdings": holdings_synced,
                         "unresolved": len(unresolved_keys),
