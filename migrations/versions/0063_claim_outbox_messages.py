@@ -25,6 +25,7 @@ def upgrade() -> None:
     op.drop_index(
         "ix_outbox_messages_status_created",
         table_name="outbox_messages",
+        if_exists=True,
     )
     op.create_index(
         "ix_outbox_messages_status_created",
