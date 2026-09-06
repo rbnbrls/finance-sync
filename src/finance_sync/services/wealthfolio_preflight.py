@@ -15,11 +15,11 @@ if TYPE_CHECKING:
     from datetime import date
 
 
-def _new_any_list() -> list[Any]:
+def _any_list() -> list[Any]:
     return []
 
 
-def _new_finding_list() -> list[PreflightFinding]:
+def _finding_list() -> list[PreflightFinding]:
     return []
 
 
@@ -37,11 +37,9 @@ class PreflightFinding:
 class WealthfolioPreflightResult:
     """Validation result and records safe to project downstream."""
 
-    exportable_holdings: list[Any] = field(default_factory=_new_any_list)
-    quarantined_holdings: list[Any] = field(default_factory=_new_any_list)
-    findings: list[PreflightFinding] = field(
-        default_factory=_new_finding_list
-    )
+    exportable_holdings: list[Any] = field(default_factory=_any_list)
+    quarantined_holdings: list[Any] = field(default_factory=_any_list)
+    findings: list[PreflightFinding] = field(default_factory=_finding_list)
 
     @property
     def blocking_findings(self) -> list[PreflightFinding]:
@@ -123,7 +121,7 @@ def validate_transaction_stream(
         if txn_type != "transfer":
             continue
         raw_metadata = getattr(txn, "provider_metadata_contract", None)
-        metadata = (
+        metadata: dict[str, Any] = (
             cast("dict[str, Any]", raw_metadata)
             if isinstance(raw_metadata, dict)
             else {}
@@ -163,8 +161,10 @@ def validate_transaction_stream(
         amounts = [
             _decimal(getattr(row, "amount", None)) or Decimal(0) for row in rows
         ]
-        if len(rows) < 2 or not any(value > 0 for value in amounts) or not any(
-            value < 0 for value in amounts
+        if (
+            len(rows) < 2
+            or not any(value > 0 for value in amounts)
+            or not any(value < 0 for value in amounts)
         ):
             findings.extend(
                 PreflightFinding(

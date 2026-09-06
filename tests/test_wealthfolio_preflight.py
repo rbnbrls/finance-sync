@@ -21,7 +21,10 @@ def _holding(**changes):
 
 def test_incomplete_valuation_is_quarantined_and_cost_basis_is_warning():
     result = validate_holdings(
-        [_holding(id="bad", market_value=None, price=None), _holding(id="cost", cost_basis=None)]
+        [
+            _holding(id="bad", market_value=None, price=None),
+            _holding(id="cost", cost_basis=None),
+        ]
     )
 
     assert [item.id for item in result.quarantined_holdings] == ["bad"]

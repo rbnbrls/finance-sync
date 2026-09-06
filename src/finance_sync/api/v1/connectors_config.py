@@ -137,7 +137,14 @@ MARKET_DATA_PROVIDERS: tuple[dict[str, Any], ...] = (
     {
         "name": "openfigi",
         "display_name": "OpenFIGI",
-        "credential_fields": [{"key": "api_key", "label": "API key", "type": "password", "required": False}],
+        "credential_fields": [
+            {
+                "key": "api_key",
+                "label": "API key",
+                "type": "password",
+                "required": False,
+            }
+        ],
         "description": "Instrument-identiteit en ISIN/FIGI/ticker-mapping",
         "documentation_url": "https://www.openfigi.com/api/documentation",
     },
@@ -158,21 +165,42 @@ MARKET_DATA_PROVIDERS: tuple[dict[str, Any], ...] = (
     {
         "name": "finnhub",
         "display_name": "Finnhub",
-        "credential_fields": [{"key": "api_key", "label": "API key", "type": "password", "required": True}],
+        "credential_fields": [
+            {
+                "key": "api_key",
+                "label": "API key",
+                "type": "password",
+                "required": True,
+            }
+        ],
         "description": "Actuele marktkoersen en historische reeksen",
         "documentation_url": "https://finnhub.io/docs/api/quote",
     },
     {
         "name": "twelve_data",
         "display_name": "Twelve Data",
-        "credential_fields": [{"key": "api_key", "label": "API key", "type": "password", "required": True}],
+        "credential_fields": [
+            {
+                "key": "api_key",
+                "label": "API key",
+                "type": "password",
+                "required": True,
+            }
+        ],
         "description": "Actuele en historische koersen via credits",
         "documentation_url": "https://twelvedata.com/docs/introduction/quickstart",
     },
     {
         "name": "alpha_vantage",
         "display_name": "Alpha Vantage",
-        "credential_fields": [{"key": "api_key", "label": "API key", "type": "password", "required": True}],
+        "credential_fields": [
+            {
+                "key": "api_key",
+                "label": "API key",
+                "type": "password",
+                "required": True,
+            }
+        ],
         "description": "Koersen en historische data; gratis quota is beperkt",
         "documentation_url": "https://www.alphavantage.co/support/",
     },
@@ -1014,29 +1042,29 @@ async def list_available_connectors(
         )
     result.extend(
         ConnectorInfo(
-                name=str(item["name"]),
-                display_name=str(item["display_name"]),
-                sdk_version="market-data-v1",
-                credential_fields=cast(
-                    list[dict[str, object]], item["credential_fields"]
-                ),
-                option_fields=[
-                    {
-                        "key": "enabled",
-                        "label": "Bron gebruiken",
-                        "type": "boolean",
-                        "required": False,
-                        "default": True,
-                    }
-                ],
-                capabilities=["quotes", "historical_prices"],
-                configuration_mode="user",
-                ingestion_methods=["api"],
-                documentation_url=str(item["documentation_url"]),
-                auth_mode=("credentials" if item["credential_fields"] else "none"),
+            name=str(item["name"]),
+            display_name=str(item["display_name"]),
+            sdk_version="market-data-v1",
+            credential_fields=cast(
+                list[dict[str, object]], item["credential_fields"]
+            ),
+            option_fields=[
+                {
+                    "key": "enabled",
+                    "label": "Bron gebruiken",
+                    "type": "boolean",
+                    "required": False,
+                    "default": True,
+                }
+            ],
+            capabilities=["quotes", "historical_prices"],
+            configuration_mode="user",
+            ingestion_methods=["api"],
+            documentation_url=str(item["documentation_url"]),
+            auth_mode=("credentials" if item["credential_fields"] else "none"),
         )
         for item in MARKET_DATA_PROVIDERS
-        )
+    )
     return result
 
 
@@ -1220,7 +1248,10 @@ async def create_connector_config(
 
     # Validate provider_type exists
     registry = _get_registry()
-    if body.provider_type not in registry and body.provider_type not in _MARKET_DATA_KEYS:
+    if (
+        body.provider_type not in registry
+        and body.provider_type not in _MARKET_DATA_KEYS
+    ):
         available = registry.available
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -1255,7 +1286,10 @@ async def create_connector_config(
     # Merge human-readable label into options so it survives updates
     merged_options = dict(options)
     default_label = str(
-        _get_registry().list_connectors().get(body.provider_type, {}).get(
+        _get_registry()
+        .list_connectors()
+        .get(body.provider_type, {})
+        .get(
             "display_name",
             next(
                 (

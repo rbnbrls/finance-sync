@@ -421,9 +421,7 @@ class DegiroPensionConnector(Connector):
                 continue
             quantity = abs(transaction.quantity)
             unit_price = abs(transaction.unit_price)
-            open_quantity, open_cost = state.get(
-                isin, (Decimal(0), Decimal(0))
-            )
+            open_quantity, open_cost = state.get(isin, (Decimal(0), Decimal(0)))
             if transaction.transaction_type == "purchase":
                 state[isin] = (
                     open_quantity + quantity,

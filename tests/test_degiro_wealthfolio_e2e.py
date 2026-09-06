@@ -350,9 +350,7 @@ def test_holdings_snapshot_does_not_export_zero_quantity_closure_rows() -> None:
         cash_currency="EUR",
     )
 
-    assert [row["isin"] for row in snapshot["positions"]] == [
-        "BMG0112X1056"
-    ]
+    assert [row["isin"] for row in snapshot["positions"]] == ["BMG0112X1056"]
 
 
 def test_holdings_snapshot_allows_wealthfolio_two_decimal_quantity_rounding() -> (

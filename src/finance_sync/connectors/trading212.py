@@ -340,11 +340,11 @@ class Trading212Connector(Connector):
                 "/api/v0/equity/metadata/instruments", headers=headers
             )
             resp.raise_for_status()
-            payload: Any = resp.json()
+            payload = resp.json()
             instruments: list[dict[str, Any]] = (
                 [
-                    cast("dict[str, Any]", item)
-                    for item in cast("list[Any]", payload)
+                    item
+                    for item in cast(list[object], payload)
                     if isinstance(item, dict)
                 ]
                 if isinstance(payload, list)
@@ -435,9 +435,7 @@ class Trading212Connector(Connector):
                         name=(
                             metadata_name
                             or (
-                                display_name
-                                if display_name != ticker
-                                else None
+                                display_name if display_name != ticker else None
                             )
                             or str(item.get("name") or display_name or None)
                         ),
@@ -625,9 +623,10 @@ class Trading212Connector(Connector):
             return transaction
         isin = _metadata_value(item, "isin", "ISIN") or reference.isin
         name = _metadata_value(item, "name", "shortName") or reference.name
-        venue = _metadata_value(
-            item, "exchange", "exchangeCode", "venue"
-        ) or reference.venue
+        venue = (
+            _metadata_value(item, "exchange", "exchangeCode", "venue")
+            or reference.venue
+        )
         currency = (
             _metadata_value(item, "currencyCode", "currency")
             or reference.currency_code

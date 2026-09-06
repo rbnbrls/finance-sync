@@ -335,7 +335,9 @@ async def test_canonical_data_health_checks_expose_record_details() -> None:
 
 
 @pytest.mark.asyncio
-async def test_wealthfolio_preflight_exposes_destination_quality_issues() -> None:
+async def test_wealthfolio_preflight_exposes_destination_quality_issues() -> (
+    None
+):
     session = _Session(
         _Result(rows=[("ACME", "quote rejected")]),
         _Result(rows=[("Broker", datetime(2026, 8, 25).date(), -10)]),

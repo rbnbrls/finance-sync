@@ -5,10 +5,10 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from typing import Any, cast
+from typing import Any, Protocol, cast
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import func, select, true
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from finance_sync.api.deps.auth import AuthContext, require_permission
@@ -16,7 +16,6 @@ from finance_sync.config.settings import Settings
 from finance_sync.connectors.models import ConnectorConfig
 from finance_sync.connectors.registry import ConnectorRegistry
 from finance_sync.connectors.trading212 import (
-    Trading212Connector,
     _normalise_instrument,
     _price_scale,
 )
@@ -38,6 +37,24 @@ from finance_sync.services.auth import decrypt_credential
 router = APIRouter(tags=["enrichment"])
 
 
+class _Trading212Connector(Protocol):
+    async def fetch_portfolio(self) -> list[dict[str, Any]]: ...
+
+    async def fetch_instruments(self) -> list[dict[str, Any]]: ...
+
+
+def _trading212_connector(connector: object) -> _Trading212Connector:
+    """Expose the optional Trading212 API through a typed protocol."""
+    return cast(_Trading212Connector, connector)
+
+
+def _credential_values(value: object) -> dict[str, str]:
+    if not isinstance(value, dict):
+        return {}
+    decoded: dict[object, object] = cast(dict[object, object], value)
+    return {str(key): str(item) for key, item in decoded.items()}
+
+
 @router.get("/market-data/trading212/latest")
 async def trading212_latest_quote(
     symbol: str,
@@ -53,36 +70,46 @@ async def trading212_latest_quote(
     symbols such as ``BESIA_EQ``.
     """
     credentials = (
-        await session.execute(
-            select(Credential)
-            .where(
-                Credential.tenant_id == auth.tenant_id,
-                Credential.provider_key == "trading212",
-                Credential.status == "active",
+        (
+            await session.execute(
+                select(Credential)
+                .where(
+                    Credential.tenant_id == auth.tenant_id,
+                    Credential.provider_key == "trading212",
+                    Credential.status == "active",
+                )
+                .order_by(Credential.updated_at.desc())
             )
-            .order_by(Credential.updated_at.desc())
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     if not credentials:
-        raise HTTPException(status_code=404, detail="Trading212 niet geconfigureerd")
+        raise HTTPException(
+            status_code=404, detail="Trading212 niet geconfigureerd"
+        )
 
     requested = symbol.strip().upper()
     for credential in credentials:
         raw = decrypt_credential(
             credential.encrypted_payload, credential.nonce, settings
         )
-        credentials_data = _credentials_payload(raw)
-        connector = cast(Trading212Connector, ConnectorRegistry().get_connector(
+        try:
+            credentials_data = json.loads(raw)
+        except (TypeError, json.JSONDecodeError):
+            credentials_data = {"api_key": raw}
+        connector = ConnectorRegistry().get_connector(
             ConnectorConfig(
                 provider_type="trading212",
-                credentials=credentials_data,
+                credentials=_credential_values(credentials_data),
                 options=_options(credential),
             )
-        ))
+        )
         try:
             await connector.authenticate()
-            portfolio = await connector.fetch_portfolio()
-            instruments = await connector.fetch_instruments()
+            trading212 = _trading212_connector(connector)
+            portfolio = await trading212.fetch_portfolio()
+            instruments = await trading212.fetch_instruments()
         except Exception:
             continue
         metadata_by_ticker = {
@@ -98,7 +125,9 @@ async def trading212_latest_quote(
                 provider_ticker.rsplit(":", 1)[-1],
                 normalized_ticker.upper(),
                 normalized_ticker.rsplit(":", 1)[-1].upper(),
-                str(metadata.get("ticker") or metadata.get("symbol") or "").upper(),
+                str(
+                    metadata.get("ticker") or metadata.get("symbol") or ""
+                ).upper(),
                 str(metadata.get("isin") or metadata.get("ISIN") or "").upper(),
             }
             if requested not in candidates:
@@ -120,7 +149,9 @@ async def trading212_latest_quote(
                 "symbol": provider_ticker,
                 "source": "trading212",
             }
-    raise HTTPException(status_code=404, detail=f"Geen Trading212-koers voor {symbol}")
+    raise HTTPException(
+        status_code=404, detail=f"Geen Trading212-koers voor {symbol}"
+    )
 
 
 @router.post("/enrichment/refresh-trading212-identities")
@@ -139,16 +170,20 @@ async def refresh_trading212_identities(
     transactions.
     """
     credentials = (
-        await session.execute(
-            select(Credential)
-            .where(
-                Credential.tenant_id == auth.tenant_id,
-                Credential.provider_key == "trading212",
-                Credential.status == "active",
+        (
+            await session.execute(
+                select(Credential)
+                .where(
+                    Credential.tenant_id == auth.tenant_id,
+                    Credential.provider_key == "trading212",
+                    Credential.status == "active",
+                )
+                .order_by(Credential.updated_at.desc())
             )
-            .order_by(Credential.updated_at.desc())
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     if not credentials:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -173,16 +208,19 @@ async def refresh_trading212_identities(
         raw = decrypt_credential(
             credential.encrypted_payload, credential.nonce, settings
         )
-        secret_values = _credentials_payload(raw)
-        connector = cast(Trading212Connector, ConnectorRegistry().get_connector(
+        try:
+            secret_values = json.loads(raw)
+        except (TypeError, json.JSONDecodeError):
+            secret_values = {"api_key": raw}
+        connector = ConnectorRegistry().get_connector(
             ConnectorConfig(
                 provider_type="trading212",
-                credentials=secret_values,
+                credentials=_credential_values(secret_values),
                 options=_options(credential),
             )
-        ))
+        )
         await connector.authenticate()
-        instruments = await connector.fetch_instruments()
+        instruments = await _trading212_connector(connector).fetch_instruments()
         fetched += len(instruments)
         by_key = {
             key: item
@@ -198,16 +236,44 @@ async def refresh_trading212_identities(
             ) or by_key.get(str(record.raw_ticker or "").upper())
             if not item:
                 continue
-            record.raw_isin = str(item.get("isin") or item.get("ISIN") or "") or None
-            record.raw_ticker = str(item.get("ticker") or item.get("symbol") or record.raw_ticker or "") or None
-            record.raw_name = str(item.get("name") or item.get("shortName") or record.raw_name or "") or None
-            record.raw_currency_code = str(item.get("currencyCode") or item.get("currency") or record.raw_currency_code or "") or None
+            record.raw_isin = (
+                str(item.get("isin") or item.get("ISIN") or "") or None
+            )
+            record.raw_ticker = (
+                str(
+                    item.get("ticker")
+                    or item.get("symbol")
+                    or record.raw_ticker
+                    or ""
+                )
+                or None
+            )
+            record.raw_name = (
+                str(
+                    item.get("name")
+                    or item.get("shortName")
+                    or record.raw_name
+                    or ""
+                )
+                or None
+            )
+            record.raw_currency_code = (
+                str(
+                    item.get("currencyCode")
+                    or item.get("currency")
+                    or record.raw_currency_code
+                    or ""
+                )
+                or None
+            )
             record.raw_metadata = json.dumps(item, sort_keys=True, default=str)
             record.resolution_method = "trading212_metadata"
             updated += 1
             if record.raw_isin:
                 candidate = await session.scalar(
-                    select(Security).where(Security.isin == record.raw_isin.upper())
+                    select(Security).where(
+                        Security.isin == record.raw_isin.upper()
+                    )
                 )
                 if candidate is not None:
                     record.resolved_security_id = str(candidate.id)
@@ -226,33 +292,10 @@ async def refresh_trading212_identities(
 
 def _options(credential: Credential) -> dict[str, Any]:
     try:
-        decoded: Any = json.loads(credential.description or "{}")
+        value = json.loads(credential.description or "{}")
     except (TypeError, json.JSONDecodeError):
         return {}
-    return _string_keyed_dict(decoded, exclude_label=True)
-
-
-def _credentials_payload(raw: str) -> dict[str, Any]:
-    """Decode a provider credential payload into a typed JSON object."""
-    try:
-        value: Any = json.loads(raw)
-    except (TypeError, json.JSONDecodeError):
-        return {"api_key": raw}
-    return _string_keyed_dict(value)
-
-
-def _string_keyed_dict(
-    value: object, *, exclude_label: bool = False
-) -> dict[str, Any]:
-    """Convert an arbitrary JSON object to a string-keyed mapping."""
-    if not isinstance(value, dict):
-        return {}
-    items = cast(dict[Any, Any], value).items()
-    return {
-        str(key): item
-        for key, item in items
-        if not exclude_label or key != "_label"
-    }
+    return {key: value for key, value in value.items() if key != "_label"}
 
 
 def _ticker_variants(value: object) -> set[str]:
@@ -292,7 +335,7 @@ async def refresh_quotes(
         )
         .where(
             Holding.tenant_id == auth.tenant_id,
-            ~Security.id.in_(accepted_ids) if accepted_ids else true(),
+            ~Security.id.in_(accepted_ids) if accepted_ids else True,
             (
                 (EnrichmentFreshness.last_quote_fetch.is_(None))
                 | (EnrichmentFreshness.last_quote_fetch < cutoff)
@@ -328,23 +371,27 @@ async def refresh_quotes(
         raw = decrypt_credential(
             credential.encrypted_payload, credential.nonce, settings
         )
-        credentials_data = _credentials_payload(raw)
-        connector = cast(Trading212Connector, ConnectorRegistry().get_connector(
+        try:
+            credentials_data = json.loads(raw)
+        except (TypeError, json.JSONDecodeError):
+            credentials_data = {"api_key": raw}
+        connector = ConnectorRegistry().get_connector(
             ConnectorConfig(
                 provider_type="trading212",
-                credentials=credentials_data,
+                credentials=_credential_values(credentials_data),
                 options=_options(credential),
                 connection_id=str(credential.id),
             )
-        ))
+        )
         try:
             await connector.authenticate()
-            portfolio = await connector.fetch_portfolio()
+            trading212 = _trading212_connector(connector)
+            portfolio = await trading212.fetch_portfolio()
             # Trading212's portfolio payload uses internal tickers.  Its
             # instrument master supplies the stable ISIN/name/currency used
             # to match imported DEGIRO/Saxo securities safely.
             try:
-                instruments = await connector.fetch_instruments()
+                instruments = await trading212.fetch_instruments()
             except Exception:
                 instruments = []
             providers.append("trading212")
@@ -409,10 +456,13 @@ async def refresh_quotes(
                     or "EUR"
                 )
                 _, _, venue = _normalise_instrument(raw_ticker)
-                instrument_isin = str((instrument or {}).get("isin", "")).upper()
-                if instrument is not None and instrument_isin == str(
-                    security.isin or ""
-                ).upper():
+                instrument_isin = str(
+                    (instrument or {}).get("isin", "")
+                ).upper()
+                if (
+                    instrument is not None
+                    and instrument_isin == str(security.isin or "").upper()
+                ):
                     instrument_name = str(
                         instrument.get("name")
                         or instrument.get("shortName")
@@ -438,7 +488,8 @@ async def refresh_quotes(
                             select(SecurityListing).where(
                                 SecurityListing.security_id == security.id,
                                 SecurityListing.mic == normalized_venue,
-                                SecurityListing.currency_code == currency.upper(),
+                                SecurityListing.currency_code
+                                == currency.upper(),
                             )
                         )
                         if listing is None:

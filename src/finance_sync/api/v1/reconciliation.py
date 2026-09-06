@@ -35,10 +35,6 @@ from finance_sync.sync.persistence import TransactionPersistence
 router = APIRouter(prefix="/reconciliation", tags=["reconciliation"])
 
 
-def _new_transaction_reviews() -> list[TransactionReviewResponse]:
-    return []
-
-
 # ── Request / Response DTOs ───────────────────────────────────────────
 
 
@@ -190,7 +186,7 @@ class ReconciliationResultResponse(BaseModel):
     details: dict[str, Any] | None = None
     created_at: datetime | None = None
     transactions: list[TransactionReviewResponse] = Field(
-        default_factory=_new_transaction_reviews
+        default_factory=lambda: list[TransactionReviewResponse]()
     )
 
 
@@ -617,8 +613,11 @@ async def decide_duplicate(
 
     pair_key = ":".join(sorted(ids))
     kept_id = (
-        body.transaction_id_a if body.decision == "keep_a" else
-        body.transaction_id_b if body.decision == "keep_b" else None
+        body.transaction_id_a
+        if body.decision == "keep_a"
+        else body.transaction_id_b
+        if body.decision == "keep_b"
+        else None
     )
     review = await db.scalar(
         select(DuplicateReview).where(
@@ -666,7 +665,9 @@ async def decide_duplicate(
         async with UnitOfWork(db) as uow:
             await TransactionPersistence(auth.tenant_id).tombstone_transaction(
                 uow,
-                body.transaction_id_b if kept_id == body.transaction_id_a else body.transaction_id_a,
+                body.transaction_id_b
+                if kept_id == body.transaction_id_a
+                else body.transaction_id_a,
                 actor=actor,
             )
     await db.commit()

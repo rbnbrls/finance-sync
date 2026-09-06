@@ -41,10 +41,6 @@ class RawCashBalance(BaseModel):
     observed_at: datetime
 
 
-def _new_cash_balances() -> list[RawCashBalance]:
-    return []
-
-
 class SourceReference(BaseModel):
     """Relation to one or more provider object revisions."""
 
@@ -113,7 +109,7 @@ class RawAccount(BaseModel):
         default=None, description="Total account value including investments"
     )
     cash_balances: list[RawCashBalance] = Field(
-        default_factory=_new_cash_balances
+        default_factory=lambda: list[RawCashBalance]()
     )
     iso_currency_code: str | None = Field(
         default=None,
@@ -286,7 +282,7 @@ class CanonicalAccountData(BaseModel):
     available_balance: Decimal | None = Field(default=None)
     net_asset_value: Decimal | None = Field(default=None)
     cash_balances: list[RawCashBalance] = Field(
-        default_factory=_new_cash_balances
+        default_factory=lambda: list[RawCashBalance]()
     )
     iso_currency_code: str | None = Field(default=None)
     provider_metadata: dict[str, Any] | None = Field(default=None)

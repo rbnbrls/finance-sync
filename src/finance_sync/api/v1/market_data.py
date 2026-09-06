@@ -104,23 +104,33 @@ async def _local_quote(
     """
     security = await _security(db, auth=auth, symbol=symbol)
     if security is None:
-        raise HTTPException(status_code=404, detail=f"Security not found: {symbol}")
+        raise HTTPException(
+            status_code=404, detail=f"Security not found: {symbol}"
+        )
 
     holding = (
-        await db.execute(
-            select(Holding)
-            .where(
-                Holding.tenant_id == auth.tenant_id,
-                Holding.security_id == security.id,
-                Holding.quantity > 0,
+        (
+            await db.execute(
+                select(Holding)
+                .where(
+                    Holding.tenant_id == auth.tenant_id,
+                    Holding.security_id == security.id,
+                    Holding.quantity > 0,
+                )
+                .order_by(Holding.observed_at.desc())
+                .limit(1)
             )
-            .order_by(Holding.observed_at.desc())
-            .limit(1)
         )
-    ).scalars().first()
+        .scalars()
+        .first()
+    )
     if holding is not None:
         price = holding.price
-        if price is None and holding.market_value is not None and holding.quantity:
+        if (
+            price is None
+            and holding.market_value is not None
+            and holding.quantity
+        ):
             price = Decimal(holding.market_value) / Decimal(holding.quantity)
         if price is not None:
             return {
@@ -137,9 +147,13 @@ async def _local_quote(
                 "source": f"finance-sync:{holding.source}",
             }
 
-    observation = await PriceStore(db, settings).get_latest_price(str(security.id))
+    observation = await PriceStore(db, settings).get_latest_price(
+        str(security.id)
+    )
     if observation is None or observation.price_close is None:
-        raise HTTPException(status_code=404, detail=f"No quote available for {symbol}")
+        raise HTTPException(
+            status_code=404, detail=f"No quote available for {symbol}"
+        )
     return {
         "symbol": security.ticker or security.isin or symbol,
         "isin": security.isin,

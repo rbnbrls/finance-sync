@@ -669,9 +669,7 @@ class ControlPlaneService:
             if row.last_quote_fetch and row.last_quote_fetch < cutoff
         )
         without_quote = max(total_count - len(active_rows), 0) + sum(
-            1
-            for row in active_rows
-            if row.last_quote_fetch is None
+            1 for row in active_rows if row.last_quote_fetch is None
         )
         latest = max((row.updated_at for row in rows), default=None)
         by_source: dict[str, dict[str, int]] = {}

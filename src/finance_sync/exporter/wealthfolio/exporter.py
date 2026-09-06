@@ -455,10 +455,11 @@ class WealthfolioExporter:
 
             # ── Complete the run ──────────────────────────────────
             end_ts = datetime.now(UTC)
-            preflight_manifest["post_export"] = {
-                "status": "written",
-                "findings": 0,
-            }
+            if preflight_manifest:
+                preflight_manifest["post_export"] = {
+                    "status": "written",
+                    "findings": 0,
+                }
             await self._complete_run(
                 run,
                 status="completed",
@@ -1424,7 +1425,7 @@ class WealthfolioExporter:
             if error_message is not None:
                 run.error_message = error_message
                 run.error_category = categorize_export_error(error_message)
-            if preflight_manifest is not None:
+            if preflight_manifest:
                 run.preflight_manifest = preflight_manifest
             await session.flush()
             await session.commit()
@@ -1448,9 +1449,7 @@ class WealthfolioExporter:
         all_transactions: list[Transaction] = []
         holdings_by_account: dict[str, list[Holding]] = {}
         for account in accounts:
-            holdings = await self._fetch_current_holdings(
-                account_id=account.id
-            )
+            holdings = await self._fetch_current_holdings(account_id=account.id)
             holdings_by_account[str(account.id)] = holdings
             all_transactions.extend(
                 await self._fetch_all_active_transactions(account.id)
@@ -1491,9 +1490,7 @@ class WealthfolioExporter:
             account_manifests[str(account.id)] = {
                 "account_name": account.name,
                 "holdings_seen": len(holdings),
-                "holdings_exportable": len(
-                    holding_result.exportable_holdings
-                ),
+                "holdings_exportable": len(holding_result.exportable_holdings),
                 "holdings_quarantined": len(
                     holding_result.quarantined_holdings
                 ),
@@ -1518,9 +1515,9 @@ class WealthfolioExporter:
         return {
             "version": 1,
             "contract": "wealthfolio-source-projection-v1",
-            "status": "blocked" if total_blocking else (
-                "degraded" if total_warnings else "ready"
-            ),
+            "status": "blocked"
+            if total_blocking
+            else ("degraded" if total_warnings else "ready"),
             "accounts": account_manifests,
             "blocking_findings": total_blocking,
             "warnings": total_warnings,
@@ -1648,9 +1645,13 @@ class WealthfolioExporter:
                     delivery_cursor = await self._delivery_cursor(
                         account_id=fs_acct.id,
                     )
-                    if full_sync or rebuild or (
-                        delivery_cursor is None
-                        and await self._has_historical_holdings(fs_acct.id)
+                    if (
+                        full_sync
+                        or rebuild
+                        or (
+                            delivery_cursor is None
+                            and await self._has_historical_holdings(fs_acct.id)
+                        )
                     ):
                         errors.extend(
                             await self._sync_historical_holdings(
@@ -1985,10 +1986,11 @@ class WealthfolioExporter:
                 status = "completed"
                 error_message = None
 
-            preflight_manifest["post_export"] = {
-                "status": "reconciled" if not errors else "degraded",
-                "findings": len(errors),
-            }
+            if preflight_manifest:
+                preflight_manifest["post_export"] = {
+                    "status": "reconciled" if not errors else "degraded",
+                    "findings": len(errors),
+                }
             await self._complete_run(
                 run,
                 status=status,

@@ -161,7 +161,9 @@ async def test_control_plane_data_quality_is_tenant_scoped_and_actionable(
         if issue.category == "security_mapping"
     )
     assert security_issue.provider == "bunq"
-    assert security_issue.impact_count >= 2
+    # The issue represents one unresolved provider identity, regardless of
+    # how many downstream records may reference it.
+    assert security_issue.impact_count == 1
     assert security_issue.candidate_securities[0]["ticker"] == "ACME"
     assert security_issue.action.path == "/api/v1/securities/map"
     assert any(issue.category == "data_quality" for issue in overview.issues)
