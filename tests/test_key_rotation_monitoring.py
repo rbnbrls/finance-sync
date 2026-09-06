@@ -228,15 +228,7 @@ def test_build_key_issue_body():
         }
     ]
 
-    # build_key_issue_body embeds the *current* UTC date in the dedup
-    # marker, so freeze "now" to make the assertion deterministic
-    # (previously the hardcoded date went stale after midnight).
-    with patch("scripts.key_rotation_monitoring.datetime") as mock_datetime:
-        mock_datetime.now.return_value = datetime(
-            2026, 8, 28, 12, 0, 0, tzinfo=UTC
-        )
-        mock_datetime.UTC = UTC
-        body = build_key_issue_body(timestamp, key_info, alerts)
+    body = build_key_issue_body(timestamp, key_info, alerts)
 
     assert "## 🔑 Key Rotation Monitoring — finance-sync" in body
     assert "**Detected at:** 2026-08-28T12:00:00+00:00" in body
@@ -247,9 +239,18 @@ def test_build_key_issue_body():
         "- **key_approaching_expiry** (warning): Key version v2 expires in 720.0 hours"
         in body
     )
-    # The marker uses the current date (datetime.now(UTC)), not the timestamp date
+    # The marker uses the event timestamp date.
     expected_date = "2026-08-28"
     assert f"<!-- key-rotation-monitor:{expected_date} -->" in body
+
+
+def test_build_key_issue_body_uses_event_date_for_marker():
+    """Use the event date for deduplication, independent of the current date."""
+    timestamp = "2026-08-27T23:30:00+00:00"
+
+    body = build_key_issue_body(timestamp, {"hours_to_expiry": 1.0}, [])
+
+    assert "<!-- key-rotation-monitor:2026-08-27 -->" in body
 
 
 def test_should_block_promotion_error():
