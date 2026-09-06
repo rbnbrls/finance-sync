@@ -286,7 +286,8 @@ async def sync_connector_job(
                 "connection_id": _connection_id,
                 "status": (
                     "skipped"
-                    if result.error_category == "already_running"
+                    if getattr(result, "error_category", None)
+                    == "already_running"
                     else result.status.value
                 ),
                 "accounts_synced": result.accounts_synced,
@@ -297,7 +298,8 @@ async def sync_connector_job(
                 "error": result.error_message,
                 "reason": (
                     "already_running"
-                    if result.error_category == "already_running"
+                    if getattr(result, "error_category", None)
+                    == "already_running"
                     else None
                 ),
             }

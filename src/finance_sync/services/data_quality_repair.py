@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from sqlalchemy import func, select
 
@@ -35,6 +35,17 @@ class DataQualityRepairService:
         self._session = session
         self._settings = settings
 
+    @staticmethod
+    def _instrument_rows(value: object) -> list[dict[str, Any]]:
+        if not isinstance(value, list):
+            return []
+        items: list[object] = cast("list[object]", value)
+        return [
+            cast("dict[str, Any]", item)
+            for item in items
+            if isinstance(item, dict)
+        ]
+
     async def run(self, tenant_id: str) -> dict[str, Any]:
         identity = await self._repair_trading212_identities(tenant_id)
         quotes = await self._refresh_quotes(tenant_id)
@@ -50,20 +61,28 @@ class DataQualityRepairService:
     async def _repair_trading212_identities(
         self, tenant_id: str
     ) -> dict[str, int]:
-        credentials = list((await self._session.execute(
-            select(Credential).where(
-                Credential.tenant_id == tenant_id,
-                Credential.provider_key == "trading212",
-                Credential.status == "active",
-            )
-        )).scalars())
-        rows = list((await self._session.execute(
-            select(UnresolvedSecurity).where(
-                UnresolvedSecurity.tenant_id == tenant_id,
-                UnresolvedSecurity.provider_key == "trading212",
-                UnresolvedSecurity.resolved_security_id.is_(None),
-            )
-        )).scalars())
+        credentials = list(
+            (
+                await self._session.execute(
+                    select(Credential).where(
+                        Credential.tenant_id == tenant_id,
+                        Credential.provider_key == "trading212",
+                        Credential.status == "active",
+                    )
+                )
+            ).scalars()
+        )
+        rows = list(
+            (
+                await self._session.execute(
+                    select(UnresolvedSecurity).where(
+                        UnresolvedSecurity.tenant_id == tenant_id,
+                        UnresolvedSecurity.provider_key == "trading212",
+                        UnresolvedSecurity.resolved_security_id.is_(None),
+                    )
+                )
+            ).scalars()
+        )
         fetched = updated = resolved = 0
         for credential in credentials:
             if not credential.encrypted_payload:
@@ -76,20 +95,34 @@ class DataQualityRepairService:
                     credential.nonce,
                     self._settings,
                 )
-                payload = json.loads(raw)
-                payload = payload if isinstance(payload, dict) else {}
-                connector = ConnectorRegistry().get_connector(ConnectorConfig(
-                    provider_type="trading212",
-                    credentials=payload,
-                    options=self._options(credential),
-                ))
+                decoded = json.loads(raw)
+                payload: dict[str, str] = (
+                    {
+                        str(key): str(value)
+                        for key, value in cast(
+                            "dict[object, object]", decoded
+                        ).items()
+                    }
+                    if isinstance(decoded, dict)
+                    else {}
+                )
+                connector = ConnectorRegistry().get_connector(
+                    ConnectorConfig(
+                        provider_type="trading212",
+                        credentials=payload,
+                        options=self._options(credential),
+                    )
+                )
                 await connector.authenticate()
-                instruments = await connector.fetch_instruments()  # type: ignore[attr-defined]
+                instruments = self._instrument_rows(
+                    await cast("Any", connector).fetch_instruments()
+                )
             except Exception:
                 continue
             fetched += len(instruments)
             by_key = {
-                key: item for item in instruments if isinstance(item, dict)
+                key: item
+                for item in instruments
                 for key in {
                     str(item.get("ticker") or item.get("symbol") or "").upper()
                 }

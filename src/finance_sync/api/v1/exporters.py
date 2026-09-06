@@ -515,7 +515,7 @@ async def list_export_runs(
                 target_id=r.target_id,
                 account_scope=r.account_scope,
                 delivery_checkpoint=r.delivery_checkpoint,
-                preflight_manifest=r.preflight_manifest,
+                preflight_manifest=getattr(r, "preflight_manifest", None),
             )
             for r in runs
         ],
@@ -570,7 +570,7 @@ async def get_export_run(
         target_id=run.target_id,
         account_scope=run.account_scope,
         delivery_checkpoint=run.delivery_checkpoint,
-        preflight_manifest=run.preflight_manifest,
+        preflight_manifest=getattr(run, "preflight_manifest", None),
     )
 
 

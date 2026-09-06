@@ -7,6 +7,7 @@ records inside a UnitOfWork transaction.
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from typing import Any, cast
 
 from sqlalchemy import select, update
 
@@ -86,7 +87,7 @@ async def recover_stale_sync_runs(
             error_category="stale_run",
         )
     )
-    return int(result.rowcount or 0)
+    return int(cast(int, getattr(cast(Any, result), "rowcount", 0)) or 0)
 
 
 async def complete_sync_run(

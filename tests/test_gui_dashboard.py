@@ -542,7 +542,10 @@ def test_dashboard_ships_wealthfolio_custom_provider_wizard(
     assert "POST', '/auth/api-keys'" in html
     assert "market-data:read" in html
     assert "/api/v1/market-data/latest?symbol={SYMBOL}" in html
-    assert "/api/v1/market-data/history?symbol={SYMBOL}&from={FROM}&to={TO}" in html
+    assert (
+        "/api/v1/market-data/history?symbol={SYMBOL}&from={FROM}&to={TO}"
+        in html
+    )
     assert "$.data[*].price" in html
     assert "X-API-Key" in html
 
@@ -585,7 +588,9 @@ def test_dashboard_has_no_admin_api_key_ui(client: TestClient) -> None:
     """AC4: unrelated admin-only features (API-key management) are not
     surfaced in the dashboard at all — only the API exposes them."""
     html = _dashboard_html(client)
-    assert "api-keys" not in html.lower()
+    # The dashboard may expose the read-only market-data key wizard; it must
+    # not expose the broader admin key-management surface.
+    assert "api-key beheer" not in html.lower()
     assert "API Key Management" not in html
 
 

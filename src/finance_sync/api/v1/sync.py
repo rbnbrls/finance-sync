@@ -507,7 +507,9 @@ async def start_sync_connection(
         raise HTTPException(status_code=404, detail="Connection not found")
     running_id = await db.scalar(
         select(SyncRun.id)
-        .where(SyncRun.connection_id == connection_id, SyncRun.status == "running")
+        .where(
+            SyncRun.connection_id == connection_id, SyncRun.status == "running"
+        )
         .order_by(SyncRun.started_at.desc())
         .limit(1)
     )

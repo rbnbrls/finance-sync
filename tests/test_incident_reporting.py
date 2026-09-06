@@ -20,10 +20,14 @@ def _settings(token: str = "") -> Settings:
 
 def test_incident_fingerprint_is_stable_and_ignores_volatile_values() -> None:
     first = incident_fingerprint(
-        connector="saxo", operation="sync", error=RuntimeError("HTTP 500 id 12345")
+        connector="saxo",
+        operation="sync",
+        error=RuntimeError("HTTP 500 id 12345"),
     )
     second = incident_fingerprint(
-        connector="saxo", operation="sync", error=RuntimeError("HTTP 500 id 67890")
+        connector="saxo",
+        operation="sync",
+        error=RuntimeError("HTTP 500 id 67890"),
     )
     assert first == second
 
