@@ -35,6 +35,10 @@ from finance_sync.sync.persistence import TransactionPersistence
 router = APIRouter(prefix="/reconciliation", tags=["reconciliation"])
 
 
+def _new_transaction_reviews() -> list[TransactionReviewResponse]:
+    return []
+
+
 # ── Request / Response DTOs ───────────────────────────────────────────
 
 
@@ -185,7 +189,9 @@ class ReconciliationResultResponse(BaseModel):
     description: str | None = None
     details: dict[str, Any] | None = None
     created_at: datetime | None = None
-    transactions: list[TransactionReviewResponse] = Field(default_factory=list)
+    transactions: list[TransactionReviewResponse] = Field(
+        default_factory=_new_transaction_reviews
+    )
 
 
 class TransactionReviewResponse(BaseModel):

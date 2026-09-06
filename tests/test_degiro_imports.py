@@ -208,11 +208,10 @@ async def test_worker_loads_options_for_secretless_connector() -> None:
         description='{"watchfolder":"/imports/degiro/incoming"}',
     )
     scalar_result = MagicMock()
-    scalar_result.scalars.return_value.all.return_value = [credential]
+    scalar_result.all.return_value = [(credential, tenant)]
     uow = cast(
         "UnitOfWork",
         SimpleNamespace(
-            tenants=SimpleNamespace(list=AsyncMock(return_value=[tenant])),
             session=SimpleNamespace(
                 execute=AsyncMock(return_value=scalar_result),
                 info={"settings": _settings(Path("/tmp/test-imports"))},

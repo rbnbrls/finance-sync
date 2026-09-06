@@ -447,6 +447,9 @@ class DegiroPensionConnector(Connector):
                 result.append(holding)
                 continue
             isin = holding.security_reference.isin
+            if not isin:
+                result.append(holding)
+                continue
             derived_quantity, derived_cost = state.get(
                 isin, (Decimal(0), Decimal(0))
             )

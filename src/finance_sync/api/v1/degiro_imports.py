@@ -334,7 +334,7 @@ async def confirm_import(
             session=db,
             retain=body.retain_encrypted,
         )
-        if run.status == "completed":
+        if str(run.status) == "completed":
             connection.last_success_at = run.completed_at
             connection.last_attempt_at = run.completed_at
             connection.last_error = None

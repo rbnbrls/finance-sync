@@ -455,11 +455,10 @@ class WealthfolioExporter:
 
             # ── Complete the run ──────────────────────────────────
             end_ts = datetime.now(UTC)
-            if preflight_manifest is not None:
-                preflight_manifest["post_export"] = {
-                    "status": "written",
-                    "findings": 0,
-                }
+            preflight_manifest["post_export"] = {
+                "status": "written",
+                "findings": 0,
+            }
             await self._complete_run(
                 run,
                 status="completed",
@@ -1692,11 +1691,13 @@ class WealthfolioExporter:
                     # previous live holdings (for example a delisted
                     # security) contributing to NAV.
                     if full_sync or rebuild:
-                        early_findings = await self._sync_and_reconcile_holdings(
-                            wf_client=wf_client,
-                            fs_account=fs_acct,
-                            wf_account_id=wf_account_id,
-                            security_map=security_map,
+                        early_findings = (
+                            await self._sync_and_reconcile_holdings(
+                                wf_client=wf_client,
+                                fs_account=fs_acct,
+                                wf_account_id=wf_account_id,
+                                security_map=security_map,
+                            )
                         )
                         errors.extend(early_findings)
                     # Resume from the per-account delivery cursor when
@@ -1984,11 +1985,10 @@ class WealthfolioExporter:
                 status = "completed"
                 error_message = None
 
-            if preflight_manifest is not None:
-                preflight_manifest["post_export"] = {
-                    "status": "reconciled" if not errors else "degraded",
-                    "findings": len(errors),
-                }
+            preflight_manifest["post_export"] = {
+                "status": "reconciled" if not errors else "degraded",
+                "findings": len(errors),
+            }
             await self._complete_run(
                 run,
                 status=status,

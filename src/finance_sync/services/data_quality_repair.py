@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from sqlalchemy import func, select
 
@@ -23,6 +23,7 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
     from finance_sync.config.settings import Settings
+    from finance_sync.connectors.trading212 import Trading212Connector
 
 
 class DataQualityRepairService:
@@ -76,20 +77,34 @@ class DataQualityRepairService:
                     credential.nonce,
                     self._settings,
                 )
-                payload = json.loads(raw)
-                payload = payload if isinstance(payload, dict) else {}
-                connector = ConnectorRegistry().get_connector(ConnectorConfig(
-                    provider_type="trading212",
-                    credentials=payload,
-                    options=self._options(credential),
-                ))
+                decoded: Any = json.loads(raw)
+                payload: dict[str, Any] = (
+                    {
+                        str(key): value
+                        for key, value in cast(
+                            "dict[Any, Any]", decoded
+                        ).items()
+                    }
+                    if isinstance(decoded, dict)
+                    else {}
+                )
+                connector = cast(
+                    "Trading212Connector",
+                    ConnectorRegistry().get_connector(
+                        ConnectorConfig(
+                            provider_type="trading212",
+                            credentials=payload,
+                            options=self._options(credential),
+                        )
+                    ),
+                )
                 await connector.authenticate()
-                instruments = await connector.fetch_instruments()  # type: ignore[attr-defined]
+                instruments = await connector.fetch_instruments()
             except Exception:
                 continue
             fetched += len(instruments)
             by_key = {
-                key: item for item in instruments if isinstance(item, dict)
+                key: item for item in instruments
                 for key in {
                     str(item.get("ticker") or item.get("symbol") or "").upper()
                 }

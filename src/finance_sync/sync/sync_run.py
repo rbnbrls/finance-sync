@@ -7,6 +7,7 @@ records inside a UnitOfWork transaction.
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from typing import Any, cast
 
 from sqlalchemy import select, update
 
@@ -70,7 +71,7 @@ async def recover_stale_sync_runs(
     long-running provider sync is therefore not interrupted.
     """
     cutoff = datetime.now(UTC) - timedelta(minutes=stale_after_minutes)
-    result = await session.execute(  # type: ignore[union-attr]
+    result: Any = await session.execute(  # type: ignore[union-attr]
         update(SyncRun)
         .where(
             SyncRun.connection_id == connection_id,
@@ -86,7 +87,10 @@ async def recover_stale_sync_runs(
             error_category="stale_run",
         )
     )
-    return int(result.rowcount or 0)
+    rowcount = cast(
+        "int | None", getattr(cast(Any, result), "rowcount", 0)
+    )
+    return int(rowcount or 0)
 
 
 async def complete_sync_run(

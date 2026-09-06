@@ -8,7 +8,7 @@ from decimal import Decimal
 from typing import Any, cast
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import func, select
+from sqlalchemy import func, select, true
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from finance_sync.api.deps.auth import AuthContext, require_permission
@@ -16,6 +16,7 @@ from finance_sync.config.settings import Settings
 from finance_sync.connectors.models import ConnectorConfig
 from finance_sync.connectors.registry import ConnectorRegistry
 from finance_sync.connectors.trading212 import (
+    Trading212Connector,
     _normalise_instrument,
     _price_scale,
 )
@@ -70,19 +71,14 @@ async def trading212_latest_quote(
         raw = decrypt_credential(
             credential.encrypted_payload, credential.nonce, settings
         )
-        try:
-            credentials_data = json.loads(raw)
-        except (TypeError, json.JSONDecodeError):
-            credentials_data = {"api_key": raw}
-        connector = ConnectorRegistry().get_connector(
+        credentials_data = _credentials_payload(raw)
+        connector = cast(Trading212Connector, ConnectorRegistry().get_connector(
             ConnectorConfig(
                 provider_type="trading212",
-                credentials=(
-                    credentials_data if isinstance(credentials_data, dict) else {}
-                ),
+                credentials=credentials_data,
                 options=_options(credential),
             )
-        )
+        ))
         try:
             await connector.authenticate()
             portfolio = await connector.fetch_portfolio()
@@ -92,11 +88,8 @@ async def trading212_latest_quote(
         metadata_by_ticker = {
             str(item.get("ticker") or item.get("symbol") or "").upper(): item
             for item in instruments
-            if isinstance(item, dict)
         }
         for item in portfolio:
-            if not isinstance(item, dict):
-                continue
             provider_ticker = str(item.get("ticker") or "").upper()
             metadata = metadata_by_ticker.get(provider_ticker, {})
             normalized_ticker, _, _ = _normalise_instrument(provider_ticker)
@@ -180,24 +173,20 @@ async def refresh_trading212_identities(
         raw = decrypt_credential(
             credential.encrypted_payload, credential.nonce, settings
         )
-        try:
-            secret_values = json.loads(raw)
-        except (TypeError, json.JSONDecodeError):
-            secret_values = {"api_key": raw}
-        connector = ConnectorRegistry().get_connector(
+        secret_values = _credentials_payload(raw)
+        connector = cast(Trading212Connector, ConnectorRegistry().get_connector(
             ConnectorConfig(
                 provider_type="trading212",
-                credentials=secret_values if isinstance(secret_values, dict) else {},
+                credentials=secret_values,
                 options=_options(credential),
             )
-        )
+        ))
         await connector.authenticate()
-        instruments = await connector.fetch_instruments()  # type: ignore[attr-defined]
+        instruments = await connector.fetch_instruments()
         fetched += len(instruments)
         by_key = {
             key: item
             for item in instruments
-            if isinstance(item, dict)
             for key in {
                 str(item.get("ticker") or item.get("symbol") or "").upper()
             }
@@ -237,10 +226,33 @@ async def refresh_trading212_identities(
 
 def _options(credential: Credential) -> dict[str, Any]:
     try:
-        value = json.loads(credential.description or "{}")
+        decoded: Any = json.loads(credential.description or "{}")
     except (TypeError, json.JSONDecodeError):
         return {}
-    return {key: value for key, value in value.items() if key != "_label"}
+    return _string_keyed_dict(decoded, exclude_label=True)
+
+
+def _credentials_payload(raw: str) -> dict[str, Any]:
+    """Decode a provider credential payload into a typed JSON object."""
+    try:
+        value: Any = json.loads(raw)
+    except (TypeError, json.JSONDecodeError):
+        return {"api_key": raw}
+    return _string_keyed_dict(value)
+
+
+def _string_keyed_dict(
+    value: object, *, exclude_label: bool = False
+) -> dict[str, Any]:
+    """Convert an arbitrary JSON object to a string-keyed mapping."""
+    if not isinstance(value, dict):
+        return {}
+    items = cast(dict[Any, Any], value).items()
+    return {
+        str(key): item
+        for key, item in items
+        if not exclude_label or key != "_label"
+    }
 
 
 def _ticker_variants(value: object) -> set[str]:
@@ -280,7 +292,7 @@ async def refresh_quotes(
         )
         .where(
             Holding.tenant_id == auth.tenant_id,
-            ~Security.id.in_(accepted_ids) if accepted_ids else True,
+            ~Security.id.in_(accepted_ids) if accepted_ids else true(),
             (
                 (EnrichmentFreshness.last_quote_fetch.is_(None))
                 | (EnrichmentFreshness.last_quote_fetch < cutoff)
@@ -316,28 +328,23 @@ async def refresh_quotes(
         raw = decrypt_credential(
             credential.encrypted_payload, credential.nonce, settings
         )
-        try:
-            credentials_data = json.loads(raw)
-        except (TypeError, json.JSONDecodeError):
-            credentials_data = {"api_key": raw}
-        connector = ConnectorRegistry().get_connector(
+        credentials_data = _credentials_payload(raw)
+        connector = cast(Trading212Connector, ConnectorRegistry().get_connector(
             ConnectorConfig(
                 provider_type="trading212",
                 credentials=credentials_data,
                 options=_options(credential),
                 connection_id=str(credential.id),
             )
-        )
+        ))
         try:
             await connector.authenticate()
-            portfolio = cast(list[dict[str, Any]], await connector.fetch_portfolio())
+            portfolio = await connector.fetch_portfolio()
             # Trading212's portfolio payload uses internal tickers.  Its
             # instrument master supplies the stable ISIN/name/currency used
             # to match imported DEGIRO/Saxo securities safely.
             try:
-                instruments = cast(
-                    list[dict[str, Any]], await connector.fetch_instruments()
-                )
+                instruments = await connector.fetch_instruments()
             except Exception:
                 instruments = []
             providers.append("trading212")
@@ -358,7 +365,7 @@ async def refresh_quotes(
             }
             observations: list[PriceObservation] = []
             observed_at = datetime.now(UTC)
-            freshness_rows: dict[str, EnrichmentFreshness] = {}
+            freshness_rows: dict[str, EnrichmentFreshness | None] = {}
             for security in securities:
                 instrument = by_isin.get(str(security.isin or "").upper())
                 if instrument is None:

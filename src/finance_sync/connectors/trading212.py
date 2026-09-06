@@ -33,7 +33,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from decimal import Decimal
 from time import time
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 import httpx
 
@@ -340,15 +340,22 @@ class Trading212Connector(Connector):
                 "/api/v0/equity/metadata/instruments", headers=headers
             )
             resp.raise_for_status()
-            payload = resp.json()
-            instruments = payload if isinstance(payload, list) else []
+            payload: Any = resp.json()
+            instruments: list[dict[str, Any]] = (
+                [
+                    cast("dict[str, Any]", item)
+                    for item in cast("list[Any]", payload)
+                    if isinstance(item, dict)
+                ]
+                if isinstance(payload, list)
+                else []
+            )
             self._instrument_metadata = {
                 str(
                     item.get("ticker") or item.get("symbol") or ""
                 ).upper(): item
                 for item in instruments
-                if isinstance(item, dict)
-                and (item.get("ticker") or item.get("symbol"))
+                if item.get("ticker") or item.get("symbol")
             }
             return instruments
         except httpx.HTTPStatusError as exc:
@@ -378,7 +385,6 @@ class Trading212Connector(Connector):
         by_ticker = {
             str(item.get("ticker") or item.get("symbol") or "").upper(): item
             for item in instruments
-            if isinstance(item, dict)
         }
         items = await self.fetch_portfolio()
         holdings: list[RawHolding] = []

@@ -116,6 +116,7 @@ class OutboxMessageStatus(StrEnum):
     """Delivery state of a transactional outbox message."""
 
     PENDING = "pending"
+    PROCESSING = "processing"
     SENT = "sent"
     FAILED = "failed"
 

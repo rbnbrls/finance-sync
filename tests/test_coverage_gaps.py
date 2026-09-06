@@ -2253,12 +2253,11 @@ async def test_worker_connection_loader_skips_failed_decryption(
         info={"settings": MagicMock()},
         execute=AsyncMock(
             return_value=SimpleNamespace(
-                scalars=lambda: SimpleNamespace(all=lambda: [broken, plain])
+                all=lambda: [(broken, tenant), (plain, tenant)]
             )
         ),
     )
     uow = SimpleNamespace(
-        tenants=SimpleNamespace(list=AsyncMock(return_value=[tenant])),
         session=session,
     )
     monkeypatch.setattr(
@@ -2291,12 +2290,11 @@ async def test_worker_connection_loader_decrypts_credentials(
         info={"settings": MagicMock()},
         execute=AsyncMock(
             return_value=SimpleNamespace(
-                scalars=lambda: SimpleNamespace(all=lambda: [credential])
+                all=lambda: [(credential, tenant)]
             )
         ),
     )
     uow = SimpleNamespace(
-        tenants=SimpleNamespace(list=AsyncMock(return_value=[tenant])),
         session=session,
     )
     monkeypatch.setattr(

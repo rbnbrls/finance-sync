@@ -773,7 +773,9 @@ class Settings(BaseSettings):
         default=360,
         ge=30,
         validation_alias="SYNC_RUN_STALE_AFTER_MINUTES",
-        description="Age after which a worker-orphaned running sync is recovered.",
+        description=(
+            "Age after which a worker-orphaned running sync is recovered."
+        ),
     )
 
     # ── DEGIRO file imports ────────────────────────────────────────

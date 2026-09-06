@@ -41,6 +41,10 @@ class RawCashBalance(BaseModel):
     observed_at: datetime
 
 
+def _new_cash_balances() -> list[RawCashBalance]:
+    return []
+
+
 class SourceReference(BaseModel):
     """Relation to one or more provider object revisions."""
 
@@ -108,7 +112,9 @@ class RawAccount(BaseModel):
     net_asset_value: Decimal | None = Field(
         default=None, description="Total account value including investments"
     )
-    cash_balances: list[RawCashBalance] = Field(default_factory=list)
+    cash_balances: list[RawCashBalance] = Field(
+        default_factory=_new_cash_balances
+    )
     iso_currency_code: str | None = Field(
         default=None,
         description="ISO-4217 code for the balance values, if different "
@@ -279,7 +285,9 @@ class CanonicalAccountData(BaseModel):
     current_balance: Decimal | None = Field(default=None)
     available_balance: Decimal | None = Field(default=None)
     net_asset_value: Decimal | None = Field(default=None)
-    cash_balances: list[RawCashBalance] = Field(default_factory=list)
+    cash_balances: list[RawCashBalance] = Field(
+        default_factory=_new_cash_balances
+    )
     iso_currency_code: str | None = Field(default=None)
     provider_metadata: dict[str, Any] | None = Field(default=None)
     is_active: bool = Field(default=True)
