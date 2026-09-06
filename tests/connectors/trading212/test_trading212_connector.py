@@ -820,7 +820,9 @@ class TestTrading212CashTransactionParsing:
         assert txn.amount == Decimal("5000.00")
         assert txn.transaction_type == "deposit"
 
-    def test_parse_cash_transaction_without_id_uses_stable_fallback(self) -> None:
+    def test_parse_cash_transaction_without_id_uses_stable_fallback(
+        self,
+    ) -> None:
         """Live cash-history payloads may omit id without collapsing rows."""
         txn = _parse_cash_transaction(
             {
@@ -836,7 +838,9 @@ class TestTrading212CashTransactionParsing:
         assert txn.external_transaction_id == "txn_provider-reference-1"
         assert txn.external_transaction_id != "txn_"
 
-    def test_parse_cash_transaction_without_id_or_reference_is_unique(self) -> None:
+    def test_parse_cash_transaction_without_id_or_reference_is_unique(
+        self,
+    ) -> None:
         """Rows without provider identifiers must not collapse to ``txn_``."""
         base = {
             "type": "DIVIDEND",
@@ -1096,6 +1100,7 @@ class TestTrading212HoldingsMapping:
         """fetch_holdings for a different account returns no data."""
         await t212_connector.authenticate()
         assert await t212_connector.fetch_holdings(account_id="other") == []
+
 
 class TestTrading212ConnectorErrorHandling:
     """Error classification and handling."""

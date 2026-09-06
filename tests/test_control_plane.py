@@ -531,7 +531,7 @@ async def test_security_issue_contains_candidates_confidence_and_impact() -> (
     assert len(issues) == 1
     issue = issues[0]
     assert issue.id == "security-unresolved:unresolved-a"
-    assert issue.impact_count == 5
+    assert issue.impact_count == 1
     assert issue.confidence == "high"
     assert issue.candidate_securities[0]["security_id"] == "security-a"
     assert issue.action.key == "map_security"

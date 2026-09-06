@@ -9,10 +9,18 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from decimal import Decimal
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
     from datetime import date
+
+
+def _any_list() -> list[Any]:
+    return []
+
+
+def _finding_list() -> list[PreflightFinding]:
+    return []
 
 
 @dataclass(frozen=True, slots=True)
@@ -29,9 +37,9 @@ class PreflightFinding:
 class WealthfolioPreflightResult:
     """Validation result and records safe to project downstream."""
 
-    exportable_holdings: list[Any] = field(default_factory=list)
-    quarantined_holdings: list[Any] = field(default_factory=list)
-    findings: list[PreflightFinding] = field(default_factory=list)
+    exportable_holdings: list[Any] = field(default_factory=_any_list)
+    quarantined_holdings: list[Any] = field(default_factory=_any_list)
+    findings: list[PreflightFinding] = field(default_factory=_finding_list)
 
     @property
     def blocking_findings(self) -> list[PreflightFinding]:
@@ -113,7 +121,11 @@ def validate_transaction_stream(
         if txn_type != "transfer":
             continue
         raw_metadata = getattr(txn, "provider_metadata_contract", None)
-        metadata = raw_metadata if isinstance(raw_metadata, dict) else {}
+        metadata: dict[str, Any] = (
+            cast("dict[str, Any]", raw_metadata)
+            if isinstance(raw_metadata, dict)
+            else {}
+        )
         provider_id = _first_text(
             metadata,
             "transfer_id",
@@ -149,8 +161,10 @@ def validate_transaction_stream(
         amounts = [
             _decimal(getattr(row, "amount", None)) or Decimal(0) for row in rows
         ]
-        if len(rows) < 2 or not any(value > 0 for value in amounts) or not any(
-            value < 0 for value in amounts
+        if (
+            len(rows) < 2
+            or not any(value > 0 for value in amounts)
+            or not any(value < 0 for value in amounts)
         ):
             findings.extend(
                 PreflightFinding(

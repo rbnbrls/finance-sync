@@ -185,7 +185,9 @@ class ReconciliationResultResponse(BaseModel):
     description: str | None = None
     details: dict[str, Any] | None = None
     created_at: datetime | None = None
-    transactions: list[TransactionReviewResponse] = Field(default_factory=list)
+    transactions: list[TransactionReviewResponse] = Field(
+        default_factory=lambda: list[TransactionReviewResponse]()
+    )
 
 
 class TransactionReviewResponse(BaseModel):
@@ -611,8 +613,11 @@ async def decide_duplicate(
 
     pair_key = ":".join(sorted(ids))
     kept_id = (
-        body.transaction_id_a if body.decision == "keep_a" else
-        body.transaction_id_b if body.decision == "keep_b" else None
+        body.transaction_id_a
+        if body.decision == "keep_a"
+        else body.transaction_id_b
+        if body.decision == "keep_b"
+        else None
     )
     review = await db.scalar(
         select(DuplicateReview).where(
@@ -660,7 +665,9 @@ async def decide_duplicate(
         async with UnitOfWork(db) as uow:
             await TransactionPersistence(auth.tenant_id).tombstone_transaction(
                 uow,
-                body.transaction_id_b if kept_id == body.transaction_id_a else body.transaction_id_a,
+                body.transaction_id_b
+                if kept_id == body.transaction_id_a
+                else body.transaction_id_a,
                 actor=actor,
             )
     await db.commit()

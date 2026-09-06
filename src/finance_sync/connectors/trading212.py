@@ -33,7 +33,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from decimal import Decimal
 from time import time
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 import httpx
 
@@ -341,14 +341,21 @@ class Trading212Connector(Connector):
             )
             resp.raise_for_status()
             payload = resp.json()
-            instruments = payload if isinstance(payload, list) else []
+            instruments: list[dict[str, Any]] = (
+                [
+                    item
+                    for item in cast(list[object], payload)
+                    if isinstance(item, dict)
+                ]
+                if isinstance(payload, list)
+                else []
+            )
             self._instrument_metadata = {
                 str(
                     item.get("ticker") or item.get("symbol") or ""
                 ).upper(): item
                 for item in instruments
-                if isinstance(item, dict)
-                and (item.get("ticker") or item.get("symbol"))
+                if item.get("ticker") or item.get("symbol")
             }
             return instruments
         except httpx.HTTPStatusError as exc:
@@ -378,7 +385,6 @@ class Trading212Connector(Connector):
         by_ticker = {
             str(item.get("ticker") or item.get("symbol") or "").upper(): item
             for item in instruments
-            if isinstance(item, dict)
         }
         items = await self.fetch_portfolio()
         holdings: list[RawHolding] = []
@@ -429,9 +435,7 @@ class Trading212Connector(Connector):
                         name=(
                             metadata_name
                             or (
-                                display_name
-                                if display_name != ticker
-                                else None
+                                display_name if display_name != ticker else None
                             )
                             or str(item.get("name") or display_name or None)
                         ),
@@ -619,9 +623,10 @@ class Trading212Connector(Connector):
             return transaction
         isin = _metadata_value(item, "isin", "ISIN") or reference.isin
         name = _metadata_value(item, "name", "shortName") or reference.name
-        venue = _metadata_value(
-            item, "exchange", "exchangeCode", "venue"
-        ) or reference.venue
+        venue = (
+            _metadata_value(item, "exchange", "exchangeCode", "venue")
+            or reference.venue
+        )
         currency = (
             _metadata_value(item, "currencyCode", "currency")
             or reference.currency_code

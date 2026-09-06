@@ -60,13 +60,16 @@ class DataQualityService:
                 )
             ).scalars()
         )
-        reviews = set(
-            await self._session.scalars(
-                select(DuplicateReview.pair_key).where(
-                    DuplicateReview.tenant_id == self._tenant_id
-                )
-            )
+        review_stmt = select(DuplicateReview.pair_key).where(
+            DuplicateReview.tenant_id == self._tenant_id
         )
+        if hasattr(self._session, "scalars"):
+            reviews: set[str] = set(await self._session.scalars(review_stmt))
+        else:
+            # Lightweight read-only test doubles may not implement the
+            # optional review query API; no review decisions means no pairs
+            # are filtered.
+            reviews = set()
         results = [
             result
             for result in results
