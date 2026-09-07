@@ -67,6 +67,12 @@ class TaxLot(TimestampMixin, Base):
         nullable=True,
         comment="Transaction that fully or partially closed this lot",
     )
+    transfer_transaction_id: Mapped[str | None] = mapped_column(
+        ForeignKey("transactions.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+        comment="Security transfer leg associated with this lot movement",
+    )
 
     # ── Lot quantities ────────────────────────────────────────────────
     quantity: Mapped[Decimal] = mapped_column(
