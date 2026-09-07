@@ -259,6 +259,41 @@ async def test_additional_health_issues_cover_duplicate_balances_and_imports() -
 
 
 @pytest.mark.asyncio
+async def test_additional_health_issues_ignore_extra_account_projection_values() -> (
+    None
+):
+    session = _Session(
+        _Result(rows=[("bunq", "account-1", 2, 10, 20, "new-column")]),
+        _Result(scalars=[]),
+    )
+
+    issues = await DataHealthService(
+        cast("AsyncSession", session), "tenant-a"
+    )._additional_issues()
+
+    assert [issue.category for issue in issues] == [
+        "duplicate_accounts",
+        "balance_conflict",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_additional_health_issues_skip_short_account_projection_rows() -> (
+    None
+):
+    session = _Session(
+        _Result(rows=[("bunq", "account-1", 2, 10)]),
+        _Result(scalars=[]),
+    )
+
+    issues = await DataHealthService(
+        cast("AsyncSession", session), "tenant-a"
+    )._additional_issues()
+
+    assert issues == []
+
+
+@pytest.mark.asyncio
 async def test_changed_provider_data_gets_provider_sync_action() -> None:
     session = _Session(_Result(rows=[("bunq", 3)]))
     source = DataHealthSource(
