@@ -47,8 +47,10 @@ class _Session:
     ) -> None:
         self._responses = list(responses)
         self._scalar_values = list(scalar_values)
+        self.execute_calls = 0
 
     async def execute(self, _statement: Any) -> _Result:
+        self.execute_calls += 1
         return self._responses.pop(0)
 
     async def scalar(self, _statement: Any) -> Any:
@@ -108,6 +110,29 @@ def test_connection_projection_never_decrypts_or_exposes_payload() -> None:
 
     assert projected.name == "Main bank"
     assert "secret" not in projected.model_dump_json()
+
+
+def test_empty_file_import_profile_is_pending_not_connection_error() -> None:
+    row = SimpleNamespace(
+        id="saxo-connection",
+        provider_key="saxo_investor",
+        description='{"_label": "SaxoInvestor"}',
+        encrypted_payload=b"",
+        status="active",
+        last_error="Sync failed due to an internal error",
+        last_error_category="provider_unavailable",
+        last_attempt_at=None,
+        last_success_at=None,
+        last_test_at=None,
+        last_test_status=None,
+        last_test_error=None,
+    )
+
+    projected = ControlPlaneService._connection(row, None)  # type: ignore[arg-type]
+
+    assert projected.status == "pending"
+    assert projected.last_error is None
+    assert projected.last_error_category is None
 
 
 def test_action_catalog_has_the_standard_contract() -> None:
@@ -276,7 +301,7 @@ def test_connection_and_sync_issues_include_fallback_descriptions() -> None:
         "connection-error:connection-1",
         "sync-failed:run-1",
     ]
-    assert issues[0].action.key == "view_data_source"
+    assert issues[0].action.key == "edit_connection"
     assert issues[1].action.key == "view_sync_run"
 
 
@@ -513,6 +538,57 @@ async def test_security_issue_contains_candidates_confidence_and_impact() -> (
     assert issue.candidate_securities[0]["security_id"] == "security-a"
     assert issue.action.key == "map_security"
     assert issue.action.enabled is True
+
+
+@pytest.mark.asyncio
+async def test_security_candidates_are_loaded_in_one_batch() -> None:
+    unresolved_a = SimpleNamespace(
+        id="unresolved-a",
+        provider_key="bunq",
+        external_security_id="external-a",
+        raw_isin=None,
+        raw_figi=None,
+        raw_ticker="AAA",
+        raw_name=None,
+    )
+    unresolved_b = SimpleNamespace(
+        id="unresolved-b",
+        provider_key="bunq",
+        external_security_id="external-b",
+        raw_isin=None,
+        raw_figi=None,
+        raw_ticker="BBB",
+        raw_name=None,
+    )
+    candidate_a = SimpleNamespace(
+        id="security-a",
+        name="Security A",
+        ticker="AAA",
+        isin=None,
+        figi=None,
+    )
+    candidate_b = SimpleNamespace(
+        id="security-b",
+        name="Security B",
+        ticker="BBB",
+        isin=None,
+        figi=None,
+    )
+    session = _Session(
+        _Result(scalars=[unresolved_a, unresolved_b]),
+        _Result(scalars=[candidate_a, candidate_b]),
+        scalar_values=[0, 0, 0, 0],
+    )
+
+    issues = await ControlPlaneService(
+        cast("Any", session),
+        "tenant-a",
+    )._security_issues([SimpleNamespace(provider_key="bunq")])
+
+    assert len(issues) == 2
+    assert issues[0].candidate_securities[0]["security_id"] == "security-a"
+    assert issues[1].candidate_securities[0]["security_id"] == "security-b"
+    assert session.execute_calls == 2
 
 
 @pytest.mark.asyncio
