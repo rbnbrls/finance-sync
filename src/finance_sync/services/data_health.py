@@ -3193,7 +3193,10 @@ class DataHealthService:
                 .having(func.count(Account.id) > 1)
             )
         ).all()
-        for provider, external_id, count, minimum, maximum in account_rows:
+        for row in account_rows:
+            if len(row) < 5:
+                continue
+            provider, external_id, count, minimum, maximum = row[:5]
             identity = f"{provider}:{external_id}"
             issues.append(
                 DataHealthIssue(
