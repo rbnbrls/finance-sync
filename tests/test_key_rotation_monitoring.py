@@ -240,7 +240,7 @@ def test_build_key_issue_body():
         in body
     )
     # The marker uses the event timestamp date.
-    expected_date = "2026-08-28"
+    expected_date = datetime.fromisoformat(timestamp).astimezone(UTC).strftime("%Y-%m-%d")
     assert f"<!-- key-rotation-monitor:{expected_date} -->" in body
 
 
@@ -250,7 +250,8 @@ def test_build_key_issue_body_uses_event_date_for_marker():
 
     body = build_key_issue_body(timestamp, {"hours_to_expiry": 1.0}, [])
 
-    assert "<!-- key-rotation-monitor:2026-08-27 -->" in body
+    expected_date = datetime.fromisoformat(timestamp).astimezone(UTC).strftime("%Y-%m-%d")
+    assert f"<!-- key-rotation-monitor:{expected_date} -->" in body
 
 
 def test_should_block_promotion_error():
