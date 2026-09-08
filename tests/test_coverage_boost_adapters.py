@@ -1132,7 +1132,7 @@ def _degiro_run(**changes: object) -> SimpleNamespace:
         completed_at=None, audit_events=[],
     )
     values.update(changes)
-    values["safe_error"] = (values["error_details"] or [None])[0]
+    values["safe_error"] = (values["error_details"] or [None])[0]  # pyright: ignore[reportIndexIssue]
     return SimpleNamespace(**values)
 
 
@@ -1468,7 +1468,7 @@ async def test_destination_probe_covers_non_wealthfolio_adapters() -> None:
         patch.object(destinations, "record_destination_probe"), \
         patch.object(destinations, "_target", new=AsyncMock()), \
         patch.object(destinations, "_safe_url", return_value="https://remote.test"):
-        for target_type, class_name, method in modules:
+        for target_type, class_name, _method in modules:
             row = SimpleNamespace(
                 id=target_type, target_type=target_type, configuration={},
                 encrypted_secret=b"secret", secret_nonce=b"nonce",
@@ -1758,7 +1758,7 @@ async def test_file_dispatch_routes_each_supported_provider() -> None:
     ]:
         with patch.object(uploads, handler, new=AsyncMock(return_value={"provider": provider})) as mocked:
             result = await uploads.dispatch_file_import(request, provider, "c", [], auth, db)
-        assert result["provider"] == provider
+        assert result["provider"] == provider  # pyright: ignore[reportIndexIssue]
         mocked.assert_awaited_once()
     with pytest.raises(Exception):
         await uploads.dispatch_file_import(request, "unknown", "c", [], auth, db)
@@ -2622,6 +2622,7 @@ async def test_actual_budget_query_helpers_use_delivery_cursor_and_filter_accoun
 async def test_actual_budget_export_runs_normal_and_transfer_transactions() -> None:
     import finance_sync.exporter.actual_budget.exporter as module
     from finance_sync.exporter.actual_budget.config import ActualBudgetConfig
+    from finance_sync.exporter.actual_budget.client import ActualBudgetConnectionError
     from finance_sync.exporter.actual_budget.exporter import ActualBudgetExporter
     from finance_sync.models.enums import SyncRunStatus
 
