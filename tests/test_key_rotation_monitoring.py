@@ -2,17 +2,16 @@
 
 from __future__ import annotations
 
-import json
-from datetime import UTC, datetime, timedelta
-from unittest.mock import Mock, patch
+from datetime import UTC, datetime
+from unittest.mock import patch
 
 import pytest
 
 from scripts.key_rotation_monitoring import (
+    build_key_issue_body,
     build_key_marker,
     check_key_provider_status,
     check_key_rotation_status,
-    build_key_issue_body,
     should_block_promotion,
 )
 
@@ -29,7 +28,7 @@ def test_check_key_provider_status_with_config():
     # Just test that the function returns a dict with expected keys when config exists
     # We'll test in the actual repo directory where we know the config file exists
     result = check_key_provider_status()
-    
+
     # Should return a dict with key information
     assert isinstance(result, dict)
     # Should have either error or key info
@@ -41,14 +40,15 @@ def test_check_key_provider_status_with_config():
 
 def test_check_key_provider_status_error():
     """Test key provider status check when config is missing."""
-    with patch.dict('os.environ', {}, clear=True):
-        with patch('os.getcwd', return_value="/nonexistent"):
-            # Mock os.path.exists to return False for the config file
-            with patch('os.path.exists', return_value=False):
-                result = check_key_provider_status()
-                
-                assert "error" in result
-                assert result["status"] == "error"
+    with (
+        patch.dict("os.environ", {}, clear=True),
+        patch("os.getcwd", return_value="/nonexistent"),
+        patch("os.path.exists", return_value=False),
+    ):
+        result = check_key_provider_status()
+
+        assert "error" in result
+        assert result["status"] == "error"
 
 
 def test_check_key_rotation_status_approaching_expiry():
@@ -61,10 +61,12 @@ def test_check_key_rotation_status_approaching_expiry():
         "fail_closed": True,
         "material_logged": False,
     }
-    
-    with patch.dict('os.environ', {"KEY_ROTATION_ALERT_BEFORE_EXPIRY_HOURS": "24"}):
+
+    with patch.dict(
+        "os.environ", {"KEY_ROTATION_ALERT_BEFORE_EXPIRY_HOURS": "24"}
+    ):
         alerts = check_key_rotation_status(key_info)
-        
+
         assert len(alerts) == 1
         assert alerts[0]["name"] == "key_approaching_expiry"
         assert alerts[0]["severity"] == "warning"
@@ -81,10 +83,12 @@ def test_check_key_rotation_status_critical_expiry():
         "fail_closed": True,
         "material_logged": False,
     }
-    
-    with patch.dict('os.environ', {"KEY_ROTATION_ALERT_BEFORE_EXPIRY_HOURS": "24"}):
+
+    with patch.dict(
+        "os.environ", {"KEY_ROTATION_ALERT_BEFORE_EXPIRY_HOURS": "24"}
+    ):
         alerts = check_key_rotation_status(key_info)
-        
+
         assert len(alerts) == 1
         assert alerts[0]["name"] == "key_approaching_expiry"
         assert alerts[0]["severity"] == "critical"
@@ -101,10 +105,12 @@ def test_check_key_rotation_status_no_alerts():
         "fail_closed": True,
         "material_logged": False,
     }
-    
-    with patch.dict('os.environ', {"KEY_ROTATION_ALERT_BEFORE_EXPIRY_HOURS": "24"}):
+
+    with patch.dict(
+        "os.environ", {"KEY_ROTATION_ALERT_BEFORE_EXPIRY_HOURS": "24"}
+    ):
         alerts = check_key_rotation_status(key_info)
-        
+
         assert len(alerts) == 0
 
 
@@ -114,9 +120,9 @@ def test_check_key_rotation_status_with_error():
         "error": "Provider connection failed",
         "status": "error",
     }
-    
+
     alerts = check_key_rotation_status(key_info)
-    
+
     assert len(alerts) == 1
     assert alerts[0]["name"] == "key_provider_error"
     assert alerts[0]["severity"] == "critical"
@@ -143,9 +149,9 @@ def test_build_key_issue_body():
             "detail": "Key version v2 expires in 720.0 hours",
         }
     ]
-    
+
     body = build_key_issue_body(timestamp, key_info, alerts)
-    
+
     assert "## 🔑 Key Rotation Monitoring — finance-sync" in body
     assert "**Detected at:** 2026-08-28T12:00:00+00:00" in body
     assert "| Current Version | v2 |" in body
@@ -176,7 +182,7 @@ def test_should_block_promotion_error():
         "error": "Provider unavailable",
         "status": "error",
     }
-    
+
     assert should_block_promotion(key_info) is True
 
 
@@ -190,7 +196,7 @@ def test_should_block_promotion_expiring_soon():
         "fail_closed": True,
         "material_logged": False,
     }
-    
+
     assert should_block_promotion(key_info) is True
 
 
@@ -204,7 +210,7 @@ def test_should_block_promotion_material_logged():
         "fail_closed": True,
         "material_logged": True,  # Security violation
     }
-    
+
     assert should_block_promotion(key_info) is True
 
 
@@ -218,7 +224,7 @@ def test_should_block_promotion_safe():
         "fail_closed": True,
         "material_logged": False,
     }
-    
+
     assert should_block_promotion(key_info) is False
 
 
