@@ -424,6 +424,26 @@ class Settings(BaseSettings):
             "raise together with the server cap for very large portfolios."
         ),
     )
+    destination_remote_probe_enabled: bool = Field(
+        default=True,
+        validation_alias="DESTINATION_REMOTE_PROBE_ENABLED",
+        description=(
+            "Allow explicit destination-test actions to make bounded remote "
+            "parity probes."
+        ),
+    )
+    destination_probe_rate_limit_max_requests: int = Field(
+        default=10,
+        ge=1,
+        validation_alias="DESTINATION_PROBE_RATE_LIMIT_MAX_REQUESTS",
+        description="Maximum remote destination probes per target/window.",
+    )
+    destination_probe_rate_limit_window_seconds: int = Field(
+        default=60,
+        ge=1,
+        validation_alias="DESTINATION_PROBE_RATE_LIMIT_WINDOW_SECONDS",
+        description="Sliding/fixed destination probe rate-limit window.",
+    )
 
     # ── Firefly III exporter ─────────────────────────────────────────
     exporter_firefly_enabled: bool = Field(
@@ -769,6 +789,14 @@ class Settings(BaseSettings):
         ge=1,
         validation_alias="WORKER_JOB_TRADING212_SYNC_INTERVAL_HOURS",
     )
+    sync_run_stale_after_minutes: int = Field(
+        default=360,
+        ge=30,
+        validation_alias="SYNC_RUN_STALE_AFTER_MINUTES",
+        description=(
+            "Age after which a worker-orphaned running sync is recovered."
+        ),
+    )
 
     # ── DEGIRO file imports ────────────────────────────────────────
     degiro_import_staging_directory: Path = Field(
@@ -838,6 +866,16 @@ class Settings(BaseSettings):
         validation_alias="WORKER_JOB_PRICE_ENRICHMENT_MARKET_CLOSE",
         description="Market close time (EST) for price enrichment "
         "window, e.g. '16:00'.",
+    )
+    worker_job_data_quality_repair_enabled: bool = Field(
+        default=False,
+        validation_alias="WORKER_JOB_DATA_QUALITY_REPAIR_ENABLED",
+        description="Continuously repair verifiable identity and quote issues.",
+    )
+    worker_job_data_quality_repair_interval_minutes: int = Field(
+        default=60,
+        ge=5,
+        validation_alias="WORKER_JOB_DATA_QUALITY_REPAIR_INTERVAL_MINUTES",
     )
 
     # ── Worker: Nightly reconciliation job ─────────────────────────

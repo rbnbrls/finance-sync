@@ -164,7 +164,9 @@ exclude = ["**/node_modules", "**/__pycache__"]
 pythonVersion = "3.12"
 pythonPlatform = "Linux"
 reportMissingTypeStubs = "warning"
-reportPrivateUsage = "warning"
+# Private helpers are intentionally re-exported by the connector/service
+# facades; enforce their public API through the module exports instead.
+reportPrivateUsage = "none"
 reportUnusedFunction = "error"
 reportUnusedVariable = "error"
 reportDeprecated = "warning"

@@ -410,6 +410,14 @@ async def import_generic_file(
         run.completed_at = datetime.now(UTC)
         if result.error_message:
             run.error_details = [str(result.error_message)[:500]]
+        if result.status.value == "completed":
+            # Keep file imports consistent with API connectors even if the
+            # orchestrator runs in a separate session. This is the source
+            # timestamp used by the control-plane/Data health views.
+            row.last_success_at = run.completed_at
+            row.last_attempt_at = run.completed_at
+            row.last_error = None
+            row.last_error_category = None
         await db.commit()
         return {
             "status": result.status.value,

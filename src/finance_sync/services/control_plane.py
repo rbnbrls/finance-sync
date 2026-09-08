@@ -365,18 +365,21 @@ class ControlPlaneService:
         providers = {row.provider_key for row in credentials}
         if not providers:
             return []
-        rows = (
-            await self._session.execute(
-                select(UnresolvedSecurity).where(
-                    UnresolvedSecurity.tenant_id == self._tenant_id,
-                    UnresolvedSecurity.provider_key.in_(providers),
-                    UnresolvedSecurity.resolved_security_id.is_(None),
+        rows = list(
+            (
+                await self._session.execute(
+                    select(UnresolvedSecurity).where(
+                        UnresolvedSecurity.tenant_id == self._tenant_id,
+                        UnresolvedSecurity.provider_key.in_(providers),
+                        UnresolvedSecurity.resolved_security_id.is_(None),
+                    )
                 )
-            )
-        ).scalars()
+            ).scalars()
+        )
+        candidates_by_row = await self._security_candidates(rows)
         issues: list[ControlPlaneIssue] = []
         for row in rows:
-            candidates = await self._security_candidates(row)
+            candidates = candidates_by_row.get(str(row.id), [])
             transaction_count = int(
                 await self._session.scalar(
                     select(func.count(Transaction.id)).where(
@@ -424,43 +427,55 @@ class ControlPlaneService:
         return issues
 
     async def _security_candidates(
-        self, row: UnresolvedSecurity
-    ) -> list[dict[str, Any]]:
+        self, rows: list[UnresolvedSecurity]
+    ) -> dict[str, list[dict[str, Any]]]:
+        """Find candidate securities for all unresolved rows in one query."""
         predicates: list[Any] = []
-        for column, value in (
-            (Security.isin, row.raw_isin),
-            (Security.figi, row.raw_figi),
-            (Security.ticker, row.raw_ticker),
-        ):
-            if value:
-                predicates.append(column == value)
-        if row.raw_name:
-            predicates.append(Security.name.ilike(f"%{row.raw_name[:80]}%"))
+        for row in rows:
+            for column, value in (
+                (Security.isin, row.raw_isin),
+                (Security.figi, row.raw_figi),
+                (Security.ticker, row.raw_ticker),
+            ):
+                if value:
+                    predicates.append(column == value)
+            if row.raw_name:
+                predicates.append(Security.name.ilike(f"%{row.raw_name[:80]}%"))
         if not predicates:
-            return []
+            return {}
         candidates = list(
             (
                 await self._session.execute(
-                    select(Security).where(or_(*predicates)).limit(5)
+                    select(Security).where(or_(*predicates))
                 )
             ).scalars()
         )
-        return [
-            {
-                "security_id": str(candidate.id),
-                "name": candidate.name,
-                "ticker": candidate.ticker,
-                "isin": candidate.isin,
-                "confidence": (
-                    "high"
-                    if (row.raw_isin and candidate.isin == row.raw_isin)
+        result: dict[str, list[dict[str, Any]]] = {}
+        for row in rows:
+            row_candidates: list[dict[str, Any]] = []
+            name = (row.raw_name or "")[:80].casefold()
+            for candidate in candidates:
+                exact_match = (
+                    (row.raw_isin and candidate.isin == row.raw_isin)
                     or (row.raw_figi and candidate.figi == row.raw_figi)
                     or (row.raw_ticker and candidate.ticker == row.raw_ticker)
-                    else "medium"
-                ),
-            }
-            for candidate in candidates
-        ]
+                )
+                name_match = bool(name) and name in candidate.name.casefold()
+                if not exact_match and not name_match:
+                    continue
+                row_candidates.append(
+                    {
+                        "security_id": str(candidate.id),
+                        "name": candidate.name,
+                        "ticker": candidate.ticker,
+                        "isin": candidate.isin,
+                        "confidence": "high" if exact_match else "medium",
+                    }
+                )
+                if len(row_candidates) == 5:
+                    break
+            result[str(row.id)] = row_candidates
+        return result
 
     async def _reconciliation_issues(self) -> list[ControlPlaneIssue]:
         latest = await self._session.scalar(
@@ -617,26 +632,44 @@ class ControlPlaneService:
         total_count = int(total or 0)
         holdings_without_valuation = int(
             await self._session.scalar(
-                select(func.count(Holding.id)).where(
+                select(func.count(Holding.id))
+                .outerjoin(
+                    EnrichmentFreshness,
+                    EnrichmentFreshness.security_id == Holding.security_id,
+                )
+                .where(
                     Holding.tenant_id == self._tenant_id,
                     Holding.market_value.is_(None),
+                    (EnrichmentFreshness.status.is_(None))
+                    | (EnrichmentFreshness.status != "unavailable_accepted"),
                 )
             )
             or 0
         )
+        accepted_ids = {
+            str(getattr(row, "security_id", ""))
+            for row in rows
+            if getattr(row, "status", None) == "unavailable_accepted"
+        }
+        active_rows = [
+            row
+            for row in rows
+            if getattr(row, "status", None) != "unavailable_accepted"
+        ]
+        total_count = max(total_count - len(accepted_ids), 0)
         cutoff = self._now - self._freshness_limit
         fresh = sum(
             1
-            for row in rows
+            for row in active_rows
             if row.last_quote_fetch and row.last_quote_fetch >= cutoff
         )
         stale = sum(
             1
-            for row in rows
+            for row in active_rows
             if row.last_quote_fetch and row.last_quote_fetch < cutoff
         )
-        without_quote = max(total_count - len(rows), 0) + sum(
-            1 for row in rows if row.last_quote_fetch is None
+        without_quote = max(total_count - len(active_rows), 0) + sum(
+            1 for row in active_rows if row.last_quote_fetch is None
         )
         latest = max((row.updated_at for row in rows), default=None)
         by_source: dict[str, dict[str, int]] = {}
@@ -678,7 +711,8 @@ class ControlPlaneService:
                     category_bucket["stale"] += 1
         status = (
             "fresh"
-            if total_count and fresh == total_count
+            if (total_count and fresh == total_count)
+            or (not total_count and accepted_ids)
             else (
                 "unavailable"
                 if not total_count

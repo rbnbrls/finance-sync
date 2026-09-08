@@ -11,9 +11,18 @@ from pathlib import Path
 import pytest
 from openpyxl import Workbook
 
-from finance_sync.connectors.degiro_pension import DegiroPensionConnector
+from finance_sync.connectors.degiro_pension import (
+    DegiroPensionConnector,
+    ImportValidationReport,
+    _corporate_action_ratio,
+)
 from finance_sync.connectors.exceptions import PermanentError
-from finance_sync.connectors.models import ConnectorConfig
+from finance_sync.connectors.models import (
+    ConnectorConfig,
+    RawHolding,
+    RawTransaction,
+    SecurityReference,
+)
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -30,6 +39,75 @@ def _connector(*names: str, **options: object) -> DegiroPensionConnector:
             },
         )
     )
+
+
+@pytest.mark.parametrize(
+    ("description", "expected"),
+    [
+        ("Corporate Action - stock split", "corporate_action"),
+        ("Aandelensplitsing", "corporate_action"),
+        ("Transactiekosten", "fee"),
+    ],
+)
+def test_statement_type_normalizes_corporate_actions(
+    description: str, expected: str
+) -> None:
+    assert (
+        DegiroPensionConnector._statement_type(
+            description.casefold(), Decimal(1)
+        )
+        == expected
+    )
+
+
+@pytest.mark.parametrize(
+    ("description", "expected"),
+    [
+        ("Corporate Action stock split 2:1", Decimal(2)),
+        ("Aandelensplitsing 1 for 10", Decimal("0.1")),
+        ("Corporate Action zonder ratio", None),
+        ("Transactiekosten 2:1", None),
+    ],
+)
+def test_corporate_action_ratio_is_explicit_and_safe(
+    description: str, expected: Decimal | None
+) -> None:
+    assert _corporate_action_ratio(description) == expected
+
+
+def test_missing_portfolio_gak_is_derived_from_transactions() -> None:
+    reference = SecurityReference(isin="NL0000000001", name="Example")
+    transactions = [
+        RawTransaction(
+            external_transaction_id="buy",
+            external_account_id="account",
+            amount=Decimal(-100),
+            occurred_at=datetime(2026, 1, 1, tzinfo=UTC),
+            transaction_type="purchase",
+            quantity=Decimal(10),
+            unit_price=Decimal(10),
+            security_reference=reference,
+        ),
+    ]
+    holdings = [
+        RawHolding(
+            external_account_id="account",
+            observed_at=datetime(2026, 2, 1, tzinfo=UTC),
+            quantity=Decimal(10),
+            security_reference=reference,
+            market_value=Decimal(120),
+            currency_code="EUR",
+        )
+    ]
+    report = ImportValidationReport()
+
+    result = DegiroPensionConnector._fill_missing_cost_basis(
+        holdings, transactions, report
+    )
+
+    assert result[0].cost_basis == Decimal(100)
+    assert result[0].cost_basis_currency == "EUR"
+    assert "GAK afgeleid" in report.warnings[-1]
 
 
 @pytest.mark.asyncio
@@ -62,6 +140,7 @@ async def test_contract_and_all_report_types() -> None:
     assert account.account_subtype == "nl_lijfrente"
     assert account.current_balance == Decimal("650.00")
     assert account.available_balance == Decimal("20.95")
+    assert account.net_asset_value == Decimal("629.05")
     assert "synthetic-pension-fixture" not in account.external_account_id
 
     transactions = await connector.fetch_transactions(
@@ -243,6 +322,7 @@ async def test_current_portfolio_csv_upload_layout_with_unlabelled_currency(
     assert len(holdings) == 2
     assert account.available_balance == Decimal("9587.44")
     assert account.current_balance == Decimal("13045.12")
+    assert account.net_asset_value == Decimal("3457.68")
     assert holdings[0].market_value == Decimal("1425.00")
     assert holdings[0].currency_code == "EUR"
     assert holdings[1].market_value == Decimal("2032.68")

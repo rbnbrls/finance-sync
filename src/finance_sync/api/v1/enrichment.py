@@ -7,7 +7,7 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any, Protocol, cast
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,6 +15,10 @@ from finance_sync.api.deps.auth import AuthContext, require_permission
 from finance_sync.config.settings import Settings
 from finance_sync.connectors.models import ConnectorConfig
 from finance_sync.connectors.registry import ConnectorRegistry
+from finance_sync.connectors.trading212 import (
+    _normalise_instrument,
+    _price_scale,
+)
 from finance_sync.dependencies import get_db, get_settings
 from finance_sync.enrichment.models import (
     EnrichmentStatusSummary,
@@ -23,7 +27,11 @@ from finance_sync.enrichment.models import (
 from finance_sync.enrichment.price_store import PriceStore
 from finance_sync.models.credential import Credential
 from finance_sync.models.enrichment_freshness import EnrichmentFreshness
+from finance_sync.models.holding import Holding
+from finance_sync.models.market_data_exception import MarketDataException
 from finance_sync.models.security import Security
+from finance_sync.models.security_listing import SecurityListing
+from finance_sync.models.unresolved_security import UnresolvedSecurity
 from finance_sync.services.auth import decrypt_credential
 
 router = APIRouter(tags=["enrichment"])
@@ -60,15 +68,30 @@ async def refresh_quotes(
     Trading212 is currently the supported quote-capable broker adapter.
     """
     cutoff = datetime.now(UTC) - timedelta(hours=24)
+    accepted_ids = set(
+        (
+            await session.execute(
+                select(MarketDataException.security_id).where(
+                    MarketDataException.tenant_id == auth.tenant_id
+                )
+            )
+        ).scalars()
+    )
     stale_result = await session.execute(
         select(Security)
+        .join(Holding, Holding.security_id == Security.id)
         .outerjoin(
             EnrichmentFreshness,
             EnrichmentFreshness.security_id == Security.id,
         )
         .where(
-            (EnrichmentFreshness.last_quote_fetch.is_(None))
-            | (EnrichmentFreshness.last_quote_fetch < cutoff)
+            Holding.tenant_id == auth.tenant_id,
+            ~Security.id.in_(accepted_ids) if accepted_ids else True,
+            (
+                (EnrichmentFreshness.last_quote_fetch.is_(None))
+                | (EnrichmentFreshness.last_quote_fetch < cutoff)
+                | (EnrichmentFreshness.status == "failed")
+            ),
         )
     )
     securities = list(stale_result.scalars().all())
@@ -106,7 +129,7 @@ async def refresh_quotes(
         connector = ConnectorRegistry().get_connector(
             ConnectorConfig(
                 provider_type="trading212",
-                credentials=credentials_data,
+                credentials=_credential_values(credentials_data),
                 options=_options(credential),
                 connection_id=str(credential.id),
             )
@@ -119,6 +142,16 @@ async def refresh_quotes(
             by_ticker = {
                 variant: item
                 for item in portfolio
+                for variant in _ticker_variants(item.get("ticker"))
+            }
+            by_isin = {
+                str(item.get("isin", "")).strip().upper(): item
+                for item in instruments
+                if item.get("isin")
+            }
+            instrument_by_ticker = {
+                variant: item
+                for item in instruments
                 for variant in _ticker_variants(item.get("ticker"))
             }
             observations: list[PriceObservation] = []
@@ -145,10 +178,11 @@ async def refresh_quotes(
                     PriceObservation(
                         security_id=security_id,
                         timestamp=observed_at,
-                        price_close=Decimal(str(price)),
+                        price_close=price,
                         source="trading212",
                         interval="1d",
                         currency_code=currency,
+                        venue=venue,
                     )
                 )
                 matched_ids.add(security_id)
@@ -178,6 +212,54 @@ async def refresh_quotes(
         "unmatched": len(securities) - len(matched_ids),
         "providers": sorted(set(providers)),
     }
+
+
+@router.post("/enrichment/accept-unavailable-quotes")
+async def accept_unavailable_quotes(
+    auth: AuthContext = Depends(require_permission("enrichment", "write")),
+    session: AsyncSession = Depends(get_db),
+) -> dict[str, object]:
+    """Accept missing quotes as an intentional exception for this tenant."""
+    result = await session.execute(
+        select(Security)
+        .join(Holding, Holding.security_id == Security.id)
+        .outerjoin(
+            EnrichmentFreshness,
+            EnrichmentFreshness.security_id == Security.id,
+        )
+        .where(
+            Holding.tenant_id == auth.tenant_id,
+            ~Security.id.in_(
+                select(MarketDataException.security_id).where(
+                    MarketDataException.tenant_id == auth.tenant_id
+                )
+            ),
+            EnrichmentFreshness.last_quote_fetch.is_(None),
+        )
+        .distinct()
+    )
+    securities = list(result.scalars())
+    for security in securities:
+        freshness = await session.scalar(
+            select(EnrichmentFreshness).where(
+                EnrichmentFreshness.security_id == security.id
+            )
+        )
+        if freshness is None:
+            freshness = EnrichmentFreshness(security_id=str(security.id))
+            session.add(freshness)
+        freshness.status = "unavailable_accepted"
+        freshness.error_message = (
+            "Gebruiker accepteerde dat marktdata niet beschikbaar is."
+        )
+        freshness.data_source = "user_accepted"
+        session.add(
+            MarketDataException(
+                tenant_id=auth.tenant_id, security_id=str(security.id)
+            )
+        )
+    await session.flush()
+    return {"status": "completed", "accepted": len(securities)}
 
 
 @router.get("/enrichment/status")

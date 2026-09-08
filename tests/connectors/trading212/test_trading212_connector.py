@@ -31,9 +31,12 @@ from finance_sync.connectors.trading212 import (
     _map_order_side,
     _map_order_status,
     _map_transaction_type,
+    _normalise_instrument,
     _parse_cash_transaction,
     _parse_order,
     _parse_t212_datetime,
+    _price_scale,
+    _t212_quantity_event_ratio,
 )
 from tests.connectors.fixtures.trading212_api_fixtures import (
     ACCOUNT_CASH_RESPONSE,
@@ -795,6 +798,20 @@ class TestTrading212OrderParsing:
 class TestTrading212CashTransactionParsing:
     """Cash transaction parsing (dividends, deposits, etc.)."""
 
+    @pytest.mark.parametrize(
+        ("value", "expected"),
+        [
+            ("2:1", Decimal(2)),
+            ("1/10", Decimal("0.1")),
+            ("1 for 2", Decimal("0.5")),
+            ("2 op 1", Decimal(2)),
+        ],
+    )
+    def test_split_ratio_accepts_provider_ratio_formats(
+        self, value: str, expected: Decimal
+    ) -> None:
+        assert _t212_quantity_event_ratio({"splitRatio": value}) == expected
+
     def test_parse_dividend(self) -> None:
         """A dividend should parse with positive amount and dividend type."""
         from tests.connectors.fixtures.trading212_api_fixtures import (
@@ -817,6 +834,91 @@ class TestTrading212CashTransactionParsing:
         txn = _parse_cash_transaction(DEPOSIT_1, "12345678")
         assert txn.amount == Decimal("5000.00")
         assert txn.transaction_type == "deposit"
+
+    def test_parse_split_preserves_explicit_ratio_contract(self) -> None:
+        txn = _parse_cash_transaction(
+            {
+                "id": "split-1",
+                "type": "STOCK_SPLIT",
+                "dateTime": "2026-09-04T04:09:25.915Z",
+                "amount": 0,
+                "currencyCode": "EUR",
+                "ticker": "AAPL",
+                "newQuantity": 2,
+                "oldQuantity": 1,
+            },
+            "12345678",
+        )
+
+        assert txn.transaction_type == "corporate_action"
+        assert txn.provider_metadata_contract is not None
+        assert txn.provider_metadata_contract.fields["split_ratio"] == "2"
+
+    def test_parse_split_accepts_units_aliases(self) -> None:
+        txn = _parse_cash_transaction(
+            {
+                "id": "split-2",
+                "type": "SPLIT",
+                "dateTime": "2026-09-04T04:09:25.915Z",
+                "amount": 0,
+                "currencyCode": "EUR",
+                "ticker": "AAPL",
+                "newUnits": 3,
+                "oldUnits": 2,
+            },
+            "12345678",
+        )
+
+        assert txn.provider_metadata_contract is not None
+        assert txn.provider_metadata_contract.fields["split_ratio"] == "1.5"
+
+    def test_parse_cash_transaction_without_id_uses_stable_fallback(
+        self,
+    ) -> None:
+        """Live cash-history payloads may omit id without collapsing rows."""
+        txn = _parse_cash_transaction(
+            {
+                "type": "DIVIDEND",
+                "dateTime": "2026-09-04T04:09:25.915Z",
+                "amount": 0.72,
+                "currencyCode": "EUR",
+                "reference": "provider-reference-1",
+                "ticker": "AAPL",
+            },
+            "12345678",
+        )
+        assert txn.external_transaction_id == "txn_provider-reference-1"
+        assert txn.external_transaction_id != "txn_"
+
+    def test_parse_cash_transaction_without_id_or_reference_is_unique(
+        self,
+    ) -> None:
+        """Rows without provider identifiers must not collapse to ``txn_``."""
+        base = {
+            "type": "DIVIDEND",
+            "currencyCode": "EUR",
+            "ticker": "AAPL",
+        }
+        first = _parse_cash_transaction(
+            {
+                **base,
+                "dateTime": "2026-09-04T04:09:25.915Z",
+                "amount": 0.72,
+            },
+            "12345678",
+        )
+        second = _parse_cash_transaction(
+            {
+                **base,
+                "dateTime": "2026-09-05T04:09:25.915Z",
+                "amount": 0.73,
+            },
+            "12345678",
+        )
+
+        assert first.external_transaction_id != "txn_"
+        assert second.external_transaction_id != "txn_"
+        assert first.external_transaction_id != second.external_transaction_id
 
     def test_parse_withdrawal(self) -> None:
         """A withdrawal should parse with negative amount."""
@@ -862,6 +964,17 @@ class TestTrading212CashTransactionParsing:
 
 
 class TestTrading212Mapping:
+    def test_london_prices_are_scaled_from_gbx(self) -> None:
+        assert _price_scale("WISEl_EQ") == Decimal("0.01")
+        assert _price_scale("AAPL_US_EQ") == Decimal(1)
+
+    def test_normalise_dutch_instrument(self) -> None:
+        assert _normalise_instrument("BESIa_EQ") == (
+            "BESI:XAMS",
+            "BE Semiconductor Industries",
+            "XAMS",
+        )
+
     """Transaction type and status mapping."""
 
     def test_map_order_sides(self) -> None:
@@ -900,6 +1013,8 @@ class TestTrading212Mapping:
         assert _map_transaction_type("TAX") == "tax"
         assert _map_transaction_type("CASHBACK") == "deposit"
         assert _map_transaction_type("LOYALTY_BONUS") == "interest"
+        assert _map_transaction_type("SPLIT") == "corporate_action"
+        assert _map_transaction_type("STOCK_SPLIT") == "corporate_action"
         assert _map_transaction_type("UNKNOWN") == "other"
 
     def test_map_transaction_types_case_insensitive(self) -> None:
@@ -917,6 +1032,20 @@ class TestTrading212HoldingsMapping:
     average price, currency, account_id, observed_at) with no data loss,
     and missing/optional provider fields are handled gracefully.
     """
+
+    async def test_fetch_holdings_requires_instrument_metadata(
+        self,
+        t212_connector: Trading212Connector,
+        t212_mock_transport: Trading212MockTransport,
+    ) -> None:
+        """A holdings response without the instrument master is unsafe."""
+        t212_mock_transport.response_overrides[
+            "/api/v0/equity/metadata/instruments"
+        ] = []
+        await t212_connector.authenticate()
+
+        with pytest.raises(PermanentError, match="instrument metadata"):
+            await t212_connector.fetch_holdings(account_id="12345678")
 
     async def test_fetch_holdings_handles_missing_and_null_fields(
         self,
@@ -1015,7 +1144,7 @@ class TestTrading212HoldingsMapping:
         # Ticker lives on the security reference.
         assert aapl.security_reference.ticker == "AAPL"
         assert aapl.security_reference.external_id == "AAPL"
-        assert aapl.security_reference.name == "AAPL"
+        assert aapl.security_reference.name == "Apple Inc."
         assert aapl.security_reference.currency_code == "EUR"
         assert aapl.security_reference.security_type == "stock"
         # Quantity, average price (cost basis / qty), currency, account.
@@ -1298,7 +1427,7 @@ class TestTrading212ConnectorErrorHandling:
             resp = httpx.Response(503)
             _raise_for_status(resp)
 
-    def test_rate_limit_policy_retries_transient_errors(self) -> None:
+    async def test_rate_limit_policy_retries_transient_errors(self) -> None:
         """The Trading212 policy must retry transient failures robustly.
 
         The policy uses a small retry budget so a 429 does not create a

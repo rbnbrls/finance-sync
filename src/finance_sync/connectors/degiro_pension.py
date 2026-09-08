@@ -25,6 +25,7 @@ from finance_sync.connectors.base import Connector
 from finance_sync.connectors.exceptions import PermanentError
 from finance_sync.connectors.models import (
     ConnectorConfig,
+    ProviderMetadata,
     RawAccount,
     RawHolding,
     RawTransaction,
@@ -114,6 +115,31 @@ def _decimal(value: object, *, required: bool = False) -> Decimal | None:
 def _currency(value: object, default: str = "EUR") -> str:
     code = _clean(value).upper()
     return code if re.fullmatch(r"[A-Z]{3}", code) else default
+
+
+def _corporate_action_ratio(description: str) -> Decimal | None:
+    """Extract an explicit new-units/old-units ratio from a DEGIRO label."""
+    normalized = description.casefold().replace(",", ".")
+    if not any(
+        marker in normalized
+        for marker in ("corporate action", "stock split", "aandelensplitsing")
+    ):
+        return None
+    match = re.search(
+        r"(?P<new>\d+(?:\.\d+)?)\s*(?::|/|for|op)\s*"
+        r"(?P<old>\d+(?:\.\d+)?)",
+        normalized,
+    )
+    if match is None:
+        return None
+    try:
+        new_units = Decimal(match.group("new"))
+        old_units = Decimal(match.group("old"))
+    except InvalidOperation:
+        return None
+    if new_units <= 0 or old_units <= 0:
+        return None
+    return new_units / old_units
 
 
 def _parse_datetime(date_value: object, time_value: object = "") -> datetime:
@@ -269,6 +295,9 @@ class DegiroPensionConnector(Connector):
                 currency_code="EUR",
                 current_balance=balance,
                 available_balance=self._cash_total,
+                net_asset_value=(
+                    balance - self._cash_total if balance is not None else None
+                ),
                 iso_currency_code="EUR",
                 provider_metadata={
                     "source": "official_user_export",
@@ -276,6 +305,7 @@ class DegiroPensionConnector(Connector):
                     if self._snapshot_at
                     else None,
                     "cash_included_in_current_balance": True,
+                    "net_asset_value_excludes_cash": True,
                     "supports_multi_currency_cash": False,
                 },
             )
@@ -377,9 +407,12 @@ class DegiroPensionConnector(Connector):
                 )
                 raise PermanentError(message)
             self._transactions = self._deduplicate(transactions)
-            self._holdings = holdings
+            self._holdings = self._fill_missing_cost_basis(
+                holdings, self._transactions, report
+            )
             report.rows_imported = len(self._transactions) + len(holdings)
             self._reports = reports
+            self.validation_report = report
         except PermanentError:
             self.validation_report = report
             raise
@@ -388,7 +421,89 @@ class DegiroPensionConnector(Connector):
             self.validation_report = report
             message = f"DEGIRO-export kon niet worden gelezen: {exc}"
             raise PermanentError(message) from exc
-        self.validation_report = report
+
+    @staticmethod
+    def _fill_missing_cost_basis(
+        holdings: list[RawHolding],
+        transactions: list[RawTransaction],
+        report: ImportValidationReport,
+    ) -> list[RawHolding]:
+        """Derive missing portfolio GAK values from the transactions export.
+
+        DEGIRO's Portfolio export does not always include a GAK column.  The
+        Transactions export still contains the authoritative trade quantity,
+        price and fees, so calculate a weighted-average remaining cost per
+        ISIN.  The value stored on ``RawHolding`` is the total cost basis;
+        Wealthfolio later converts it to average cost per unit.
+        """
+        state: dict[str, tuple[Decimal, Decimal]] = {}
+        ordered = sorted(transactions, key=lambda item: item.occurred_at)
+        for transaction in ordered:
+            reference = transaction.security_reference
+            isin = reference.isin if reference is not None else None
+            if (
+                not isin
+                or transaction.transaction_type not in {"purchase", "sale"}
+                or transaction.quantity is None
+                or transaction.unit_price is None
+                or transaction.quantity == 0
+            ):
+                continue
+            quantity = abs(transaction.quantity)
+            unit_price = abs(transaction.unit_price)
+            open_quantity, open_cost = state.get(isin, (Decimal(0), Decimal(0)))
+            if transaction.transaction_type == "purchase":
+                state[isin] = (
+                    open_quantity + quantity,
+                    open_cost
+                    + quantity * unit_price
+                    + abs(transaction.fee_amount or Decimal(0)),
+                )
+                continue
+            average_cost = (
+                open_cost / open_quantity if open_quantity else Decimal(0)
+            )
+            state[isin] = (
+                max(open_quantity - quantity, Decimal(0)),
+                max(open_cost - quantity * average_cost, Decimal(0)),
+            )
+
+        filled = 0
+        result: list[RawHolding] = []
+        for holding in holdings:
+            if holding.cost_basis is not None:
+                result.append(holding)
+                continue
+            isin = holding.security_reference.isin
+            if not isin:
+                result.append(holding)
+                continue
+            derived_quantity, derived_cost = state.get(
+                isin, (Decimal(0), Decimal(0))
+            )
+            if derived_quantity <= 0 or derived_cost <= 0:
+                result.append(holding)
+                continue
+            # A mismatch means the transaction export is incomplete for this
+            # position. Do not invent a cost basis from a partial history.
+            if derived_quantity != abs(holding.quantity):
+                report.warnings.append(
+                    f"GAK niet afgeleid voor {isin}: transacties bevatten "
+                    f"{derived_quantity} stuks, portefeuille "
+                    f"{holding.quantity}."
+                )
+                result.append(holding)
+                continue
+            holding.cost_basis = derived_cost
+            holding.cost_basis_currency = holding.currency_code
+            filled += 1
+            result.append(holding)
+        if filled:
+            report.warnings.append(
+                f"GAK afgeleid uit transacties voor {filled} "
+                "portefeuilleposities."
+            )
+        return result
 
     def _read_table(self, path: Path) -> tuple[list[str], list[list[Any]]]:
         suffix = path.suffix.lower()
@@ -776,6 +891,12 @@ class DegiroPensionConnector(Connector):
                     report.rows_skipped += 1
                     continue
                 amount = _decimal(mutation_raw, required=True)
+                if amount is None:
+                    # ``required=True`` raises for missing values; this guard
+                    # narrows the type for static analysis and protects the
+                    # parser if that contract changes later.
+                    message = "bedrag of aantal ontbreekt"
+                    raise ValueError(message)
                 mutation_after = row.after("Mutatie", "Change", "Amount")
                 currency = _currency(
                     row.get("Valuta", "Currency", occurrence=1)
@@ -794,6 +915,7 @@ class DegiroPensionConnector(Connector):
                 transaction_type = self._statement_type(
                     lowered, amount or Decimal(0)
                 )
+                corporate_action_ratio = _corporate_action_ratio(description)
                 projected_fx = None
                 if currency != "EUR" and transaction_type in {
                     "dividend",
@@ -843,9 +965,7 @@ class DegiroPensionConnector(Connector):
                         transaction_type=transaction_type,
                         status="booked",
                         amount_in_base=(
-                            amount / fx
-                            if amount is not None and fx not in (None, 0)
-                            else None
+                            amount / fx if fx not in (None, 0) else None
                         ),
                         base_currency_code="EUR"
                         if fx not in (None, 0)
@@ -871,6 +991,16 @@ class DegiroPensionConnector(Connector):
                                 else None
                             ),
                         },
+                        provider_metadata_contract=(
+                            ProviderMetadata(
+                                source_object_type="account_statement",
+                                fields={
+                                    "split_ratio": str(corporate_action_ratio)
+                                },
+                            )
+                            if corporate_action_ratio is not None
+                            else None
+                        ),
                     )
                 )
             except (ValueError, InvalidOperation) as exc:
@@ -923,7 +1053,16 @@ class DegiroPensionConnector(Connector):
                 "transfer",
             ),
             (
-                ("kosten", "fee", "aansluit", "platform", "corporate action"),
+                (
+                    "corporate action",
+                    "stock split",
+                    "aandelensplitsing",
+                    "scrip dividend",
+                ),
+                "corporate_action",
+            ),
+            (
+                ("kosten", "fee", "aansluit", "platform"),
                 "fee",
             ),
         )

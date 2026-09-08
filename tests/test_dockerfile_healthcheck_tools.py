@@ -49,3 +49,12 @@ def test_production_stage_has_healthcheck() -> None:
         assert "/health/live" in stage, (
             f"healthcheck target missing from {path.name}"
         )
+
+
+def test_production_stage_upgrades_alpine_base_packages() -> None:
+    """Runtime images refresh inherited Alpine packages before use."""
+    for path in (DOCKERFILE, DOCKERFILE_WORKER):
+        stage = _production_stage(path)
+        assert "RUN apk upgrade --no-cache &&" in stage, (
+            f"inherited Alpine packages are not upgraded in {path.name}"
+        )

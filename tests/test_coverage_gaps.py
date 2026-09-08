@@ -24,7 +24,11 @@ from finance_sync.api.v1.file_uploads import (
     _normalise,
     list_file_upload_runs,
 )
-from finance_sync.api.v1.market_data import _live_quote, _parse_options
+from finance_sync.api.v1.market_data import (
+    _live_quote,
+    _local_quote,
+    _parse_options,
+)
 from finance_sync.api.v1.webhooks import (
     CreateWebhookRequest,
     _get_service,
@@ -645,6 +649,50 @@ async def test_market_data_live_quote_without_connection_raises_404(
     with pytest.raises(HTTPException) as error:
         await _live_quote(MagicMock(), MagicMock(), _auth(), "AAPL", None)
     assert error.value.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_market_data_local_quote_prefers_current_holding(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The custom-provider endpoint must expose the broker snapshot value."""
+    security = SimpleNamespace(
+        id="security-1",
+        ticker="BESI",
+        isin="NL0012866412",
+        currency_code="EUR",
+    )
+    holding = SimpleNamespace(
+        price=Decimal("192.30"),
+        market_value=Decimal("1923.00"),
+        quantity=10,
+        price_currency="EUR",
+        currency_code="EUR",
+        observed_at=datetime(2026, 9, 1, 12, 0, tzinfo=UTC),
+        source="provider_sync",
+    )
+    monkeypatch.setattr(
+        "finance_sync.api.v1.market_data._security",
+        AsyncMock(return_value=security),
+    )
+    db = MagicMock()
+    db.execute = AsyncMock(
+        return_value=SimpleNamespace(
+            scalars=lambda: SimpleNamespace(first=lambda: holding)
+        )
+    )
+
+    result = await _local_quote(db, MagicMock(), _auth(), "BESI:XAMS")
+
+    assert result == {
+        "symbol": "BESI",
+        "isin": "NL0012866412",
+        "price": 192.30,
+        "currency": "EUR",
+        "timestamp": "2026-09-01T12:00:00+00:00",
+        "date": "2026-09-01",
+        "source": "finance-sync:provider_sync",
+    }
 
 
 class _Scheduler:
@@ -2205,12 +2253,11 @@ async def test_worker_connection_loader_skips_failed_decryption(
         info={"settings": MagicMock()},
         execute=AsyncMock(
             return_value=SimpleNamespace(
-                scalars=lambda: SimpleNamespace(all=lambda: [broken, plain])
+                all=lambda: [(broken, tenant), (plain, tenant)]
             )
         ),
     )
     uow = SimpleNamespace(
-        tenants=SimpleNamespace(list=AsyncMock(return_value=[tenant])),
         session=session,
     )
     monkeypatch.setattr(
@@ -2242,13 +2289,10 @@ async def test_worker_connection_loader_decrypts_credentials(
     session = SimpleNamespace(
         info={"settings": MagicMock()},
         execute=AsyncMock(
-            return_value=SimpleNamespace(
-                scalars=lambda: SimpleNamespace(all=lambda: [credential])
-            )
+            return_value=SimpleNamespace(all=lambda: [(credential, tenant)])
         ),
     )
     uow = SimpleNamespace(
-        tenants=SimpleNamespace(list=AsyncMock(return_value=[tenant])),
         session=session,
     )
     monkeypatch.setattr(
@@ -2626,6 +2670,41 @@ async def test_transaction_persistence_updates_and_normalises_unknown_values(
 
 
 @pytest.mark.asyncio
+async def test_transaction_persistence_preserves_corporate_action_type(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from finance_sync.connectors.models import CanonicalTransactionData
+    from finance_sync.sync import persistence
+    from finance_sync.sync.persistence import TransactionPersistence
+
+    transaction = CanonicalTransactionData(
+        provider_key="trading212",
+        external_transaction_id="split-1",
+        external_account_id="account-1",
+        amount=Decimal(0),
+        occurred_at=datetime.now(UTC),
+        transaction_type="corporate_action",
+        status="booked",
+    )
+    session = SimpleNamespace(add=MagicMock(), flush=AsyncMock())
+    uow = SimpleNamespace(
+        session=session,
+        transactions=SimpleNamespace(
+            get_by_external_id=AsyncMock(return_value=None)
+        ),
+    )
+    created = AsyncMock()
+    monkeypatch.setattr(persistence, "outbox_entity_created", created)
+
+    result = await TransactionPersistence("tenant-1").persist_transaction(
+        uow, transaction, "account-1", security_id="security-1"
+    )
+
+    assert result.transaction_type.value == "corporate_action"
+    created.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_webhook_active_query_scopes_by_tenant() -> None:
     webhook = SimpleNamespace(id="wh-1")
 
@@ -2909,6 +2988,9 @@ async def test_degiro_execute_run_completes_and_cleans_staged_files(
     assert completed.skipped_count == 2
     assert completed.account_id == "account-1"
     assert not path.exists()
+    assert orchestrator.run_sync.await_args.kwargs["connection_id"] == (
+        "connection-1"
+    )
 
 
 @pytest.mark.asyncio
@@ -3766,6 +3848,52 @@ async def test_security_resolution_honours_mapping_and_figi_fallback() -> None:
     )
     assert result is candidate
     assert unresolved is None
+
+
+@pytest.mark.asyncio
+async def test_security_resolution_enriches_existing_provider_mapping() -> None:
+    from finance_sync.connectors.models import SecurityReference
+    from finance_sync.sync.persistence import SecurityPersistence
+
+    resolved = SimpleNamespace(
+        id="security-resolved",
+        ticker="AVGO_US_EQ",
+        name="AVGO_US_EQ",
+        isin=None,
+        figi=None,
+        currency_code="EUR",
+    )
+    uow = SimpleNamespace(
+        unresolved_securities=SimpleNamespace(
+            list=AsyncMock(
+                return_value=[
+                    SimpleNamespace(resolved_security_id="security-resolved")
+                ]
+            )
+        ),
+        securities=SimpleNamespace(get=AsyncMock(return_value=resolved)),
+    )
+
+    result, unresolved = await SecurityPersistence(
+        "tenant-1"
+    ).resolve_security_reference(
+        uow,
+        "trading212",
+        SecurityReference(
+            external_id="AVGO_US_EQ",
+            ticker="AVGO",
+            name="Broadcom Inc.",
+            isin="US11135F1012",
+            currency_code="USD",
+        ),
+    )
+
+    assert result is resolved
+    assert unresolved is None
+    assert resolved.name == "Broadcom Inc."
+    assert resolved.ticker == "AVGO"
+    assert resolved.isin == "US11135F1012"
+    assert resolved.currency_code == "USD"
 
 
 @pytest.mark.asyncio

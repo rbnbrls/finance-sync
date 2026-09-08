@@ -37,7 +37,9 @@ FROM python:3.12-alpine AS production
 # curl + wget: curl backs the HEALTHCHECK; wget keeps Coolify's default
 # injected probe working (issue #233).
 # Alpine does not include Debian's systemd/udev libraries in its Python base.
-RUN apk add --no-cache \
+# Refresh inherited packages so the image does not retain vulnerabilities from
+# the package set baked into the Python base image.
+RUN apk upgrade --no-cache && apk add --no-cache \
     bash \
     curl \
     wget \

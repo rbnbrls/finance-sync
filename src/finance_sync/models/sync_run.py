@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID as _UUID
 
-from sqlalchemy import JSON, DateTime, String, Text
+from sqlalchemy import JSON, DateTime, Index, String, Text, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -23,6 +23,16 @@ class SyncRun(Base):
     """
 
     __tablename__ = "sync_runs"
+    __table_args__ = (
+        Index(
+            "uq_sync_runs_active_connection",
+            "connection_id",
+            unique=True,
+            postgresql_where=text(
+                "status = 'running' AND connection_id IS NOT NULL"
+            ),
+        ),
+    )
 
     id: Mapped[str] = pk_uuid()
 
@@ -92,10 +102,12 @@ class SyncRun(Base):
         String(16), nullable=True
     )
     last_http_status: Mapped[int | None] = mapped_column(nullable=True)
-    report: Mapped[dict[str, int] | None] = mapped_column(
+    report: Mapped[dict[str, object] | None] = mapped_column(
         JSONB,
         nullable=True,
-        comment="Counts for new/changed/unchanged/classified/skipped/failed",
+        comment=(
+            "Counts and resource identities for the sync outcome"
+        ),
     )
 
     created_at = created_at_ts()

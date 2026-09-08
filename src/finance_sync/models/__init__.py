@@ -28,6 +28,7 @@ from finance_sync.models.datamart import (
     DataMartGrant,
 )
 from finance_sync.models.detected_subscription import DetectedSubscription
+from finance_sync.models.duplicate_review import DuplicateReview
 from finance_sync.models.enrichment_freshness import EnrichmentFreshness
 from finance_sync.models.enums import (
     AccountType,
@@ -70,6 +71,7 @@ from finance_sync.models.holding_relevance import (
     RelevanceNotificationPreference,
 )
 from finance_sync.models.import_run import ImportRun
+from finance_sync.models.market_data_exception import MarketDataException
 from finance_sync.models.market_intelligence_item import (
     MarketIntelligenceItem,
 )
@@ -211,6 +213,7 @@ __all__ = [
     "DestinationObjectReference",
     "DetectedSubscription",
     "DetectionMethod",
+    "DuplicateReview",
     "EnrichmentFreshness",
     "ExportTarget",
     "FundamentalObservation",
@@ -219,6 +222,7 @@ __all__ = [
     "HoldingRelevanceItem",
     "HoldingSource",
     "ImportRun",
+    "MarketDataException",
     "MarketIntelligenceItem",
     "MarketIntelligenceProviderState",
     "MarketIntelligenceReviewQueue",

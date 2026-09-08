@@ -317,7 +317,8 @@ class CanonicalTransactionData(BaseModel):
     booked_at: datetime | None = Field(default=None)
     transaction_type: str = Field(
         description="Normalised type: transfer/payment/purchase/sale/fee/"
-        "interest/dividend/withdrawal/deposit/other"
+        "interest/dividend/split/adjustment/corporate_action/withdrawal/"
+        "deposit/other"
     )
     description: str | None = Field(default=None)
     quantity: Decimal | None = Field(

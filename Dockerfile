@@ -39,7 +39,9 @@ FROM python:3.12-alpine AS production
 #     keeps the default probe working even if a Coolify-side custom
 #     health_check_command is ever reset.
 # Alpine does not include Debian's systemd/udev libraries in its Python base.
-RUN apk add --no-cache \
+# Refresh inherited packages so the image does not retain vulnerabilities from
+# the package set baked into the Python base image.
+RUN apk upgrade --no-cache && apk add --no-cache \
     bash \
     curl \
     wget \

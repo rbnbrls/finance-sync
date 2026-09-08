@@ -10,6 +10,8 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any, cast
 
+from sqlalchemy import delete, select
+
 from finance_sync.db.repository import Repository
 from finance_sync.models import (
     Account,
@@ -382,8 +384,6 @@ class TransactionRepository(Repository[Transaction]):
         account_id: str,
     ) -> list[str]:
         """Return distinct provider_keys with transactions for this account."""
-        from sqlalchemy import select
-
         stmt = (
             select(Transaction.provider_key)  # type: ignore[attr-defined]
             .where(
@@ -562,6 +562,14 @@ class HoldingRepository(Repository[Holding]):
 class TaxLotRepository(Repository[TaxLot]):
     model_class = TaxLot
 
+    async def delete_for_tenant(self, tenant_id: str) -> int:
+        """Delete all lots for one tenant before a full reconstruction."""
+        result = await self._session.execute(
+            delete(TaxLot).where(TaxLot.tenant_id == tenant_id)
+        )
+        await self._session.flush()
+        return int(getattr(result, "rowcount", 0) or 0)
+
     async def find_open_lots(
         self,
         tenant_id: str,
@@ -593,6 +601,17 @@ class TaxLotRepository(Repository[TaxLot]):
                 (TaxLot.purchase_transaction_id == transaction_id)  # type: ignore[attr-defined]
                 | (TaxLot.sale_transaction_id == transaction_id)  # type: ignore[attr-defined]
             ),
+        )
+
+    async def find_lots_for_transfer(
+        self,
+        tenant_id: str,
+        transfer_transaction_id: str,
+    ) -> list[TaxLot]:
+        """Find lots created by one security-transfer leg."""
+        return await self.list(
+            TaxLot.tenant_id == tenant_id,  # type: ignore[attr-defined]
+            TaxLot.transfer_transaction_id == transfer_transaction_id,  # type: ignore[attr-defined]
         )
 
 

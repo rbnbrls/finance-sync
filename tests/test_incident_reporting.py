@@ -1,5 +1,6 @@
 """Tests for the single-route connector incident reporter."""
 
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -19,10 +20,14 @@ def _settings(token: str = "") -> Settings:
 
 def test_incident_fingerprint_is_stable_and_ignores_volatile_values() -> None:
     first = incident_fingerprint(
-        connector="saxo", operation="sync", error=RuntimeError("HTTP 500 id 12345")
+        connector="saxo",
+        operation="sync",
+        error=RuntimeError("HTTP 500 id 12345"),
     )
     second = incident_fingerprint(
-        connector="saxo", operation="sync", error=RuntimeError("HTTP 500 id 67890")
+        connector="saxo",
+        operation="sync",
+        error=RuntimeError("HTTP 500 id 67890"),
     )
     assert first == second
 
@@ -85,6 +90,22 @@ async def test_falls_back_to_glitchtip_when_github_is_unavailable() -> None:
 
     result = await report_connector_failure(
         _settings(),
+        RuntimeError("provider unavailable"),
+        connector="saxo_investor",
+        operation="sync_connection",
+        fallback_capture=fallback,
+    )
+
+    assert result["channel"] == "glitchtip"
+    fallback.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_reduced_settings_can_use_glitchtip_fallback() -> None:
+    fallback = MagicMock()
+
+    result = await report_connector_failure(
+        SimpleNamespace(),
         RuntimeError("provider unavailable"),
         connector="saxo_investor",
         operation="sync_connection",

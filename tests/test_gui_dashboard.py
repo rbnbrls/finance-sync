@@ -120,6 +120,12 @@ def test_dashboard_exposes_connector_lifecycle_delete_guards(
     assert "window.location.hash.slice(1)" in html
     assert "function renderDataHealth" in html
     assert "Elke melding heeft één concrete vervolgstap." in html
+    assert "deleteLinkedAccount(connectionId, externalAccountId)" in html
+    assert "/accounts/${encodeURIComponent(externalAccountId)}" in html
+    assert "Verwijder account" in html
+    assert "function deleteViewerAccount(accountId)" in html
+    assert "api('DELETE', `/accounts/${accountId}`)" in html
+    assert "Account en lokale data verwijderd" in html
 
 
 def test_dashboard_control_plane_has_safe_recovery_paths(
@@ -299,7 +305,7 @@ def test_dashboard_ships_degiro_guided_wizard(client: TestClient) -> None:
     assert "Portefeuille" in html
     assert 'id="import-flow-panel"' in html
     assert "/connectors/file-uploads/dispatch" in html
-    assert "De drie bestanden zijn verwerkt" in html
+    assert "De bestanden zijn gecontroleerd" in html
 
 
 def test_degiro_wizard_defines_three_reports(client: TestClient) -> None:
@@ -501,6 +507,20 @@ def test_dashboard_inline_errors_carry_retry_actions(
     assert "validateGenericImportFiles" in html
 
 
+def test_dashboard_does_not_present_cash_as_broker_nav(
+    client: TestClient,
+) -> None:
+    html = _dashboard_html(client)
+    assert (
+        "if (viewerAccountIsBroker(item)) return item.net_asset_value;" in html
+    )
+    assert "if (item[valueKey] == null) return;" in html
+    assert (
+        "De import kan pas worden bevestigd wanneer alle drie rapporten aanwezig zijn."
+        in html
+    )
+
+
 def test_dashboard_saves_connect_config_with_validation(
     client: TestClient,
 ) -> None:
@@ -531,6 +551,38 @@ def test_dashboard_wizard_modal_is_accessible(client: TestClient) -> None:
     assert 'label for="opt-' in html
     # Required fields are surfaced for assistive tech.
     assert "aria-required" in html
+
+
+def test_dashboard_ships_wealthfolio_custom_provider_wizard(
+    client: TestClient,
+) -> None:
+    html = _dashboard_html(client)
+    assert "openCustomProviderWizard" in html
+    assert "Wealthfolio custom market-data provider" in html
+    assert "POST', '/auth/api-keys'" in html
+    assert "market-data:read" in html
+    assert "/api/v1/market-data/latest?symbol={SYMBOL}" in html
+    assert (
+        "/api/v1/market-data/history?symbol={SYMBOL}&from={FROM}&to={TO}"
+        in html
+    )
+    assert "$.data[*].price" in html
+    assert "X-API-Key" in html
+
+
+def test_dashboard_renders_destination_parity_context(
+    client: TestClient,
+) -> None:
+    html = _dashboard_html(client)
+    assert "renderDestinationParity" in html
+    assert "Remote status:" in html
+    assert "remote payloads en secrets worden niet getoond" in html
+    assert "parity_accounts" in html
+    assert "Per account:" in html
+    assert "remote_activities" in html
+    assert "parity_counts" in html
+    assert "Persistente parity-samenvatting" in html
+    assert "Remote assets" in html
 
 
 def test_dashboard_wizard_escaping_prevents_xss(client: TestClient) -> None:
@@ -571,7 +623,9 @@ def test_dashboard_has_no_admin_api_key_ui(client: TestClient) -> None:
     """AC4: unrelated admin-only features (API-key management) are not
     surfaced in the dashboard at all — only the API exposes them."""
     html = _dashboard_html(client)
-    assert "api-keys" not in html.lower()
+    # The dashboard may expose the read-only market-data key wizard; it must
+    # not expose the broader admin key-management surface.
+    assert "api-key beheer" not in html.lower()
     assert "API Key Management" not in html
 
 

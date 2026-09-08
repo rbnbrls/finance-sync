@@ -105,6 +105,7 @@ def test_capture_connector_exception_adds_safe_context_and_original_error() -> (
     scope_context = MagicMock()
     scope_context.__enter__.return_value = scope
     scope_context.__exit__.return_value = False
+    scope.set_fingerprint = None
     error = ValueError("provider payload contained api_key=secret-value")
 
     with (
@@ -123,10 +124,12 @@ def test_capture_connector_exception_adds_safe_context_and_original_error() -> (
             connection_id="connection-123",
             provider_account_id="broker-account-456",
             correlation_id="sync-run-789",
+            fingerprint="incident-123",
         )
 
     scope.set_tag.assert_any_call("connector", "trading212")
     scope.set_tag.assert_any_call("operation", "fetch_transactions")
+    scope.set_tag.assert_any_call("incident_fingerprint", "incident-123")
     scope.set_tag.assert_any_call("correlation_id", "sync-run-789")
     context = scope.set_context.call_args.args[1]
     assert context["connector"] == "trading212"

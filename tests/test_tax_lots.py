@@ -40,11 +40,14 @@ from finance_sync.models.enums import (
 from finance_sync.models.tax_lot import TaxLot
 from finance_sync.models.transaction import Transaction
 from finance_sync.services.tax_lot_service import (
+    compute_all_tax_lots,
     create_tax_lots_for_purchase,
     detect_and_adjust_wash_sales,
     get_tax_lot_summary,
     match_sale_to_lots,
+    pair_security_transfer_legs,
     process_transaction,
+    transfer_lots_to_destination,
 )
 
 # ── Test helpers ──────────────────────────────────────────────────────
@@ -105,6 +108,76 @@ def _make_sale_txn(
         status=TransactionStatus.BOOKED,
         **overrides,
     )
+
+
+def _make_transfer_txn(
+    account_id: str,
+    amount: Decimal,
+    *,
+    transfer_id: str = "transfer-1",
+    occurred_at: datetime | None = None,
+) -> Transaction:
+    return Transaction(
+        id=str(uuid4()),
+        tenant_id=_TENANT_ID,
+        provider_key="test",
+        external_transaction_id=f"txn_{uuid4()}",
+        account_id=account_id,
+        security_id=_SECURITY_ID,
+        amount=amount,
+        quantity=Decimal(5),
+        currency_code="EUR",
+        occurred_at=occurred_at or datetime(2026, 1, 2, tzinfo=UTC),
+        transaction_type=TransactionType.TRANSFER,
+        status=TransactionStatus.BOOKED,
+        provider_metadata_contract={"transfer_id": transfer_id},
+    )
+
+
+def test_security_transfer_legs_are_paired_symmetrically() -> None:
+    source = _make_transfer_txn(_ACCOUNT_ID, Decimal(-500))
+    destination = _make_transfer_txn(str(uuid4()), Decimal(500))
+
+    pairs = pair_security_transfer_legs([source, destination])
+
+    assert pairs[str(source.id)] is destination
+    assert pairs[str(destination.id)] is source
+
+
+@pytest.mark.asyncio
+async def test_transfer_lots_move_basis_without_creating_purchase_link() -> (
+    None
+):
+    source = _make_transfer_txn(_ACCOUNT_ID, Decimal(-500))
+    destination = _make_transfer_txn(str(uuid4()), Decimal(500))
+    lot = MagicMock(
+        remaining_quantity=Decimal(5),
+        cost_basis_per_unit=Decimal(100),
+        acquired_at=datetime(2025, 1, 1, tzinfo=UTC),
+        currency_code="EUR",
+        cost_basis_method=CostBasisMethod.FIFO.value,
+    )
+    repo = MagicMock()
+    repo.find_lots_for_transfer = AsyncMock(return_value=[])
+    repo.find_open_lots = AsyncMock(return_value=[lot])
+    repo.update = AsyncMock()
+    repo.add = AsyncMock()
+
+    with patch(
+        "finance_sync.services.tax_lot_service.TaxLotRepository",
+        return_value=repo,
+    ):
+        result = await transfer_lots_to_destination(
+            MagicMock(), _TENANT_ID, source, destination
+        )
+
+    assert result["action"] == "transfer_basis_moved"
+    assert result["lots_created"] == 1
+    assert lot.remaining_quantity == Decimal(0)
+    created = repo.add.await_args.args[0]
+    assert created.purchase_transaction_id is None
+    assert created.transfer_transaction_id == str(destination.id)
+    assert created.cost_basis_total == Decimal(500)
 
 
 # ── Shared fixtures ───────────────────────────────────────────────────
@@ -651,6 +724,82 @@ class TestProcessTransaction:
             actions = await process_transaction(AsyncMock(), _TENANT_ID, txn)
 
         assert len(actions) >= 1
+
+    @pytest.mark.asyncio
+    async def test_process_split_preserves_total_cost_basis(self) -> None:
+        lot = MagicMock(
+            quantity=Decimal(10),
+            remaining_quantity=Decimal(6),
+            cost_basis_total=Decimal(1000),
+            cost_basis_per_unit=Decimal(100),
+        )
+        with patch(
+            "finance_sync.services.tax_lot_service.TaxLotRepository"
+        ) as mock_repo_class:
+            mock_repo = mock_repo_class.return_value
+            mock_repo.find_open_lots = AsyncMock(return_value=[lot])
+            mock_repo.update = AsyncMock()
+
+            txn = _make_purchase_txn()
+            txn.transaction_type = TransactionType.SPLIT
+            txn.quantity = None
+            txn.amount = Decimal(0)
+            txn.provider_metadata_contract = {"fields": {"split_ratio": "2"}}
+            actions = await process_transaction(AsyncMock(), _TENANT_ID, txn)
+
+        assert actions == [
+            {
+                "action": "quantity_event_applied",
+                "event_id": str(txn.id),
+                "ratio": "2",
+                "lots_adjusted": 1,
+                "cost_basis_preserved": True,
+            }
+        ]
+        assert lot.quantity == Decimal(20)
+        assert lot.remaining_quantity == Decimal(12)
+        assert lot.cost_basis_total == Decimal(1000)
+        assert lot.cost_basis_per_unit == Decimal(50)
+
+    @pytest.mark.asyncio
+    async def test_process_split_without_ratio_is_explicit_evidence_gap(
+        self,
+    ) -> None:
+        txn = _make_purchase_txn()
+        txn.transaction_type = TransactionType.SPLIT
+        txn.quantity = None
+        txn.amount = Decimal(0)
+        txn.provider_metadata_contract = {"fields": {"event": "split"}}
+
+        actions = await process_transaction(AsyncMock(), _TENANT_ID, txn)
+
+        assert actions == [
+            {
+                "action": "quantity_event_skipped",
+                "event_id": str(txn.id),
+                "reason": "missing_positive_ratio",
+            }
+        ]
+
+
+@pytest.mark.asyncio
+async def test_compute_all_tax_lots_resets_tenant_before_reconstruction() -> (
+    None
+):
+    session = AsyncMock()
+    result = MagicMock()
+    result.scalars.return_value.all.return_value = []
+    session.execute = AsyncMock(return_value=result)
+    with patch(
+        "finance_sync.services.tax_lot_service.TaxLotRepository"
+    ) as mock_repo_class:
+        repo = mock_repo_class.return_value
+        repo.delete_for_tenant = AsyncMock(return_value=3)
+
+        stats = await compute_all_tax_lots(session, _TENANT_ID)
+
+    repo.delete_for_tenant.assert_awaited_once_with(_TENANT_ID)
+    assert stats["transactions_processed"] == 0
 
 
 # ═══════════════════════════════════════════════════════════════════════

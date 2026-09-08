@@ -47,8 +47,10 @@ class _Session:
     ) -> None:
         self._responses = list(responses)
         self._scalar_values = list(scalar_values)
+        self.execute_calls = 0
 
     async def execute(self, _statement: Any) -> _Result:
+        self.execute_calls += 1
         return self._responses.pop(0)
 
     async def scalar(self, _statement: Any) -> Any:
@@ -536,6 +538,57 @@ async def test_security_issue_contains_candidates_confidence_and_impact() -> (
     assert issue.candidate_securities[0]["security_id"] == "security-a"
     assert issue.action.key == "map_security"
     assert issue.action.enabled is True
+
+
+@pytest.mark.asyncio
+async def test_security_candidates_are_loaded_in_one_batch() -> None:
+    unresolved_a = SimpleNamespace(
+        id="unresolved-a",
+        provider_key="bunq",
+        external_security_id="external-a",
+        raw_isin=None,
+        raw_figi=None,
+        raw_ticker="AAA",
+        raw_name=None,
+    )
+    unresolved_b = SimpleNamespace(
+        id="unresolved-b",
+        provider_key="bunq",
+        external_security_id="external-b",
+        raw_isin=None,
+        raw_figi=None,
+        raw_ticker="BBB",
+        raw_name=None,
+    )
+    candidate_a = SimpleNamespace(
+        id="security-a",
+        name="Security A",
+        ticker="AAA",
+        isin=None,
+        figi=None,
+    )
+    candidate_b = SimpleNamespace(
+        id="security-b",
+        name="Security B",
+        ticker="BBB",
+        isin=None,
+        figi=None,
+    )
+    session = _Session(
+        _Result(scalars=[unresolved_a, unresolved_b]),
+        _Result(scalars=[candidate_a, candidate_b]),
+        scalar_values=[0, 0, 0, 0],
+    )
+
+    issues = await ControlPlaneService(
+        cast("Any", session),
+        "tenant-a",
+    )._security_issues([SimpleNamespace(provider_key="bunq")])
+
+    assert len(issues) == 2
+    assert issues[0].candidate_securities[0]["security_id"] == "security-a"
+    assert issues[1].candidate_securities[0]["security_id"] == "security-b"
+    assert session.execute_calls == 2
 
 
 @pytest.mark.asyncio

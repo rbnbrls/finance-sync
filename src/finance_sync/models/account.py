@@ -97,7 +97,8 @@ class Account(TimestampMixin, Base):
         Numeric(24, 8), nullable=True
     )
     net_asset_value: Mapped[Decimal | None] = mapped_column(
-        Numeric(24, 8), nullable=True,
+        Numeric(24, 8),
+        nullable=True,
         comment="Total account value including investment positions",
     )
     iso_currency_code: Mapped[str | None] = mapped_column(

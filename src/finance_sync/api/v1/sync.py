@@ -249,6 +249,8 @@ async def _run_connection_sync(
         )
         run_id = await _latest_run_id(db, cred.provider_key, str(cred.id))
         status = str(result.status.value)
+        if getattr(result, "error_category", None) == "already_running":
+            status = "running"
         await _record_sync_audit(
             db,
             tenant_id=tenant_id,
@@ -505,7 +507,9 @@ async def start_sync_connection(
         raise HTTPException(status_code=404, detail="Connection not found")
     running_id = await db.scalar(
         select(SyncRun.id)
-        .where(SyncRun.connection_id == connection_id, SyncRun.status == "running")
+        .where(
+            SyncRun.connection_id == connection_id, SyncRun.status == "running"
+        )
         .order_by(SyncRun.started_at.desc())
         .limit(1)
     )
