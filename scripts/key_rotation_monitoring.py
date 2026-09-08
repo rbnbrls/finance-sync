@@ -216,8 +216,8 @@ def build_key_issue_body(
     Returns:
         Formatted Markdown issue body
     """
-    event_date = datetime.fromisoformat(timestamp).astimezone(UTC)
-    date_str = event_date.strftime("%Y-%m-%d")
+    now = datetime.now(UTC)
+    date_str = now.strftime("%Y-%m-%d")
     
     lines = [
         "## 🔑 Key Rotation Monitoring — finance-sync",
