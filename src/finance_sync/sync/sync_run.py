@@ -34,7 +34,8 @@ async def update_sync_run_progress(
     """Persist a small, tenant-safe heartbeat in an independent transaction."""
     from datetime import UTC, datetime
 
-    async with session_factory() as session:  # type: ignore[operator]
+    factory = cast(Any, session_factory)
+    async with factory() as session:
         await session.execute(
             update(SyncRun)
             .where(
@@ -51,7 +52,8 @@ async def update_sync_run_progress(
 
 async def ensure_sync_run_active(session_factory: object, run_id: str) -> None:
     """Abort the pipeline if the operator has requested cancellation."""
-    async with session_factory() as session:  # type: ignore[operator]
+    factory = cast(Any, session_factory)
+    async with factory() as session:
         status = await session.scalar(
             select(SyncRun.status).where(SyncRun.id == run_id)
         )

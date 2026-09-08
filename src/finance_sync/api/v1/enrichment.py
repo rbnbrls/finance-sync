@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from typing import Any, Protocol, cast
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -14,6 +15,10 @@ from finance_sync.api.deps.auth import AuthContext, require_permission
 from finance_sync.config.settings import Settings
 from finance_sync.connectors.models import ConnectorConfig
 from finance_sync.connectors.registry import ConnectorRegistry
+from finance_sync.connectors.trading212 import (
+    _normalise_instrument,
+    _price_scale,
+)
 from finance_sync.dependencies import get_db, get_settings
 from finance_sync.enrichment.models import (
     EnrichmentStatusSummary,
@@ -25,6 +30,8 @@ from finance_sync.models.enrichment_freshness import EnrichmentFreshness
 from finance_sync.models.holding import Holding
 from finance_sync.models.market_data_exception import MarketDataException
 from finance_sync.models.security import Security
+from finance_sync.models.security_listing import SecurityListing
+from finance_sync.models.unresolved_security import UnresolvedSecurity
 from finance_sync.services.auth import decrypt_credential
 
 router = APIRouter(tags=["enrichment"])
@@ -269,18 +276,6 @@ async def refresh_trading212_identities(
     }
 
 
-def _credential_values(value: object) -> dict[str, str]:
-    """Convert decrypted JSON credentials to the connector's string mapping."""
-    if not isinstance(value, dict):
-        return {}
-    values = cast(dict[object, object], value)
-    return {
-        str(key): str(item)
-        for key, item in values.items()
-        if isinstance(key, str) and isinstance(item, (str, int, float, bool))
-    }
-
-
 def _options(credential: Credential) -> dict[str, Any]:
     try:
         value = json.loads(credential.description or "{}")
@@ -384,6 +379,16 @@ async def refresh_quotes(
                 for item in portfolio
                 for variant in _ticker_variants(item.get("ticker"))
             }
+            by_isin = {
+                str(item.get("isin", "")).strip().upper(): item
+                for item in instruments
+                if item.get("isin")
+            }
+            instrument_by_ticker = {
+                variant: item
+                for item in instruments
+                for variant in _ticker_variants(item.get("ticker"))
+            }
             observations: list[PriceObservation] = []
             observed_at = datetime.now(UTC)
             freshness_rows: dict[str, EnrichmentFreshness | None] = {}
@@ -483,7 +488,7 @@ async def refresh_quotes(
                         source="trading212",
                         interval="1d",
                         currency_code=currency,
-                        venue=str(venue_value) if venue_value else None,
+                        venue=venue,
                     )
                 )
                 matched_ids.add(security_id)

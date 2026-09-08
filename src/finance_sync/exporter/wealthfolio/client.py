@@ -759,6 +759,7 @@ class WealthfolioClient:
                 instrument = row.get("instrument")
                 if not isinstance(instrument, dict):
                     continue
+                instrument = cast(dict[str, Any], instrument)
                 asset_id = instrument.get("id")
                 if not asset_id:
                     continue
@@ -769,9 +770,7 @@ class WealthfolioClient:
                     instrument.get("isin"),
                 ):
                     if value and str(value) in ambiguous_symbols:
-                        active_by_symbol[str(value)] = {
-                            "id": str(asset_id)
-                        }
+                        active_by_symbol[str(value)] = {"id": str(asset_id)}
 
         by_symbol: dict[str, dict[str, Any]] = {}
         for symbol, matches in asset_groups.items():
@@ -780,10 +779,9 @@ class WealthfolioClient:
         for holding in holdings:
             resolved = dict(holding)
             symbol = str(holding.get("symbol") or "")
-            asset = (
-                by_symbol.get(str(holding.get("_securityIsin") or ""))
-                or by_symbol.get(symbol)
-            )
+            asset = by_symbol.get(
+                str(holding.get("_securityIsin") or "")
+            ) or by_symbol.get(symbol)
             if asset is not None:
                 resolved["assetId"] = asset["id"]
             resolved.pop("_securityIsin", None)
