@@ -4,19 +4,37 @@ from __future__ import annotations
 
 import ipaddress
 import json
+import time
 from collections.abc import Sequence
 from datetime import UTC, datetime
+from typing import Any
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from finance_sync.api.deps.auth import AuthContext, require_role
+from finance_sync.api.middleware.destination_probe_rate_limit import (
+    check_destination_probe_rate_limit,
+)
 from finance_sync.dependencies import get_container, get_db
-from finance_sync.models import Account, ApiKey, SyncSchedule
+from finance_sync.exporter.capabilities import (
+    build_destination_preview,
+    destination_capabilities,
+)
+from finance_sync.exporter.models import ExportRun
+from finance_sync.exporter.wealthfolio.models import WealthfolioAccountMapping
+from finance_sync.models import (
+    Account,
+    ApiKey,
+    Holding,
+    Security,
+    SyncSchedule,
+    Transaction,
+)
 from finance_sync.models.export_target import (
     TARGET_ACTIVE,
     TARGET_ACTUAL_BUDGET,
@@ -27,17 +45,28 @@ from finance_sync.models.export_target import (
     TARGET_PAUSED,
     TARGET_SECURO,
     TARGET_TYPES,
+    TARGET_YNAB,
     ExportTarget,
 )
 from finance_sync.models.sync_schedule import SCOPE_EXPORT
+from finance_sync.observability.destination_metrics import (
+    record_destination_probe,
+)
 from finance_sync.services.auth import (
     decrypt_credential,
     encrypt_credential,
     generate_api_key,
 )
+from finance_sync.services.destination_reconciliation import (
+    reconcile_destination,
+)
 from finance_sync.services.sync_schedule import (
     SyncScheduleService,
     compute_next_run,
+)
+from finance_sync.services.wealthfolio_preflight import (
+    missing_wealthfolio_assets,
+    probe_wealthfolio_destination,
 )
 from finance_sync.utils.redaction import sanitize_error
 
@@ -103,14 +132,46 @@ class TargetResponse(BaseModel):
     last_run_error: str | None
     last_health_status: str | None
     last_health_error: str | None
+    last_parity_summary: dict[str, object] | None = None
     last_checked_at: datetime | None
     created_at: datetime
     updated_at: datetime
 
 
+class DestinationParityCounts(BaseModel):
+    """Safe aggregate counts returned by an opt-in destination probe."""
+
+    remote_accounts: int = 0
+    unmapped_remote_accounts: int = 0
+    remote_assets: int = 0
+    remote_activities: int = 0
+    canonical_activities: int = 0
+    stale_remote_activities: int = 0
+
+
+class DestinationParityAccount(BaseModel):
+    """Safe per-account parity counts; never contains remote payloads."""
+
+    account_id: str
+    canonical_activities: int = 0
+    remote_activities: int = 0
+    missing_activities: int = 0
+    stale_remote_activities: int = 0
+
+
+def _empty_destination_parity_accounts() -> list[DestinationParityAccount]:
+    return []
+
+
 class TestResponse(BaseModel):
     status: str
     message: str
+    parity: DestinationParityCounts = Field(
+        default_factory=DestinationParityCounts
+    )
+    parity_accounts: list[DestinationParityAccount] = Field(
+        default_factory=_empty_destination_parity_accounts
+    )
 
 
 class ActualBudgetDiscoveryResponse(BaseModel):
@@ -125,6 +186,15 @@ class PreviewResponse(BaseModel):
     datasets: list[str]
     writes_remote_data: bool = False
     remote_accounts_read: bool = False
+    spending: dict[str, object] = Field(default_factory=dict)
+
+
+class ReconciliationRequest(BaseModel):
+    """Native destination records returned by an adapter read operation."""
+
+    records: list[dict[str, Any]] = Field(
+        default_factory=lambda: list[dict[str, Any]]()
+    )
 
 
 class JupyterBootstrapResponse(BaseModel):
@@ -140,6 +210,75 @@ class ActivationResponse(BaseModel):
 class DestinationRunResponse(BaseModel):
     status: str
     error: str | None = None
+
+
+def _wealthfolio_provider_account_id(account: dict[str, Any]) -> str:
+    """Read the stable provider account identity from either API spelling."""
+    return str(
+        account.get("providerAccountId")
+        or account.get("provider_account_id")
+        or ""
+    )
+
+
+def _missing_wealthfolio_account_mappings(
+    mappings: Sequence[Any], remote_provider_ids: set[str]
+) -> list[Any]:
+    """Return mappings that cannot be proven present in Wealthfolio."""
+    return [
+        mapping
+        for mapping in mappings
+        if not mapping.provider_account_id
+        or mapping.provider_account_id not in remote_provider_ids
+    ]
+
+
+def _activity_parity_counts(
+    canonical_rows: Sequence[tuple[Any, Any]],
+    remote_rows: Sequence[dict[str, Any]],
+) -> tuple[int, int, int]:
+    """Return active canonical, missing canonical and stale remote counts."""
+    active_ids: set[str] = set()
+    for external_id, tombstoned_at in canonical_rows:
+        normalized = str(external_id or "").strip()
+        if not normalized:
+            continue
+        if tombstoned_at is None:
+            active_ids.add(normalized)
+    remote_ids = {
+        value
+        for activity in remote_rows
+        if (
+            value := str(
+                activity.get("sourceRecordId")
+                or activity.get("externalTransactionId")
+                or ""
+            ).strip()
+        )
+    }
+    return (
+        len(active_ids),
+        len(active_ids - remote_ids),
+        len(remote_ids - active_ids),
+    )
+
+
+def _parity_summary(status: str, parity: dict[str, int]) -> dict[str, object]:
+    """Keep only bounded aggregate parity counts for persistent evidence."""
+    allowed = {
+        "remote_accounts",
+        "unmapped_remote_accounts",
+        "remote_assets",
+        "remote_activities",
+        "canonical_activities",
+        "stale_remote_activities",
+    }
+    counts = {
+        key: max(0, int(value))
+        for key, value in parity.items()
+        if key in allowed
+    }
+    return {"status": status, "counts": counts}
 
 
 def _response(
@@ -165,6 +304,7 @@ def _response(
         last_run_error=schedule.last_run_error if schedule else None,
         last_health_status=row.last_health_status,
         last_health_error=row.last_health_error,
+        last_parity_summary=dict(row.last_parity_summary or {}) or None,
         last_checked_at=row.last_checked_at,
         created_at=row.created_at,
         updated_at=row.updated_at,
@@ -332,6 +472,13 @@ async def list_types(_auth: AuthContext = _Admin) -> list[dict[str, object]]:
     """Return metadata used by step one of the wizard."""
     return [
         {
+            "key": TARGET_YNAB,
+            "name": "YNAB",
+            "needs_server": True,
+            "secret_label": "Personal access token",
+            "datasets": ["accounts", "transactions", "categories"],
+        },
+        {
             "key": "wealthfolio",
             "name": "Wealthfolio",
             "needs_server": True,
@@ -378,6 +525,23 @@ async def list_types(_auth: AuthContext = _Admin) -> list[dict[str, object]]:
             "datasets": ["accounts", "transactions", "holdings"],
         },
     ]
+
+
+@router.get("/capabilities")
+async def list_destination_capabilities(
+    _auth: AuthContext = _Admin,
+) -> dict[str, dict[str, dict[str, object]]]:
+    """Expose destination semantics without leaking destination secrets."""
+    return {
+        target: {
+            name: {
+                "mode": capability.mode,
+                "bidirectional": capability.bidirectional,
+            }
+            for name, capability in destination_capabilities(target).items()
+        }
+        for target in ("wealthfolio", "actual-budget", "ynab", "firefly")
+    }
 
 
 @router.get("", response_model=list[TargetResponse])
@@ -526,6 +690,13 @@ async def preview_target(
     preview_accounts: list[dict[str, object]] = [
         {"id": account_id, "name": name} for account_id, name in account_rows
     ]
+    transaction_stmt = select(Transaction).where(
+        Transaction.tenant_id == auth.tenant_id,
+        Transaction.account_id.in_(
+            [account_id for account_id, _ in account_rows]
+        ),
+    )
+    transactions = list((await db.execute(transaction_stmt)).scalars().all())
     remote_accounts_read = False
     if (
         row.target_type == TARGET_ACTUAL_BUDGET
@@ -580,7 +751,52 @@ async def preview_target(
         account_count=len(accounts),
         datasets=list(row.datasets or []),
         remote_accounts_read=remote_accounts_read,
+        spending=build_destination_preview(
+            row.target_type, transactions, preview_accounts
+        ),
     )
+
+
+@router.post("/{target_id}/reconciliation")
+async def reconcile_target(
+    target_id: str,
+    body: ReconciliationRequest,
+    auth: AuthContext = _Admin,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, object]:
+    """Compare adapter-provided native records with tenant canonical data.
+
+    Reading a destination is deliberately adapter-owned.  The endpoint
+    accepts that read result and performs only a tenant-scoped, side-effect
+    free comparison; it never treats destination IDs as source IDs.
+    """
+    row = await _target(db, auth.tenant_id, target_id)
+    account_stmt = select(Account.id).where(Account.tenant_id == auth.tenant_id)
+    if row.selected_account_ids:
+        account_stmt = account_stmt.where(
+            Account.id.in_(row.selected_account_ids)
+        )
+    account_ids = [
+        account_id for (account_id,) in (await db.execute(account_stmt)).all()
+    ]
+    transaction_stmt = select(Transaction).where(
+        Transaction.tenant_id == auth.tenant_id,
+        Transaction.account_id.in_(account_ids),
+    )
+    canonical = list((await db.execute(transaction_stmt)).scalars().all())
+    findings = reconcile_destination(
+        canonical,
+        body.records,
+        destination_type=row.target_type,
+    )
+    return {
+        "target_id": str(row.id),
+        "destination": row.target_type,
+        "canonical_count": len(canonical),
+        "destination_count": len(body.records),
+        "finding_count": len(findings),
+        "findings": findings,
+    }
 
 
 @router.post(
@@ -652,6 +868,7 @@ async def test_target(
     target_id: str,
     request: Request,
     auth: AuthContext = _Admin,
+    _rate_limit: None = Depends(check_destination_probe_rate_limit),
     db: AsyncSession = Depends(get_db),
 ) -> TestResponse:
     """Validate configuration without creating remote accounts or transactions.
@@ -660,6 +877,42 @@ async def test_target(
     remote accounts, transactions, activities or holdings.
     """
     row = await _target(db, auth.tenant_id, target_id)
+    parity: dict[str, int] = {}
+    parity_accounts: list[DestinationParityAccount] = []
+
+    def parity_response() -> DestinationParityCounts:
+        return DestinationParityCounts(
+            remote_accounts=parity.get("remote_accounts", 0),
+            unmapped_remote_accounts=parity.get("unmapped_remote_accounts", 0),
+            remote_assets=parity.get("remote_assets", 0),
+            remote_activities=parity.get("remote_activities", 0),
+            canonical_activities=parity.get("canonical_activities", 0),
+            stale_remote_activities=parity.get("stale_remote_activities", 0),
+        )
+
+    probe_started = time.perf_counter()
+
+    def record_health(status: str, error: str | None = None) -> None:
+        """Persist status plus aggregate-only parity evidence."""
+        row.last_health_status = status
+        row.last_health_error = error
+        row.last_parity_summary = _parity_summary(status, parity)
+        row.last_checked_at = datetime.now(UTC)
+        record_destination_probe(
+            destination=row.target_type,
+            status=status,
+            duration_seconds=time.perf_counter() - probe_started,
+            parity=parity,
+        )
+
+    if not get_container(request).settings.destination_remote_probe_enabled:
+        record_health("disabled", "remote_probe_disabled")
+        await db.flush()
+        return TestResponse(
+            status="disabled",
+            message="Remote destination probe is disabled by configuration.",
+        )
+
     try:
         if row.target_type != TARGET_JUPYTER:
             server_url = _safe_url((row.configuration or {}).get("server_url"))
@@ -684,8 +937,227 @@ async def test_target(
                     base_url=server_url, password=password
                 )
                 async with WealthfolioClient(wf_config) as client:
-                    await client.check_auth_status()
-                    await client.authenticate()
+                    probe = await probe_wealthfolio_destination(
+                        client,
+                        timeout_seconds=5.0,
+                        include_activities=True,
+                    )
+                    if probe.status != "ready":
+                        record_health(probe.status, probe.reason)
+                        await db.flush()
+                        return TestResponse(
+                            status=probe.status,
+                            message=probe.reason
+                            or "Wealthfolio destination unavailable",
+                        )
+                    parity = {
+                        "remote_accounts": len(probe.accounts),
+                        "remote_assets": len(probe.assets),
+                        "remote_activities": sum(
+                            len(rows) for rows in probe.activities.values()
+                        ),
+                    }
+                    mappings = list(
+                        (
+                            await db.execute(
+                                select(WealthfolioAccountMapping).where(
+                                    WealthfolioAccountMapping.tenant_id
+                                    == auth.tenant_id,
+                                    WealthfolioAccountMapping.target_id
+                                    == str(row.id),
+                                )
+                            )
+                        ).scalars()
+                    )
+                    remote_provider_ids = {
+                        provider_id
+                        for account in probe.accounts
+                        if (
+                            provider_id := _wealthfolio_provider_account_id(
+                                account
+                            )
+                        )
+                    }
+                    mapped_provider_ids = {
+                        str(mapping.provider_account_id or "").strip()
+                        for mapping in mappings
+                        if str(mapping.provider_account_id or "").strip()
+                    }
+                    unmapped_remote_accounts = (
+                        remote_provider_ids - mapped_provider_ids
+                    )
+                    parity["unmapped_remote_accounts"] = len(
+                        unmapped_remote_accounts
+                    )
+                    missing_mappings = _missing_wealthfolio_account_mappings(
+                        mappings, remote_provider_ids
+                    )
+                    if missing_mappings:
+                        error = (
+                            f"{len(missing_mappings)} mapped account(s) "
+                            "are incomplete or were not found remotely"
+                        )
+                        record_health("degraded", error)
+                        await db.flush()
+                        return TestResponse(
+                            status="degraded",
+                            message=error,
+                            parity=parity_response(),
+                        )
+                    if unmapped_remote_accounts:
+                        error = (
+                            f"{len(unmapped_remote_accounts)} remote account(s) "
+                            "are not mapped to a canonical account"
+                        )
+                        record_health("degraded", error)
+                        await db.flush()
+                        return TestResponse(
+                            status="degraded",
+                            message=error,
+                            parity=parity_response(),
+                        )
+                    canonical_security_rows = list(
+                        (
+                            await db.execute(
+                                select(Security).where(
+                                    or_(
+                                        Security.id.in_(
+                                            select(Holding.security_id).where(
+                                                Holding.tenant_id
+                                                == auth.tenant_id
+                                            )
+                                        ),
+                                        Security.id.in_(
+                                            select(
+                                                Transaction.security_id
+                                            ).where(
+                                                Transaction.tenant_id
+                                                == auth.tenant_id,
+                                                Transaction.security_id.is_not(
+                                                    None
+                                                ),
+                                            )
+                                        ),
+                                    )
+                                )
+                            )
+                        ).scalars()
+                    )
+                    missing_assets = missing_wealthfolio_assets(
+                        canonical_security_rows,
+                        probe.assets,
+                    )
+                    if missing_assets:
+                        error = (
+                            f"{len(missing_assets)} canonical asset(s) "
+                            "were not found remotely"
+                        )
+                        record_health("degraded", error)
+                        await db.flush()
+                        return TestResponse(
+                            status="degraded",
+                            message=error,
+                            parity=parity_response(),
+                        )
+                    account_ids = [
+                        str(mapping.account_id) for mapping in mappings
+                    ]
+                    canonical_rows = list(
+                        (
+                            await db.execute(
+                                select(
+                                    Transaction.account_id,
+                                    Transaction.external_transaction_id,
+                                    Transaction.tombstoned_at,
+                                ).where(
+                                    Transaction.tenant_id == auth.tenant_id,
+                                    Transaction.account_id.in_(account_ids),
+                                )
+                            )
+                        ).all()
+                    )
+                    remote_ids_by_account = {
+                        _wealthfolio_provider_account_id(account): str(
+                            account.get("id") or ""
+                        )
+                        for account in probe.accounts
+                    }
+                    missing_activity_count = 0
+                    stale_activity_count = 0
+                    canonical_by_account: dict[str, list[tuple[Any, Any]]] = {}
+                    for (
+                        account_id,
+                        external_id,
+                        tombstoned_at,
+                    ) in canonical_rows:
+                        canonical_by_account.setdefault(
+                            str(account_id), []
+                        ).append((external_id, tombstoned_at))
+                    for mapping in mappings:
+                        account_id = str(mapping.account_id)
+                        provider_id = next(
+                            (
+                                mapping.provider_account_id
+                                for mapping in mappings
+                                if str(mapping.account_id) == account_id
+                            ),
+                            None,
+                        )
+                        remote_account_id = remote_ids_by_account.get(
+                            str(provider_id or "")
+                        )
+                        remote_rows = probe.activities.get(
+                            remote_account_id or "", ()
+                        )
+                        (
+                            canonical_count,
+                            missing_count,
+                            stale_count,
+                        ) = _activity_parity_counts(
+                            canonical_by_account.get(account_id, []),
+                            list(remote_rows),
+                        )
+                        missing_activity_count += missing_count
+                        stale_activity_count += stale_count
+                        parity_accounts.append(
+                            DestinationParityAccount(
+                                account_id=account_id,
+                                canonical_activities=canonical_count,
+                                remote_activities=len(remote_rows),
+                                missing_activities=missing_count,
+                                stale_remote_activities=stale_count,
+                            )
+                        )
+                    parity["canonical_activities"] = sum(
+                        item.canonical_activities for item in parity_accounts
+                    )
+                    parity["stale_remote_activities"] = stale_activity_count
+                    if missing_activity_count:
+                        error = (
+                            f"{missing_activity_count} canonical activity(s) "
+                            "were not found remotely"
+                        )
+                        record_health("degraded", error)
+                        await db.flush()
+                        return TestResponse(
+                            status="degraded",
+                            message=error,
+                            parity=parity_response(),
+                            parity_accounts=parity_accounts,
+                        )
+                    if stale_activity_count:
+                        error = (
+                            f"{stale_activity_count} remote activity(s) "
+                            "are not present in the canonical dataset"
+                        )
+                        record_health("degraded", error)
+                        await db.flush()
+                        return TestResponse(
+                            status="degraded",
+                            message=error,
+                            parity=parity_response(),
+                            parity_accounts=parity_accounts,
+                        )
             elif row.target_type == TARGET_ACTUAL_BUDGET:
                 from finance_sync.exporter.actual_budget.client import (
                     ActualBudgetClient,
@@ -773,25 +1245,21 @@ async def test_target(
                 )
                 async with SecuroClient(config) as client:
                     await client.login()
-        row.last_health_status, row.last_health_error = "ready", None
-        row.last_checked_at = datetime.now(UTC)
+        record_health("ready")
         await db.flush()
         return TestResponse(
             status="ready",
             message="Verbinding en authenticatie werken; er is geen externe data geschreven.",
+            parity=parity_response(),
+            parity_accounts=parity_accounts,
         )
     except Exception as exc:
-        row.last_health_status, row.last_health_error = (
-            "failed",
-            sanitize_error(str(exc)),
-        )
-        row.last_checked_at = datetime.now(UTC)
+        error = sanitize_error(str(exc))
+        record_health("failed", error)
         await db.flush()
         if isinstance(exc, HTTPException):
             raise
-        return TestResponse(
-            status="failed", message=row.last_health_error or "Test failed"
-        )
+        return TestResponse(status="failed", message=error or "Test failed")
 
 
 @router.post("/{target_id}/activate", response_model=ActivationResponse)
@@ -990,6 +1458,20 @@ async def retry_target(
     db: AsyncSession = Depends(get_db),
 ) -> DestinationRunResponse:
     """Retry a failed destination through its persisted target contract."""
+    latest_run = await db.scalar(
+        select(ExportRun)
+        .where(
+            ExportRun.tenant_id == auth.tenant_id,
+            ExportRun.target_id == target_id,
+        )
+        .order_by(ExportRun.started_at.desc())
+        .limit(1)
+    )
+    if latest_run is None or latest_run.status != "failed":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Only destinations with a failed export can be retried",
+        )
     return await run_target(target_id, request, auth, db)
 
 

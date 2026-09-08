@@ -13,6 +13,7 @@ from finance_sync.exporter.ghostfolio.transaction_mapper import (
 )
 from finance_sync.exporter.models import ExportRun
 from finance_sync.models import Holding, Security, Transaction
+from finance_sync.observability.glitchtip import capture_connector_exception
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -100,7 +101,15 @@ class GhostfolioExporter:
             if self._config.sync_transactions
             else []
         )
-        result = await client.import_activities(activities)
+        try:
+            result = await client.import_activities(activities)
+        except Exception as exc:
+            capture_connector_exception(
+                exc,
+                connector="ghostfolio",
+                operation="import_activities",
+            )
+            raise
         holding_activities = [
             map_holding_to_ghostfolio(
                 holding,
@@ -110,7 +119,15 @@ class GhostfolioExporter:
             )
             for holding in holdings
         ]
-        holding_result = await client.import_activities(holding_activities)
+        try:
+            holding_result = await client.import_activities(holding_activities)
+        except Exception as exc:
+            capture_connector_exception(
+                exc,
+                connector="ghostfolio",
+                operation="import_activities_holdings",
+            )
+            raise
         status = (
             "completed"
             if not result["failed"] and not holding_result["failed"]

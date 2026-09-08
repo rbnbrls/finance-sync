@@ -48,6 +48,21 @@ async def _init_database(container: Container) -> None:
                 await conn.execute(
                     text("CREATE EXTENSION IF NOT EXISTS pgcrypto")
                 )
+                # App and worker start together in staging.  Serialize the
+                # synthetic seed transaction so both processes cannot pass
+                # the marker check and race on the unique security indexes.
+                # Keep lightweight test doubles and alternate SQLAlchemy
+                # engines compatible; real engines expose ``dialect.name``.
+                dialect_name = getattr(
+                    getattr(container.engine, "dialect", None), "name", None
+                )
+                if dialect_name == "postgresql":
+                    await conn.execute(
+                        text(
+                            "SELECT pg_advisory_xact_lock("
+                            "hashtext('finance-sync:non-production-seed'))"
+                        )
+                    )
                 # ── Seed default tenant and admin user (idempotent) ────
                 from datetime import UTC, datetime
 
