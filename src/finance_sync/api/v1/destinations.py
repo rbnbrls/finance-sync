@@ -883,15 +883,11 @@ async def test_target(
     def parity_response() -> DestinationParityCounts:
         return DestinationParityCounts(
             remote_accounts=parity.get("remote_accounts", 0),
-            unmapped_remote_accounts=parity.get(
-                "unmapped_remote_accounts", 0
-            ),
+            unmapped_remote_accounts=parity.get("unmapped_remote_accounts", 0),
             remote_assets=parity.get("remote_assets", 0),
             remote_activities=parity.get("remote_activities", 0),
             canonical_activities=parity.get("canonical_activities", 0),
-            stale_remote_activities=parity.get(
-                "stale_remote_activities", 0
-            ),
+            stale_remote_activities=parity.get("stale_remote_activities", 0),
         )
 
     probe_started = time.perf_counter()
