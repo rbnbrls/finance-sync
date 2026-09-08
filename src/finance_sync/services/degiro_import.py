@@ -27,6 +27,8 @@ from finance_sync.services.auth import encrypt_credential
 from finance_sync.sync.orchestrator import SyncOrchestrator
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
     from fastapi import UploadFile
     from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -35,7 +37,7 @@ if TYPE_CHECKING:
     from finance_sync.models.credential import Credential
     from finance_sync.models.import_run import ImportRun
 
-_SUPPORTED_SUFFIXES = {".csv", ".xlsx", ".xls"}
+_SUPPORTED_SUFFIXES = {".csv", ".txt", ".xlsx", ".xls", ".json"}
 _FORMULA_PREFIXES = ("=", "+", "@")
 _EXPECTED_REPORTS = {"transactions", "account_statement", "portfolio"}
 _SAFE_FILE_RE = re.compile(r"[^A-Za-z0-9._-]+")
@@ -43,6 +45,11 @@ _SAFE_FILE_RE = re.compile(r"[^A-Za-z0-9._-]+")
 
 class ImportValidationError(ValueError):
     """A safe validation error suitable for returning to an administrator."""
+
+
+def missing_required_report_types(report_types: Iterable[str]) -> list[str]:
+    """Return the required DEGIRO exports absent from a staged dataset."""
+    return sorted(_EXPECTED_REPORTS - set(report_types))
 
 
 def connector_options(credential: Credential) -> dict[str, Any]:
@@ -66,8 +73,8 @@ def _safe_name(filename: str | None, index: int) -> tuple[str, str]:
     suffix = Path(supplied).suffix.lower()
     if suffix not in _SUPPORTED_SUFFIXES:
         message = (
-            "Alleen DEGIRO-exports in CSV-, XLSX- of XLS-formaat "
-            "zijn toegestaan."
+            "Dit bestandstype wordt niet ondersteund. Gebruik CSV, TXT, "
+            "XLSX, XLS of JSON volgens de gekozen importwizard."
         )
         raise ImportValidationError(message)
     display = (
@@ -109,7 +116,7 @@ def _formula_like(value: object) -> bool:
 def _check_formula_injection(path: Path) -> None:
     suffix = path.suffix.lower()
     rows: Any
-    if suffix == ".csv":
+    if suffix in {".csv", ".txt"}:
         data = path.read_bytes()
         text = None
         for encoding in ("utf-8-sig", "cp1252", "latin-1"):
@@ -158,7 +165,7 @@ def _check_formula_injection(path: Path) -> None:
             return
         finally:
             workbook.close()
-    else:
+    elif suffix == ".xls":
         import xlrd
 
         book = xlrd.open_workbook(str(path), on_demand=True)
@@ -174,6 +181,10 @@ def _check_formula_injection(path: Path) -> None:
             return
         finally:
             book.release_resources()
+    else:
+        # JSON is validated by the manual-expenses connector; it is not a
+        # spreadsheet formula surface and therefore needs no CSV/XLS scan.
+        return
     if any(_formula_like(cell) for row in rows for cell in row):
         message = "Het bestand bevat formule-achtige inhoud en is geweigerd."
         raise ImportValidationError(message)
@@ -341,7 +352,7 @@ async def build_preview(
     return {
         "reports": connector.report_summaries,
         "report_types": report_types,
-        "missing_report_types": sorted(_EXPECTED_REPORTS - set(report_types)),
+        "missing_report_types": missing_required_report_types(report_types),
         "account_label": account.name,
         "external_account_id": account.external_account_id,
         "period_start": min(dates).isoformat() if dates else None,
@@ -432,6 +443,7 @@ async def execute_run(
             provider_type="degiro_pension",
             config=config,
             since=datetime.min.replace(tzinfo=UTC),
+            connection_id=str(run.connection_id),
         )
         if result.status.value == "failed":
             message = "De import kon niet atomair worden verwerkt."
