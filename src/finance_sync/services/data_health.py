@@ -2825,6 +2825,7 @@ class DataHealthService:
         running_cash: dict[str, Decimal] = {}
         negative_cash: list[tuple[str, str, object, Decimal]] = []
         for (
+            _transaction_id,
             account_id,
             name,
             amount,

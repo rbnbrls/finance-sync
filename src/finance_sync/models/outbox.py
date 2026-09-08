@@ -22,9 +22,7 @@ class OutboxMessage(Base):
             "ix_outbox_messages_status_created",
             "status",
             "created_at",
-            postgresql_where=text(
-                "status IN ('pending', 'processing')"
-            ),
+            postgresql_where=text("status IN ('pending', 'processing')"),
         ),
     )
 

@@ -309,7 +309,9 @@ class TestOutboxPublisherFetch:
 
         msg = _make_pending_message("test.event")
         msg.status = OutboxMessageStatus.PROCESSING
-        msg.claimed_at = datetime.now(UTC) - CLAIM_TIMEOUT - timedelta(seconds=1)
+        msg.claimed_at = (
+            datetime.now(UTC) - CLAIM_TIMEOUT - timedelta(seconds=1)
+        )
         async with session_factory() as s:
             s.add(msg)
             await s.commit()
