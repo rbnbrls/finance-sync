@@ -130,6 +130,33 @@ def check_key_provider_status() -> Dict[str, Any]:
         }
 
 
+def _check_key_version_downgrade(
+    state: dict[str, Any], key_info: dict[str, Any]
+) -> list[dict[str, str]]:
+    """Return a critical alert when the observed key version moves backwards.
+
+    Versions are compared numerically only when both values are numeric. Opaque
+    provider-specific identifiers do not provide enough information to infer a
+    downgrade and are therefore ignored.
+    """
+    previous = state.get("last_reported_version")
+    current = key_info.get("current_version")
+    try:
+        previous_number = int(str(previous))
+        current_number = int(str(current))
+    except (TypeError, ValueError):
+        return []
+    if current_number >= previous_number:
+        return []
+    return [
+        {
+            "name": "key_version_downgrade",
+            "severity": "critical",
+            "detail": f"Key version downgraded from {previous} to {current}",
+        }
+    ]
+
+
 def check_key_rotation_status(key_info: Dict[str, Any]) -> List[Dict[str, str]]:
     """Check key rotation status and return any alerts.
     
@@ -179,9 +206,9 @@ def build_key_issue_body(
     Returns:
         Formatted Markdown issue body
     """
-    now = datetime.now(UTC)
-    date_str = now.strftime("%Y-%m-%d")
-    
+    event_date = datetime.fromisoformat(timestamp).astimezone(UTC)
+    date_str = event_date.strftime("%Y-%m-%d")
+
     lines = [
         "## 🔑 Key Rotation Monitoring — finance-sync",
         "",
@@ -386,7 +413,8 @@ def main() -> int:
         
         # Check for alerts
         alerts = check_key_rotation_status(key_info)
-        
+        alerts.extend(_check_key_version_downgrade(state, key_info))
+
         # Build marker for deduplication
         marker = build_key_marker()
         
