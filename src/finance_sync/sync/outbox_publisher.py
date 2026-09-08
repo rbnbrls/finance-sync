@@ -182,10 +182,7 @@ class OutboxPublisher:
                 .where(  # type: ignore[attr-defined]
                     or_(
                         OutboxMessage.status == OutboxMessageStatus.PENDING,
-                        (
-                            OutboxMessage.status
-                            == OutboxMessageStatus.PROCESSING
-                        )
+                        (OutboxMessage.status == OutboxMessageStatus.PROCESSING)
                         & (
                             OutboxMessage.claimed_at.is_(None)
                             | (OutboxMessage.claimed_at < stale_before)

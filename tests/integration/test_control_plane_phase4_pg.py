@@ -353,7 +353,9 @@ async def test_data_health_metadata_identity_is_tenant_scoped(session) -> None:
     assert issues[0].evidence["metadata_key"] == "iban"
 
 
-async def test_data_health_metadata_alias_identity_is_tenant_scoped(session) -> None:
+async def test_data_health_metadata_alias_identity_is_tenant_scoped(
+    session,
+) -> None:
     """Provider-specific account aliases stay normalized inside one tenant."""
     tenant_a = Tenant(slug="phase4-metadata-alias-a", name="Metadata Alias A")
     tenant_b = Tenant(slug="phase4-metadata-alias-b", name="Metadata Alias B")
@@ -1025,9 +1027,7 @@ async def test_data_health_account_selection_orphan_and_tombstone_checks_are_ten
     )
     await session.commit()
 
-    service = DataHealthService(
-        session, str(tenant_a.id), permissions={"*:*"}
-    )
+    service = DataHealthService(session, str(tenant_a.id), permissions={"*:*"})
     selected = await service._selected_account_issues()
     orphaned = await service._orphaned_account_issues()
     tombstones = await service._tombstoned_export_issues()
@@ -1041,9 +1041,13 @@ async def test_data_health_account_selection_orphan_and_tombstone_checks_are_ten
     assert len(tombstones) == 1
     assert tombstones[0].evidence["target_id"] == "target-a"
     assert tombstones[0].affected_transaction_ids == [str(transaction_a.id)]
-    assert any(issue.id.startswith("sync-stale-cursor:") for issue in sync_integrity)
+    assert any(
+        issue.id.startswith("sync-stale-cursor:") for issue in sync_integrity
+    )
     assert any(
         issue.id.startswith("sync-selected-account-gap:")
         for issue in sync_integrity
     )
-    assert str(account_b.id) not in {item for issue in orphaned for item in issue.account_ids}
+    assert str(account_b.id) not in {
+        item for issue in orphaned for item in issue.account_ids
+    }
