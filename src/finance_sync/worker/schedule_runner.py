@@ -33,6 +33,7 @@ Redis dependency.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import traceback
 from datetime import UTC, datetime, timedelta
@@ -51,6 +52,7 @@ from finance_sync.models.sync_schedule import (
     SCOPE_INGESTION,
 )
 from finance_sync.services.auth import decrypt_credential
+from finance_sync.services.retry_lock import retry_lease
 from finance_sync.services.sync_schedule import (
     CATCHUP_MAX_DELAY_DAYS,
     compute_next_run,
@@ -137,6 +139,8 @@ async def _claim_schedule(
         )
         .values(
             last_scheduled_at=claim_time,
+            last_run_status="running",
+            last_run_error=None,
             updated_at=claim_time,
         )
     )
@@ -233,7 +237,7 @@ async def _run_ingestion(
     }
 
 
-async def run_export(
+async def _run_export_unlocked(
     container: Container,
     *,
     schedule: SyncSchedule,
@@ -301,6 +305,11 @@ async def run_export(
                     },
                 }
             )
+        wf_timeout: float = settings.wealthfolio_request_timeout
+        if target:
+            configured = target.configuration.get("request_timeout", 0.0)
+            if configured:
+                wf_timeout = float(configured)
         wf_client = WealthfolioClient(
             config=WealthfolioClientConfig(
                 base_url=(
@@ -313,6 +322,7 @@ async def run_export(
                     if target
                     else secret_value(settings.wealthfolio_password)
                 ),
+                request_timeout=wf_timeout,
             ),
         )
         await wf_client.authenticate()
@@ -407,6 +417,7 @@ async def run_export(
             session_factory=container.session_factory,
             firefly_config=config,
             tenant_id=str(schedule.tenant_id),
+            target_id=str(target.id),
         ).run_export(account_ids=target.selected_account_ids or None)
         return {"status": result.status, "error": result.error_message}
 
@@ -519,6 +530,45 @@ async def run_export(
     return {"status": "skipped", "reason": "unknown_exporter"}
 
 
+async def run_export(
+    container: Container,
+    *,
+    schedule: SyncSchedule,
+) -> dict[str, Any]:
+    """Run one export while preventing overlapping runs for one target.
+
+    The schedule claim is intentionally short-lived so a stuck schedule can
+    recover.  It is not sufficient to serialize long-running exports: a
+    second tick could otherwise start a destructive second projection while
+    the first one is still writing.  Redis is already a worker dependency;
+    when it is configured, this lease covers scheduled and API-triggered
+    exports alike.  SQLite/unit-test containers keep the historical
+    single-process behaviour.
+    """
+    settings: Settings = container.settings
+    lease = None
+    if getattr(settings, "redis_url", None) is not None:
+        lease = retry_lease(
+            container.redis_client,
+            tenant_id=str(schedule.tenant_id),
+            kind="destination-export",
+            item_id=schedule.target_id,
+        )
+
+    if lease is None:
+        return await _run_export_unlocked(container, schedule=schedule)
+
+    async with lease:
+        if not lease.acquired:
+            logger.info(
+                "destination_export_skipped_overlap",
+                tenant_id=str(schedule.tenant_id),
+                target=schedule.target_id,
+            )
+            return {"status": "skipped", "reason": "export_in_progress"}
+        return await _run_export_unlocked(container, schedule=schedule)
+
+
 async def run_due_schedules(container: Container) -> dict[str, Any]:
     """Claim and execute every due schedule; never raises.
 
@@ -530,6 +580,7 @@ async def run_due_schedules(container: Container) -> dict[str, Any]:
     settings: Settings = container.settings
     now = _now()
     results: list[dict[str, Any]] = []
+    claimed_schedules: list[SyncSchedule] = []
 
     async with container.session_factory() as session:
         session.info["settings"] = settings
@@ -579,6 +630,15 @@ async def run_due_schedules(container: Container) -> dict[str, Any]:
                 await _reset_next_run(
                     session, schedule_id=str(schedule.id), now=now
                 )
+                skipped = await session.scalar(
+                    select(SyncSchedule).where(SyncSchedule.id == schedule.id)
+                )
+                if skipped is not None:
+                    # A stale schedule was never executed; keep run history
+                    # truthful and clear the transient claim status.
+                    skipped.last_scheduled_at = None
+                    skipped.last_run_status = None
+                    skipped.last_run_error = None
                 await session.commit()
                 results.append(
                     {
@@ -589,60 +649,70 @@ async def run_due_schedules(container: Container) -> dict[str, Any]:
                     }
                 )
                 continue
-
-            try:
-                if schedule.scope == SCOPE_INGESTION:
-                    outcome = await _run_ingestion(container, schedule=schedule)
-                elif schedule.scope == SCOPE_EXPORT:
-                    outcome = await run_export(container, schedule=schedule)
-                else:
-                    outcome = {"status": "skipped", "reason": "unknown_scope"}
-            except Exception as exc:  # never block sibling schedules
-                outcome = {
-                    "status": "failed",
-                    "error": str(exc)[:500],
-                }
-                logger.error(
-                    "schedule_run_failed",
-                    schedule_id=str(schedule.id),
-                    scope=schedule.scope,
-                    error=traceback.format_exc()[-2000:],
-                )
-
-            # Record outcome + recompute next run atomically with the claim.
-            async with container.session_factory() as session:
-                session.info["settings"] = settings
-                row = (
-                    await session.execute(
-                        select(SyncSchedule).where(
-                            SyncSchedule.id == schedule.id
-                        )
-                    )
-                ).scalar_one_or_none()
-                if row is not None:
-                    row.last_run_at = now
-                    row.last_run_status = str(
-                        outcome.get("status", "completed")
-                    )[:16]
-                    row.last_run_error = (
-                        str(outcome.get("error") or "")[:500] or None
-                    )
-                    if row.enabled:
-                        instants = compute_next_run(row, after=now, count=1)
-                        row.next_run_at = instants[0] if instants else None
-                    else:
-                        row.next_run_at = None
-                    row.updated_at = now
-                await session.commit()
-
-            results.append(
-                {
-                    "schedule_id": str(schedule.id),
-                    "scope": schedule.scope,
-                    "target": schedule.target_id,
-                    "status": outcome.get("status", "completed"),
-                }
+            # Move the planned pointer before doing network/database work.
+            # The UI can now show the next future run while this run is still
+            # active, and a long export cannot keep the schedule permanently
+            # due for the next dispatcher tick.
+            await _reset_next_run(
+                session, schedule_id=str(schedule.id), now=now
             )
+            await session.commit()
+            claimed_schedules.append(schedule)
+
+    async def execute_claimed(schedule: SyncSchedule) -> dict[str, Any]:
+        """Execute and persist one claimed schedule independently."""
+        try:
+            if schedule.scope == SCOPE_INGESTION:
+                outcome = await _run_ingestion(container, schedule=schedule)
+            elif schedule.scope == SCOPE_EXPORT:
+                outcome = await run_export(container, schedule=schedule)
+            else:
+                outcome = {"status": "skipped", "reason": "unknown_scope"}
+        except Exception as exc:  # never block sibling schedules
+            outcome = {"status": "failed", "error": str(exc)[:500]}
+            logger.error(
+                "schedule_run_failed",
+                schedule_id=str(schedule.id),
+                scope=schedule.scope,
+                error=traceback.format_exc()[-2000:],
+            )
+
+        # Persist only the outcome.  next_run_at was already advanced at
+        # claim time; preserve it so a long run does not regress the UI state
+        # or overwrite a schedule edit made while the run was executing.
+        async with container.session_factory() as outcome_session:
+            outcome_session.info["settings"] = settings
+            row = await outcome_session.scalar(
+                select(SyncSchedule).where(SyncSchedule.id == schedule.id)
+            )
+            if row is not None:
+                finished_at = _now()
+                row.last_run_at = finished_at
+                row.last_run_status = str(
+                    outcome.get("status", "completed")
+                )[:16]
+                row.last_run_error = (
+                    str(outcome.get("error") or "")[:500] or None
+                )
+                if not row.enabled:
+                    row.next_run_at = None
+                row.updated_at = finished_at
+            await outcome_session.commit()
+        return {
+            "schedule_id": str(schedule.id),
+            "scope": schedule.scope,
+            "target": schedule.target_id,
+            "status": outcome.get("status", "completed"),
+        }
+
+    # Network-bound exports and provider syncs must not serialize unrelated
+    # schedules.  Each task owns its own DB sessions, so failures remain
+    # isolated and the dispatcher can finish one tick without starving the
+    # other scheduled jobs.
+    if claimed_schedules:
+        results.extend(await asyncio.gather(
+            *(execute_claimed(schedule) for schedule in claimed_schedules)
+        ))
 
     return {"checked": len(due), "due": len(due), "results": results}
 

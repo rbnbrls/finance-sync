@@ -12,6 +12,7 @@ from sqlalchemy import select
 from finance_sync.exporter.securo.client import SecuroClient
 from finance_sync.exporter.securo.config import SecuroConfig
 from finance_sync.models import Account, Holding, Security, Transaction
+from finance_sync.observability.glitchtip import capture_connector_exception
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -334,6 +335,11 @@ class SecuroExporter:
                 holdings_skipped=holdings_skipped,
             )
         except Exception as exc:
+            capture_connector_exception(
+                exc,
+                connector="securo",
+                operation="export",
+            )
             return SecuroExportResult(
                 status="failed",
                 files=files,

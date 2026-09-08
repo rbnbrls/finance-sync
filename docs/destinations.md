@@ -13,6 +13,13 @@ De technische tenantkolom blijft uitsluitend een interne datapartitionering.
 
 ## Wizard
 
+De destination-capabilitymatrix is beschikbaar via
+`GET /api/v1/destinations/capabilities`. Wealthfolio, Actual Budget, YNAB en
+Firefly III krijgen ieder hun eigen native mapping; canonical categorieën
+worden niet als bestemming-ID's opgeslagen. YNAB ondersteunt in deze laag
+accounts, payees, transfers, cleared/pending, import IDs en optionele
+category assignments binnen de API-beperkingen.
+
 Open **Bestemmingen** in het control panel en kies **Bestemming toevoegen**.
 De wizard kiest een type, bewaart de self-hosted verbinding, toont een
 read-only preview van de gekozen data en activeert de consument. Het testen
@@ -62,3 +69,9 @@ veilig worden bewaard of via **Sleutel roteren** worden vervangen.
 
 Verwijderen van een Jupyter-bestemming trekt die API-key in. Verwijderen of
 pauseren van elke bestemming beïnvloedt de canonieke datalake niet.
+
+De destination-capabilitymatrix is beschikbaar via
+`GET /api/v1/destinations/capabilities`. Een adapter kan native records
+reconciliëren via `POST /api/v1/destinations/{target_id}/reconciliation`;
+deze vergelijking is side-effect-vrij en maakt afwijkingen zichtbaar zonder
+destination-ID's als bron-ID's te behandelen.

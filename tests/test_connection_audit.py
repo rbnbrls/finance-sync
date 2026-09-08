@@ -811,7 +811,7 @@ def test_inline_test_error_is_sanitised(monkeypatch: Any) -> None:
 def test_saved_connection_test_error_is_sanitised(
     monkeypatch: Any,
 ) -> None:
-    """The saved-config test path stores + returns a scrubbed error."""
+    """The saved-config test path stores + returns a scrubbed test error."""
     cred = _encrypted_cred(
         "bunq",
         connection_id="conn-1",
@@ -828,9 +828,9 @@ def test_saved_connection_test_error_is_sanitised(
 
     assert body["success"] is False
     assert "leaky-secret-999" not in resp.text
-    # The stored connection row keeps a sanitised last_error…
+    # The stored connection row keeps a sanitised last_test_error…
     assert "leaky-secret-999" not in json.dumps(listed)
-    assert REDACTED in listed["last_error"]
+    assert REDACTED in listed["last_test_error"]
     # …and the audit entry does too.
     assert "leaky-secret-999" not in json.dumps(entries[0]["detail"])
 
