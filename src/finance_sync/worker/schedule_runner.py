@@ -33,7 +33,6 @@ Redis dependency.
 
 from __future__ import annotations
 
-import asyncio
 import json
 import traceback
 from datetime import UTC, datetime, timedelta
@@ -139,8 +138,6 @@ async def _claim_schedule(
         )
         .values(
             last_scheduled_at=claim_time,
-            last_run_status="running",
-            last_run_error=None,
             updated_at=claim_time,
         )
     )
@@ -580,7 +577,6 @@ async def run_due_schedules(container: Container) -> dict[str, Any]:
     settings: Settings = container.settings
     now = _now()
     results: list[dict[str, Any]] = []
-    claimed_schedules: list[SyncSchedule] = []
 
     async with container.session_factory() as session:
         session.info["settings"] = settings
@@ -630,15 +626,6 @@ async def run_due_schedules(container: Container) -> dict[str, Any]:
                 await _reset_next_run(
                     session, schedule_id=str(schedule.id), now=now
                 )
-                skipped = await session.scalar(
-                    select(SyncSchedule).where(SyncSchedule.id == schedule.id)
-                )
-                if skipped is not None:
-                    # A stale schedule was never executed; keep run history
-                    # truthful and clear the transient claim status.
-                    skipped.last_scheduled_at = None
-                    skipped.last_run_status = None
-                    skipped.last_run_error = None
                 await session.commit()
                 results.append(
                     {
@@ -649,72 +636,60 @@ async def run_due_schedules(container: Container) -> dict[str, Any]:
                     }
                 )
                 continue
-            # Move the planned pointer before doing network/database work.
-            # The UI can now show the next future run while this run is still
-            # active, and a long export cannot keep the schedule permanently
-            # due for the next dispatcher tick.
-            await _reset_next_run(
-                session, schedule_id=str(schedule.id), now=now
-            )
-            await session.commit()
-            claimed_schedules.append(schedule)
 
-    async def execute_claimed(schedule: SyncSchedule) -> dict[str, Any]:
-        """Execute and persist one claimed schedule independently."""
-        try:
-            if schedule.scope == SCOPE_INGESTION:
-                outcome = await _run_ingestion(container, schedule=schedule)
-            elif schedule.scope == SCOPE_EXPORT:
-                outcome = await run_export(container, schedule=schedule)
-            else:
-                outcome = {"status": "skipped", "reason": "unknown_scope"}
-        except Exception as exc:  # never block sibling schedules
-            outcome = {"status": "failed", "error": str(exc)[:500]}
-            logger.error(
-                "schedule_run_failed",
-                schedule_id=str(schedule.id),
-                scope=schedule.scope,
-                error=traceback.format_exc()[-2000:],
-            )
-
-        # Persist only the outcome.  next_run_at was already advanced at
-        # claim time; preserve it so a long run does not regress the UI state
-        # or overwrite a schedule edit made while the run was executing.
-        async with container.session_factory() as outcome_session:
-            outcome_session.info["settings"] = settings
-            row = await outcome_session.scalar(
-                select(SyncSchedule).where(SyncSchedule.id == schedule.id)
-            )
-            if row is not None:
-                finished_at = _now()
-                row.last_run_at = finished_at
-                row.last_run_status = str(outcome.get("status", "completed"))[
-                    :16
-                ]
-                row.last_run_error = (
-                    str(outcome.get("error") or "")[:500] or None
+            try:
+                if schedule.scope == SCOPE_INGESTION:
+                    outcome = await _run_ingestion(container, schedule=schedule)
+                elif schedule.scope == SCOPE_EXPORT:
+                    outcome = await run_export(container, schedule=schedule)
+                else:
+                    outcome = {"status": "skipped", "reason": "unknown_scope"}
+            except Exception as exc:  # never block sibling schedules
+                outcome = {
+                    "status": "failed",
+                    "error": str(exc)[:500],
+                }
+                logger.error(
+                    "schedule_run_failed",
+                    schedule_id=str(schedule.id),
+                    scope=schedule.scope,
+                    error=traceback.format_exc()[-2000:],
                 )
-                if not row.enabled:
-                    row.next_run_at = None
-                row.updated_at = finished_at
-            await outcome_session.commit()
-        return {
-            "schedule_id": str(schedule.id),
-            "scope": schedule.scope,
-            "target": schedule.target_id,
-            "status": outcome.get("status", "completed"),
-        }
 
-    # Network-bound exports and provider syncs must not serialize unrelated
-    # schedules.  Each task owns its own DB sessions, so failures remain
-    # isolated and the dispatcher can finish one tick without starving the
-    # other scheduled jobs.
-    if claimed_schedules:
-        results.extend(
-            await asyncio.gather(
-                *(execute_claimed(schedule) for schedule in claimed_schedules)
+            # Record outcome + recompute next run atomically with the claim.
+            async with container.session_factory() as session:
+                session.info["settings"] = settings
+                row = (
+                    await session.execute(
+                        select(SyncSchedule).where(
+                            SyncSchedule.id == schedule.id
+                        )
+                    )
+                ).scalar_one_or_none()
+                if row is not None:
+                    row.last_run_at = now
+                    row.last_run_status = str(
+                        outcome.get("status", "completed")
+                    )[:16]
+                    row.last_run_error = (
+                        str(outcome.get("error") or "")[:500] or None
+                    )
+                    if row.enabled:
+                        instants = compute_next_run(row, after=now, count=1)
+                        row.next_run_at = instants[0] if instants else None
+                    else:
+                        row.next_run_at = None
+                    row.updated_at = now
+                await session.commit()
+
+            results.append(
+                {
+                    "schedule_id": str(schedule.id),
+                    "scope": schedule.scope,
+                    "target": schedule.target_id,
+                    "status": outcome.get("status", "completed"),
+                }
             )
-        )
 
     return {"checked": len(due), "due": len(due), "results": results}
 

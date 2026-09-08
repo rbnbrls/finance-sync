@@ -1435,13 +1435,6 @@ async def run_target(
         raise HTTPException(
             status_code=409, detail="Destination schedule is missing"
         )
-    # Publish the in-flight state before entering the long-running exporter.
-    # The overview, Exporters page and Sync Runs page all read this schedule
-    # row, so polling clients can show progress while this request is running.
-    schedule.last_run_at = datetime.now(UTC)
-    schedule.last_run_status = "running"
-    schedule.last_run_error = None
-    await db.commit()
     from finance_sync.worker.schedule_runner import run_export
 
     result = await run_export(get_container(request), schedule=schedule)

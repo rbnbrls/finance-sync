@@ -5,12 +5,11 @@ because FastAPI needs runtime type introspection for OpenAPI generation.
 """
 
 import json
-from datetime import UTC, datetime
 from typing import Any, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel
-from sqlalchemy import func, select, update
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from finance_sync.api.deps.auth import AuthContext, require_permission
@@ -42,9 +41,6 @@ class SyncRunDetailResponse(BaseModel):
     status: str
     started_at: Any
     completed_at: Any
-    current_stage: str | None
-    current_account_id: str | None
-    last_activity_at: Any
     duration_seconds: float | None
     items_processed: int | None
     warnings: list[str]
@@ -73,11 +69,6 @@ def _detail(row: SyncRun, unresolved: int) -> SyncRunDetailResponse:
         status=str(row.status),
         started_at=row.started_at,
         completed_at=completed,
-        current_stage=row.current_stage,
-        current_account_id=row.current_account_id,
-        # Runs created before live progress was introduced have no heartbeat;
-        # their start is the safest activity baseline for stale-run guidance.
-        last_activity_at=row.last_activity_at or row.started_at,
         duration_seconds=duration,
         items_processed=row.items_processed,
         warnings=list(row.warnings or []),
@@ -200,39 +191,6 @@ async def retry_sync_run(
             )
     return await _retry_sync_run_locked(
         run_id, auth, db, request, run, credential, container
-    )
-
-
-@router.post("/{run_id}/stop", response_model=SyncRunDetailResponse)
-async def stop_sync_run(
-    run_id: str,
-    auth: AuthContext = Depends(require_permission("sync", "write")),
-    db: AsyncSession = Depends(get_db),
-) -> SyncRunDetailResponse:
-    """Request a running sync to stop at its next safe pipeline checkpoint."""
-    run, _ = await _tenant_run(db, auth.tenant_id, run_id)
-    if str(run.status) != "running":
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"Only running syncs can be stopped (run is {run.status!r})",
-        )
-    now = datetime.now(UTC)
-    await db.execute(
-        update(SyncRun)
-        .where(SyncRun.id == run_id, SyncRun.status == "running")
-        .values(
-            status="cancelled",
-            completed_at=now,
-            last_activity_at=now,
-            current_stage="stop_requested",
-            error_message="Sync handmatig gestopt door gebruiker",
-            error_category="cancelled_by_user",
-        )
-    )
-    await db.commit()
-    await db.refresh(run)
-    return _detail(
-        run, await _unresolved_count(db, auth.tenant_id, run.connector)
     )
 
 

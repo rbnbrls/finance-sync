@@ -449,9 +449,6 @@ class SyncRunResponse(BaseModel):
     status: str
     started_at: datetime
     completed_at: datetime | None = None
-    current_stage: str | None = None
-    current_account_id: str | None = None
-    last_activity_at: datetime | None = None
     #: Watermark the run advanced the sync cursor to on success
     #: (NULL for failed runs); see the ``sync_cursor`` table for the
     #: per-resource resume positions.

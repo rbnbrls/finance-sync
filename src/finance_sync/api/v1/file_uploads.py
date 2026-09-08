@@ -11,7 +11,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
 from uuid import uuid4
-from zipfile import BadZipFile, ZipFile
+from zipfile import ZipFile
 
 from fastapi import (
     APIRouter,
@@ -226,7 +226,7 @@ def _inspect_path(path: Path) -> tuple[set[str], list[str]]:
             if "localvalue" in xml or "waardeineur" in xml:
                 markers.add("degiro_content")
                 evidence.append("DEGIRO-portefeuillekolommen gevonden")
-        except (BadZipFile, OSError, ValueError):
+        except (OSError, ValueError):
             pass
     return markers, evidence
 

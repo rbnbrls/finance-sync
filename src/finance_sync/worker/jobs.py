@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-import inspect
 import json
 import shutil
 import time
@@ -30,9 +29,7 @@ from finance_sync.models.credential import (
     CONNECTION_STATUS_PAUSED,
     Credential,
 )
-from finance_sync.models.export_target import TARGET_ACTIVE, ExportTarget
 from finance_sync.models.import_run import ImportRun
-from finance_sync.models.sync_schedule import SCOPE_EXPORT, SyncSchedule
 from finance_sync.models.tenant import Tenant
 from finance_sync.services.degiro_import import (
     batch_hash,
@@ -1109,42 +1106,6 @@ async def export_wealthfolio_job(container: Container) -> dict[str, Any]:
         return {
             "status": "skipped",
             "reason": "WEALTHFOLIO_SERVER_URL/WEALTHFOLIO_PASSWORD not set",
-        }
-
-    # Destination schedules supersede the historical global sweep.  The
-    # legacy lease uses the literal item id ``legacy`` while destination
-    # runs use ``wealthfolio:<target-id>``; allowing both therefore permits
-    # two writers to mutate the same Wealthfolio accounts concurrently.
-    async with container.session_factory() as session:
-        scalars_result = session.scalars(
-            select(ExportTarget.id).where(
-                ExportTarget.target_type == "wealthfolio",
-                ExportTarget.status == TARGET_ACTIVE,
-            )
-        )
-        if inspect.isawaitable(scalars_result):
-            scalars_result = await scalars_result
-        active_targets = list(scalars_result.all())
-        scheduled_target_ids = {
-            f"wealthfolio:{target_id}" for target_id in active_targets
-        }
-        schedule_result = session.scalar(
-            select(SyncSchedule.id).where(
-                SyncSchedule.scope == SCOPE_EXPORT,
-                SyncSchedule.enabled.is_(True),
-                SyncSchedule.target_id.in_(scheduled_target_ids),
-            )
-        )
-        if inspect.isawaitable(schedule_result):
-            schedule_result = await schedule_result
-        has_destination_schedule = bool(
-            scheduled_target_ids and schedule_result
-        )
-    if has_destination_schedule:
-        log.info("export_job_skipped_destination_schedule_active")
-        return {
-            "status": "skipped",
-            "reason": "destination_schedule_active",
         }
 
     # ── Load configured tenants ─────────────────────────────────────

@@ -80,18 +80,10 @@ class ControlPlaneService:
         connection_ids = [str(row.id) for row in credentials]
         schedules = await self._load_schedules(connection_ids)
         sync_rows = await self._load_syncs(connection_ids)
-        running_connection_ids = {
-            str(row.connection_id)
-            for row in sync_rows
-            if row.status == "running" and row.connection_id
-        }
         connections = [
             self._connection(row, schedules.get(str(row.id)), self._permissions)
             for row in credentials
         ]
-        for connection in connections:
-            if connection.id in running_connection_ids:
-                connection.status = "running"
         syncs = [self._sync(row, self._permissions) for row in sync_rows]
         issues = self._connection_issues(connections, syncs)
         issues.extend(await self._security_issues(credentials))

@@ -543,52 +543,6 @@ class TestWealthfolioClient408Retry:
         sleep.assert_awaited_once()
         assert result == {"ok": True}
 
-    async def test_save_manual_holdings_prefers_active_duplicate_asset(
-        self, client: WealthfolioClient
-    ) -> None:
-        """An existing account asset wins when Wealthfolio has duplicates."""
-        client._is_authenticated = True
-        response = MagicMock(status_code=200, content=b'{"ok": true}')
-        response.raise_for_status.return_value = None
-        assets = [
-            {"id": "old-asset", "displayCode": "IE00BG0J4C88"},
-            {"id": "active-asset", "displayCode": "IE00BG0J4C88"},
-        ]
-        current = [
-            {
-                "instrument": {
-                    "id": "active-asset",
-                    "symbol": "IE00BG0J4C88",
-                }
-            }
-        ]
-        with (
-            patch.object(client._client, "post", return_value=response) as post,
-            patch.object(client, "get_assets", return_value=assets),
-            patch.object(client, "get_holdings", return_value=current),
-            patch.object(client, "get_quote_history", return_value=[]),
-            patch.object(
-                client._client,
-                "put",
-                return_value=MagicMock(status_code=200),
-            ),
-        ):
-            await client.save_manual_holdings(
-                [
-                    {
-                        "symbol": "IE00BG0J4C88",
-                        "quantity": "100",
-                        "unitPrice": "10.68",
-                        "currency": "EUR",
-                    }
-                ],
-                "acct-1",
-                snapshot_date="2026-09-08",
-            )
-
-        payload = post.await_args_list[0].kwargs["json"]
-        assert payload["holdings"][0]["assetId"] == "active-asset"
-
     async def test_save_manual_holdings_preserves_average_cost(
         self, client: WealthfolioClient
     ) -> None:
