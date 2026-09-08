@@ -25,6 +25,7 @@ from tests.connectors.fixtures.trading212_api_fixtures import (
     ACCOUNT_INFO_RESPONSE,
     API_ERROR_RESPONSES,
     DIVIDEND_AAPL,
+    INSTRUMENT_METADATA_RESPONSE,
     ORDER_BUY_AAPL,
     ORDER_HISTORY_RESPONSE,
     PORTFOLIO_RESPONSE,
@@ -89,6 +90,12 @@ class Trading212MockTransport(httpx.MockTransport):
         # GET /api/v0/equity/portfolio
         if request.method == "GET" and path == "/api/v0/equity/portfolio":
             return httpx.Response(200, json=PORTFOLIO_RESPONSE)
+
+        if (
+            request.method == "GET"
+            and path == "/api/v0/equity/metadata/instruments"
+        ):
+            return httpx.Response(200, json=INSTRUMENT_METADATA_RESPONSE)
 
         # GET /api/v0/equity/history/orders
         if request.method == "GET" and "/history/orders" in path:

@@ -30,6 +30,7 @@ from finance_sync.models.credential import (
     Credential,
 )
 from finance_sync.models.import_run import ImportRun
+from finance_sync.models.tenant import Tenant
 from finance_sync.services.degiro_import import (
     batch_hash,
     build_preview,
@@ -47,7 +48,6 @@ if TYPE_CHECKING:
 
     from finance_sync.config.settings import Settings
     from finance_sync.container import Container
-    from finance_sync.models import Tenant
 
 logger = structlog.get_logger("finance_sync.worker.jobs")
 
@@ -134,54 +134,54 @@ async def _get_tenant_connections(
     secrets (for error sanitisation).  A tenant may hold several
     connections for the same provider; each is synced independently.
     """
-    tenants = await uow.tenants.list(limit=100)
     result: list[dict[str, Any]] = []
 
-    for tenant in tenants:
-        stmt = select(Credential).where(
-            Credential.tenant_id == tenant.id,
-            Credential.provider_key == provider_key,
+    stmt = (
+        select(Credential, Tenant)
+        .join(Tenant, Tenant.id == Credential.tenant_id)
+        .where(Credential.provider_key == provider_key)
+        .order_by(Tenant.created_at, Credential.created_at)
+    )
+    rows = (await uow.session.execute(stmt)).all()
+
+    for cred, tenant in rows:
+        credentials: dict[str, str] = {}
+        secrets: list[str] = []
+        if cred.encrypted_payload:
+            from finance_sync.services.auth import decrypt_credential
+
+            try:
+                decrypted = decrypt_credential(
+                    cred.encrypted_payload,
+                    cred.nonce,
+                    uow.session.info.get("settings"),
+                )
+                parsed: dict[str, Any] = json.loads(decrypted)
+                credentials = {str(k): str(v) for k, v in parsed.items()}
+                secrets = [str(v) for v in credentials.values()]
+            except Exception:
+                logger.error(
+                    "credential_decrypt_failed",
+                    tenant_id=tenant.id,
+                    provider_key=provider_key,
+                    connection_id=str(cred.id),
+                )
+                continue
+        config = ConnectorConfig(
+            provider_type=provider_key,
+            credentials=credentials,
+            options=connector_options(cred),
+            connection_id=str(cred.id),
+            selected_accounts=list(cred.selected_accounts or []),
         )
-        cred_rows = (await uow.session.execute(stmt)).scalars().all()
-
-        for cred in cred_rows:
-            credentials: dict[str, str] = {}
-            secrets: list[str] = []
-            if cred.encrypted_payload:
-                from finance_sync.services.auth import decrypt_credential
-
-                try:
-                    decrypted = decrypt_credential(
-                        cred.encrypted_payload,
-                        cred.nonce,
-                        uow.session.info.get("settings"),
-                    )
-                    parsed: dict[str, Any] = json.loads(decrypted)
-                    credentials = {str(k): str(v) for k, v in parsed.items()}
-                    secrets = [str(v) for v in credentials.values()]
-                except Exception:
-                    logger.error(
-                        "credential_decrypt_failed",
-                        tenant_id=tenant.id,
-                        provider_key=provider_key,
-                        connection_id=str(cred.id),
-                    )
-                    continue
-            config = ConnectorConfig(
-                provider_type=provider_key,
-                credentials=credentials,
-                options=connector_options(cred),
-                connection_id=str(cred.id),
-                selected_accounts=list(cred.selected_accounts or []),
-            )
-            result.append(
-                {
-                    "tenant": tenant,
-                    "credential": cred,
-                    "config": config,
-                    "secrets": secrets,
-                }
-            )
+        result.append(
+            {
+                "tenant": tenant,
+                "credential": cred,
+                "config": config,
+                "secrets": secrets,
+            }
+        )
 
     return result
 
@@ -286,7 +286,8 @@ async def sync_connector_job(
                 "connection_id": _connection_id,
                 "status": (
                     "skipped"
-                    if result.error_category == "already_running"
+                    if getattr(result, "error_category", None)
+                    == "already_running"
                     else result.status.value
                 ),
                 "accounts_synced": result.accounts_synced,
@@ -297,7 +298,8 @@ async def sync_connector_job(
                 "error": result.error_message,
                 "reason": (
                     "already_running"
-                    if result.error_category == "already_running"
+                    if getattr(result, "error_category", None)
+                    == "already_running"
                     else None
                 ),
             }

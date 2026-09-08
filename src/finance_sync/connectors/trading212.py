@@ -30,10 +30,11 @@ Dividends
 
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from time import time
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 import httpx
 
@@ -44,6 +45,7 @@ from finance_sync.connectors.exceptions import (
     TransientError,
 )
 from finance_sync.connectors.models import (
+    ProviderMetadata,
     RawAccount,
     RawHolding,
     RawTransaction,
@@ -341,22 +343,30 @@ class Trading212Connector(Connector):
             )
             resp.raise_for_status()
             payload = resp.json()
-            instruments = payload if isinstance(payload, list) else []
+            instruments: list[dict[str, Any]] = (
+                [
+                    item
+                    for item in cast(list[object], payload)
+                    if isinstance(item, dict)
+                ]
+                if isinstance(payload, list)
+                else []
+            )
+            if not instruments:
+                msg = "Trading212 instrument metadata is empty or invalid"
+                raise PermanentError(msg)
             self._instrument_metadata = {
                 str(
                     item.get("ticker") or item.get("symbol") or ""
                 ).upper(): item
                 for item in instruments
-                if isinstance(item, dict)
-                and (item.get("ticker") or item.get("symbol"))
+                if item.get("ticker") or item.get("symbol")
             }
             return instruments
         except httpx.HTTPStatusError as exc:
-            # Older/demo Trading212 API deployments may not expose this
-            # optional endpoint. Keep the data sync usable in that case.
-            if exc.response.status_code == 404:
-                self._instrument_metadata = {}
-                return []
+            # Instrument metadata is required to create a trustworthy
+            # canonical security. A holdings-only sync would otherwise mark
+            # opaque provider IDs such as ``AVGO_US_EQ`` as healthy data.
             _raise_for_status(exc.response)
             raise  # unreachable
         except (httpx.TimeoutException, httpx.HTTPError) as exc:
@@ -378,7 +388,6 @@ class Trading212Connector(Connector):
         by_ticker = {
             str(item.get("ticker") or item.get("symbol") or "").upper(): item
             for item in instruments
-            if isinstance(item, dict)
         }
         items = await self.fetch_portfolio()
         holdings: list[RawHolding] = []
@@ -429,9 +438,7 @@ class Trading212Connector(Connector):
                         name=(
                             metadata_name
                             or (
-                                display_name
-                                if display_name != ticker
-                                else None
+                                display_name if display_name != ticker else None
                             )
                             or str(item.get("name") or display_name or None)
                         ),
@@ -619,9 +626,10 @@ class Trading212Connector(Connector):
             return transaction
         isin = _metadata_value(item, "isin", "ISIN") or reference.isin
         name = _metadata_value(item, "name", "shortName") or reference.name
-        venue = _metadata_value(
-            item, "exchange", "exchangeCode", "venue"
-        ) or reference.venue
+        venue = (
+            _metadata_value(item, "exchange", "exchangeCode", "venue")
+            or reference.venue
+        )
         currency = (
             _metadata_value(item, "currencyCode", "currency")
             or reference.currency_code
@@ -899,8 +907,51 @@ def _map_transaction_type(t212_type: str) -> str:
         "TAX": "tax",
         "CASHBACK": "deposit",
         "LOYALTY_BONUS": "interest",
+        "SPLIT": "corporate_action",
+        "STOCK_SPLIT": "corporate_action",
+        "CORPORATE_ACTION": "corporate_action",
+        "CORPORATE-ACTION": "corporate_action",
     }
     return mapping.get(t212_type.upper(), "other")
+
+
+def _t212_quantity_event_ratio(data: dict[str, Any]) -> Decimal | None:
+    """Read an explicit quantity-event ratio from known T212 fields."""
+    for key in ("splitRatio", "split_ratio", "quantityMultiplier"):
+        value = data.get(key)
+        if value is None:
+            continue
+        normalized = str(value).strip().casefold().replace(",", ".")
+        ratio_match = re.fullmatch(
+            r"(?P<new>\d+(?:\.\d+)?)\s*(?::|/|for|op)\s*"
+            r"(?P<old>\d+(?:\.\d+)?)",
+            normalized,
+        )
+        try:
+            if ratio_match is not None:
+                ratio = Decimal(ratio_match.group("new")) / Decimal(
+                    ratio_match.group("old")
+                )
+            else:
+                ratio = Decimal(normalized)
+        except (InvalidOperation, ValueError):
+            return None
+        return ratio if ratio.is_finite() and ratio > 0 else None
+    new_quantity = data.get(
+        "newQuantity",
+        data.get("new_quantity", data.get("newUnits", data.get("new_units"))),
+    )
+    old_quantity = data.get(
+        "oldQuantity",
+        data.get("old_quantity", data.get("oldUnits", data.get("old_units"))),
+    )
+    if new_quantity is None or old_quantity is None:
+        return None
+    try:
+        ratio = Decimal(str(new_quantity)) / Decimal(str(old_quantity))
+    except (InvalidOperation, ValueError, ZeroDivisionError):
+        return None
+    return ratio if ratio.is_finite() and ratio > 0 else None
 
 
 def _parse_order(
@@ -1016,6 +1067,7 @@ def _parse_cash_transaction(
 
     # Dividends and inflows are positive; fees are negative
     canonical_type = _map_transaction_type(t212_type)
+    quantity_event_ratio = _t212_quantity_event_ratio(data)
     if canonical_type in ("withdrawal", "fee", "tax"):
         amount = -abs(amount)
     else:
@@ -1055,6 +1107,14 @@ def _parse_cash_transaction(
             "ticker": ticker,
             "transaction_id": txn_id,
         },
+        provider_metadata_contract=(
+            ProviderMetadata(
+                source_object_type="history_transaction",
+                fields={"split_ratio": str(quantity_event_ratio)},
+            )
+            if quantity_event_ratio is not None
+            else None
+        ),
     )
 
 

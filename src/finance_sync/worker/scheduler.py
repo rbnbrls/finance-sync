@@ -299,9 +299,10 @@ class WorkerScheduler:
         # optional sweep before evaluating the current setting.
         if not settings.worker_job_export_enabled:
             try:
-                if cast("Any", self._scheduler).get_job(
-                    "export_wealthfolio"
-                ) is not None:
+                if (
+                    cast("Any", self._scheduler).get_job("export_wealthfolio")
+                    is not None
+                ):
                     cast("Any", self._scheduler).remove_job(
                         "export_wealthfolio"
                     )

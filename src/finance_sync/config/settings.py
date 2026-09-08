@@ -424,6 +424,26 @@ class Settings(BaseSettings):
             "raise together with the server cap for very large portfolios."
         ),
     )
+    destination_remote_probe_enabled: bool = Field(
+        default=True,
+        validation_alias="DESTINATION_REMOTE_PROBE_ENABLED",
+        description=(
+            "Allow explicit destination-test actions to make bounded remote "
+            "parity probes."
+        ),
+    )
+    destination_probe_rate_limit_max_requests: int = Field(
+        default=10,
+        ge=1,
+        validation_alias="DESTINATION_PROBE_RATE_LIMIT_MAX_REQUESTS",
+        description="Maximum remote destination probes per target/window.",
+    )
+    destination_probe_rate_limit_window_seconds: int = Field(
+        default=60,
+        ge=1,
+        validation_alias="DESTINATION_PROBE_RATE_LIMIT_WINDOW_SECONDS",
+        description="Sliding/fixed destination probe rate-limit window.",
+    )
 
     # ── Firefly III exporter ─────────────────────────────────────────
     exporter_firefly_enabled: bool = Field(
@@ -773,7 +793,9 @@ class Settings(BaseSettings):
         default=360,
         ge=30,
         validation_alias="SYNC_RUN_STALE_AFTER_MINUTES",
-        description="Age after which a worker-orphaned running sync is recovered.",
+        description=(
+            "Age after which a worker-orphaned running sync is recovered."
+        ),
     )
 
     # ── DEGIRO file imports ────────────────────────────────────────

@@ -864,19 +864,22 @@ class SyncOrchestrator(CardsSyncMixin):
                                 )
                                 await holdings_uow.session.flush()
 
-                    current_operation = "fetch_transactions"
-                    raw_txns = await connector._rate_limited_fetch_transactions(  # type: ignore[attr-defined]
-                        acct_since, account_id=ca.external_account_id
-                    )
-                    canonical_txns = connector.transform_transactions(raw_txns)
-                    account_transactions = 0
-                    account_unresolved: set[str] = set()
-                    async with _UnitOfWork(session) as transaction_uow:
+                        current_operation = "fetch_transactions"
+                        raw_txns = (
+                            await connector._rate_limited_fetch_transactions(  # type: ignore[attr-defined]
+                                acct_since, account_id=ca.external_account_id
+                            )
+                        )
+                        canonical_txns = connector.transform_transactions(
+                            raw_txns
+                        )
+                        account_transactions = 0
+                        account_unresolved: set[str] = set()
                         current_operation = "persist_transactions"
                         transaction_result = await TransactionSyncStage(
                             persistence
                         ).run(
-                            transaction_uow,
+                            holdings_uow,
                             canonical_txns,
                             account_id=account_id,
                             provider_type=provider_type,
@@ -888,7 +891,7 @@ class SyncOrchestrator(CardsSyncMixin):
                         )
                         current_operation = "persist_sync_cursor"
                         await upsert_sync_cursor(
-                            transaction_uow.session,
+                            holdings_uow.session,
                             tenant_id=self._tenant_id,
                             connector=provider_type,
                             resource=ca.external_account_id,
@@ -911,6 +914,10 @@ class SyncOrchestrator(CardsSyncMixin):
                     report={
                         **transaction_report,
                         "accounts": accounts_synced,
+                        "account_external_ids": [
+                            ca.external_account_id
+                            for ca in canonical_accounts
+                        ],
                         "transactions": transactions_synced,
                         "holdings": holdings_synced,
                         "unresolved": len(unresolved_keys),

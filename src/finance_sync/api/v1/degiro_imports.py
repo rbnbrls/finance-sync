@@ -33,6 +33,7 @@ from finance_sync.services.degiro_import import (
     cleanup_expired_previews,
     connector_options,
     execute_run,
+    missing_required_report_types,
     stage_paths,
     stage_uploads,
 )
@@ -322,6 +323,16 @@ async def confirm_import(
             status_code=409,
             detail="Deze bestanden zijn al succesvol verwerkt.",
         )
+    missing = missing_required_report_types(run.report_types)
+    if missing:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "Deze DEGIRO-import kan niet worden bevestigd. Upload ook: "
+                + ", ".join(missing)
+                + ". Het portefeuilleoverzicht is nodig voor holdings en NAV."
+            ),
+        )
     connection = await _connection(db, str(run.connection_id), auth.tenant_id)
     container = get_container(request)
     paths = stage_paths(container.settings, auth.tenant_id, run)
@@ -334,7 +345,7 @@ async def confirm_import(
             session=db,
             retain=body.retain_encrypted,
         )
-        if run.status == "completed":
+        if str(run.status) == "completed":
             connection.last_success_at = run.completed_at
             connection.last_attempt_at = run.completed_at
             connection.last_error = None

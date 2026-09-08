@@ -27,6 +27,8 @@ from finance_sync.services.auth import encrypt_credential
 from finance_sync.sync.orchestrator import SyncOrchestrator
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
     from fastapi import UploadFile
     from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -43,6 +45,11 @@ _SAFE_FILE_RE = re.compile(r"[^A-Za-z0-9._-]+")
 
 class ImportValidationError(ValueError):
     """A safe validation error suitable for returning to an administrator."""
+
+
+def missing_required_report_types(report_types: Iterable[str]) -> list[str]:
+    """Return the required DEGIRO exports absent from a staged dataset."""
+    return sorted(_EXPECTED_REPORTS - set(report_types))
 
 
 def connector_options(credential: Credential) -> dict[str, Any]:
@@ -345,7 +352,7 @@ async def build_preview(
     return {
         "reports": connector.report_summaries,
         "report_types": report_types,
-        "missing_report_types": sorted(_EXPECTED_REPORTS - set(report_types)),
+        "missing_report_types": missing_required_report_types(report_types),
         "account_label": account.name,
         "external_account_id": account.external_account_id,
         "period_start": min(dates).isoformat() if dates else None,

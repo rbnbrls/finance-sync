@@ -108,7 +108,9 @@ class RawAccount(BaseModel):
     net_asset_value: Decimal | None = Field(
         default=None, description="Total account value including investments"
     )
-    cash_balances: list[RawCashBalance] = Field(default_factory=list)
+    cash_balances: list[RawCashBalance] = Field(
+        default_factory=lambda: list[RawCashBalance]()
+    )
     iso_currency_code: str | None = Field(
         default=None,
         description="ISO-4217 code for the balance values, if different "
@@ -279,7 +281,9 @@ class CanonicalAccountData(BaseModel):
     current_balance: Decimal | None = Field(default=None)
     available_balance: Decimal | None = Field(default=None)
     net_asset_value: Decimal | None = Field(default=None)
-    cash_balances: list[RawCashBalance] = Field(default_factory=list)
+    cash_balances: list[RawCashBalance] = Field(
+        default_factory=lambda: list[RawCashBalance]()
+    )
     iso_currency_code: str | None = Field(default=None)
     provider_metadata: dict[str, Any] | None = Field(default=None)
     is_active: bool = Field(default=True)
@@ -313,7 +317,8 @@ class CanonicalTransactionData(BaseModel):
     booked_at: datetime | None = Field(default=None)
     transaction_type: str = Field(
         description="Normalised type: transfer/payment/purchase/sale/fee/"
-        "interest/dividend/withdrawal/deposit/other"
+        "interest/dividend/split/adjustment/corporate_action/withdrawal/"
+        "deposit/other"
     )
     description: str | None = Field(default=None)
     quantity: Decimal | None = Field(

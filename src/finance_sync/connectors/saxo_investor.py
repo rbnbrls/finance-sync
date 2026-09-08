@@ -25,6 +25,7 @@ from finance_sync.connectors.base import Connector
 from finance_sync.connectors.exceptions import PermanentError
 from finance_sync.connectors.models import (
     ConnectorConfig,
+    ProviderMetadata,
     RawAccount,
     RawCashBalance,
     RawHolding,
@@ -119,6 +120,8 @@ def _transaction_type(action: str, transaction_type: str) -> str:
         return "sale"
     if re.search(r"\bkoop\b", normalized):
         return "purchase"
+    if "corporate action" in normalized or "corporate actie" in normalized:
+        return "corporate_action"
     if "dividend" in normalized:
         return "dividend"
     if "belasting" in normalized or "voorheffing" in normalized:
@@ -128,6 +131,36 @@ def _transaction_type(action: str, transaction_type: str) -> str:
     if "overboeking" in normalized or "lending" in normalized:
         return "interest"
     return "other"
+
+
+def _corporate_action_ratio(description: str) -> Decimal | None:
+    """Extract an explicit new-units/old-units ratio from a Saxo label."""
+    normalized = description.casefold()
+    if not any(
+        marker in normalized
+        for marker in (
+            "corporate action",
+            "corporate actie",
+            "stock split",
+            "aandelensplitsing",
+        )
+    ):
+        return None
+    number = r"\d+(?:[.,]\d+)?"
+    match = re.search(
+        rf"(?P<new>{number})\s*(?::|/|for|op)\s*(?P<old>{number})",
+        normalized,
+    )
+    if match is None:
+        return None
+    try:
+        new_units = Decimal(match.group("new").replace(",", "."))
+        old_units = Decimal(match.group("old").replace(",", "."))
+    except InvalidOperation:
+        return None
+    if new_units <= 0 or old_units <= 0:
+        return None
+    return new_units / old_units
 
 
 def _trade_details(text: str) -> tuple[Decimal | None, Decimal | None]:
@@ -629,6 +662,8 @@ class SaxoInvestorConnector(Connector):
                 if "Totale kosten" in index
                 else Decimal(0)
             ) or Decimal(0)
+            transaction_type = _transaction_type(action, native_type)
+            corporate_action_ratio = _corporate_action_ratio(action)
             result.append(
                 RawTransaction(
                     external_transaction_id=external_id,
@@ -640,7 +675,7 @@ class SaxoInvestorConnector(Connector):
                     if "Valutadatum" in index and row[index["Valutadatum"]]
                     else None,
                     description=description,
-                    transaction_type=_transaction_type(action, native_type),
+                    transaction_type=transaction_type,
                     status="booked",
                     provider_fingerprint=external_id,
                     quantity=quantity,
@@ -672,6 +707,16 @@ class SaxoInvestorConnector(Connector):
                             else ""
                         ),
                     },
+                    provider_metadata_contract=(
+                        ProviderMetadata(
+                            source_object_type="transaction_export",
+                            fields={
+                                "split_ratio": str(corporate_action_ratio)
+                            },
+                        )
+                        if corporate_action_ratio is not None
+                        else None
+                    ),
                 )
             )
         return result

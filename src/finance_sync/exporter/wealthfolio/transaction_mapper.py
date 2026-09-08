@@ -75,6 +75,7 @@ TRANSACTION_TYPE_MAP: dict[str, str] = {
     "card_payment": WF_ACTIVITY_FEE,
     "scheduled_payment": WF_ACTIVITY_FEE,
     "split": WF_ACTIVITY_SPLIT,
+    "corporate_action": WF_ACTIVITY_ADJUSTMENT,
     # Corporate actions are represented as connector transactions. Preserve
     # their specific kind in ``subtype`` while using Wealthfolio's generic
     # adjustment activity where no dedicated activity exists.
@@ -899,6 +900,7 @@ def _activity_subtype(txn: FsTransaction) -> str:
     if txn.transaction_type == "split":
         return "SPLIT"
     if txn.transaction_type in {
+        "corporate_action",
         "merger",
         "spin_off",
         "return_of_capital",
