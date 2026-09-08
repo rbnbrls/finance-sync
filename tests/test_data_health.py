@@ -2275,7 +2275,6 @@ async def test_additional_health_issues_ignore_extra_account_projection_values()
         _Result(rows=[("bunq", "account-1", 2, 10, 20, "new-column")]),
         _Result(scalar=0),
         _Result(scalars=[]),
-        _Result(scalars=[]),
     )
 
     issues = await DataHealthService(
@@ -2296,7 +2295,6 @@ async def test_additional_health_issues_skip_short_account_projection_rows() -> 
         _Result(scalars=[]),
         _Result(rows=[("bunq", "account-1", 2, 10)]),
         _Result(scalar=0),
-        _Result(scalars=[]),
         _Result(scalars=[]),
     )
 

@@ -151,8 +151,23 @@ def test_build_key_issue_body():
     assert "| Current Version | v2 |" in body
     assert "| Key State | current |" in body
     assert "### Alerts" in body
-    assert "- **key_approaching_expiry** (warning): Key version v2 expires in 720.0 hours" in body
-    assert "<!-- key-rotation-monitor:2026-08-28 -->" in body
+    assert (
+        "- **key_approaching_expiry** (warning): Key version v2 expires in 720.0 hours"
+        in body
+    )
+    # The marker uses the event timestamp date.
+    expected_date = datetime.fromisoformat(timestamp).astimezone(UTC).strftime("%Y-%m-%d")
+    assert f"<!-- key-rotation-monitor:{expected_date} -->" in body
+
+
+def test_build_key_issue_body_uses_event_date_for_marker():
+    """Use the event date for deduplication, independent of the current date."""
+    timestamp = "2026-08-27T23:30:00+00:00"
+
+    body = build_key_issue_body(timestamp, {"hours_to_expiry": 1.0}, [])
+
+    expected_date = datetime.fromisoformat(timestamp).astimezone(UTC).strftime("%Y-%m-%d")
+    assert f"<!-- key-rotation-monitor:{expected_date} -->" in body
 
 
 def test_should_block_promotion_error():
