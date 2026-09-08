@@ -134,13 +134,7 @@ def check_key_provider_status() -> Dict[str, Any]:
 def _check_key_version_downgrade(
     state: Dict[str, Any], key_info: Dict[str, Any]
 ) -> List[Dict[str, str]]:
-    """Return a critical alert when a canonical numeric version decreases.
-
-    Provider identifiers such as ``v2`` are opaque and cannot safely be
-    ordered.  Only integers (or their canonical decimal string form) are
-    compared; booleans, fractional values, and non-canonical strings are
-    ignored rather than treated as evidence of a downgrade.
-    """
+    """Return a critical alert when a canonical numeric version decreases."""
     previous = state.get("last_reported_version")
     current = key_info.get("current_version")
 
@@ -429,7 +423,7 @@ def main() -> int:
         
         # Check for alerts
         alerts = check_key_rotation_status(key_info, state)
-
+        
         # Build marker for deduplication
         marker = build_key_marker()
         
