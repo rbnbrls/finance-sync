@@ -69,9 +69,12 @@ from finance_sync.sync.sync_cursor import (
 )
 from finance_sync.sync.sync_run import (
     SyncAlreadyRunningError,
+    SyncCancelledError,
     complete_sync_run,
+    ensure_sync_run_active,
     recover_stale_sync_runs,
     start_sync_run,
+    update_sync_run_progress,
 )
 
 if TYPE_CHECKING:
@@ -774,11 +777,18 @@ class SyncOrchestrator(CardsSyncMixin):
 
                 # 2. Authenticate
                 current_operation = "authenticate"
+                await update_sync_run_progress(
+                    self._session_factory, run_id, stage=current_operation
+                )
+                await ensure_sync_run_active(self._session_factory, run_id)
                 await connector.authenticate()
                 log.debug("authenticated")
 
                 # 3. Fetch + upsert accounts through an isolated stage.
                 current_operation = "fetch_accounts"
+                await update_sync_run_progress(
+                    self._session_factory, run_id, stage=current_operation
+                )
                 account_result = await AccountSyncStage(persistence).run(
                     uow,
                     connector,
@@ -809,6 +819,10 @@ class SyncOrchestrator(CardsSyncMixin):
                 # account, so a failed account cannot roll back a previously
                 # completed account (or leave this account partially written).
                 await uow.commit()
+                await update_sync_run_progress(
+                    self._session_factory, run_id, stage="load_cursors"
+                )
+                await ensure_sync_run_active(self._session_factory, run_id)
 
                 # 4. Fetch + upsert transactions per account.  Each
                 #    account resumes from its own stored cursor when one
@@ -832,6 +846,13 @@ class SyncOrchestrator(CardsSyncMixin):
                     )
                 for ca in canonical_accounts:
                     current_account_id = ca.external_account_id
+                    await update_sync_run_progress(
+                        self._session_factory,
+                        run_id,
+                        stage="persist_account",
+                        account_id=current_account_id,
+                    )
+                    await ensure_sync_run_active(self._session_factory, run_id)
                     acct_since = cursors.get(ca.external_account_id, since)
                     # Persist the account, cash and holdings first.  Holdings
                     # are a current snapshot and must remain visible even if
@@ -905,6 +926,15 @@ class SyncOrchestrator(CardsSyncMixin):
                         )
                         if supports_holdings:
                             current_operation = "fetch_holdings"
+                            await update_sync_run_progress(
+                                self._session_factory,
+                                run_id,
+                                stage=current_operation,
+                                account_id=current_account_id,
+                            )
+                            await ensure_sync_run_active(
+                                self._session_factory, run_id
+                            )
                             raw_holdings = (
                                 await connector._rate_limited_fetch_holdings(  # type: ignore[attr-defined]
                                     account_id=ca.external_account_id
@@ -914,6 +944,12 @@ class SyncOrchestrator(CardsSyncMixin):
                                 raw_holdings
                             )
                             current_operation = "persist_holdings"
+                            await update_sync_run_progress(
+                                self._session_factory,
+                                run_id,
+                                stage=current_operation,
+                                account_id=current_account_id,
+                            )
                             holdings_result = await HoldingsSyncStage(
                                 persistence
                             ).run(
@@ -941,6 +977,15 @@ class SyncOrchestrator(CardsSyncMixin):
                                 await holdings_uow.session.flush()
 
                         current_operation = "fetch_transactions"
+                        await update_sync_run_progress(
+                            self._session_factory,
+                            run_id,
+                            stage=current_operation,
+                            account_id=current_account_id,
+                        )
+                        await ensure_sync_run_active(
+                            self._session_factory, run_id
+                        )
                         raw_txns = (
                             await connector._rate_limited_fetch_transactions(  # type: ignore[attr-defined]
                                 acct_since, account_id=ca.external_account_id
@@ -952,6 +997,12 @@ class SyncOrchestrator(CardsSyncMixin):
                         account_transactions = 0
                         account_unresolved: set[str] = set()
                         current_operation = "persist_transactions"
+                        await update_sync_run_progress(
+                            self._session_factory,
+                            run_id,
+                            stage=current_operation,
+                            account_id=current_account_id,
+                        )
                         transaction_result = await TransactionSyncStage(
                             persistence
                         ).run(
@@ -966,6 +1017,12 @@ class SyncOrchestrator(CardsSyncMixin):
                             transaction_result.unresolved_keys
                         )
                         current_operation = "persist_sync_cursor"
+                        await update_sync_run_progress(
+                            self._session_factory,
+                            run_id,
+                            stage=current_operation,
+                            account_id=current_account_id,
+                        )
                         await upsert_sync_cursor(
                             holdings_uow.session,
                             tenant_id=self._tenant_id,
@@ -979,7 +1036,12 @@ class SyncOrchestrator(CardsSyncMixin):
                     holdings_synced += account_holdings
                     unresolved_keys.update(account_unresolved)
                     unresolved_keys.update(account_holdings_unresolved)
+                    await ensure_sync_run_active(self._session_factory, run_id)
                 log.debug("transactions_fetched", count=transactions_synced)
+                await update_sync_run_progress(
+                    self._session_factory, run_id, stage="finalize"
+                )
+                await ensure_sync_run_active(self._session_factory, run_id)
                 await complete_sync_run(
                     uow,
                     run,
@@ -991,8 +1053,7 @@ class SyncOrchestrator(CardsSyncMixin):
                         **transaction_report,
                         "accounts": accounts_synced,
                         "account_external_ids": [
-                            ca.external_account_id
-                            for ca in canonical_accounts
+                            ca.external_account_id for ca in canonical_accounts
                         ],
                         "transactions": transactions_synced,
                         "holdings": holdings_synced,
@@ -1027,6 +1088,19 @@ class SyncOrchestrator(CardsSyncMixin):
                 duration_s=(end_ts - start_ts).total_seconds(),
             )
 
+        except SyncCancelledError as exc:
+            end_ts = _dt.now(UTC)
+            log.info("sync_cancelled", error=str(exc))
+            return SyncResult(
+                status=SyncRunStatus.CANCELLED,
+                accounts_synced=accounts_synced,
+                transactions_synced=transactions_synced,
+                holdings_synced=holdings_synced,
+                unresolved_securities=len(unresolved_keys),
+                error_message=str(exc),
+                error_category="cancelled_by_user",
+                duration_s=(end_ts - start_ts).total_seconds(),
+            )
         except SyncAlreadyRunningError as exc:
             # A second trigger is a normal operational race (scheduler vs
             # manual sync). Do not create a second run or call the provider.

@@ -1582,6 +1582,24 @@ class WealthfolioExporter:
 
         # ── Create ExportRun ──────────────────────────────────────
         async with self._session_factory() as session:
+            # A process restart can leave the durable run row in ``running``
+            # even though the Redis destination lease is gone. Reconcile that
+            # orphan before creating the replacement so the UI never reports a
+            # permanently active export.
+            previous_runs = await session.scalars(
+                select(ExportRun).where(
+                    ExportRun.tenant_id == self._tenant_id,
+                    ExportRun.target_id == self._target_id,
+                    ExportRun.status == "running",
+                )
+            )
+            recovered_at = datetime.now(UTC)
+            for previous_run in previous_runs:
+                previous_run.status = "cancelled"
+                previous_run.completed_at = recovered_at
+                previous_run.error_message = (
+                    "Exportproces is onderbroken; run hersteld bij herstart."
+                )
             run = ExportRun(
                 tenant_id=self._tenant_id,
                 status="running",
@@ -2797,6 +2815,7 @@ def _holdings_quantity_corrections(
                 ),
                 "quantity": float(abs(delta)),
                 "unitPrice": 0.0,
+                "amount": 0.0,
                 "currency": currency,
                 "quoteCcy": currency,
                 "comment": f"{correction_id} TARGET:{target}",
@@ -2806,6 +2825,8 @@ def _holdings_quantity_corrections(
                     f"finance-sync:holdings:{finance_sync_account_id}"
                 ),
                 "idempotencyKey": correction_id,
+                "status": "POSTED",
+                "needsReview": False,
                 "isDraft": False,
                 "isValid": True,
             }

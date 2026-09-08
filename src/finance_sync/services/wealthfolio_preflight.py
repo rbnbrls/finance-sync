@@ -438,9 +438,14 @@ def validate_activity_semantics(txn: Any) -> list[PreflightFinding]:
                 )
             )
         quantity = _decimal(getattr(txn, "quantity", None))
+        # Canonical connectors may encode SELL quantities as negative cash
+        # flow quantities.  Wealthfolio receives the absolute trade quantity
+        # (the mapper normalizes it), so preflight must validate the same
+        # projected semantics instead of quarantining valid sales.
+        effective_quantity = abs(quantity) if txn_type == "sale" else quantity
         if (
             getattr(txn, "quantity", None) is not None
-            and (quantity is None or quantity <= 0)
+            and (effective_quantity is None or effective_quantity <= 0)
         ):
             findings.append(
                 PreflightFinding(

@@ -821,6 +821,31 @@ class DegiroPensionConnector(Connector):
         # technical rows are not economic transactions, but the debit carries
         # the exact historical FX rate needed for the EUR cash projection.
         pending_cash_fx: list[tuple[Decimal, Decimal]] = []
+        pending_cash_without_fx: list[tuple[int, Decimal]] = []
+
+        def apply_pending_cash_fx() -> None:
+            """Pair technical FX debits with cash rows in either file order."""
+            for transaction_index, amount in list(pending_cash_without_fx):
+                for fx_index, (remaining, rate) in enumerate(pending_cash_fx):
+                    if remaining < amount:
+                        continue
+                    transaction = parsed[transaction_index]
+                    transaction.fx_rate = rate
+                    transaction.amount_in_base = amount / rate
+                    transaction.base_currency_code = "EUR"
+                    if transaction.provider_metadata is not None:
+                        transaction.provider_metadata["fx_rate"] = str(rate)
+                        transaction.provider_metadata[
+                            "fx_projection_source"
+                        ] = "paired_valuta_debitering"
+                    leftover = remaining - amount
+                    if leftover:
+                        pending_cash_fx[fx_index] = (leftover, rate)
+                    else:
+                        pending_cash_fx.pop(fx_index)
+                    pending_cash_without_fx.remove((transaction_index, amount))
+                    break
+
         latest_balance_at: datetime | None = None
         latest_balance: Decimal | None = None
         for number, values in enumerate(source.rows, start=2):
@@ -853,6 +878,7 @@ class DegiroPensionConnector(Connector):
                             and fx not in (None, 0)
                         ):
                             pending_cash_fx.append((abs(mutation), fx))
+                            apply_pending_cash_fx()
                     report.rows_skipped += 1
                     continue
                 occurred = _parse_datetime(
@@ -1003,6 +1029,23 @@ class DegiroPensionConnector(Connector):
                         ),
                     )
                 )
+                if (
+                    currency != "EUR"
+                    and transaction_type
+                    in {
+                        "dividend",
+                        "interest",
+                        "deposit",
+                        "withdrawal",
+                        "fee",
+                        "tax",
+                    }
+                    and fx in (None, 0)
+                ):
+                    pending_cash_without_fx.append(
+                        (len(parsed) - 1, abs(amount))
+                    )
+                    apply_pending_cash_fx()
             except (ValueError, InvalidOperation) as exc:
                 report.errors.append(
                     f"{source.source.name}, regel {number}: {exc}"

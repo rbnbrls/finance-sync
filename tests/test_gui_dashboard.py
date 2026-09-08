@@ -87,6 +87,8 @@ def test_dashboard_exposes_control_plane_overview(client: TestClient) -> None:
         assert f'id="{element_id}"' in html
     assert "function renderControlPlane" in html
     assert "function runControlAction" in html
+    assert "Export bezig" in html
+    assert "last_export_status === 'running'" in html
 
 
 def test_dashboard_exposes_dedicated_data_health_page(
@@ -1056,6 +1058,8 @@ def test_dashboard_destination_cards_expose_status_and_actions(
     html = _dashboard_html(client)
     assert "Laatste run:" in html
     assert "Volgende run:" in html
+    assert "function ensureDestinationStatusPolling" in html
+    assert "Export bezig" in html
     assert "runDestination(" in html
     assert "deleteDestination(" in html
     assert (

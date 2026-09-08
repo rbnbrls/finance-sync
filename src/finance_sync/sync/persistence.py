@@ -1403,7 +1403,13 @@ class SecurityPersistence:
                     queued[0].resolved_security_id
                 )
                 if resolved is not None:
-                    self._enrich_existing_security(resolved, reference)
+                    # A manual/provider mapping is authoritative.  Do not
+                    # fill a globally unique ISIN onto it unless the row was
+                    # selected by that ISIN; ticker mappings can otherwise
+                    # collide with a canonical security resolved elsewhere.
+                    self._enrich_existing_security(
+                        resolved, reference, allow_isin_fill=False
+                    )
                     return resolved, None
 
         candidates: list[Security] = []
@@ -1512,7 +1518,10 @@ class SecurityPersistence:
 
     @staticmethod
     def _enrich_existing_security(
-        security: Security, reference: SecurityReference
+        security: Security,
+        reference: SecurityReference,
+        *,
+        allow_isin_fill: bool = True,
     ) -> None:
         """Apply provider metadata without replacing a curated identity.
 
@@ -1538,7 +1547,7 @@ class SecurityPersistence:
             security.name = candidate_name
         if candidate_ticker and current_ticker in {"", external_id}:
             security.ticker = candidate_ticker.upper()
-        if reference.isin and not security.isin:
+        if allow_isin_fill and reference.isin and not security.isin:
             security.isin = reference.isin.upper()
         if reference.figi and not security.figi:
             security.figi = reference.figi.upper()

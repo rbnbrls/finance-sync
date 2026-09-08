@@ -68,6 +68,21 @@ class SyncRun(Base):
     completed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    current_stage: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+        comment="Current operational pipeline stage while the run is active",
+    )
+    current_account_id: Mapped[str | None] = mapped_column(
+        String(128),
+        nullable=True,
+        comment="Provider account currently being processed",
+    )
+    last_activity_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        comment="Last persisted progress heartbeat for the run",
+    )
 
     # ── Watermark ────────────────────────────────────────────────────
     # Set to the run's start timestamp when the run completes
@@ -105,9 +120,7 @@ class SyncRun(Base):
     report: Mapped[dict[str, object] | None] = mapped_column(
         JSONB,
         nullable=True,
-        comment=(
-            "Counts and resource identities for the sync outcome"
-        ),
+        comment=("Counts and resource identities for the sync outcome"),
     )
 
     created_at = created_at_ts()

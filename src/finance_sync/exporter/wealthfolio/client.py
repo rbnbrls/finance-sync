@@ -553,6 +553,13 @@ class WealthfolioClient:
                     "sourceGroupId",
                     "idempotencyKey",
                     "importRunId",
+                    # The check endpoint may default to DRAFT. Preserve the
+                    # explicit lifecycle chosen by the exporter for owned
+                    # corrections and normal booked transactions.
+                    "status",
+                    "needsReview",
+                    "isDraft",
+                    "isValid",
                 ):
                     if original.get(key) not in (None, ""):
                         merged[key] = original[key]
@@ -727,25 +734,60 @@ class WealthfolioClient:
         # existing assets before saving so Wealthfolio updates the intended
         # positions instead of creating anonymous snapshot assets.
         assets = await self.get_assets()
-        by_symbol = {
-            str(value): asset
-            for asset in assets
-            if asset.get("id")
+        asset_groups: dict[str, list[dict[str, Any]]] = {}
+        for asset in assets:
+            if not asset.get("id"):
+                continue
             for value in (
                 asset.get("displayCode"),
                 asset.get("instrumentSymbol"),
                 asset.get("symbol"),
                 asset.get("isin"),
-            )
-            if value
+            ):
+                if value:
+                    asset_groups.setdefault(str(value), []).append(asset)
+
+        # Wealthfolio can contain two assets for the same symbol after a
+        # transaction import followed by a holdings snapshot.  Resolving by
+        # symbol alone is then nondeterministic and can leave the account
+        # showing the old quantity.  For ambiguous symbols, prefer the asset
+        # that is already present in this account's current holdings.
+        active_by_symbol: dict[str, dict[str, Any]] = {}
+        ambiguous_symbols = {
+            symbol
+            for symbol, matches in asset_groups.items()
+            if len(matches) > 1
         }
+        if ambiguous_symbols:
+            for row in await self.get_holdings(account_id):
+                instrument = row.get("instrument")
+                if not isinstance(instrument, dict):
+                    continue
+                asset_id = instrument.get("id")
+                if not asset_id:
+                    continue
+                for value in (
+                    instrument.get("displayCode"),
+                    instrument.get("instrumentSymbol"),
+                    instrument.get("symbol"),
+                    instrument.get("isin"),
+                ):
+                    if value and str(value) in ambiguous_symbols:
+                        active_by_symbol[str(value)] = {
+                            "id": str(asset_id)
+                        }
+
+        by_symbol: dict[str, dict[str, Any]] = {}
+        for symbol, matches in asset_groups.items():
+            by_symbol[symbol] = active_by_symbol.get(symbol, matches[0])
         resolved_holdings: list[dict[str, Any]] = []
         for holding in holdings:
             resolved = dict(holding)
             symbol = str(holding.get("symbol") or "")
-            asset = by_symbol.get(
-                str(holding.get("_securityIsin") or "")
-            ) or by_symbol.get(symbol)
+            asset = (
+                by_symbol.get(str(holding.get("_securityIsin") or ""))
+                or by_symbol.get(symbol)
+            )
             if asset is not None:
                 resolved["assetId"] = asset["id"]
             resolved.pop("_securityIsin", None)

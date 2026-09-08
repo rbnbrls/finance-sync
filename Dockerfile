@@ -14,6 +14,10 @@ RUN apk add --no-cache \
 WORKDIR /app
 COPY pyproject.toml uv.lock ./
 COPY src/ ./src/
+# Connector lifecycle and contract metadata is read at runtime by the
+# compatibility/health endpoints.  Omitting it makes installed connectors
+# appear "unavailable" even when their API sync succeeds.
+COPY config/ ./config/
 
 # Alembic migration files (the Compose `migrate` service runs them before
 # the application and worker containers start)
