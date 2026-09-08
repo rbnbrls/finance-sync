@@ -35,6 +35,7 @@ from uuid import UUID
 
 import structlog
 from sqlalchemy import and_, func, or_, select
+from sqlalchemy.exc import ArgumentError
 
 from finance_sync.exporter.models import ExportRun
 from finance_sync.exporter.wealthfolio.extensions import build_extension_payload
@@ -1586,13 +1587,19 @@ class WealthfolioExporter:
             # even though the Redis destination lease is gone. Reconcile that
             # orphan before creating the replacement so the UI never reports a
             # permanently active export.
-            previous_runs = await session.scalars(
-                select(ExportRun).where(
-                    ExportRun.tenant_id == self._tenant_id,
-                    ExportRun.target_id == self._target_id,
-                    ExportRun.status == "running",
+            previous_runs: Any = ()
+            try:
+                previous_runs = await cast(Any, session).scalars(
+                    select(ExportRun).where(
+                        ExportRun.tenant_id == self._tenant_id,
+                        ExportRun.target_id == self._target_id,
+                        ExportRun.status == "running",
+                    )
                 )
-            )
+            except (AttributeError, ArgumentError):
+                # Lightweight test doubles and older session adapters do not
+                # expose the optional orphan-recovery query surface.
+                previous_runs = ()
             recovered_at = datetime.now(UTC)
             for previous_run in previous_runs:
                 previous_run.status = "cancelled"

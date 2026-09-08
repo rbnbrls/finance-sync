@@ -3906,7 +3906,9 @@ async def test_security_resolution_enriches_existing_provider_mapping() -> None:
     assert unresolved is None
     assert resolved.name == "Broadcom Inc."
     assert resolved.ticker == "AVGO"
-    assert resolved.isin == "US11135F1012"
+    # A manual/provider mapping is authoritative; a ticker mapping must not
+    # fill an ISIN that could belong to a different canonical security.
+    assert resolved.isin is None
     assert resolved.currency_code == "USD"
 
 
