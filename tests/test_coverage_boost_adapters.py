@@ -2128,23 +2128,11 @@ async def test_destination_probe_covers_non_wealthfolio_adapters() -> None:
     auth = SimpleNamespace(tenant_id="tenant")
     request = SimpleNamespace()
     settings = SimpleNamespace(destination_remote_probe_enabled=True)
-    with (
-        patch.object(
-            destinations,
-            "get_container",
-            return_value=SimpleNamespace(settings=settings),
-        ),
-        patch.object(
-            destinations,
-            "decrypt_credential",
-            return_value='{"password":"p","access_token":"t"}',
-        ),
-        patch.object(destinations, "record_destination_probe"),
-        patch.object(destinations, "_target", new=AsyncMock()),
-        patch.object(
-            destinations, "_safe_url", return_value="https://remote.test"
-        ),
-    ):
+    with patch.object(destinations, "get_container", return_value=SimpleNamespace(settings=settings)), \
+        patch.object(destinations, "decrypt_credential", return_value='{"password":"p","access_token":"t"}'), \
+        patch.object(destinations, "record_destination_probe"), \
+        patch.object(destinations, "_target", new=AsyncMock()), \
+        patch.object(destinations, "_safe_url", return_value="https://remote.test"):
         for target_type, class_name, _method in modules:
             row = SimpleNamespace(
                 id=target_type,
@@ -2712,12 +2700,8 @@ async def test_file_dispatch_routes_each_supported_provider() -> None:
         ("csv_import", "import_generic_file"),
         ("manual_expense", "import_generic_file"),
     ]:
-        with patch.object(
-            uploads, handler, new=AsyncMock(return_value={"provider": provider})
-        ) as mocked:
-            result = await uploads.dispatch_file_import(
-                request, provider, "c", [], auth, db
-            )
+        with patch.object(uploads, handler, new=AsyncMock(return_value={"provider": provider})) as mocked:
+            result = await uploads.dispatch_file_import(request, provider, "c", [], auth, db)
         assert result["provider"] == provider  # pyright: ignore[reportIndexIssue]
         mocked.assert_awaited_once()
     with pytest.raises(Exception):
@@ -4531,12 +4515,8 @@ async def test_actual_budget_export_runs_normal_and_transfer_transactions() -> (
 ):
     import finance_sync.exporter.actual_budget.exporter as module
     from finance_sync.exporter.actual_budget.config import ActualBudgetConfig
-    from finance_sync.exporter.actual_budget.client import (
-        ActualBudgetConnectionError,
-    )
-    from finance_sync.exporter.actual_budget.exporter import (
-        ActualBudgetExporter,
-    )
+    from finance_sync.exporter.actual_budget.client import ActualBudgetConnectionError
+    from finance_sync.exporter.actual_budget.exporter import ActualBudgetExporter
     from finance_sync.models.enums import SyncRunStatus
 
     class Session:
