@@ -5,8 +5,8 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID as _UUID
 
-from sqlalchemy import JSON, DateTime, String, Text
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import JSON, DateTime, Index, String, Text, text
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from finance_sync.db import Base, created_at_ts, pk_uuid
@@ -23,6 +23,16 @@ class SyncRun(Base):
     """
 
     __tablename__ = "sync_runs"
+    __table_args__ = (
+        Index(
+            "uq_sync_runs_active_connection",
+            "connection_id",
+            unique=True,
+            postgresql_where=text(
+                "status = 'running' AND connection_id IS NOT NULL"
+            ),
+        ),
+    )
 
     id: Mapped[str] = pk_uuid()
 
@@ -58,6 +68,21 @@ class SyncRun(Base):
     completed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    current_stage: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+        comment="Current operational pipeline stage while the run is active",
+    )
+    current_account_id: Mapped[str | None] = mapped_column(
+        String(128),
+        nullable=True,
+        comment="Provider account currently being processed",
+    )
+    last_activity_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        comment="Last persisted progress heartbeat for the run",
+    )
 
     # ── Watermark ────────────────────────────────────────────────────
     # Set to the run's start timestamp when the run completes
@@ -92,6 +117,11 @@ class SyncRun(Base):
         String(16), nullable=True
     )
     last_http_status: Mapped[int | None] = mapped_column(nullable=True)
+    report: Mapped[dict[str, object] | None] = mapped_column(
+        JSONB,
+        nullable=True,
+        comment=("Counts and resource identities for the sync outcome"),
+    )
 
     created_at = created_at_ts()
 

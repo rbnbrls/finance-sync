@@ -52,6 +52,17 @@ def _stateful_handler(state: _SharedState):
             return httpx.Response(200, json={"authenticated": True})
         if path == "/api/v1/accounts":
             return httpx.Response(200, json=state.accounts)
+        if path == "/api/v1/assets" and request.method == "GET":
+            return httpx.Response(200, json=[])
+        if path == "/api/v1/assets" and request.method == "POST":
+            payload: dict[str, Any] = json.loads(request.content)
+            return httpx.Response(
+                201,
+                json={
+                    **payload,
+                    "id": "wf-asset-1",
+                },
+            )
         if path == "/api/v1/activities/import/check":
             return httpx.Response(200, json={"valid": True, "issues": []})
         if path == "/api/v1/activities/import":

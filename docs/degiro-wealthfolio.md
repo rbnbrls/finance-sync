@@ -28,7 +28,8 @@ als `BUY`, `SELL`, `DEPOSIT`, `WITHDRAWAL`, `DIVIDEND`, `INTEREST`, `FEE` en
 
 Trades behouden quantity, unit price, instrumentvaluta, transactiekosten en de
 DEGIRO-FX-rate. Het EUR-basisbedrag blijft in finance-sync beschikbaar voor
-controle. ISIN heeft voorrang op ticker. Een activiteit of holding zonder
+controle. De ticker wordt gebruikt voor marktdata en ISIN wordt daarnaast
+meegenomen wanneer de bron geen ticker heeft. Een activiteit of holding zonder
 opgeloste security stopt bij de exportcursor en verschijnt als mislukte
 export/review-item; finance-sync kiest nooit stil een gelijkende ticker.
 
@@ -67,12 +68,13 @@ Los unresolved securities eerst op via de security-reviewflow en probeer de
 mislukte exporter-run daarna opnieuw. Controleer bij freshnessproblemen de
 laatste DEGIRO `ImportRun`, daarna de laatste Wealthfolio `ExportRun`.
 
-Correcties zijn niet-destructief: een nieuwere bronsnapshot supersedeert de
-vorige als nieuw controlepunt, maar finance-sync verwijdert of vervangt geen
-reeds aanwezige Wealthfolio-activiteiten automatisch. Bekijk de voorgenomen
-correctie eerst in de DEGIRO-importpreview en bevestig verwijdering/vervanging
-vervolgens expliciet in Wealthfolio. Bewaar de oude import- en export-runs als
-auditspoor.
+Voor een eerste volledige projectie gebruik je
+`finance-sync wealthfolio push --full-history`. Iedere push verwijdert remote
+accounts buiten de exacte finance-sync-dataset; een volledige backfill is
+idempotent via de Wealthfolio-import en de per-account cursor. Bewaar oude
+import- en export-runs als auditspoor. Broncorrecties op reeds geïmporteerde
+activiteiten worden nog niet automatisch ge-void of vervangen; dat blijft een
+open punt in het verbeterplan.
 
 ## Productie-smoke-test
 
