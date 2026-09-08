@@ -30,8 +30,243 @@ from finance_sync.services.auth import decrypt_credential
 router = APIRouter(tags=["enrichment"])
 
 
-class _PortfolioConnector(Protocol):
+class _Trading212Connector(Protocol):
     async def fetch_portfolio(self) -> list[dict[str, Any]]: ...
+
+    async def fetch_instruments(self) -> list[dict[str, Any]]: ...
+
+
+def _trading212_connector(connector: object) -> _Trading212Connector:
+    """Expose the optional Trading212 API through a typed protocol."""
+    return cast(_Trading212Connector, connector)
+
+
+def _credential_values(value: object) -> dict[str, str]:
+    if not isinstance(value, dict):
+        return {}
+    decoded: dict[object, object] = cast(dict[object, object], value)
+    return {str(key): str(item) for key, item in decoded.items()}
+
+
+@router.get("/market-data/trading212/latest")
+async def trading212_latest_quote(
+    symbol: str,
+    auth: AuthContext = Depends(require_permission("market-data", "read")),
+    session: AsyncSession = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> dict[str, object]:
+    """Serve a Wealthfolio custom-provider quote from Trading212."""
+    credentials = (
+        (
+            await session.execute(
+                select(Credential)
+                .where(
+                    Credential.tenant_id == auth.tenant_id,
+                    Credential.provider_key == "trading212",
+                    Credential.status == "active",
+                )
+                .order_by(Credential.updated_at.desc())
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if not credentials:
+        raise HTTPException(
+            status_code=404, detail="Trading212 niet geconfigureerd"
+        )
+
+    requested = symbol.strip().upper()
+    for credential in credentials:
+        raw = decrypt_credential(
+            credential.encrypted_payload, credential.nonce, settings
+        )
+        try:
+            credentials_data = json.loads(raw)
+        except (TypeError, json.JSONDecodeError):
+            credentials_data = {"api_key": raw}
+        connector = ConnectorRegistry().get_connector(
+            ConnectorConfig(
+                provider_type="trading212",
+                credentials=_credential_values(credentials_data),
+                options=_options(credential),
+            )
+        )
+        try:
+            await connector.authenticate()
+            trading212 = _trading212_connector(connector)
+            portfolio = await trading212.fetch_portfolio()
+            instruments = await trading212.fetch_instruments()
+        except Exception:
+            continue
+        metadata_by_ticker = {
+            str(item.get("ticker") or item.get("symbol") or "").upper(): item
+            for item in instruments
+        }
+        for item in portfolio:
+            provider_ticker = str(item.get("ticker") or "").upper()
+            metadata = metadata_by_ticker.get(provider_ticker, {})
+            normalized_ticker, _, _ = _normalise_instrument(provider_ticker)
+            candidates = {
+                provider_ticker,
+                provider_ticker.rsplit(":", 1)[-1],
+                normalized_ticker.upper(),
+                normalized_ticker.rsplit(":", 1)[-1].upper(),
+                str(
+                    metadata.get("ticker") or metadata.get("symbol") or ""
+                ).upper(),
+                str(metadata.get("isin") or metadata.get("ISIN") or "").upper(),
+            }
+            if requested not in candidates:
+                continue
+            price = item.get("currentPrice")
+            if price is None:
+                break
+            price_value = Decimal(str(price)) * _price_scale(provider_ticker)
+            currency = str(
+                item.get("currencyCode")
+                or metadata.get("currencyCode")
+                or metadata.get("currency")
+                or "EUR"
+            ).upper()
+            return {
+                "price": str(price_value),
+                "currency": currency,
+                "date": datetime.now(UTC).date().isoformat(),
+                "symbol": provider_ticker,
+                "source": "trading212",
+            }
+    raise HTTPException(
+        status_code=404, detail=f"Geen Trading212-koers voor {symbol}"
+    )
+
+
+@router.post("/enrichment/refresh-trading212-identities")
+async def refresh_trading212_identities(
+    auth: AuthContext = Depends(require_permission("securities", "write")),
+    session: AsyncSession = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> dict[str, object]:
+    """Refresh unresolved Trading212 identities from the instrument master."""
+    credentials = (
+        (
+            await session.execute(
+                select(Credential)
+                .where(
+                    Credential.tenant_id == auth.tenant_id,
+                    Credential.provider_key == "trading212",
+                    Credential.status == "active",
+                )
+                .order_by(Credential.updated_at.desc())
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if not credentials:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Geen actieve Trading212-verbinding gevonden.",
+        )
+
+    unresolved = list(
+        (
+            await session.execute(
+                select(UnresolvedSecurity).where(
+                    UnresolvedSecurity.tenant_id == auth.tenant_id,
+                    UnresolvedSecurity.provider_key == "trading212",
+                    UnresolvedSecurity.resolved_security_id.is_(None),
+                )
+            )
+        ).scalars()
+    )
+    fetched = 0
+    resolved = 0
+    updated = 0
+    for credential in credentials:
+        raw = decrypt_credential(
+            credential.encrypted_payload, credential.nonce, settings
+        )
+        try:
+            secret_values = json.loads(raw)
+        except (TypeError, json.JSONDecodeError):
+            secret_values = {"api_key": raw}
+        connector = ConnectorRegistry().get_connector(
+            ConnectorConfig(
+                provider_type="trading212",
+                credentials=_credential_values(secret_values),
+                options=_options(credential),
+            )
+        )
+        await connector.authenticate()
+        instruments = await _trading212_connector(connector).fetch_instruments()
+        fetched += len(instruments)
+        by_key = {
+            key: item
+            for item in instruments
+            for key in {
+                str(item.get("ticker") or item.get("symbol") or "").upper()
+            }
+            if key
+        }
+        for record in unresolved:
+            item = by_key.get(
+                str(record.external_security_id or record.raw_ticker).upper()
+            ) or by_key.get(str(record.raw_ticker or "").upper())
+            if not item:
+                continue
+            record.raw_isin = (
+                str(item.get("isin") or item.get("ISIN") or "") or None
+            )
+            record.raw_ticker = (
+                str(
+                    item.get("ticker")
+                    or item.get("symbol")
+                    or record.raw_ticker
+                    or ""
+                )
+                or None
+            )
+            record.raw_name = (
+                str(
+                    item.get("name")
+                    or item.get("shortName")
+                    or record.raw_name
+                    or ""
+                )
+                or None
+            )
+            record.raw_currency_code = (
+                str(
+                    item.get("currencyCode")
+                    or item.get("currency")
+                    or record.raw_currency_code
+                    or ""
+                )
+                or None
+            )
+            record.raw_metadata = json.dumps(item, sort_keys=True, default=str)
+            record.resolution_method = "trading212_metadata"
+            updated += 1
+            if record.raw_isin:
+                candidate = await session.scalar(
+                    select(Security).where(
+                        Security.isin == record.raw_isin.upper()
+                    )
+                )
+                if candidate is not None:
+                    record.resolved_security_id = str(candidate.id)
+                    record.resolution_method = "auto_isin"
+                    resolved += 1
+    await session.commit()
+    return {
+        "provider": "trading212",
+        "instruments_fetched": fetched,
+        "unresolved_updated": updated,
+        "resolved_by_isin": resolved,
+        "sync_required": True,
+        "message": "Start daarna opnieuw een Trading212-sync om holdings en transacties te koppelen.",
+    }
 
 
 def _credential_values(value: object) -> dict[str, str]:
@@ -67,11 +302,7 @@ async def refresh_quotes(
     session: AsyncSession = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ) -> dict[str, object]:
-    """Refresh stale securities through active broker API connections.
-
-    File imports are intentionally never treated as live quote providers.
-    Trading212 is currently the supported quote-capable broker adapter.
-    """
+    """Refresh stale securities through active broker API connections."""
     cutoff = datetime.now(UTC) - timedelta(hours=24)
     accepted_ids = set(
         (
@@ -141,8 +372,12 @@ async def refresh_quotes(
         )
         try:
             await connector.authenticate()
-            portfolio_connector = cast(_PortfolioConnector, connector)
-            portfolio = await portfolio_connector.fetch_portfolio()
+            trading212 = _trading212_connector(connector)
+            portfolio = await trading212.fetch_portfolio()
+            try:
+                instruments = await trading212.fetch_instruments()
+            except Exception:
+                instruments = []
             providers.append("trading212")
             by_ticker = {
                 variant: item
@@ -153,23 +388,93 @@ async def refresh_quotes(
             observed_at = datetime.now(UTC)
             freshness_rows: dict[str, EnrichmentFreshness | None] = {}
             for security in securities:
-                item = next(
-                    (
-                        by_ticker.get(variant)
-                        for variant in _ticker_variants(security.ticker)
-                    ),
-                    None,
+                instrument = by_isin.get(str(security.isin or "").upper())
+                if instrument is None:
+                    instrument = next(
+                        (
+                            instrument_by_ticker.get(variant)
+                            for variant in _ticker_variants(security.ticker)
+                        ),
+                        None,
+                    )
+                item = (
+                    next(
+                        (
+                            by_ticker.get(variant)
+                            for variant in _ticker_variants(
+                                instrument.get("ticker")
+                            )
+                        ),
+                        None,
+                    )
+                    if instrument is not None
+                    else next(
+                        (
+                            by_ticker.get(variant)
+                            for variant in _ticker_variants(security.ticker)
+                        ),
+                        None,
+                    )
                 )
-                if item is None:
-                    continue
-                price = item.get("currentPrice")
+                price = item.get("currentPrice") if item else None
                 if price is None:
                     continue
                 security_id = str(security.id)
+                raw_ticker = str(item.get("ticker", ""))
+                price = Decimal(str(price)) * _price_scale(raw_ticker)
                 currency = str(
-                    item.get("currencyCode") or security.currency_code or "EUR"
+                    item.get("currencyCode")
+                    or (instrument or {}).get("currencyCode")
+                    or security.currency_code
+                    or "EUR"
                 )
-                venue_value = item.get("venue") or item.get("exchange")
+                _, _, venue = _normalise_instrument(raw_ticker)
+                instrument_isin = str(
+                    (instrument or {}).get("isin", "")
+                ).upper()
+                if (
+                    instrument is not None
+                    and instrument_isin == str(security.isin or "").upper()
+                ):
+                    instrument_name = str(
+                        instrument.get("name")
+                        or instrument.get("shortName")
+                        or ""
+                    ).strip()
+                    normalized_ticker, _, normalized_venue = (
+                        _normalise_instrument(raw_ticker)
+                    )
+                    if instrument_name and (
+                        not security.name
+                        or security.name == security.ticker
+                        or security.name == security.isin
+                        or security.name.upper().endswith("_EQ")
+                    ):
+                        security.name = instrument_name
+                    if normalized_ticker and (
+                        not security.ticker
+                        or security.ticker.upper().endswith("_EQ")
+                    ):
+                        security.ticker = normalized_ticker
+                    if normalized_venue:
+                        listing = await session.scalar(
+                            select(SecurityListing).where(
+                                SecurityListing.security_id == security.id,
+                                SecurityListing.mic == normalized_venue,
+                                SecurityListing.currency_code
+                                == currency.upper(),
+                            )
+                        )
+                        if listing is None:
+                            session.add(
+                                SecurityListing(
+                                    security_id=security.id,
+                                    mic=normalized_venue,
+                                    ticker=normalized_ticker,
+                                    currency_code=currency.upper(),
+                                    is_primary_listing=True,
+                                )
+                            )
                 observations.append(
                     PriceObservation(
                         security_id=security_id,
@@ -263,18 +568,12 @@ async def get_enrichment_status(
     _auth: AuthContext = Depends(require_permission("enrichment", "read")),
     session: AsyncSession = Depends(get_db),
 ) -> EnrichmentStatusSummary:
-    """Return enrichment coverage and freshness statistics.
-
-    Shows how many securities have been enriched, how many are
-    pending, stale, or failed, and the last enrichment timestamp.
-    """
-    # Total securities
+    """Return enrichment coverage and freshness statistics."""
     total_result = await session.execute(
         select(func.count()).select_from(Security)
     )
     total_securities: int = total_result.scalar() or 0  # type: ignore[assignment]
 
-    # Count by freshness status
     status_counts: dict[str, int] = {}
     status_query = await session.execute(
         select(
@@ -285,13 +584,11 @@ async def get_enrichment_status(
     for row in status_query:
         status_counts[str(row[0])] = int(row[1])
 
-    # Securities with at least one price
     prices_result = await session.execute(
         select(func.count(func.distinct(EnrichmentFreshness.security_id)))  # type: ignore[attr-defined]
     )
     enriched: int = prices_result.scalar() or 0  # type: ignore[assignment]
 
-    # Stale: enriched but not updated in the last 24h
     stale_cutoff = datetime.now(UTC) - timedelta(hours=24)
     stale_result = await session.execute(
         select(func.count())
@@ -302,13 +599,11 @@ async def get_enrichment_status(
     )
     stale: int = stale_result.scalar() or 0  # type: ignore[assignment]
 
-    # Last enrichment run timestamp
     latest_result = await session.execute(
         select(func.max(EnrichmentFreshness.updated_at))
     )
     last_enrichment: datetime = latest_result.scalar()  # type: ignore[assignment]
 
-    # Active data sources
     sources_result = await session.execute(
         select(func.distinct(EnrichmentFreshness.data_source))
     )
