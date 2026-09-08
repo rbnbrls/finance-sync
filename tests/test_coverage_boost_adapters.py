@@ -6,15 +6,13 @@ fakes.  They keep coverage useful without requiring live broker or SEC calls.
 
 from __future__ import annotations
 
-import asyncio
 import json
 from datetime import UTC, date, datetime
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
-from unittest.mock import patch
 
 
 def test_enrichment_helpers_normalise_options_and_tickers() -> None:
@@ -113,6 +111,7 @@ def test_sec_helpers_cover_normalisation_and_retry_parsing() -> None:
 async def test_sec_provider_fetches_events_and_earnings() -> None:
     from finance_sync.intel.adapters.sec import SecEdgarProvider
     from finance_sync.intel.enums import IntelCapability
+    from finance_sync.intel.exceptions import IntelProviderInvalidResponseError
 
     provider = SecEdgarProvider()
     provider._get_submissions = AsyncMock(  # type: ignore[method-assign]
@@ -136,7 +135,7 @@ async def test_sec_provider_fetches_events_and_earnings() -> None:
     assert events[0].kind.value == "corporate_event"
     assert len(earnings) == 1
     assert earnings[0].kind.value == "earnings_report"
-    with pytest.raises(Exception):
+    with pytest.raises(IntelProviderInvalidResponseError):
         await provider.fetch(IntelCapability.EARNINGS)
     await provider.close()
 
@@ -408,7 +407,7 @@ def test_wealthfolio_export_helpers_cover_cash_holdings_and_payloads() -> None:
     deposit = _cash_reconciliation_activity(
         account_id="remote",
         account_currency="EUR",
-        delta=Decimal("12"),
+        delta=Decimal(12),
         tenant_id="t",
         finance_sync_account_id="a",
     )
@@ -417,7 +416,7 @@ def test_wealthfolio_export_helpers_cover_cash_holdings_and_payloads() -> None:
         _cash_reconciliation_activity(
             account_id="remote",
             account_currency="EUR",
-            delta=Decimal("-2"),
+            delta=Decimal(-2),
             tenant_id="t",
             finance_sync_account_id="a",
         )["activityType"]
@@ -463,7 +462,7 @@ def test_wealthfolio_export_helpers_cover_cash_holdings_and_payloads() -> None:
                 "currency": "EUR",
             },
         ],
-        cash_balance=Decimal("5"),
+        cash_balance=Decimal(5),
         cash_currency="EUR",
     )
     assert len(snapshot["positions"]) == 1
@@ -522,12 +521,12 @@ def test_firefly_helpers_and_result_objects() -> None:
 
     from finance_sync.exporter.firefly.config import FireflyConfig
     from finance_sync.exporter.firefly.exporter import (
-        FireflyExportResult,
         FireflyExporter,
+        FireflyExportResult,
         _has_firefly_amount,
     )
 
-    assert _has_firefly_amount(SimpleNamespace(amount=Decimal("1")))
+    assert _has_firefly_amount(SimpleNamespace(amount=Decimal(1)))
     assert not _has_firefly_amount(SimpleNamespace(amount=0))
     assert not _has_firefly_amount(SimpleNamespace(amount="bad"))
     result = FireflyExportResult(status="completed", accounts_mapped=2)
@@ -591,7 +590,7 @@ def test_wealthfolio_reconciliation_reports_quantity_and_value_drift() -> None:
     account = SimpleNamespace(
         id="a1",
         name="Checking",
-        available_balance=Decimal("10"),
+        available_balance=Decimal(10),
         current_balance=None,
     )
     findings = _reconcile_holdings(
@@ -1030,7 +1029,7 @@ def test_subscription_response_helpers_serialize_enums_and_decimals() -> None:
                 id="s1",
                 merchant_name="Shop",
                 raw_description="raw",
-                amount=Decimal("2"),
+                amount=Decimal(2),
                 currency_code="EUR",
                 frequency_days=7,
                 frequency_label="weekly",
@@ -1122,13 +1121,13 @@ def test_spending_and_datamart_schemas_cover_validation_and_serialization() -> (
             consumer_id="c1", datamart_id="m1", allowed_fields=["x", "x"]
         )
     row = SimpleNamespace(
-        id="r1", object_type="source", amount=Decimal("2"), ignored=None
+        id="r1", object_type="source", amount=Decimal(2), ignored=None
     )
     dumped = _dump(row)
     assert dumped == {
         "id": "r1",
         "object_type": "source",
-        "amount": Decimal("2"),
+        "amount": Decimal(2),
     }
 
 
@@ -1171,7 +1170,6 @@ def test_file_upload_detection_and_csv_mapping(tmp_path) -> None:
 
 
 def test_cli_parser_covers_all_export_commands_and_boolean_options() -> None:
-    from decimal import Decimal
 
     from finance_sync.cli import _build_parser
 
@@ -1213,6 +1211,7 @@ def test_cli_parser_rejects_missing_nested_commands() -> None:
 
 def test_destination_helpers_cover_parity_and_url_validation() -> None:
     from fastapi import HTTPException
+
     from finance_sync.api.v1.destinations import (
         _activity_parity_counts,
         _missing_wealthfolio_account_mappings,
@@ -1290,12 +1289,12 @@ def test_wealthfolio_helpers_cover_cash_and_quantity_corrections() -> None:
     }
     assert _is_cash_wealthfolio_holding(cash)
     assert not _is_cash_wealthfolio_holding(stock)
-    assert _wealthfolio_cash_value([cash, stock]) == Decimal("3")
+    assert _wealthfolio_cash_value([cash, stock]) == Decimal(3)
     assert _cash_reconciliation_external_id("t", "a").endswith(":t:a")
     activity = _cash_reconciliation_activity(
         account_id="wa",
         account_currency="EUR",
-        delta=Decimal("2"),
+        delta=Decimal(2),
         tenant_id="t",
         finance_sync_account_id="a",
     )
@@ -1361,8 +1360,8 @@ def test_destination_response_and_actual_mapping_helpers() -> None:
 async def test_wealthfolio_exporter_completes_cleanly_without_accounts(
     tmp_path,
 ) -> None:
-    from finance_sync.exporter.wealthfolio.exporter import WealthfolioExporter
     from finance_sync.exporter.wealthfolio.config import WealthfolioConfig
+    from finance_sync.exporter.wealthfolio.exporter import WealthfolioExporter
 
     session = MagicMock()
     session.flush = AsyncMock()
@@ -1545,29 +1544,29 @@ async def test_mcp_transaction_resource_enriches_and_sorts_accounts() -> None:
 
 def _degiro_run(**changes: object) -> SimpleNamespace:
     now = datetime.now(UTC)
-    values = dict(
-        id="run-1",
-        connection_id="conn-1",
-        source="upload",
-        status="previewed",
-        report_types=["portfolio"],
-        content_hashes=["hash"],
-        file_names=["x.csv"],
-        period_start=None,
-        period_end=None,
-        rows_total=1,
-        created_count=0,
-        updated_count=0,
-        skipped_count=0,
-        rejected_count=0,
-        warnings=[],
-        error_details=[],
-        preview={},
-        retained=False,
-        created_at=now,
-        completed_at=None,
-        audit_events=[],
-    )
+    values = {
+        "id": "run-1",
+        "connection_id": "conn-1",
+        "source": "upload",
+        "status": "previewed",
+        "report_types": ["portfolio"],
+        "content_hashes": ["hash"],
+        "file_names": ["x.csv"],
+        "period_start": None,
+        "period_end": None,
+        "rows_total": 1,
+        "created_count": 0,
+        "updated_count": 0,
+        "skipped_count": 0,
+        "rejected_count": 0,
+        "warnings": [],
+        "error_details": [],
+        "preview": {},
+        "retained": False,
+        "created_at": now,
+        "completed_at": None,
+        "audit_events": [],
+    }
     values.update(changes)
     values["safe_error"] = (values["error_details"] or [None])[0]  # pyright: ignore[reportIndexIssue]
     return SimpleNamespace(**values)
@@ -1729,25 +1728,31 @@ async def test_degiro_retry_watchfolder_configuration_and_missing_source_guards(
     )
     run = _degiro_run(status="quarantined")
     db = SimpleNamespace(execute=AsyncMock(return_value=Result(run)))
-    with patch.object(
-        degiro_imports,
-        "_connection",
-        new=AsyncMock(
-            return_value=SimpleNamespace(id="conn", description="{}")
+    with (
+        patch.object(
+            degiro_imports,
+            "_connection",
+            new=AsyncMock(
+                return_value=SimpleNamespace(id="conn", description="{}")
+            ),
         ),
+        pytest.raises(HTTPException) as exc,
     ):
-        with pytest.raises(HTTPException) as exc:
-            await degiro_imports.retry_quarantined_import("run", auth, db)
+        await degiro_imports.retry_quarantined_import("run", auth, db)
     assert exc.value.status_code == 409
     watchfolder = tmp_path / "watch"
     connection = SimpleNamespace(
         id="conn", description=json.dumps({"watchfolder": str(watchfolder)})
     )
-    with patch.object(
-        degiro_imports, "_connection", new=AsyncMock(return_value=connection)
+    with (
+        patch.object(
+            degiro_imports,
+            "_connection",
+            new=AsyncMock(return_value=connection),
+        ),
+        pytest.raises(HTTPException) as exc,
     ):
-        with pytest.raises(HTTPException) as exc:
-            await degiro_imports.retry_quarantined_import("run", auth, db)
+        await degiro_imports.retry_quarantined_import("run", auth, db)
     assert exc.value.status_code == 410
 
 
@@ -1793,11 +1798,11 @@ async def test_degiro_preview_records_all_validation_failure_categories() -> (
             patch.object(
                 degiro_imports, "report_connector_failure", new=AsyncMock()
             ),
+            pytest.raises(HTTPException) as exc,
         ):
-            with pytest.raises(HTTPException) as exc:
-                await degiro_imports.preview_import(
-                    SimpleNamespace(), "conn", [], auth, db
-                )
+            await degiro_imports.preview_import(
+                SimpleNamespace(), "conn", [], auth, db
+            )
         assert exc.value.status_code == 422
 
 
@@ -2128,11 +2133,23 @@ async def test_destination_probe_covers_non_wealthfolio_adapters() -> None:
     auth = SimpleNamespace(tenant_id="tenant")
     request = SimpleNamespace()
     settings = SimpleNamespace(destination_remote_probe_enabled=True)
-    with patch.object(destinations, "get_container", return_value=SimpleNamespace(settings=settings)), \
-        patch.object(destinations, "decrypt_credential", return_value='{"password":"p","access_token":"t"}'), \
-        patch.object(destinations, "record_destination_probe"), \
-        patch.object(destinations, "_target", new=AsyncMock()), \
-        patch.object(destinations, "_safe_url", return_value="https://remote.test"):
+    with (
+        patch.object(
+            destinations,
+            "get_container",
+            return_value=SimpleNamespace(settings=settings),
+        ),
+        patch.object(
+            destinations,
+            "decrypt_credential",
+            return_value='{"password":"p","access_token":"t"}',
+        ),
+        patch.object(destinations, "record_destination_probe"),
+        patch.object(destinations, "_target", new=AsyncMock()),
+        patch.object(
+            destinations, "_safe_url", return_value="https://remote.test"
+        ),
+    ):
         for target_type, class_name, _method in modules:
             row = SimpleNamespace(
                 id=target_type,
@@ -2600,6 +2617,8 @@ def test_file_upload_detection_covers_provider_markers_and_invalid_files(
 async def test_generic_file_import_success_and_manual_json_validation(
     tmp_path,
 ) -> None:
+    from fastapi import HTTPException
+
     import finance_sync.api.v1.file_uploads as uploads
     from finance_sync.models.enums import SyncRunStatus
 
@@ -2680,15 +2699,17 @@ async def test_generic_file_import_success_and_manual_json_validation(
                 return_value=([staged_json], ["expenses.csv"], ["hash"])
             ),
         ),
+        pytest.raises(HTTPException),
     ):
-        with pytest.raises(Exception):
-            await uploads.import_generic_file(
-                SimpleNamespace(), "manual", [], auth, db
-            )
+        await uploads.import_generic_file(
+            SimpleNamespace(), "manual", [], auth, db
+        )
 
 
 @pytest.mark.asyncio
 async def test_file_dispatch_routes_each_supported_provider() -> None:
+    from fastapi import HTTPException
+
     import finance_sync.api.v1.file_uploads as uploads
 
     auth = SimpleNamespace(tenant_id="tenant")
@@ -2700,11 +2721,15 @@ async def test_file_dispatch_routes_each_supported_provider() -> None:
         ("csv_import", "import_generic_file"),
         ("manual_expense", "import_generic_file"),
     ]:
-        with patch.object(uploads, handler, new=AsyncMock(return_value={"provider": provider})) as mocked:
-            result = await uploads.dispatch_file_import(request, provider, "c", [], auth, db)
+        with patch.object(
+            uploads, handler, new=AsyncMock(return_value={"provider": provider})
+        ) as mocked:
+            result = await uploads.dispatch_file_import(
+                request, provider, "c", [], auth, db
+            )
         assert result["provider"] == provider  # pyright: ignore[reportIndexIssue]
         mocked.assert_awaited_once()
-    with pytest.raises(Exception):
+    with pytest.raises(HTTPException):
         await uploads.dispatch_file_import(
             request, "unknown", "c", [], auth, db
         )
@@ -2826,9 +2851,9 @@ async def test_saxo_import_connection_and_upload_validation_errors(
                 return_value=([tmp_path / "only.csv"], ["only.csv"], ["hash"])
             ),
         ),
+        pytest.raises(HTTPException) as exc,
     ):
-        with pytest.raises(HTTPException) as exc:
-            await saxo_imports.import_files(request, "conn", [], auth, db)
+        await saxo_imports.import_files(request, "conn", [], auth, db)
     assert exc.value.status_code == 422
 
     from finance_sync.models.enums import SyncRunStatus
@@ -2952,9 +2977,9 @@ async def test_saxo_import_connection_and_upload_validation_errors(
                 return_value=([tmp_path / "a.xlsx"], ["a.xlsx"], ["hash"])
             ),
         ),
+        pytest.raises(HTTPException) as exc,
     ):
-        with pytest.raises(HTTPException) as exc:
-            await saxo_imports.import_files(request, "conn", [], auth, db)
+        await saxo_imports.import_files(request, "conn", [], auth, db)
     assert exc.value.status_code == 422
 
 
@@ -3043,6 +3068,7 @@ async def test_allocation_endpoint_projects_requested_scope_and_currency() -> (
 
 def test_worker_module_entrypoint_delegates_to_main() -> None:
     import runpy
+
     import finance_sync.worker as worker
 
     with patch.object(worker, "main") as main:
@@ -3095,6 +3121,7 @@ def test_spending_classification_prefers_overrides_and_merges_safely() -> None:
 
 def test_datamart_schemas_validate_unique_governance_fields() -> None:
     from pydantic import ValidationError
+
     from finance_sync.api.v1.datamarts import (
         ConsumerCreate,
         DataMartCreate,
@@ -3393,7 +3420,6 @@ async def test_destination_reconciliation_and_disabled_probe_paths() -> None:
 
 @pytest.mark.asyncio
 async def test_destination_update_and_preview_paths() -> None:
-    import finance_sync.api.v1.destinations as destinations
     from finance_sync.api.v1.destinations import (
         TargetUpdate,
         preview_target,
@@ -3458,7 +3484,6 @@ async def test_destination_update_and_preview_paths() -> None:
 async def test_destination_jupyter_activation_pause_and_notebook_paths() -> (
     None
 ):
-    import finance_sync.api.v1.destinations as destinations
     from finance_sync.api.v1.destinations import (
         activate_target,
         download_jupyter_notebook,
@@ -3506,8 +3531,9 @@ async def test_destination_jupyter_activation_pause_and_notebook_paths() -> (
 async def test_file_upload_inspection_and_dispatch_rejects_unknown_provider(
     tmp_path,
 ) -> None:
-    import finance_sync.api.v1.file_uploads as uploads
     from fastapi import HTTPException
+
+    import finance_sync.api.v1.file_uploads as uploads
 
     path = tmp_path / "expenses.json"
     path.write_text('{"expenses": []}')
@@ -3550,28 +3576,28 @@ async def test_connector_connection_test_handles_file_source_and_decrypt_failure
     from finance_sync.api.v1.connectors_config import test_connector_connection
 
     now = datetime.now(UTC)
-    base = dict(
-        id="connection",
-        provider_key="saxo_investor",
-        description="{}",
-        encrypted_payload=None,
-        nonce=None,
-        status="active",
-        selected_accounts=[],
-        last_attempt_at=None,
-        last_success_at=None,
-        last_error=None,
-        created_at=now,
-        updated_at=now,
-        last_test_at=None,
-        last_test_status=None,
-        last_test_error=None,
-        credential_status=None,
-        last_authenticated_at=None,
-        expires_at=None,
-        reauth_required_at=None,
-        credential_version=1,
-    )
+    base = {
+        "id": "connection",
+        "provider_key": "saxo_investor",
+        "description": "{}",
+        "encrypted_payload": None,
+        "nonce": None,
+        "status": "active",
+        "selected_accounts": [],
+        "last_attempt_at": None,
+        "last_success_at": None,
+        "last_error": None,
+        "created_at": now,
+        "updated_at": now,
+        "last_test_at": None,
+        "last_test_status": None,
+        "last_test_error": None,
+        "credential_status": None,
+        "last_authenticated_at": None,
+        "expires_at": None,
+        "reauth_required_at": None,
+        "credential_version": 1,
+    }
     auth = SimpleNamespace(tenant_id="tenant", principal_id="user", user=None)
     db = SimpleNamespace(flush=AsyncMock())
     with (
@@ -4330,9 +4356,6 @@ async def test_actual_budget_account_mapping_and_delivery_cursor_paths() -> (
     from finance_sync.exporter.actual_budget.exporter import (
         ActualBudgetExporter,
     )
-    from finance_sync.exporter.actual_budget.client import (
-        ActualBudgetConnectionError,
-    )
 
     class Result:
         def __init__(self, value=None, rows=()):
@@ -4514,10 +4537,13 @@ async def test_actual_budget_export_runs_normal_and_transfer_transactions() -> (
     None
 ):
     import finance_sync.exporter.actual_budget.exporter as module
+    from finance_sync.exporter.actual_budget.client import (
+        ActualBudgetConnectionError,
+    )
     from finance_sync.exporter.actual_budget.config import ActualBudgetConfig
-    from finance_sync.exporter.actual_budget.client import ActualBudgetConnectionError
-    from finance_sync.exporter.actual_budget.exporter import ActualBudgetExporter
-    from finance_sync.models.enums import SyncRunStatus
+    from finance_sync.exporter.actual_budget.exporter import (
+        ActualBudgetExporter,
+    )
 
     class Session:
         async def __aenter__(self):
@@ -4627,7 +4653,8 @@ async def test_actual_budget_export_runs_normal_and_transfer_transactions() -> (
 
     class FailingClient(Client):
         async def __aenter__(self):
-            raise ActualBudgetConnectionError("actual unavailable")
+            msg = "actual unavailable"
+            raise ActualBudgetConnectionError(msg)
 
     with patch.object(module, "ActualBudgetClient", FailingClient):
         failed = await exporter.run_export(
@@ -4691,8 +4718,8 @@ def test_degiro_pension_parsing_helpers_cover_locale_and_corporate_actions() -> 
     None
 ):
     from decimal import Decimal
+
     from finance_sync.connectors.degiro_pension import (
-        _Row,
         _clean,
         _corporate_action_ratio,
         _currency,
@@ -4700,6 +4727,7 @@ def test_degiro_pension_parsing_helpers_cover_locale_and_corporate_actions() -> 
         _hash,
         _key,
         _parse_datetime,
+        _Row,
     )
 
     assert _key("Waarde in EUR!") == "waardeineur"
@@ -4760,6 +4788,7 @@ def test_health_monitor_helpers_cover_state_checks_and_thresholds(
 @pytest.mark.asyncio
 async def test_wealthfolio_exporter_query_and_delivery_paths() -> None:
     from uuid import uuid4
+
     from finance_sync.exporter.wealthfolio.config import WealthfolioConfig
     from finance_sync.exporter.wealthfolio.exporter import WealthfolioExporter
 
@@ -4815,8 +4844,7 @@ async def test_wealthfolio_exporter_query_and_delivery_paths() -> None:
     )
 
     def factory(result):
-        session = Session(result)
-        return session
+        return Session(result)
 
     exporter = WealthfolioExporter(
         lambda: factory(ScalarRows([account])),
@@ -5182,7 +5210,7 @@ async def test_wealthfolio_push_completes_empty_projection() -> None:
 
         async def execute(self, _statement):
             return SimpleNamespace(
-                scalars=lambda: SimpleNamespace(all=lambda: []),
+                scalars=lambda: SimpleNamespace(all=list),
                 scalar_one_or_none=lambda: None,
             )
 
@@ -5245,7 +5273,7 @@ async def test_wealthfolio_push_maps_and_advances_delivery_cursor() -> None:
 
         async def execute(self, _statement):
             return SimpleNamespace(
-                scalars=lambda: SimpleNamespace(all=lambda: []),
+                scalars=lambda: SimpleNamespace(all=list),
                 scalar_one_or_none=lambda: None,
             )
 
@@ -5271,7 +5299,7 @@ async def test_wealthfolio_push_maps_and_advances_delivery_cursor() -> None:
         external_transaction_id="external",
         occurred_at=datetime(2026, 1, 1, tzinfo=UTC),
         transaction_type="payment",
-        amount=Decimal("-10"),
+        amount=Decimal(-10),
         currency_code="EUR",
         amount_in_base=None,
         base_currency_code=None,
@@ -5357,6 +5385,7 @@ async def test_wealthfolio_push_rebuild_handles_partial_remote_rejection() -> (
     None
 ):
     from decimal import Decimal
+
     from finance_sync.exporter.wealthfolio.config import WealthfolioConfig
     from finance_sync.exporter.wealthfolio.exporter import WealthfolioExporter
 
@@ -5369,7 +5398,7 @@ async def test_wealthfolio_push_rebuild_handles_partial_remote_rejection() -> (
 
         async def execute(self, _statement):
             return SimpleNamespace(
-                scalars=lambda: SimpleNamespace(all=lambda: []),
+                scalars=lambda: SimpleNamespace(all=list),
                 scalar_one_or_none=lambda: None,
             )
 
@@ -5395,7 +5424,7 @@ async def test_wealthfolio_push_rebuild_handles_partial_remote_rejection() -> (
         external_transaction_id="external",
         occurred_at=datetime(2026, 1, 1, tzinfo=UTC),
         transaction_type="payment",
-        amount=Decimal("-10"),
+        amount=Decimal(-10),
         currency_code="EUR",
         amount_in_base=None,
         base_currency_code=None,
@@ -5510,6 +5539,7 @@ def test_wealthfolio_exporter_writes_sanitized_files_and_manifest(
 @pytest.mark.asyncio
 async def test_cli_wealthfolio_guard_paths() -> None:
     from argparse import Namespace
+
     import finance_sync.cli as cli
 
     disabled_settings = SimpleNamespace(
@@ -5520,11 +5550,11 @@ async def test_cli_wealthfolio_guard_paths() -> None:
     with (
         patch.object(cli, "Settings", return_value=disabled_settings),
         patch.object(cli, "configure_logging"),
+        pytest.raises(SystemExit),
     ):
-        with pytest.raises(SystemExit):
-            await cli._cmd_wealthfolio(
-                Namespace(wf_command="export", tenant_id="tenant")
-            )
+        await cli._cmd_wealthfolio(
+            Namespace(wf_command="export", tenant_id="tenant")
+        )
 
     container = SimpleNamespace(
         settings=SimpleNamespace(
@@ -5597,6 +5627,7 @@ def test_connector_config_schema_and_safe_response_helpers() -> None:
 @pytest.mark.asyncio
 async def test_cli_exporter_disabled_guards() -> None:
     from argparse import Namespace
+
     import finance_sync.cli as cli
 
     cases = [
@@ -5616,14 +5647,15 @@ async def test_cli_exporter_disabled_guards() -> None:
         with (
             patch.object(cli, "Settings", return_value=settings),
             patch.object(cli, "configure_logging"),
+            pytest.raises(SystemExit),
         ):
-            with pytest.raises(SystemExit):
-                await getattr(cli, function_name)(Namespace())
+            await getattr(cli, function_name)(Namespace())
 
 
 @pytest.mark.asyncio
 async def test_cli_ghostfolio_and_investbrain_missing_token_guards() -> None:
     from argparse import Namespace
+
     import finance_sync.cli as cli
 
     class Dispose:
@@ -5672,14 +5704,15 @@ async def test_cli_ghostfolio_and_investbrain_missing_token_guards() -> None:
                 "UnitOfWork",
                 return_value=SimpleNamespace(tenants=Tenants()),
             ),
+            pytest.raises(SystemExit),
         ):
-            with pytest.raises(SystemExit):
-                await getattr(cli, function_name)(Namespace(access_token=None))
+            await getattr(cli, function_name)(Namespace(access_token=None))
 
 
 @pytest.mark.asyncio
 async def test_cli_wealthfolio_dry_run_path() -> None:
     from argparse import Namespace
+
     import finance_sync.cli as cli
     from finance_sync.exporter.wealthfolio.config import WealthfolioConfig
 
