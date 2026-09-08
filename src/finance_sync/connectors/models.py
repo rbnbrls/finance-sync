@@ -109,7 +109,7 @@ class RawAccount(BaseModel):
         default=None, description="Total account value including investments"
     )
     cash_balances: list[RawCashBalance] = Field(
-        default_factory=lambda: list[RawCashBalance]()
+        default_factory=list[RawCashBalance]
     )
     iso_currency_code: str | None = Field(
         default=None,
@@ -282,7 +282,7 @@ class CanonicalAccountData(BaseModel):
     available_balance: Decimal | None = Field(default=None)
     net_asset_value: Decimal | None = Field(default=None)
     cash_balances: list[RawCashBalance] = Field(
-        default_factory=lambda: list[RawCashBalance]()
+        default_factory=list[RawCashBalance]
     )
     iso_currency_code: str | None = Field(default=None)
     provider_metadata: dict[str, Any] | None = Field(default=None)

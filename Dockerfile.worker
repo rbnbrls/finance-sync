@@ -43,7 +43,8 @@ RUN apk upgrade --no-cache && apk add --no-cache \
     bash \
     curl \
     wget \
-    ca-certificates
+    ca-certificates \
+    'libuuid>=2.42.3-r1'
 
 RUN addgroup -S -g 1000 finance && \
     adduser -S -D -G finance -u 1000 -s /sbin/nologin finance

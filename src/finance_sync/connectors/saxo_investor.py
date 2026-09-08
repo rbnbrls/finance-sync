@@ -710,9 +710,7 @@ class SaxoInvestorConnector(Connector):
                     provider_metadata_contract=(
                         ProviderMetadata(
                             source_object_type="transaction_export",
-                            fields={
-                                "split_ratio": str(corporate_action_ratio)
-                            },
+                            fields={"split_ratio": str(corporate_action_ratio)},
                         )
                         if corporate_action_ratio is not None
                         else None
