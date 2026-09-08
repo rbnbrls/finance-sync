@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-import json
-from datetime import UTC, datetime, timedelta
-from unittest.mock import Mock, patch
+from datetime import UTC, datetime
+from unittest.mock import patch
 
 import pytest
 
@@ -42,14 +41,15 @@ def test_check_key_provider_status_with_config():
 
 def test_check_key_provider_status_error():
     """Test key provider status check when config is missing."""
-    with patch.dict('os.environ', {}, clear=True):
-        with patch('os.getcwd', return_value="/nonexistent"):
-            # Mock os.path.exists to return False for the config file
-            with patch('os.path.exists', return_value=False):
-                result = check_key_provider_status()
-                
-                assert "error" in result
-                assert result["status"] == "error"
+    with (
+        patch.dict("os.environ", {}, clear=True),
+        patch("os.getcwd", return_value="/nonexistent"),
+        patch("os.path.exists", return_value=False),
+    ):
+        result = check_key_provider_status()
+
+        assert "error" in result
+        assert result["status"] == "error"
 
 
 def test_check_key_rotation_status_approaching_expiry():
