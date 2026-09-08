@@ -49,7 +49,8 @@ RUN apk upgrade --no-cache && apk add --no-cache \
     bash \
     curl \
     wget \
-    ca-certificates
+    ca-certificates \
+    'libuuid>=2.42.3-r1'
 
 # Create non-root user
 RUN addgroup -S -g 1000 finance && \

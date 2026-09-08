@@ -27,9 +27,7 @@ def _finding_list() -> list[PreflightFinding]:
     return []
 
 
-def _empty_destination_activities() -> dict[
-    str, tuple[dict[str, Any], ...]
-]:
+def _empty_destination_activities() -> dict[str, tuple[dict[str, Any], ...]]:
     return {}
 
 
@@ -82,9 +80,15 @@ def missing_wealthfolio_assets(
     }
     missing: list[str] = []
     for asset in canonical_assets:
-        identity = str(
-            getattr(asset, "isin", None) or getattr(asset, "ticker", None) or ""
-        ).strip().upper()
+        identity = (
+            str(
+                getattr(asset, "isin", None)
+                or getattr(asset, "ticker", None)
+                or ""
+            )
+            .strip()
+            .upper()
+        )
         if identity and identity not in remote_keys:
             missing.append(str(getattr(asset, "id", "unknown")))
     return tuple(sorted(set(missing)))
@@ -395,8 +399,7 @@ def validate_transfer_rows(
     return [
         finding
         for finding in validate_transaction_stream(transactions)
-        if finding.category
-        in {"unbalanced_transfer", "incomplete_transaction"}
+        if finding.category in {"unbalanced_transfer", "incomplete_transaction"}
     ]
 
 
@@ -406,9 +409,10 @@ def validate_activity_semantics(txn: Any) -> list[PreflightFinding]:
     record_id = str(getattr(txn, "id", "unknown"))
     findings: list[PreflightFinding] = []
 
-    if hasattr(txn, "external_transaction_id") and not str(
-        txn.external_transaction_id or ""
-    ).strip():
+    if (
+        hasattr(txn, "external_transaction_id")
+        and not str(txn.external_transaction_id or "").strip()
+    ):
         findings.append(
             PreflightFinding(
                 category="invalid_activity_semantics",
@@ -456,9 +460,8 @@ def validate_activity_semantics(txn: Any) -> list[PreflightFinding]:
                 )
             )
         unit_price = _decimal(getattr(txn, "unit_price", None))
-        if (
-            getattr(txn, "unit_price", None) is not None
-            and (unit_price is None or unit_price < 0)
+        if getattr(txn, "unit_price", None) is not None and (
+            unit_price is None or unit_price < 0
         ):
             findings.append(
                 PreflightFinding(

@@ -75,10 +75,6 @@ class WealthfolioClientConfig:
     password: str
     request_timeout: float = 60.0
     verify_ssl: bool = True
-    # Retry a request when Wealthfolio answers HTTP 408 (its own
-    # WF_REQUEST_TIMEOUT_MS cap aborted a slow holdings recalculation).
-    # The server keeps working after the abort, so a retry commonly
-    # succeeds (observed 17s vs 30s cap on the prod instance).
     retry_408: bool = True
     retry_408_attempts: int = 3
     retry_408_base_delay: float = 2.0
@@ -1201,16 +1197,7 @@ class WealthfolioClient:
         *,
         json: dict[str, Any],
     ) -> httpx.Response:
-        """POST *url*, retrying with backoff when the server answers 408.
-
-        Wealthfolio aborts slow requests at its own ``WF_REQUEST_TIMEOUT_MS``
-        cap (30s default) and answers HTTP 408 while the underlying work
-        keeps running.  A retry after a short backoff normally completes the
-        request (observed: the snapshot POST failed at 30s then succeeded at
-        17s on the production instance).  Only slow Wealthfolio POST
-        endpoints use this helper; ordinary fast endpoints keep fail-fast
-        semantics.
-        """
+        """Retry slow Wealthfolio validation requests after HTTP 408."""
         attempts = (
             self._config.retry_408_attempts if self._config.retry_408 else 1
         )
@@ -1219,10 +1206,11 @@ class WealthfolioClient:
             response = await self._client.post(url, json=json)
             if response.status_code != 408 or attempt == attempts:
                 return response
-            delay = self._config.retry_408_base_delay * (2 ** (attempt - 1))
-            await asyncio.sleep(delay)
-        assert response is not None  # loop above always returns on last attempt
-        return response  # pragma: no cover - defensive for type checkers
+            await asyncio.sleep(
+                self._config.retry_408_base_delay * (2 ** (attempt - 1))
+            )
+        assert response is not None
+        return response
 
     def _ensure_authenticated(self) -> None:
         """Raise if the client is not authenticated."""

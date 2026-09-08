@@ -2008,8 +2008,12 @@ async def delete_connection_account(
     )
     account = result.scalar_one_or_none()
     if account is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Account not found")
-    await ConnectorDataDeletionService(db, auth.tenant_id).delete_account(account)
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Account not found"
+        )
+    await ConnectorDataDeletionService(db, auth.tenant_id).delete_account(
+        account
+    )
     if cred.selected_accounts and external_account_id in cred.selected_accounts:
         cred.selected_accounts = [
             value

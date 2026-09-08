@@ -286,7 +286,9 @@ async def test_selected_account_health_detects_missing_local_account() -> None:
     )
 
     issues = await DataHealthService(
-        cast("AsyncSession", session), "tenant-a", permissions={"connectors:read"}
+        cast("AsyncSession", session),
+        "tenant-a",
+        permissions={"connectors:read"},
     )._selected_account_issues()
 
     assert len(issues) == 1
@@ -295,7 +297,9 @@ async def test_selected_account_health_detects_missing_local_account() -> None:
     assert issues[0].impact_count == 1
     assert issues[0].evidence["missing_external_account_ids"] == ["missing"]
     assert issues[0].action.key == "view_connection"
-    assert issues[0].action.path == f"/api/v1/connectors/configs/{connection_id}"
+    assert (
+        issues[0].action.path == f"/api/v1/connectors/configs/{connection_id}"
+    )
 
 
 @pytest.mark.asyncio
@@ -539,7 +543,9 @@ async def test_sync_integrity_health_detects_orphan_cursor_and_partial_run() -> 
 
 
 @pytest.mark.asyncio
-async def test_sync_integrity_health_detects_stale_cursor_against_latest_run() -> None:
+async def test_sync_integrity_health_detects_stale_cursor_against_latest_run() -> (
+    None
+):
     old_cursor = datetime(2026, 8, 20, tzinfo=UTC)
     latest_run_cursor = datetime(2026, 8, 25, tzinfo=UTC)
     cursor = SimpleNamespace(
@@ -575,7 +581,9 @@ async def test_sync_integrity_health_detects_stale_cursor_against_latest_run() -
 
 
 @pytest.mark.asyncio
-async def test_sync_integrity_health_detects_selected_account_missing_from_run() -> None:
+async def test_sync_integrity_health_detects_selected_account_missing_from_run() -> (
+    None
+):
     credential = SimpleNamespace(
         id="connection-1",
         provider_key="trading212",
@@ -641,7 +649,9 @@ async def test_portfolio_quantity_health_detects_trade_holding_mismatch() -> (
 
 
 @pytest.mark.asyncio
-async def test_portfolio_quantity_health_skips_invalid_numeric_activity() -> None:
+async def test_portfolio_quantity_health_skips_invalid_numeric_activity() -> (
+    None
+):
     session = _Session(
         _Result(
             rows=[
@@ -878,7 +888,9 @@ async def test_security_identity_health_warns_on_cross_variant_ticker() -> None:
 
 
 @pytest.mark.asyncio
-async def test_security_identity_health_includes_listing_venue_evidence() -> None:
+async def test_security_identity_health_includes_listing_venue_evidence() -> (
+    None
+):
     session = _Session(
         _Result(
             rows=[
@@ -983,7 +995,9 @@ async def test_tombstoned_export_health_flags_delivered_transaction() -> None:
     )
 
     issues = await DataHealthService(
-        cast("AsyncSession", session), "tenant-a", permissions={"destinations:write"}
+        cast("AsyncSession", session),
+        "tenant-a",
+        permissions={"destinations:write"},
     )._tombstoned_export_issues()
 
     assert len(issues) == 1
@@ -1077,7 +1091,9 @@ async def test_destination_health_status_is_projected_as_actionable_issue() -> (
         "unmapped_remote_accounts": 1,
         "stale_remote_activities": 3,
     }
-    assert "secret" not in issues[0].evidence["parity_counts"]
+    assert "secret" not in cast(
+        "dict[str, Any]", issues[0].evidence["parity_counts"]
+    )
 
 
 @pytest.mark.asyncio
@@ -1266,7 +1282,9 @@ async def test_tax_lot_integrity_health_requires_purchase_link_type() -> None:
 
 
 @pytest.mark.asyncio
-async def test_tax_lot_integrity_health_detects_open_zero_remaining_lot() -> None:
+async def test_tax_lot_integrity_health_detects_open_zero_remaining_lot() -> (
+    None
+):
     lot = SimpleNamespace(
         id="lot-open-zero",
         account_id="account-1",
@@ -1333,7 +1351,9 @@ async def test_tax_lot_integrity_health_detects_zero_quantity_lot() -> None:
 
 
 @pytest.mark.asyncio
-async def test_tax_lot_integrity_health_detects_cost_basis_unit_mismatch() -> None:
+async def test_tax_lot_integrity_health_detects_cost_basis_unit_mismatch() -> (
+    None
+):
     lot = SimpleNamespace(
         id="lot-cost-basis-mismatch",
         account_id="account-1",
@@ -1374,7 +1394,9 @@ async def test_tax_lot_integrity_health_detects_cost_basis_unit_mismatch() -> No
 
 
 @pytest.mark.asyncio
-async def test_tax_lot_integrity_health_detects_sale_above_lot_capacity() -> None:
+async def test_tax_lot_integrity_health_detects_sale_above_lot_capacity() -> (
+    None
+):
     lot = SimpleNamespace(
         id="lot-1",
         account_id="account-1",
@@ -1402,7 +1424,7 @@ async def test_tax_lot_integrity_health_detects_sale_above_lot_capacity() -> Non
                     "security-1",
                     "sale",
                     12,
-                )
+                ),
             ]
         ),
         _Result(rows=[("account-1",)]),
@@ -1420,7 +1442,9 @@ async def test_tax_lot_integrity_health_detects_sale_above_lot_capacity() -> Non
 
 
 @pytest.mark.asyncio
-async def test_tax_lot_integrity_health_warns_on_missing_purchase_basis() -> None:
+async def test_tax_lot_integrity_health_warns_on_missing_purchase_basis() -> (
+    None
+):
     lot = SimpleNamespace(
         id="lot-opening",
         account_id="account-1",
@@ -1449,7 +1473,9 @@ async def test_tax_lot_integrity_health_warns_on_missing_purchase_basis() -> Non
 
 
 @pytest.mark.asyncio
-async def test_tax_lot_integrity_health_warns_on_sale_without_lot_basis() -> None:
+async def test_tax_lot_integrity_health_warns_on_sale_without_lot_basis() -> (
+    None
+):
     session = _Session(
         _Result(scalars=[]),
         _Result(
@@ -1812,9 +1838,10 @@ async def test_canonical_data_health_does_not_duplicate_incomplete_transfer():
         "unbalanced_transfer",
         "incomplete_transaction",
     ]
-    assert sum(
-        "transfer-missing-amount" in issue.details[0] for issue in issues
-    ) == 2
+    assert (
+        sum("transfer-missing-amount" in issue.details[0] for issue in issues)
+        == 2
+    )
 
 
 @pytest.mark.asyncio
@@ -1903,7 +1930,9 @@ async def test_canonical_data_health_projects_shared_activity_contract_findings(
 
 
 @pytest.mark.asyncio
-async def test_canonical_data_health_deduplicates_repeated_activity_rows() -> None:
+async def test_canonical_data_health_deduplicates_repeated_activity_rows() -> (
+    None
+):
     """Overlapping source rows must not inflate one canonical finding."""
     now = datetime(2026, 8, 25, 10, 0, tzinfo=UTC)
     repeated_row = (
@@ -2057,7 +2086,9 @@ async def test_canonical_data_health_projects_fee_and_cash_contracts() -> None:
 
 
 @pytest.mark.asyncio
-async def test_canonical_projection_matches_shared_preflight_validator() -> None:
+async def test_canonical_projection_matches_shared_preflight_validator() -> (
+    None
+):
     """The canonical projection must preserve the shared validator finding."""
     now = datetime(2026, 8, 25, 10, 0, tzinfo=UTC)
     canonical = SimpleNamespace(
@@ -2116,7 +2147,9 @@ async def test_canonical_projection_matches_shared_preflight_validator() -> None
 
 
 @pytest.mark.asyncio
-async def test_canonical_projection_validates_quantity_events_with_metadata() -> None:
+async def test_canonical_projection_validates_quantity_events_with_metadata() -> (
+    None
+):
     """Canonical preflight must include persisted quantity-event metadata."""
     now = datetime(2026, 8, 25, 10, 0, tzinfo=UTC)
     canonical = SimpleNamespace(
@@ -2231,6 +2264,45 @@ async def test_wealthfolio_preflight_flags_unverified_cost_basis() -> None:
         "basis_present": True,
         "basis_source": "unverified",
     }
+
+
+@pytest.mark.asyncio
+async def test_additional_health_issues_ignore_extra_account_projection_values() -> (
+    None
+):
+    session = _Session(
+        _Result(scalars=[]),
+        _Result(rows=[("bunq", "account-1", 2, 10, 20, "new-column")]),
+        _Result(scalar=0),
+        _Result(scalars=[]),
+    )
+
+    issues = await DataHealthService(
+        cast("AsyncSession", session), "tenant-a"
+    )._additional_issues()
+
+    assert [issue.category for issue in issues] == [
+        "duplicate_accounts",
+        "balance_conflict",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_additional_health_issues_skip_short_account_projection_rows() -> (
+    None
+):
+    session = _Session(
+        _Result(scalars=[]),
+        _Result(rows=[("bunq", "account-1", 2, 10)]),
+        _Result(scalar=0),
+        _Result(scalars=[]),
+    )
+
+    issues = await DataHealthService(
+        cast("AsyncSession", session), "tenant-a"
+    )._additional_issues()
+
+    assert issues == []
 
 
 @pytest.mark.asyncio

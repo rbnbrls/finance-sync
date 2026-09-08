@@ -124,8 +124,6 @@ class SyncOrchestrator(CardsSyncMixin):
         self._tenant_id = tenant_id
         self._settings = settings
 
-    # ── Config helpers ──────────────────────────────────────────
-
     @property
     def _reconciliation_after_sync_enabled(self) -> bool:
         """Whether auto-reconciliation after sync is enabled.
@@ -142,8 +140,6 @@ class SyncOrchestrator(CardsSyncMixin):
                 )
             )
         return True
-
-    # ── Connection outcome tracking ────────────────────────────────
 
     async def _mark_connection_attempt(
         self,
@@ -278,21 +274,12 @@ class SyncOrchestrator(CardsSyncMixin):
         Returns:
             A ``SyncResult`` named tuple with status, counts, and error.
         """
-        # Validate the ``since`` parameter before it enters any
-        # provider-specific path.  A missing value falls back to the
-        # documented 90-day default window; a malformed value (garbage,
-        # wrong type, unparseable ISO string) must not crash the sync or
-        # reach a connector's ``strftime`` — it becomes a controlled
-        # FAILED result with an actionable, credential-free message.
         connection_id = connection_id or getattr(config, "connection_id", None)
         if selected_accounts is None:
             selected_accounts = getattr(config, "selected_accounts", None)
         try:
             _since = _resolve_since(since)
         except InvalidSinceError as exc:
-            # Log only the rejection reason — never the raw value.  The
-            # value may originate from user input or a stored cursor and
-            # is not echoed anywhere (logs, response, SyncRun row).
             logger.error(
                 "sync_since_rejected",
                 provider=provider_type,
@@ -321,9 +308,6 @@ class SyncOrchestrator(CardsSyncMixin):
         )
         log.info("sync_starting")
 
-        # Persisted on the connection row so this guard survives a worker
-        # restart. It also ensures an early manual retry makes no provider
-        # request while Retry-After is active.
         if connection_id:
             async with self._session_factory() as guard_session:
                 guarded = await guard_session.get(Credential, connection_id)
@@ -352,8 +336,6 @@ class SyncOrchestrator(CardsSyncMixin):
                         duration_s=0.0,
                     )
 
-        # Record the attempt on the connection row so the control-panel
-        # UI can show per-connection status even while the run is live.
         if connection_id:
             async with self._session_factory() as recovery_session:
                 recovered = await recover_stale_sync_runs(
@@ -378,10 +360,6 @@ class SyncOrchestrator(CardsSyncMixin):
         connector = self._registry.get_connector(config)
         compatibility_error: str | None = None
 
-        # A connector that is explicitly covered by the lifecycle contract
-        # must not make provider calls when its installed version/capabilities
-        # are incompatible.  Providers without a lifecycle entry retain the
-        # legacy behaviour until their metadata is onboarded.
         lifecycle_path, matrix_path = default_contract_paths()
         lifecycle = load_json(lifecycle_path)
         contract_matrix = load_json(matrix_path)
@@ -421,10 +399,6 @@ class SyncOrchestrator(CardsSyncMixin):
                     f"{compatibility.reason}"
                 )
 
-        # Inject persisted connector state (e.g. bunq installation material)
-        # before the run so stateful connectors reuse their device identity.
-        # The state is scoped per connection: two bunq connections keep
-        # separate installations.
         if isinstance(connector, StatefulConnector):
             stored = await self._load_connector_state(
                 provider_type, connection_id=connection_id
@@ -433,7 +407,6 @@ class SyncOrchestrator(CardsSyncMixin):
                 connector.set_state(stored)
                 log.debug("connector_state_injected", provider=provider_type)
 
-        # ── Run the pipeline ──────────────────────────────────────
         async with self._session_factory() as session:
             pipeline_kwargs: dict[str, Any] = {
                 "resume": since is None,
@@ -451,9 +424,6 @@ class SyncOrchestrator(CardsSyncMixin):
                 **pipeline_kwargs,
             )
 
-        # Persist new connector state (a freshly created bunq installation)
-        # regardless of run outcome — authenticate() runs first, so any
-        # returned result means the installation exists server-side.
         if isinstance(connector, StatefulConnector):
             await self._persist_connector_state(
                 provider_type, connector, connection_id=connection_id
@@ -493,11 +463,6 @@ class SyncOrchestrator(CardsSyncMixin):
                 duration_s=result.duration_s,
             )
 
-            # ── Post-sync reconciliation (opt-in) ──────────────────────
-            # Only run automatic reconciliation when the config flag is
-            # enabled (default: on).  Checking the flag here lets operators
-            # suppress auto-reconciliation without changing the piped
-            # workflow — they just set the env var to false.
             if self._reconciliation_after_sync_enabled:
                 try:
                     rec_summary = await self.run_reconciliation(
@@ -527,8 +492,6 @@ class SyncOrchestrator(CardsSyncMixin):
 
         return result
 
-    # ── Connector state persistence ────────────────────────────────────
-
     async def _load_connector_state(
         self,
         provider_key: str,
@@ -550,9 +513,6 @@ class SyncOrchestrator(CardsSyncMixin):
                     ConnectorState.provider_key == provider_key,
                 )
             )
-            # A tenant holds at most a handful of connections per
-            # provider; select the row scoped to this connection in
-            # Python instead of chaining dynamic SQL filters.
             row = self._connector_state_row(rows.all(), connection_id)
         state = getattr(row, "state", None) if row is not None else None
         if not isinstance(state, dict) or not state:
@@ -619,10 +579,6 @@ class SyncOrchestrator(CardsSyncMixin):
             None,
         )
 
-    # ── Bunq cards / scheduled payments sync ──────────────────────────
-
-    # ── Post-sync reconciliation ─────────────────────────────────────
-
     async def run_reconciliation(
         self,
         *,
@@ -664,7 +620,6 @@ class SyncOrchestrator(CardsSyncMixin):
             date_to=date_to,
         )
 
-        # Emit outbox message for completed reconciliation
         if run.status == ReconciliationRunStatus.COMPLETED:
             try:
                 async with self._session_factory() as session:
@@ -704,8 +659,6 @@ class SyncOrchestrator(CardsSyncMixin):
             finding_count=run.finding_count or 0,
         )
 
-    # ── Internal pipeline ──────────────────────────────────────────
-
     async def _run_pipeline(
         self,
         session: AsyncSession,
@@ -741,9 +694,6 @@ class SyncOrchestrator(CardsSyncMixin):
         current_operation = "start_sync_run"
         current_account_id: str | None = None
 
-        # Account selection: when the connection pins a set of provider
-        # account ids, only those accounts are synced (and their
-        # transactions/holdings fetched).  NULL/empty means "all".
         selected_set: set[str] | None = (
             set(selected_accounts) if selected_accounts else None
         )
@@ -763,7 +713,7 @@ class SyncOrchestrator(CardsSyncMixin):
                         connection_id=connection_id,
                     ),
                 )
-                # 1. SyncRun record
+
                 run = await start_sync_run(
                     uow,
                     connector=provider_type,
@@ -775,7 +725,6 @@ class SyncOrchestrator(CardsSyncMixin):
                 if compatibility_error:
                     raise PermanentError(compatibility_error)
 
-                # 2. Authenticate
                 current_operation = "authenticate"
                 await update_sync_run_progress(
                     self._session_factory, run_id, stage=current_operation
@@ -784,7 +733,6 @@ class SyncOrchestrator(CardsSyncMixin):
                 await connector.authenticate()
                 log.debug("authenticated")
 
-                # 3. Fetch + upsert accounts through an isolated stage.
                 current_operation = "fetch_accounts"
                 await update_sync_run_progress(
                     self._session_factory, run_id, stage=current_operation
@@ -801,11 +749,6 @@ class SyncOrchestrator(CardsSyncMixin):
                 accounts_synced = len(canonical_accounts)
                 log.debug("accounts_fetched", count=accounts_synced)
 
-                # A configured account selection is an import contract, not
-                # merely a best-effort filter.  If the provider no longer
-                # returns any selected account (for example after an account
-                # id changed), completing here would stamp the connection as
-                # successful while writing no data at all.
                 if selected_set is not None and not canonical_accounts:
                     selection_error = (
                         "Account selection validation failed: "
@@ -814,23 +757,12 @@ class SyncOrchestrator(CardsSyncMixin):
                     )
                     raise PermanentError(selection_error)
 
-                # Commit the run and account rows before processing resources.
-                # Resource writes are isolated below, one transaction per
-                # account, so a failed account cannot roll back a previously
-                # completed account (or leave this account partially written).
                 await uow.commit()
                 await update_sync_run_progress(
                     self._session_factory, run_id, stage="load_cursors"
                 )
                 await ensure_sync_run_active(self._session_factory, run_id)
 
-                # 4. Fetch + upsert transactions per account.  Each
-                #    account resumes from its own stored cursor when one
-                #    exists; accounts without a cursor (first sync, or a
-                #    newly added account) fall back to the run-level
-                #    ``since`` (explicit backfill or the 90-day default).
-                #    An explicit ``since`` (``resume=False``) disables
-                #    cursor lookups so backfills cover every account.
                 cursors: dict[str, dt_type] = {}
                 if resume:
                     cursors = await get_connector_cursors(
@@ -854,10 +786,7 @@ class SyncOrchestrator(CardsSyncMixin):
                     )
                     await ensure_sync_run_active(self._session_factory, run_id)
                     acct_since = cursors.get(ca.external_account_id, since)
-                    # Persist the account, cash and holdings first.  Holdings
-                    # are a current snapshot and must remain visible even if
-                    # a long historical transaction fetch later hits a
-                    # provider rate limit.
+
                     account_holdings = 0
                     account_holdings_unresolved: set[str] = set()
                     async with _UnitOfWork(session) as holdings_uow:
@@ -887,12 +816,7 @@ class SyncOrchestrator(CardsSyncMixin):
                                     datetime.now(UTC)
                                     - timedelta(days=lookback_days),
                                 )
-                        # Trading212 historically produced ``txn_`` for cash
-                        # records without an API id.  The connector now uses
-                        # stable fallbacks, but an existing cursor would
-                        # otherwise permanently skip the older records.  A
-                        # targeted one-time backfill repairs such accounts;
-                        # normal incremental syncs keep using their cursor.
+
                         if (
                             provider_type == "trading212"
                             and ca.external_account_id in cursors
@@ -1072,11 +996,9 @@ class SyncOrchestrator(CardsSyncMixin):
                         holdings=holdings_synced,
                         unresolved_securities=len(unresolved_keys),
                     )
-                # The outer UoW committed before the account loop and marks
-                # itself as committed, so explicitly persist this final run
-                # status/event transaction.
+
                 await session.commit()
-            # If we get here, the UoW committed successfully
+
             end_ts = _dt.now(UTC)
             return SyncResult(
                 status=SyncRunStatus.COMPLETED,
@@ -1102,8 +1024,6 @@ class SyncOrchestrator(CardsSyncMixin):
                 duration_s=(end_ts - start_ts).total_seconds(),
             )
         except SyncAlreadyRunningError as exc:
-            # A second trigger is a normal operational race (scheduler vs
-            # manual sync). Do not create a second run or call the provider.
             end_ts = _dt.now(UTC)
             log.info("sync_skipped_already_running", error=str(exc))
             return SyncResult(
@@ -1293,13 +1213,11 @@ class SyncOrchestrator(CardsSyncMixin):
             log.error("sync_failed_before_run_created", error=error_message)
             return
 
-        # Use a separate transaction to record the failure
         from finance_sync.db.uow import UnitOfWork as _UnitOfWork
         from finance_sync.models import SyncRun as _SyncRun
 
         try:
             async with _UnitOfWork(session) as uow:
-                # Reload the run in this session if it survived the rollback
                 run_id = getattr(run, "id", None)
                 reloaded = (
                     await uow.sync_runs.get(run_id)
@@ -1319,8 +1237,6 @@ class SyncOrchestrator(CardsSyncMixin):
                         last_http_status=last_http_status,
                     )
                 else:
-                    # The original row never made it to the DB — insert a
-                    # fresh FAILED record so the failure is observable.
                     connector = getattr(run, "connector", None) or "unknown"
                     uow.session.add(
                         _SyncRun(
