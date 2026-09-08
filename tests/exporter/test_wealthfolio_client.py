@@ -257,9 +257,7 @@ class TestWealthfolioClientImport:
         assert post.await_count == 2
         assert post.await_args_list[0].args == post.await_args_list[1].args
         assert post.await_args_list[0].kwargs == post.await_args_list[1].kwargs
-        assert post.await_args_list[0].kwargs == {
-            "json": {"activities": []}
-        }
+        assert post.await_args_list[0].kwargs == {"json": {"activities": []}}
         sleep.assert_awaited_once()
 
     async def test_check_import_preserves_non_timeout_errors(
