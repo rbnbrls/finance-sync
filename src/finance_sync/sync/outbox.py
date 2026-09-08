@@ -143,12 +143,28 @@ async def outbox_entity_updated(
     entity_id: str,
     changed_fields: dict[str, Any] | None = None,
     provider_key: str | None = None,
+    deduplicate: bool = False,
 ) -> OutboxMessage:
     """Convenience: emit an outbox message for ``{entity_type}.updated``.
 
     ``tenant_id`` is embedded in the payload so the webhook dispatcher can
     scope deliveries to the owning tenant's webhooks.
     """
+    idempotency_key = f"{entity_type}:{entity_id}:updated"
+    if deduplicate:
+        from sqlalchemy import select
+
+        existing = await uow.session.execute(
+            select(OutboxMessage.id).where(
+                OutboxMessage.idempotency_key == idempotency_key
+            )
+        )
+        existing_id = existing.scalar_one_or_none()
+        if existing_id is not None:
+            existing_message = await uow.session.get(OutboxMessage, existing_id)
+            if existing_message is not None:
+                return existing_message
+
     return await add_outbox_message(
         uow,
         aggregate_id=entity_id,
@@ -161,5 +177,5 @@ async def outbox_entity_updated(
             "changed_fields": changed_fields or {},
             "provider_key": provider_key,
         },
-        idempotency_key=f"{entity_type}:{entity_id}:updated",
+        idempotency_key=idempotency_key,
     )
