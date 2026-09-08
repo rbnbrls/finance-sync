@@ -1077,7 +1077,9 @@ async def test_destination_health_status_is_projected_as_actionable_issue() -> (
         "unmapped_remote_accounts": 1,
         "stale_remote_activities": 3,
     }
-    assert "secret" not in issues[0].evidence["parity_counts"]
+    assert "secret" not in cast(
+        "dict[str, Any]", issues[0].evidence["parity_counts"]
+    )
 
 
 @pytest.mark.asyncio
