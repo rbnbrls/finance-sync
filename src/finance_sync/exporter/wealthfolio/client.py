@@ -18,6 +18,7 @@ Usage::
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -66,6 +67,9 @@ class WealthfolioClientConfig:
     password: str
     request_timeout: float = 60.0
     verify_ssl: bool = True
+    retry_408: bool = True
+    retry_408_attempts: int = 3
+    retry_408_base_delay: float = 2.0
 
     def __post_init__(self) -> None:
         if not self.base_url:
@@ -313,7 +317,7 @@ class WealthfolioClient:
             Validation result with ``valid`` and ``issues`` keys.
         """
         self._ensure_authenticated()
-        response = await self._client.post(
+        response = await self._post_with_408_retry(
             f"{self.API_PREFIX}/activities/import/check",
             json={"activities": activities},
         )
@@ -560,6 +564,27 @@ class WealthfolioClient:
         return response.json()
 
     # ── Internal helpers ────────────────────────────────────────────
+
+    async def _post_with_408_retry(
+        self,
+        url: str,
+        *,
+        json: dict[str, Any],
+    ) -> httpx.Response:
+        """Retry slow Wealthfolio validation requests after HTTP 408."""
+        attempts = (
+            self._config.retry_408_attempts if self._config.retry_408 else 1
+        )
+        response: httpx.Response | None = None
+        for attempt in range(1, attempts + 1):
+            response = await self._client.post(url, json=json)
+            if response.status_code != 408 or attempt == attempts:
+                return response
+            await asyncio.sleep(
+                self._config.retry_408_base_delay * (2 ** (attempt - 1))
+            )
+        assert response is not None
+        return response
 
     def _ensure_authenticated(self) -> None:
         """Raise if the client is not authenticated."""
