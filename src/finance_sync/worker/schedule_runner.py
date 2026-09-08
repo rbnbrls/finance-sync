@@ -688,9 +688,9 @@ async def run_due_schedules(container: Container) -> dict[str, Any]:
             if row is not None:
                 finished_at = _now()
                 row.last_run_at = finished_at
-                row.last_run_status = str(outcome.get("status", "completed"))[
-                    :16
-                ]
+                row.last_run_status = str(
+                    outcome.get("status", "completed")
+                )[:16]
                 row.last_run_error = (
                     str(outcome.get("error") or "")[:500] or None
                 )
@@ -710,11 +710,9 @@ async def run_due_schedules(container: Container) -> dict[str, Any]:
     # isolated and the dispatcher can finish one tick without starving the
     # other scheduled jobs.
     if claimed_schedules:
-        results.extend(
-            await asyncio.gather(
-                *(execute_claimed(schedule) for schedule in claimed_schedules)
-            )
-        )
+        results.extend(await asyncio.gather(
+            *(execute_claimed(schedule) for schedule in claimed_schedules)
+        ))
 
     return {"checked": len(due), "due": len(due), "results": results}
 

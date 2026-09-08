@@ -447,8 +447,9 @@ def validate_activity_semantics(txn: Any) -> list[PreflightFinding]:
         # (the mapper normalizes it), so preflight must validate the same
         # projected semantics instead of quarantining valid sales.
         effective_quantity = abs(quantity) if txn_type == "sale" else quantity
-        if getattr(txn, "quantity", None) is not None and (
-            effective_quantity is None or effective_quantity <= 0
+        if (
+            getattr(txn, "quantity", None) is not None
+            and (effective_quantity is None or effective_quantity <= 0)
         ):
             findings.append(
                 PreflightFinding(
