@@ -6,11 +6,13 @@ records inside a UnitOfWork transaction.
 
 from __future__ import annotations
 
+import inspect
 from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
 from sqlalchemy import select, update
+from sqlalchemy.exc import OperationalError
 
 from finance_sync.models import SyncRun
 from finance_sync.models.enums import SyncRunStatus
@@ -35,25 +37,38 @@ async def update_sync_run_progress(
     from datetime import UTC, datetime
 
     factory = cast(Any, session_factory)
-    async with factory() as session:
-        await session.execute(
-            update(SyncRun)
-            .where(
-                SyncRun.id == run_id, SyncRun.status == SyncRunStatus.RUNNING
+    session_context = factory()
+    if inspect.isawaitable(session_context):
+        session_context = await session_context
+    async with session_context as session:
+        try:
+            await session.execute(
+                update(SyncRun)
+                .where(
+                    SyncRun.id == run_id,
+                    SyncRun.status == SyncRunStatus.RUNNING,
+                )
+                .values(
+                    current_stage=stage,
+                    current_account_id=account_id,
+                    last_activity_at=datetime.now(UTC),
+                )
             )
-            .values(
-                current_stage=stage,
-                current_account_id=account_id,
-                last_activity_at=datetime.now(UTC),
-            )
-        )
-        await session.commit()
+            await session.commit()
+        except OperationalError:
+            # Heartbeats use an independent transaction.  SQLite can briefly
+            # reject that write while the pipeline transaction is active; a
+            # telemetry failure must not turn a successful sync into a failure.
+            await session.rollback()
 
 
 async def ensure_sync_run_active(session_factory: object, run_id: str) -> None:
     """Abort the pipeline if the operator has requested cancellation."""
     factory = cast(Any, session_factory)
-    async with factory() as session:
+    session_context = factory()
+    if inspect.isawaitable(session_context):
+        session_context = await session_context
+    async with session_context as session:
         status = await session.scalar(
             select(SyncRun.status).where(SyncRun.id == run_id)
         )

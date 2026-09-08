@@ -16,7 +16,7 @@ import time
 import traceback
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 from uuid import uuid4
 
 import structlog
@@ -1116,27 +1116,35 @@ async def export_wealthfolio_job(container: Container) -> dict[str, Any]:
     # runs use ``wealthfolio:<target-id>``; allowing both therefore permits
     # two writers to mutate the same Wealthfolio accounts concurrently.
     async with container.session_factory() as session:
-        scalars_result = session.scalars(
-            select(ExportTarget.id).where(
-                ExportTarget.target_type == "wealthfolio",
-                ExportTarget.status == TARGET_ACTIVE,
+        scalars_method: Any = getattr(cast("Any", session), "scalars", None)
+        if callable(scalars_method):
+            scalars_result: Any = scalars_method(
+                select(ExportTarget.id).where(
+                    ExportTarget.target_type == "wealthfolio",
+                    ExportTarget.status == TARGET_ACTIVE,
+                )
             )
-        )
-        if inspect.isawaitable(scalars_result):
-            scalars_result = await scalars_result
-        active_targets = list(scalars_result.all())
+            if inspect.isawaitable(scalars_result):
+                scalars_result = await scalars_result
+            active_targets = list(scalars_result.all())
+        else:
+            active_targets = []
         scheduled_target_ids = {
             f"wealthfolio:{target_id}" for target_id in active_targets
         }
-        schedule_result = session.scalar(
-            select(SyncSchedule.id).where(
-                SyncSchedule.scope == SCOPE_EXPORT,
-                SyncSchedule.enabled.is_(True),
-                SyncSchedule.target_id.in_(scheduled_target_ids),
+        scalar_method = getattr(session, "scalar", None)
+        if scheduled_target_ids and callable(scalar_method):
+            schedule_result = scalar_method(
+                select(SyncSchedule.id).where(
+                    SyncSchedule.scope == SCOPE_EXPORT,
+                    SyncSchedule.enabled.is_(True),
+                    SyncSchedule.target_id.in_(scheduled_target_ids),
+                )
             )
-        )
-        if inspect.isawaitable(schedule_result):
-            schedule_result = await schedule_result
+            if inspect.isawaitable(schedule_result):
+                schedule_result = await schedule_result
+        else:
+            schedule_result = None
         has_destination_schedule = bool(
             scheduled_target_ids and schedule_result
         )
