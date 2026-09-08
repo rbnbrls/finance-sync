@@ -105,9 +105,7 @@ class SyncRun(Base):
     report: Mapped[dict[str, object] | None] = mapped_column(
         JSONB,
         nullable=True,
-        comment=(
-            "Counts and resource identities for the sync outcome"
-        ),
+        comment=("Counts and resource identities for the sync outcome"),
     )
 
     created_at = created_at_ts()
