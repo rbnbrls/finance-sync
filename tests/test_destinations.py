@@ -7,12 +7,18 @@ from fastapi import HTTPException
 
 from finance_sync.api.v1.destinations import (
     _JUPYTER_PERMISSIONS,
+    DestinationParityAccount,
+    DestinationParityCounts,
     TargetCreate,
+    TestResponse,
+    _activity_parity_counts,
     _actual_account_mapping_preview,
     _jupyter_notebook,
+    _missing_wealthfolio_account_mappings,
     _response,
     _safe_url,
     _validate_body,
+    _wealthfolio_provider_account_id,
 )
 from finance_sync.exporter.actual_budget.models import (
     ActualBudgetAccountMapping,
@@ -162,6 +168,95 @@ def test_consumer_key_scope_limits_visible_accounts() -> None:
         },
     )()
     assert allowed.is_visible(private_allowed)  # type: ignore[arg-type]
+
+
+def test_destination_test_response_exposes_only_parity_counts() -> None:
+    response = TestResponse(
+        status="ready",
+        message="ok",
+        parity={
+            "remote_accounts": 2,
+            "unmapped_remote_accounts": 1,
+            "remote_assets": 7,
+            "remote_activities": 42,
+        },
+        parity_accounts=[
+            {
+                "account_id": "canonical-account-1",
+                "canonical_activities": 40,
+                "remote_activities": 39,
+                "missing_activities": 1,
+                "stale_remote_activities": 0,
+            }
+        ],
+    )
+
+    payload = response.model_dump()
+
+    assert isinstance(response.parity, DestinationParityCounts)
+    assert isinstance(response.parity_accounts[0], DestinationParityAccount)
+    assert payload["parity"] == {
+        "remote_accounts": 2,
+        "unmapped_remote_accounts": 1,
+        "remote_assets": 7,
+        "remote_activities": 42,
+        "canonical_activities": 0,
+        "stale_remote_activities": 0,
+    }
+    assert payload["parity_accounts"][0] == {
+        "account_id": "canonical-account-1",
+        "canonical_activities": 40,
+        "remote_activities": 39,
+        "missing_activities": 1,
+        "stale_remote_activities": 0,
+    }
+    assert "password" not in payload
+
+
+def test_activity_parity_counts_detect_missing_and_stale_records() -> None:
+    assert _activity_parity_counts(
+        [
+            ("active-1", None),
+            ("active-2", None),
+            ("tombstoned-1", datetime.now(UTC)),
+            (None, None),
+        ],
+        [
+            {"sourceRecordId": "active-1"},
+            {"sourceRecordId": "tombstoned-1"},
+            {"sourceRecordId": "stale-1"},
+        ],
+    ) == (2, 1, 2)
+
+
+@pytest.mark.parametrize(
+    ("account", "expected"),
+    [
+        ({"providerAccountId": "camel"}, "camel"),
+        ({"provider_account_id": "snake"}, "snake"),
+        (
+            {"providerAccountId": "camel", "provider_account_id": "snake"},
+            "camel",
+        ),
+        ({"id": "remote-account"}, ""),
+    ],
+)
+def test_wealthfolio_provider_account_id_accepts_api_spellings(
+    account: dict[str, str], expected: str
+) -> None:
+    assert _wealthfolio_provider_account_id(account) == expected
+
+
+def test_incomplete_wealthfolio_mapping_is_not_reported_as_ready() -> None:
+    incomplete = type("Mapping", (), {"provider_account_id": None})()
+    missing = type("Mapping", (), {"provider_account_id": "missing"})()
+    present = type("Mapping", (), {"provider_account_id": "present"})()
+
+    result = _missing_wealthfolio_account_mappings(
+        [incomplete, missing, present], {"present"}
+    )
+
+    assert result == [incomplete, missing]
 
 
 def test_destination_response_exposes_only_safe_schedule_metadata() -> None:

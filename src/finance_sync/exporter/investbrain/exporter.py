@@ -12,6 +12,7 @@ from finance_sync.exporter.investbrain.transaction_mapper import (
 )
 from finance_sync.exporter.models import ExportRun
 from finance_sync.models import Account, Security, Transaction
+from finance_sync.observability.glitchtip import capture_connector_exception
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -78,7 +79,15 @@ class InvestBrainExporter:
                 .all()
             }
 
-        portfolios = await client.list_portfolios()
+        try:
+            portfolios = await client.list_portfolios()
+        except Exception as exc:
+            capture_connector_exception(
+                exc,
+                connector="investbrain",
+                operation="list_portfolios",
+            )
+            raise
         portfolio_by_account: dict[str, str] = {}
         for account in accounts:
             marker = f"finance-sync-account:{account.id}"
@@ -124,6 +133,11 @@ class InvestBrainExporter:
             except Exception as exc:
                 failed += 1
                 failures.append(str(exc))
+                capture_connector_exception(
+                    exc,
+                    connector="investbrain",
+                    operation="upsert_transaction",
+                )
         status = "completed" if failed == 0 else "failed"
         async with self._session_factory() as session:
             session.add(
