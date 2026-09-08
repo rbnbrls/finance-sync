@@ -6,6 +6,7 @@ records inside a UnitOfWork transaction.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
@@ -103,7 +104,7 @@ async def complete_sync_run(
     rate_limit_attempts: int = 0,
     rate_limit_scope: str | None = None,
     last_http_status: int | None = None,
-    report: dict[str, int] | None = None,
+    report: Mapping[str, object] | None = None,
 ) -> SyncRun:
     """Mark a ``SyncRun`` as completed / failed.
 

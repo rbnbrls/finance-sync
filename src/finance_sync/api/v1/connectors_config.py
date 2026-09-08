@@ -14,7 +14,6 @@ from typing import Any, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
-from sqlalchemy import delete as sa_delete
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -35,13 +34,13 @@ from finance_sync.connectors.models import (
 )
 from finance_sync.connectors.registry import ConnectorRegistry
 from finance_sync.dependencies import get_container, get_db
+from finance_sync.models.account import Account
 from finance_sync.models.connector_release import ConnectorRelease
 from finance_sync.models.credential import (
     CONNECTION_STATUS_ACTIVE,
     CONNECTION_STATUS_PAUSED,
     Credential,
 )
-from finance_sync.models.transaction import Transaction
 from finance_sync.schemas.connector_release import (
     ConnectorReleaseRequest,
     ConnectorReleaseResponse,
@@ -1952,8 +1951,6 @@ async def set_connection_accounts(
             acc for acc in previous if acc not in (body.account_ids or [])
         ]
         if deselected:
-            from finance_sync.models.account import Account
-
             # Remove the no-longer-selected accounts and their data.
             # Transactions/balances referencing them cascade is NOT
             # automatic — explicit deletes keep the operation auditable.
@@ -1964,13 +1961,9 @@ async def set_connection_accounts(
                     Account.external_account_id.in_(deselected),
                 )
             )
+            deletion = ConnectorDataDeletionService(db, auth.tenant_id)
             for account in accounts:
-                await db.execute(
-                    sa_delete(Transaction).where(
-                        Transaction.account_id == account.id
-                    )
-                )
-                await db.delete(account)
+                await deletion.delete_account(account)
             await db.flush()
 
     await log_connection_event(
@@ -1992,6 +1985,49 @@ async def set_connection_accounts(
         actor_role=auth.user.role if auth.user else None,
     )
     return _credential_response(cred)
+
+
+@router.delete(
+    "/configs/{config_id}/accounts/{external_account_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def delete_connection_account(
+    config_id: str,
+    external_account_id: str,
+    auth: AuthContext = Depends(require_permission("connectors", "write")),
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """Permanently delete one provider account and its imported local data."""
+    cred = await _load_tenant_credential(db, auth, config_id)
+    result = await db.execute(
+        select(Account).where(
+            Account.tenant_id == auth.tenant_id,
+            Account.connection_id == str(cred.id),
+            Account.external_account_id == external_account_id,
+        )
+    )
+    account = result.scalar_one_or_none()
+    if account is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Account not found")
+    await ConnectorDataDeletionService(db, auth.tenant_id).delete_account(account)
+    if cred.selected_accounts and external_account_id in cred.selected_accounts:
+        cred.selected_accounts = [
+            value
+            for value in cred.selected_accounts
+            if value != external_account_id
+        ] or None
+        cred.updated_at = datetime.now(UTC)
+        await db.flush()
+    await log_connection_event(
+        db,
+        tenant_id=auth.tenant_id,
+        action=AUDIT_ACCOUNTS,
+        provider_key=cred.provider_key,
+        connection_id=str(cred.id),
+        detail={"deleted_account": external_account_id},
+        actor_user_id=auth.principal_id,
+        actor_role=auth.user.role if auth.user else None,
+    )
 
 
 @router.get(

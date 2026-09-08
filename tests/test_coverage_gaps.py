@@ -2289,9 +2289,7 @@ async def test_worker_connection_loader_decrypts_credentials(
     session = SimpleNamespace(
         info={"settings": MagicMock()},
         execute=AsyncMock(
-            return_value=SimpleNamespace(
-                all=lambda: [(credential, tenant)]
-            )
+            return_value=SimpleNamespace(all=lambda: [(credential, tenant)])
         ),
     )
     uow = SimpleNamespace(
@@ -2668,6 +2666,41 @@ async def test_transaction_persistence_updates_and_normalises_unknown_values(
     assert new_result.transaction_type.value == "other"
     assert new_result.status.value == "pending"
     updated.assert_awaited_once()
+    created.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_transaction_persistence_preserves_corporate_action_type(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from finance_sync.connectors.models import CanonicalTransactionData
+    from finance_sync.sync import persistence
+    from finance_sync.sync.persistence import TransactionPersistence
+
+    transaction = CanonicalTransactionData(
+        provider_key="trading212",
+        external_transaction_id="split-1",
+        external_account_id="account-1",
+        amount=Decimal(0),
+        occurred_at=datetime.now(UTC),
+        transaction_type="corporate_action",
+        status="booked",
+    )
+    session = SimpleNamespace(add=MagicMock(), flush=AsyncMock())
+    uow = SimpleNamespace(
+        session=session,
+        transactions=SimpleNamespace(
+            get_by_external_id=AsyncMock(return_value=None)
+        ),
+    )
+    created = AsyncMock()
+    monkeypatch.setattr(persistence, "outbox_entity_created", created)
+
+    result = await TransactionPersistence("tenant-1").persist_transaction(
+        uow, transaction, "account-1", security_id="security-1"
+    )
+
+    assert result.transaction_type.value == "corporate_action"
     created.assert_awaited_once()
 
 
@@ -3815,6 +3848,52 @@ async def test_security_resolution_honours_mapping_and_figi_fallback() -> None:
     )
     assert result is candidate
     assert unresolved is None
+
+
+@pytest.mark.asyncio
+async def test_security_resolution_enriches_existing_provider_mapping() -> None:
+    from finance_sync.connectors.models import SecurityReference
+    from finance_sync.sync.persistence import SecurityPersistence
+
+    resolved = SimpleNamespace(
+        id="security-resolved",
+        ticker="AVGO_US_EQ",
+        name="AVGO_US_EQ",
+        isin=None,
+        figi=None,
+        currency_code="EUR",
+    )
+    uow = SimpleNamespace(
+        unresolved_securities=SimpleNamespace(
+            list=AsyncMock(
+                return_value=[
+                    SimpleNamespace(resolved_security_id="security-resolved")
+                ]
+            )
+        ),
+        securities=SimpleNamespace(get=AsyncMock(return_value=resolved)),
+    )
+
+    result, unresolved = await SecurityPersistence(
+        "tenant-1"
+    ).resolve_security_reference(
+        uow,
+        "trading212",
+        SecurityReference(
+            external_id="AVGO_US_EQ",
+            ticker="AVGO",
+            name="Broadcom Inc.",
+            isin="US11135F1012",
+            currency_code="USD",
+        ),
+    )
+
+    assert result is resolved
+    assert unresolved is None
+    assert resolved.name == "Broadcom Inc."
+    assert resolved.ticker == "AVGO"
+    assert resolved.isin == "US11135F1012"
+    assert resolved.currency_code == "USD"
 
 
 @pytest.mark.asyncio

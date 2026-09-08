@@ -22,10 +22,13 @@ def upgrade() -> None:
     )
     # 0009 already creates a pending-only index with this name.  Replace it
     # so stale processing claims can use the same queue index as pending rows.
-    op.drop_index(
-        "ix_outbox_messages_status_created",
-        table_name="outbox_messages",
-        if_exists=True,
+    # A clean schema can arrive here without the legacy partial index (for
+    # example after a branch-specific migration history).  The replacement is
+    # still authoritative, so make the transition idempotent.
+    op.execute(
+        sa.text(
+            "DROP INDEX IF EXISTS ix_outbox_messages_status_created"
+        )
     )
     op.create_index(
         "ix_outbox_messages_status_created",
@@ -38,14 +41,16 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_index(
-        "ix_outbox_messages_status_created",
-        table_name="outbox_messages",
+    op.execute(
+        sa.text(
+            "DROP INDEX IF EXISTS ix_outbox_messages_status_created"
+        )
     )
     op.create_index(
         "ix_outbox_messages_status_created",
         "outbox_messages",
         ["status", "created_at"],
+        if_not_exists=True,
         postgresql_where=sa.text("status = 'pending'"),
     )
     op.drop_column("outbox_messages", "claimed_at")

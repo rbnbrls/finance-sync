@@ -102,10 +102,12 @@ class SyncRun(Base):
         String(16), nullable=True
     )
     last_http_status: Mapped[int | None] = mapped_column(nullable=True)
-    report: Mapped[dict[str, int] | None] = mapped_column(
+    report: Mapped[dict[str, object] | None] = mapped_column(
         JSONB,
         nullable=True,
-        comment="Counts for new/changed/unchanged/classified/skipped/failed",
+        comment=(
+            "Counts and resource identities for the sync outcome"
+        ),
     )
 
     created_at = created_at_ts()

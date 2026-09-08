@@ -271,61 +271,7 @@ class ConnectorDataDeletionService:
         connection_id = str(credential.id)
         account_ids = await self._account_ids(connection_id)
 
-        if account_ids:
-            transaction_ids = {
-                str(value)
-                for value in await self.session.scalars(
-                    select(Transaction.id).where(
-                        Transaction.tenant_id == self.tenant_id,
-                        (Transaction.account_id.in_(account_ids))
-                        | (Transaction.connection_id == connection_id),
-                    )
-                )
-            }
-            # Explicit children first: several account/transaction FKs are
-            # RESTRICT by design, and this also works on SQLite test DBs.
-            for model in (
-                TransactionLifecycleEvent,
-                TransactionAnnotation,
-                TransactionSourceReference,
-                TransactionSplit,
-                TransactionOverride,
-                TaxLot,
-            ):
-                transaction_column = getattr(model, "transaction_id", None)
-                if transaction_ids and transaction_column is not None:
-                    await self.session.execute(
-                        delete(model).where(
-                            transaction_column.in_(transaction_ids)
-                        )
-                    )
-            for model in (
-                WealthfolioAccountMapping,
-                WealthfolioDelivery,
-                ActualBudgetAccountMapping,
-                ExportDelivery,
-                Holding,
-                Balance,
-                TaxLot,
-                ScheduledPayment,
-                DetectedSubscription,
-                ReconciliationResult,
-                HoldingRelevanceItem,
-                CardTransaction,
-                Transaction,
-            ):
-                account_column = getattr(model, "account_id", None)
-                connection_column = getattr(model, "connection_id", None)
-                await self.session.execute(
-                    delete(model).where(
-                        (account_column.in_(account_ids))
-                        if account_column is not None
-                        else connection_column == connection_id
-                    )
-                )
-            await self.session.execute(
-                delete(Account).where(Account.id.in_(account_ids))
-            )
+        await self._delete_account_rows(account_ids)
 
         # Card/transaction rows can exist without an account link.  They are
         # still unambiguously owned when their connection_id matches.
@@ -362,3 +308,64 @@ class ConnectorDataDeletionService:
             schedule.next_run_at = None
         await self.session.delete(credential)
         await self.session.flush()
+
+    async def delete_account(self, account: Any) -> None:
+        """Delete one account and all data owned by that account."""
+        if str(account.tenant_id) != self.tenant_id:
+            return
+        await self._delete_account_rows([str(account.id)])
+        await self.session.flush()
+
+    async def _delete_account_rows(self, account_ids: list[str]) -> None:
+        """Delete account-owned rows while preserving the connector itself."""
+
+        if account_ids:
+            transaction_ids = {
+                str(value)
+                for value in await self.session.scalars(
+                    select(Transaction.id).where(
+                        Transaction.tenant_id == self.tenant_id,
+                        Transaction.account_id.in_(account_ids),
+                    )
+                )
+            }
+            # Explicit children first: several account/transaction FKs are
+            # RESTRICT by design, and this also works on SQLite test DBs.
+            for model in (
+                TransactionLifecycleEvent,
+                TransactionAnnotation,
+                TransactionSourceReference,
+                TransactionSplit,
+                TransactionOverride,
+                TaxLot,
+            ):
+                transaction_column = getattr(model, "transaction_id", None)
+                if transaction_ids and transaction_column is not None:
+                    await self.session.execute(
+                        delete(model).where(
+                            transaction_column.in_(transaction_ids)
+                        )
+                    )
+            for model in (
+                WealthfolioAccountMapping,
+                WealthfolioDelivery,
+                ActualBudgetAccountMapping,
+                ExportDelivery,
+                Holding,
+                Balance,
+                TaxLot,
+                ScheduledPayment,
+                DetectedSubscription,
+                ReconciliationResult,
+                HoldingRelevanceItem,
+                CardTransaction,
+                Transaction,
+            ):
+                account_column = getattr(model, "account_id", None)
+                if account_column is not None:
+                    await self.session.execute(
+                        delete(model).where(account_column.in_(account_ids))
+                    )
+            await self.session.execute(
+                delete(Account).where(Account.id.in_(account_ids))
+            )

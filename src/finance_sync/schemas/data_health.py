@@ -20,6 +20,15 @@ DataHealthCategory = Literal[
     "balance_conflict",
     "stale_prices",
     "duplicate_accounts",
+    "account_identity_conflict",
+    "duplicate_transaction_identity",
+    "partial_sync",
+    "portfolio_quantity_mismatch",
+    "cash_reconciliation_mismatch",
+    "invalid_activity_semantics",
+    "security_identity_conflict",
+    "destination_drift",
+    "tax_lot_integrity",
     "unresolved_security",
     "incomplete_import",
     "failed_export",
@@ -56,6 +65,13 @@ class DataHealthIssue(BaseModel):
     action: ControlPlaneAction
     details: list[str] = Field(default_factory=list)
     affected_transaction_ids: list[str] = Field(default_factory=list)
+    connection_id: str | None = None
+    account_ids: list[str] = Field(default_factory=list)
+    security_ids: list[str] = Field(default_factory=list)
+    affected_record_count: int = 0
+    blocking: bool = False
+    repair_available: bool = False
+    evidence: dict[str, object] = Field(default_factory=dict)
 
 
 class DataHealthSource(BaseModel):

@@ -11,7 +11,10 @@ from openpyxl import Workbook
 
 from finance_sync.connectors.exceptions import PermanentError
 from finance_sync.connectors.models import ConnectorConfig
-from finance_sync.connectors.saxo_investor import SaxoInvestorConnector
+from finance_sync.connectors.saxo_investor import (
+    SaxoInvestorConnector,
+    _corporate_action_ratio,
+)
 
 HEADERS = [
     "Instrument",
@@ -61,6 +64,21 @@ CURRENT_TRANSACTION_HEADERS = [
     "Van derivaat",
     "Onderliggend instrumenttype",
 ]
+
+
+@pytest.mark.parametrize(
+    ("description", "expected"),
+    [
+        ("Corporate action stock split 2:1", Decimal(2)),
+        ("Corporate actie 1 for 10", Decimal("0.1")),
+        ("Corporate actie stock split 1/10", Decimal("0.1")),
+        ("Corporate action without ratio", None),
+    ],
+)
+def test_corporate_action_ratio_is_explicit_and_safe(
+    description: str, expected: Decimal | None
+) -> None:
+    assert _corporate_action_ratio(description) == expected
 
 
 def _write_export(path: Path) -> None:
@@ -369,6 +387,7 @@ async def test_accepts_zero_booking_amount(tmp_path: Path) -> None:
 
     assert len(imported) == 1
     assert imported[0].amount == 0
+    assert imported[0].transaction_type == "corporate_action"
 
 
 @pytest.mark.asyncio

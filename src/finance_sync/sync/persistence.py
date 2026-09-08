@@ -1403,6 +1403,7 @@ class SecurityPersistence:
                     queued[0].resolved_security_id
                 )
                 if resolved is not None:
+                    self._enrich_existing_security(resolved, reference)
                     return resolved, None
 
         candidates: list[Security] = []
@@ -1508,6 +1509,45 @@ class SecurityPersistence:
         return None, await self._queue_unresolved_security(
             uow, provider_key, reference
         )
+
+    @staticmethod
+    def _enrich_existing_security(
+        security: Security, reference: SecurityReference
+    ) -> None:
+        """Apply provider metadata without replacing a curated identity.
+
+        Existing provider mappings are deliberately reused to prevent
+        duplicate securities. They must still absorb newly available
+        metadata, otherwise a placeholder such as ``AVGO_US_EQ`` remains
+        visible forever after the first sync.
+        """
+        external_id = (reference.external_id or "").strip().casefold()
+        current_ticker = (security.ticker or "").strip().casefold()
+        current_name = (security.name or "").strip().casefold()
+        candidate_name = (reference.name or "").strip()
+        candidate_ticker = (reference.ticker or "").strip()
+        if (
+            candidate_name
+            and candidate_name.casefold()
+            not in {
+                external_id,
+                candidate_ticker.casefold(),
+            }
+            and current_name in {"", external_id, current_ticker}
+        ):
+            security.name = candidate_name
+        if candidate_ticker and current_ticker in {"", external_id}:
+            security.ticker = candidate_ticker.upper()
+        if reference.isin and not security.isin:
+            security.isin = reference.isin.upper()
+        if reference.figi and not security.figi:
+            security.figi = reference.figi.upper()
+        if reference.currency_code and current_name in {
+            "",
+            external_id,
+            current_ticker,
+        }:
+            security.currency_code = reference.currency_code.upper()
 
     async def _queue_unresolved_security(
         self,
