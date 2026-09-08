@@ -915,8 +915,7 @@ class SyncOrchestrator(CardsSyncMixin):
                         **transaction_report,
                         "accounts": accounts_synced,
                         "account_external_ids": [
-                            ca.external_account_id
-                            for ca in canonical_accounts
+                            ca.external_account_id for ca in canonical_accounts
                         ],
                         "transactions": transactions_synced,
                         "holdings": holdings_synced,
