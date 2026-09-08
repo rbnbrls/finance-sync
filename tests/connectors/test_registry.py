@@ -90,6 +90,18 @@ class TestConnectorRegistryWithMock:
         assert mock_meta["plugin_package"] == "tests"
         assert mock_meta["metadata_incomplete"] is False
 
+    def test_list_connectors_exposes_ingestion_metadata(self) -> None:
+        metadata = ConnectorRegistry().list_connectors()
+
+        assert metadata["bunq"]["ingestion_methods"] == ["api"]
+        assert metadata["degiro_pension"]["ingestion_methods"] == ["file"]
+        assert metadata["degiro_pension"]["import_wizard"]["accept"] == [
+            ".csv",
+            ".xlsx",
+            ".xls",
+        ]
+        assert metadata["saxo_investor"]["import_wizard"]["preview"] is False
+
     def test_malformed_optional_catalog_metadata_is_safe(self) -> None:
         class MalformedConnector(Connector):
             catalog_metadata = {"documentation_url": 123}  # type: ignore[assignment]

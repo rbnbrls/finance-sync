@@ -73,6 +73,7 @@ class ConnectorPlugin(ABC):
     #: auto-retrying wrappers.
     rate_limit_policy: RateLimitPolicy | None = None
     supported_resources: frozenset[str] = frozenset({"accounts", "transactions"})
+    capabilities: dict[str, str] = {}
 
     def __init__(self, config: ConnectorConfig) -> None:
         self.config = config
@@ -170,6 +171,7 @@ class ConnectorPlugin(ABC):
                 available_balance=r.available_balance,
                 iso_currency_code=r.iso_currency_code,
                 provider_metadata=r.provider_metadata,
+                capabilities=r.capabilities,
             )
             for r in raw
         ]
@@ -201,6 +203,32 @@ class ConnectorPlugin(ABC):
                 amount_in_base=r.amount_in_base,
                 base_currency_code=r.base_currency_code,
                 fx_rate=r.fx_rate,
+                provider_metadata_contract=r.provider_metadata_contract,
+                merchant_name=r.merchant_name,
+                merchant_id=r.merchant_id,
+                merchant_city=r.merchant_city,
+                merchant_country=r.merchant_country,
+                counterparty_name=r.counterparty_name,
+                counterparty_account_reference=r.counterparty_account_reference,
+                merchant_category_code=r.merchant_category_code,
+                original_type=r.original_type or r.transaction_type,
+                original_status=r.original_status or r.status,
+                authorization_status=r.authorization_status,
+                settlement_status=r.settlement_status,
+                source_record_hash=r.source_record_hash,
+                cashflow_bucket=r.cashflow_bucket,
+                cashflow_suggestion=r.cashflow_suggestion,
+                classification_source=r.classification_source,
+                classification_override=r.classification_override,
+                gross_amount=r.gross_amount,
+                gross_currency_code=r.gross_currency_code,
+                net_amount=r.net_amount,
+                net_currency_code=r.net_currency_code,
+                tax_amount=r.tax_amount,
+                tax_currency_code=r.tax_currency_code,
+                refund_amount=r.refund_amount,
+                refund_currency_code=r.refund_currency_code,
+                source_references=r.source_references,
             )
             for r in raw
         ]
