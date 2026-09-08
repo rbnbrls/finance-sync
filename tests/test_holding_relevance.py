@@ -837,7 +837,7 @@ class TestClustering:
         sec = await _new_security(session_factory)
         acct = await _new_account(session_factory, tenant)
         await _new_holding(session_factory, tenant, acct, sec)
-        published = datetime(2026, 8, 25, 8, 1, 25, tzinfo=UTC)
+        published = datetime.now(UTC) - timedelta(hours=1)
         # Two sources post about the same event within the same second,
         # with different headlines (syndication suffixes differ).
         await _new_item(
@@ -2247,7 +2247,7 @@ class TestNotificationScopingAndSafety:
         # Two syndicated items about the same event → one cluster.
         # Same explicit event date: the merge must not depend on both
         # inserts landing within the same wall-clock second.
-        published = datetime(2026, 8, 25, 8, 1, 25, tzinfo=UTC)
+        published = datetime.now(UTC) - timedelta(hours=1)
         await _new_item(
             session_factory,
             tenant,
