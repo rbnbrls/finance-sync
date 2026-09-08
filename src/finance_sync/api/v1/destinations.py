@@ -883,11 +883,15 @@ async def test_target(
     def parity_response() -> DestinationParityCounts:
         return DestinationParityCounts(
             remote_accounts=parity.get("remote_accounts", 0),
-            unmapped_remote_accounts=parity.get("unmapped_remote_accounts", 0),
+            unmapped_remote_accounts=parity.get(
+                "unmapped_remote_accounts", 0
+            ),
             remote_assets=parity.get("remote_assets", 0),
             remote_activities=parity.get("remote_activities", 0),
             canonical_activities=parity.get("canonical_activities", 0),
-            stale_remote_activities=parity.get("stale_remote_activities", 0),
+            stale_remote_activities=parity.get(
+                "stale_remote_activities", 0
+            ),
         )
 
     probe_started = time.perf_counter()
@@ -1435,6 +1439,13 @@ async def run_target(
         raise HTTPException(
             status_code=409, detail="Destination schedule is missing"
         )
+    # Publish the in-flight state before entering the long-running exporter.
+    # The overview, Exporters page and Sync Runs page all read this schedule
+    # row, so polling clients can show progress while this request is running.
+    schedule.last_run_at = datetime.now(UTC)
+    schedule.last_run_status = "running"
+    schedule.last_run_error = None
+    await db.commit()
     from finance_sync.worker.schedule_runner import run_export
 
     result = await run_export(get_container(request), schedule=schedule)
