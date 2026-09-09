@@ -31,6 +31,15 @@ class HoldingsStageWriter(Protocol):
         security_id: str,
     ) -> object: ...
 
+    async def persist_holdings_batch(
+        self,
+        uow: UnitOfWork,
+        holdings: list[CanonicalHoldingData],
+        account_id: str,
+        *,
+        security_ids: list[str],
+    ) -> int: ...
+
 
 @dataclass(frozen=True, slots=True)
 class HoldingsStageResult:
@@ -56,6 +65,8 @@ class HoldingsSyncStage:
     ) -> HoldingsStageResult:
         unresolved: set[str] = set()
         persisted = 0
+        resolved_holdings: list[CanonicalHoldingData] = []
+        security_ids: list[str] = []
         for holding in holdings:
             (
                 security,
@@ -67,13 +78,32 @@ class HoldingsSyncStage:
                 if unresolved_key:
                     unresolved.add(unresolved_key)
                 continue
-            await self._writer.persist_holding(
-                uow,
-                holding,
-                account_id,
-                str(getattr(security, "id", "")),
+            resolved_holdings.append(holding)
+            security_ids.append(str(getattr(security, "id", "")))
+        if not resolved_holdings:
+            return HoldingsStageResult(
+                count=0,
+                unresolved_keys=frozenset(unresolved),
             )
-            persisted += 1
+        if hasattr(type(self._writer), "persist_holdings_batch"):
+            persisted = await self._writer.persist_holdings_batch(
+                uow,
+                resolved_holdings,
+                account_id,
+                security_ids=security_ids,
+            )
+        else:
+            # Writers that predate the batch surface (test doubles, the
+            # writer-only SyncPersistence mode) fall back to per-row.
+            persisted = 0
+            for index, holding in enumerate(resolved_holdings):
+                await self._writer.persist_holding(
+                    uow,
+                    holding,
+                    account_id,
+                    security_ids[index],
+                )
+                persisted += 1
         return HoldingsStageResult(
             count=persisted,
             unresolved_keys=frozenset(unresolved),
