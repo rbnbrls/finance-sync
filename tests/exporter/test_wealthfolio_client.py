@@ -8,9 +8,10 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 import pytest
-from httpx import RequestError
+from httpx import Request, RequestError, Response
 
 from finance_sync.exporter.wealthfolio.client import (
+    WealthfolioAPIError,
     WealthfolioAuthError,
     WealthfolioClient,
     WealthfolioClientConfig,
@@ -195,6 +196,31 @@ class TestWealthfolioClientImport:
         """Importing without auth should raise."""
         with pytest.raises(WealthfolioAuthError, match="Not authenticated"):
             await client.import_activities([])
+
+    async def test_import_activities_rejection_preserves_api_details(
+        self, client: WealthfolioClient
+    ) -> None:
+        """A rejected batch includes Wealthfolio's validation response."""
+        client._is_authenticated = True
+        request = Request("POST", "http://test/api/v1/activities/import")
+        response = Response(
+            422,
+            request=request,
+            json={
+                "quoteCcy": [
+                    "Price currency (quoteCcy) is required to import this activity."
+                ]
+            },
+        )
+
+        with (
+            patch.object(client._client, "post", return_value=response),
+            pytest.raises(WealthfolioAPIError, match="quoteCcy") as exc_info,
+        ):
+            await client.import_activities([{"activityType": "BUY"}])
+
+        assert "HTTP 422" in str(exc_info.value)
+        assert "Price currency" in str(exc_info.value)
 
     async def test_check_import_success(
         self, client: WealthfolioClient
