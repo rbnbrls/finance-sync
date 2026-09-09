@@ -44,7 +44,7 @@ import re
 from typing import TYPE_CHECKING
 
 import sqlalchemy as sa
-from alembic import op
+from alembic import context, op
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -85,6 +85,8 @@ def _validate_connection_ids(conn: Connection) -> None:
     guarantees the ``USING connection_id::uuid`` cast cannot fail halfway
     through a table.
     """
+    if context.is_offline_mode():
+        return
     for table in _CONNECTION_ID_TABLES:
         # information_schema is the reliable way to detect the column type
         # without assuming a prior migration state.
@@ -121,6 +123,21 @@ def _validate_connection_ids(conn: Connection) -> None:
 
 
 def upgrade() -> None:
+    if context.is_offline_mode():
+        for table in _CONNECTION_ID_TABLES:
+            op.alter_column(
+                table,
+                "connection_id",
+                existing_type=sa.String(length=64),
+                type_=sa.dialects.postgresql.UUID(as_uuid=True),
+                existing_nullable=True,
+                postgresql_using="connection_id::uuid",
+                comment=(
+                    "Stable connection (credential) id this row belongs to; "
+                    "uuid matching credentials.id"
+                ),
+            )
+        return
     bind = op.get_bind()
     _validate_connection_ids(bind)
 
