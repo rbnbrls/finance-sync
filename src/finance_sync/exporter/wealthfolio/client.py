@@ -467,7 +467,7 @@ class WealthfolioClient:
             f"{self.API_PREFIX}/activities/import/check",
             json={"activities": activities},
         )
-        self._raise_for_status(response)
+        response.raise_for_status()
         return response.json()
 
     async def import_activities(
