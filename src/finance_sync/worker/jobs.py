@@ -9,13 +9,14 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import inspect
 import json
 import shutil
 import time
 import traceback
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 from uuid import uuid4
 
 import structlog
@@ -29,7 +30,10 @@ from finance_sync.models.credential import (
     CONNECTION_STATUS_PAUSED,
     Credential,
 )
+from finance_sync.models.export_target import TARGET_ACTIVE, ExportTarget
 from finance_sync.models.import_run import ImportRun
+from finance_sync.models.sync_schedule import SCOPE_EXPORT, SyncSchedule
+from finance_sync.models.tenant import Tenant
 from finance_sync.services.degiro_import import (
     batch_hash,
     build_preview,
@@ -37,6 +41,8 @@ from finance_sync.services.degiro_import import (
     execute_run,
     validate_local_files,
 )
+from finance_sync.services.incident_reporting import report_connector_failure
+from finance_sync.services.retry_lock import retry_lease
 from finance_sync.sync.orchestrator import SyncOrchestrator
 from finance_sync.sync.outbox_publisher import OutboxPublisher
 
@@ -45,7 +51,6 @@ if TYPE_CHECKING:
 
     from finance_sync.config.settings import Settings
     from finance_sync.container import Container
-    from finance_sync.models import Tenant
 
 logger = structlog.get_logger("finance_sync.worker.jobs")
 
@@ -132,54 +137,54 @@ async def _get_tenant_connections(
     secrets (for error sanitisation).  A tenant may hold several
     connections for the same provider; each is synced independently.
     """
-    tenants = await uow.tenants.list(limit=100)
     result: list[dict[str, Any]] = []
 
-    for tenant in tenants:
-        stmt = select(Credential).where(
-            Credential.tenant_id == tenant.id,
-            Credential.provider_key == provider_key,
+    stmt = (
+        select(Credential, Tenant)
+        .join(Tenant, Tenant.id == Credential.tenant_id)
+        .where(Credential.provider_key == provider_key)
+        .order_by(Tenant.created_at, Credential.created_at)
+    )
+    rows = (await uow.session.execute(stmt)).all()
+
+    for cred, tenant in rows:
+        credentials: dict[str, str] = {}
+        secrets: list[str] = []
+        if cred.encrypted_payload:
+            from finance_sync.services.auth import decrypt_credential
+
+            try:
+                decrypted = decrypt_credential(
+                    cred.encrypted_payload,
+                    cred.nonce,
+                    uow.session.info.get("settings"),
+                )
+                parsed: dict[str, Any] = json.loads(decrypted)
+                credentials = {str(k): str(v) for k, v in parsed.items()}
+                secrets = [str(v) for v in credentials.values()]
+            except Exception:
+                logger.error(
+                    "credential_decrypt_failed",
+                    tenant_id=tenant.id,
+                    provider_key=provider_key,
+                    connection_id=str(cred.id),
+                )
+                continue
+        config = ConnectorConfig(
+            provider_type=provider_key,
+            credentials=credentials,
+            options=connector_options(cred),
+            connection_id=str(cred.id),
+            selected_accounts=list(cred.selected_accounts or []),
         )
-        cred_rows = (await uow.session.execute(stmt)).scalars().all()
-
-        for cred in cred_rows:
-            credentials: dict[str, str] = {}
-            secrets: list[str] = []
-            if cred.encrypted_payload:
-                from finance_sync.services.auth import decrypt_credential
-
-                try:
-                    decrypted = decrypt_credential(
-                        cred.encrypted_payload,
-                        cred.nonce,
-                        uow.session.info.get("settings"),
-                    )
-                    parsed: dict[str, Any] = json.loads(decrypted)
-                    credentials = {str(k): str(v) for k, v in parsed.items()}
-                    secrets = [str(v) for v in credentials.values()]
-                except Exception:
-                    logger.error(
-                        "credential_decrypt_failed",
-                        tenant_id=tenant.id,
-                        provider_key=provider_key,
-                        connection_id=str(cred.id),
-                    )
-                    continue
-            config = ConnectorConfig(
-                provider_type=provider_key,
-                credentials=credentials,
-                options=connector_options(cred),
-                connection_id=str(cred.id),
-                selected_accounts=list(cred.selected_accounts or []),
-            )
-            result.append(
-                {
-                    "tenant": tenant,
-                    "credential": cred,
-                    "config": config,
-                    "secrets": secrets,
-                }
-            )
+        result.append(
+            {
+                "tenant": tenant,
+                "credential": cred,
+                "config": config,
+                "secrets": secrets,
+            }
+        )
 
     return result
 
@@ -282,13 +287,24 @@ async def sync_connector_job(
             return {
                 "tenant_id": _tenant.id,
                 "connection_id": _connection_id,
-                "status": result.status.value,
+                "status": (
+                    "skipped"
+                    if getattr(result, "error_category", None)
+                    == "already_running"
+                    else result.status.value
+                ),
                 "accounts_synced": result.accounts_synced,
                 "transactions_synced": result.transactions_synced,
                 "holdings_synced": result.holdings_synced,
                 "unresolved_securities": result.unresolved_securities,
                 "duration_s": round(result.duration_s, 2),
                 "error": result.error_message,
+                "reason": (
+                    "already_running"
+                    if getattr(result, "error_category", None)
+                    == "already_running"
+                    else None
+                ),
             }
 
         try:
@@ -306,6 +322,13 @@ async def sync_connector_job(
             # Note: auto-reconciliation is handled inside run_sync() in
             # the orchestrator — no need to run it again here.
         except Exception as exc:
+            await report_connector_failure(
+                container.settings,
+                exc,
+                connector=provider_key,
+                operation="sync_connection",
+                connection_id=connection_id,
+            )
             tenant_result = {
                 "tenant_id": tenant.id,
                 "connection_id": connection_id,
@@ -807,14 +830,15 @@ async def enrich_prices_job(container: Container) -> dict[str, Any]:
             # Determine the best identifier to use for the quote lookup
             identifier: str | None = None
             id_type: str = "ticker"
-            if security.ticker:
+            # ISIN is globally stable and avoids ambiguous exchange tickers.
+            if security.isin:
+                identifier = security.isin
+                id_type = "isin"
+            elif security.ticker:
                 identifier = security.ticker
             elif security.figi:
                 identifier = security.figi
                 id_type = "figi"
-            elif security.isin:
-                identifier = security.isin
-                id_type = "isin"
 
             if not identifier:
                 continue
@@ -845,6 +869,33 @@ async def enrich_prices_job(container: Container) -> dict[str, Any]:
         failed=failed,
     )
     return {"enriched": enriched, "failed": failed}
+
+
+async def data_quality_repair_job(container: Container) -> dict[str, Any]:
+    """Continuously apply safe, deterministic Data Health repairs."""
+    from finance_sync.models.tenant import Tenant
+    from finance_sync.services.data_quality_repair import (
+        DataQualityRepairService,
+    )
+
+    results: dict[str, Any] = {}
+    async with container.session_factory() as session:
+        tenants = (await session.execute(select(Tenant))).scalars().all()
+        for tenant in tenants:
+            try:
+                results[str(tenant.id)] = await DataQualityRepairService(
+                    session, container.settings
+                ).run(str(tenant.id))
+            except Exception as exc:
+                logger.exception(
+                    "data_quality_repair_failed",
+                    tenant_id=str(tenant.id),
+                    error=type(exc).__name__,
+                )
+                results[str(tenant.id)] = {"error": type(exc).__name__}
+        await session.commit()
+    logger.info("data_quality_repair_complete", tenants=len(results))
+    return {"tenants": results}
 
 
 async def nightly_reconciliation_job(container: Container) -> dict[str, Any]:
@@ -1060,6 +1111,50 @@ async def export_wealthfolio_job(container: Container) -> dict[str, Any]:
             "reason": "WEALTHFOLIO_SERVER_URL/WEALTHFOLIO_PASSWORD not set",
         }
 
+    # Destination schedules supersede the historical global sweep.  The
+    # legacy lease uses the literal item id ``legacy`` while destination
+    # runs use ``wealthfolio:<target-id>``; allowing both therefore permits
+    # two writers to mutate the same Wealthfolio accounts concurrently.
+    async with container.session_factory() as session:
+        scalars_method: Any = getattr(cast("Any", session), "scalars", None)
+        if callable(scalars_method):
+            scalars_result: Any = scalars_method(
+                select(ExportTarget.id).where(
+                    ExportTarget.target_type == "wealthfolio",
+                    ExportTarget.status == TARGET_ACTIVE,
+                )
+            )
+            if inspect.isawaitable(scalars_result):
+                scalars_result = await scalars_result
+            active_targets = list(scalars_result.all())
+        else:
+            active_targets = []
+        scheduled_target_ids = {
+            f"wealthfolio:{target_id}" for target_id in active_targets
+        }
+        scalar_method = getattr(session, "scalar", None)
+        if scheduled_target_ids and callable(scalar_method):
+            schedule_result = scalar_method(
+                select(SyncSchedule.id).where(
+                    SyncSchedule.scope == SCOPE_EXPORT,
+                    SyncSchedule.enabled.is_(True),
+                    SyncSchedule.target_id.in_(scheduled_target_ids),
+                )
+            )
+            if inspect.isawaitable(schedule_result):
+                schedule_result = await schedule_result
+        else:
+            schedule_result = None
+        has_destination_schedule = bool(
+            scheduled_target_ids and schedule_result
+        )
+    if has_destination_schedule:
+        log.info("export_job_skipped_destination_schedule_active")
+        return {
+            "status": "skipped",
+            "reason": "destination_schedule_active",
+        }
+
     # ── Load configured tenants ─────────────────────────────────────
     async with container.session_factory() as session:
         uow = UnitOfWork(session)
@@ -1082,6 +1177,7 @@ async def export_wealthfolio_job(container: Container) -> dict[str, Any]:
         config=WealthfolioClientConfig(
             base_url=server_url,
             password=password,
+            request_timeout=settings.wealthfolio_request_timeout,
         ),
     )
 
@@ -1091,14 +1187,45 @@ async def export_wealthfolio_job(container: Container) -> dict[str, Any]:
         for tenant in tenants:
             tenant_log = log.bind(tenant_id=tenant.id)
             try:
-                exporter = WealthfolioExporter(
-                    session_factory=container.session_factory,
-                    wf_config=wf_config,
-                    tenant_id=tenant.id,
+                lease = (
+                    retry_lease(
+                        container.redis_client,
+                        tenant_id=str(tenant.id),
+                        kind="destination-export",
+                        item_id="legacy",
+                    )
+                    if settings.redis_url is not None
+                    else None
                 )
-                result = await exporter.push_to_wealthfolio(
-                    wf_client=wf_client,
-                )
+                if lease is not None:
+                    async with lease:
+                        if not lease.acquired:
+                            tenant_log.info("export_job_tenant_skipped_overlap")
+                            summary.append(
+                                {
+                                    "tenant_id": tenant.id,
+                                    "status": "skipped",
+                                    "reason": "export_in_progress",
+                                }
+                            )
+                            continue
+                        exporter = WealthfolioExporter(
+                            session_factory=container.session_factory,
+                            wf_config=wf_config,
+                            tenant_id=tenant.id,
+                        )
+                        result = await exporter.push_to_wealthfolio(
+                            wf_client=wf_client,
+                        )
+                else:
+                    exporter = WealthfolioExporter(
+                        session_factory=container.session_factory,
+                        wf_config=wf_config,
+                        tenant_id=tenant.id,
+                    )
+                    result = await exporter.push_to_wealthfolio(
+                        wf_client=wf_client,
+                    )
                 tenant_status = (
                     "failed" if result.get("errors") else "completed"
                 )
@@ -1108,6 +1235,7 @@ async def export_wealthfolio_job(container: Container) -> dict[str, Any]:
                     imported=result.get("imported", 0),
                     skipped=result.get("skipped", 0),
                     failed=result.get("failed", 0),
+                    accounts_removed=result.get("accounts_removed", 0),
                     run_id=result.get("run_id"),
                 )
                 summary.append(
@@ -1117,10 +1245,18 @@ async def export_wealthfolio_job(container: Container) -> dict[str, Any]:
                         "imported": result.get("imported", 0),
                         "skipped": result.get("skipped", 0),
                         "failed": result.get("failed", 0),
+                        "accounts_removed": result.get("accounts_removed", 0),
                         "run_id": result.get("run_id"),
                     },
                 )
             except Exception as exc:
+                await report_connector_failure(
+                    settings,
+                    exc,
+                    connector="wealthfolio",
+                    operation="delivery_sweep",
+                    correlation_id=str(tenant.id),
+                )
                 tenant_log.error(
                     "export_job_tenant_failed",
                     error=str(exc)[:300],
