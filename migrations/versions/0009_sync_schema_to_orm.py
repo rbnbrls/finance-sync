@@ -900,7 +900,7 @@ def downgrade() -> None:
                existing_comment='Secondary connector (for cross-connector)',
                existing_nullable=True)
     op.drop_constraint(op.f('uq_outbox_messages_idempotency_key'), 'outbox_messages', type_='unique')
-    op.create_index(op.f('ix_outbox_messages_status_created'), 'outbox_messages', ['status', 'created_at'], unique=False, postgresql_where="((status)::text = 'pending'::text)")
+    op.create_index(op.f('ix_outbox_messages_status_created'), 'outbox_messages', ['status', 'created_at'], unique=False, if_not_exists=True, postgresql_where="((status)::text = 'pending'::text)")
     op.alter_column('outbox_messages', 'status',
                existing_type=sa.VARCHAR(length=16),
                comment=None,

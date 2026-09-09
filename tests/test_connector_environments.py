@@ -88,6 +88,10 @@ def test_production_exposes_user_managed_api_fields_and_hides_fixtures() -> (
             field["key"]
             for field in connectors["trading212"]["credential_fields"]
         ] == ["api_key", "api_secret"]
+        assert all(
+            field["required"]
+            for field in connectors["trading212"]["credential_fields"]
+        )
 
         fixture = client.get(
             "/api/v1/staging-providers/trading212/api/v0/equity/account/cash"
