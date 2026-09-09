@@ -7,7 +7,7 @@ Revises: 0038
 from __future__ import annotations
 
 import sqlalchemy as sa
-from alembic import op
+from alembic import context, op
 from sqlalchemy.dialects import postgresql
 
 revision = "0039"
@@ -17,6 +17,11 @@ depends_on = None
 
 
 def _backfill_or_fail(table: str) -> None:
+    # Offline SQL generation has no bind to inspect. The check still runs
+    # during every real upgrade, where refusing ambiguous legacy rows is
+    # required for tenant safety.
+    if context.is_offline_mode():
+        return
     remaining = (
         op.get_bind()
         .execute(
