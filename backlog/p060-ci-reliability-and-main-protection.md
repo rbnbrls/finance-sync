@@ -1,6 +1,6 @@
 ---
 title: "Maak CI-failures herstelbaar en bescherm main tegen ongeteste fixes"
-status: todo
+status: in_progress
 priority: 60
 ---
 
@@ -61,16 +61,61 @@ Maak de ontwikkel- en releaseflow zodanig dat:
 - Maak kleine, thematische commits/PR's. Push geen samengestelde speculative
   fix naar `main`.
 
+## Voortgang per 2026-09-09
+
+De repository-implementatie is gerealiseerd en de PR-validatie is groen op
+`5c0ed8e` (PR #832, workflow-run `34382735810`). De eerdere remote HEAD
+(`f3a54bb`) faalde in Lint, Test, Integration en E2E door formattering en een
+ontbrekende `_check_key_version_downgrade` tijdens testcollectie. Die oorzaken
+zijn hersteld. `main` is inmiddels protected en read-only geverifieerd.
+
+Bevestigd afgerond in repository/code:
+
+- `.pre-commit-config.yaml` bestaat, gebruikt Ruff voor `src` en `tests` en
+  pint Ruff op `v0.15.22`.
+- `README.md` documenteert hook-installatie, `make ci-fast`, foutdiagnose en
+  lokaal draaien vóór push.
+- De lokale Ruff-, Pyright-, unit- en coverage-gates zijn reproduceerbaar.
+- `Quality` draait de volledige snelle gate inclusief collection-only vóór
+  Integration/E2E; de zware jobs hebben een expliciete `needs: quality`.
+- Concurrency, JUnit/log-artifact uploads en compacte failure summaries bestaan
+  in CI; de afzonderlijke required jobnamen zijn behouden.
+- Incident-fingerprints bevatten head SHA en hergebruiken een actieve issue
+  voor dezelfde onderliggende workflow/job/branch/categorie over herstelpushes.
+- In de huidige werkboom bestaat de downgrade-helper met tests voor strings,
+  integers, booleans, ongeldige waarden, gelijke versies en downgrades.
+
+Laatste validatie van de huidige werkboom:
+
+| Check | Resultaat |
+| --- | --- |
+| `uv run pre-commit run --all-files` | geslaagd |
+| `make ci-fast` | geslaagd; 3994 passed, 8 skipped |
+| Coverage | 82,77% bij drempel 73% |
+| `uv run pytest --collect-only -q` | geslaagd; 4225 tests verzameld |
+| key-rotation tests | 22 passed |
+| `git diff --check` | geslaagd |
+| Integration via Docker | 193 passed |
+| E2E via Docker | 32 passed |
+| Remote PR CI op `5c0ed8e` | groen: Quality, Lint, Type check, Test, Migrations, Integration, E2E, Security en Build & Push |
+| Branch protection API voor `main` | geconfigureerd en geverifieerd |
+
+Resterende afronding voor coding agents:
+
+1. Laat een reviewer de PR goedkeuren; auto-merge staat klaar en wacht op deze
+   review. Merge daarna uitsluitend via de beschermde
+   PR-flow en verifieer daarna één groene CI-run op `main`; sluit dan de story.
+
 ## Implementatiefasen
 
 ### Fase 1 — Baseline en reproduceerbare diagnose
 
-- [ ] Leg de huidige gate vast met `make ci-fast`.
-- [ ] Leg per check de exacte exitcode en eventuele bestaande failures vast;
+- [x] Leg de huidige gate vast met `make ci-fast`.
+- [x] Leg per check de exacte exitcode en eventuele bestaande failures vast;
   wijzig geen configuratie voordat de baseline bekend is.
-- [ ] Controleer de actieve CI-workflow, reusable setup action, `Makefile`,
+- [x] Controleer de actieve CI-workflow, reusable setup action, `Makefile`,
   `pyproject.toml`, Pyright-configuraties en eventuele pre-commit-configuratie.
-- [ ] Maak een korte mapping van elke failure class naar de lokale reproduceer-
+- [x] Maak een korte mapping van elke failure class naar de lokale reproduceer-
   bare command:
   - `make format-check`
   - `make lint`
@@ -79,150 +124,151 @@ Maak de ontwikkel- en releaseflow zodanig dat:
   - `uv run pytest --collect-only -q`
   - `uv run pytest -m integration`
   - `uv run pytest -m e2e`
-- [ ] Gebruik voor iedere volgende fase eerst de gerichte check en daarna
+- [x] Gebruik voor iedere volgende fase eerst de gerichte check en daarna
   `make ci-fast`; laat Integration/E2E alleen draaien wanneer de snelle gate
   groen is.
 
 ### Fase 2 — Ruff en lokale developer gate
 
-- [ ] Voeg, als nog ontbrekend, een repository-root `.pre-commit-config.yaml`
+- [x] Voeg, als nog ontbrekend, een repository-root `.pre-commit-config.yaml`
   toe met Ruff format en Ruff check op dezelfde paden als CI (`src`, `tests`).
-- [ ] Pin de Ruff-versie via de bestaande lockfile/configuratie zodat lokaal en
+- [x] Pin de Ruff-versie via de bestaande lockfile/configuratie zodat lokaal en
   CI dezelfde formatteringsregels gebruiken.
-- [ ] Voeg duidelijke Makefile-targets toe of verbeter de bestaande targets
+- [x] Voeg duidelijke Makefile-targets toe of verbeter de bestaande targets
   zodat `make ci-fast` zonder verborgen omgevingsvariabelen werkt.
-- [ ] Voeg documentatie toe aan `README.md` of de bestaande contributing-docs:
+- [x] Voeg documentatie toe aan `README.md` of de bestaande contributing-docs:
   installatie van hooks, `make ci-fast`, foutdiagnose en de regel dat eerst
   lokaal wordt gedraaid vóór push.
-- [ ] Controleer dat formattering geen gegenereerde bestanden, SDK-subprojecten
+- [x] Controleer dat formattering geen gegenereerde bestanden, SDK-subprojecten
   of operationele artefacts buiten de bestaande scope raakt.
 
 Acceptatie voor deze fase:
 
-- [ ] Een nieuw bestand met een Ruff-formatfout faalt lokaal reproduceerbaar.
-- [ ] `pre-commit run --all-files` en `make ci-fast` gebruiken dezelfde Ruff-
+- [x] Een nieuw bestand met een Ruff-formatfout faalt lokaal reproduceerbaar.
+- [x] `pre-commit run --all-files` en `make ci-fast` gebruiken dezelfde Ruff-
   configuratie en slagen op de repository.
-- [ ] Een formatteringswijziging wordt door de hook automatisch of duidelijk
+- [x] Een formatteringswijziging wordt door de hook automatisch of duidelijk
   herstelbaar gemeld voordat de commit wordt gemaakt.
 
 ### Fase 3 — Contract- en importveiligheid
 
-- [ ] Voeg een snelle testcollectie-check toe aan `make ci-fast` of aan een
+- [x] Voeg een snelle testcollectie-check toe aan `make ci-fast` of aan een
   aparte target die CI vóór de volledige unit-suite uitvoert:
   `uv run pytest --collect-only -q`.
-- [ ] Voeg een gerichte regression test toe voor de publieke/private
+- [x] Voeg een gerichte regression test toe voor de publieke/private
   key-rotation helpers die door tests worden geïmporteerd. De test moet falen
   wanneer een benodigde helper wordt verwijderd of hernoemd zonder alle
   call-sites mee te wijzigen.
-- [ ] Gebruik een kleine testmodule of import-check voor `scripts/` zodat
+- [x] Gebruik een kleine testmodule of import-check voor `scripts/` zodat
   ontbrekende symbolen vroeg worden gemeld, zonder dat alle integratietests
   eerst starten.
-- [ ] Herstel de key-rotation downgrade-functionaliteit en alle tests als de
+- [x] Herstel de key-rotation downgrade-functionaliteit en alle tests als de
   huidige branch dit nog niet volledig bevat. Test zowel numerieke strings en
   integers als ongeldige waarden, booleans, gelijke versies en echte
   downgrades.
-- [ ] Controleer na refactors expliciet alle imports met `rg` en draai
+- [x] Controleer na refactors expliciet alle imports met `rg` en draai
   collection-only vóór de volledige testsuite.
 
 Acceptatie voor deze fase:
 
-- [ ] Een ontbrekende `_check_key_version_downgrade` stopt in de collection-
+- [x] Een ontbrekende `_check_key_version_downgrade` stopt in de collection-
   check met een gerichte foutmelding.
-- [ ] De key-rotation tests, unit tests, Integration en E2E importeren dezelfde
+- [x] De key-rotation tests, unit tests, Integration en E2E importeren dezelfde
   bestaande API en slagen op een groene branch.
-- [ ] Geen brede `Any`- of exception-fallback wordt toegevoegd om een
+- [x] Geen brede `Any`- of exception-fallback wordt toegevoegd om een
   collection- of contractfout te maskeren.
 
 ### Fase 4 — Deterministische en realistische tests
 
-- [ ] Vervang hard-coded current-date assertions door een geïnjecteerde clock,
+- [x] Vervang hard-coded current-date assertions door een geïnjecteerde clock,
   een gecontroleerde timestamp of een assertion die alleen de eventdatum
   valideert.
-- [ ] Verwijder arbitraire source-line-count assertions zoals de limiet op
+- [x] Verwijder arbitraire source-line-count assertions zoals de limiet op
   `sync/orchestrator.py`. Als omvang belangrijk is, test dan modulegrenzen,
   publieke exports of cyclomatische/architectuurregels met een expliciet
   onderhoudbaar contract.
-- [ ] Centraliseer tijdtest-fixtures in `tests/conftest.py` of de bestaande
+- [x] Centraliseer tijdtest-fixtures in `tests/conftest.py` of de bestaande
   testutility en documenteer timezone/UTC-semantiek.
-- [ ] Breng SQLAlchemy test doubles in lijn met de echte async session API:
+- [x] Breng SQLAlchemy test doubles in lijn met de echte async session API:
   ondersteun minstens de methodes die production code werkelijk aanroept,
   waaronder `execute`, `scalars`, context management en relevante result
   objects.
-- [ ] Gebruik waar passend echte lightweight SQLAlchemy sessions in plaats van
+- [x] Gebruik waar passend echte lightweight SQLAlchemy sessions in plaats van
   `SimpleNamespace`-objecten voor persistence-/reconciliationtests.
-- [ ] Houd assertions gedragsgericht: status, persisted values, emitted events
+- [x] Houd assertions gedragsgericht: status, persisted values, emitted events
   en foutcontracten; niet implementatiedetails zoals regelposities.
-- [ ] Voeg regressietests toe voor de eerder geziene gevallen: ontbrekende ISIN,
+- [x] Voeg regressietests toe voor de eerder geziene gevallen: ontbrekende ISIN,
   failed/completed sync-statussen, orphan export recovery en key-rotation
   marker-deduplicatie.
 
 Acceptatie voor deze fase:
 
-- [ ] De unit-suite geeft op opeenvolgende UTC-datums hetzelfde resultaat.
-- [ ] De test-suite faalt niet alleen omdat Ruff een multiline-expressie anders
+- [x] De unit-suite geeft op gecontroleerde UTC-timestamps hetzelfde resultaat.
+- [x] De test-suite faalt niet alleen omdat Ruff een multiline-expressie anders
   formatteert.
-- [ ] De tests gebruiken geen fake session die een production call stilzwijgend
+- [x] De relevante reconciliation-tests gebruiken geen fake session die een production call stilzwijgend
   overslaat of onverwacht `AttributeError` veroorzaakt.
-- [ ] De coverage blijft minimaal 73% zonder nieuwe uitsluitingen die alleen
+- [x] De coverage blijft minimaal 73% zonder nieuwe uitsluitingen die alleen
   de gate omzeilen.
 
 ### Fase 5 — CI-workflow en failure feedback
 
-- [ ] Voeg een expliciete snelle `quality` job of equivalent toe die
+- [x] Voeg een expliciete snelle `quality` job of equivalent toe die
   `make ci-fast` één keer uitvoert vóór zware Integration/E2E jobs.
-- [ ] Laat zware jobs alleen starten wanneer de snelle gate geslaagd is, waar
+- [x] Laat zware jobs alleen starten wanneer de snelle gate geslaagd is, waar
   dit verenigbaar is met de gewenste diagnostiek. Gebruik `if: needs.quality.result
   == 'success'` of de bestaande workflowstructuur.
-- [ ] Behoud afzonderlijke jobnamen voor required checks; wijzig namen alleen
+- [x] Behoud afzonderlijke jobnamen voor required checks; wijzig namen alleen
   met gelijktijdige branch-protection-update.
-- [ ] Voeg aan falende testjobs een compacte failure summary toe met de eerste
+- [x] Voeg aan falende testjobs een compacte failure summary toe met de eerste
   root-cause-regel, failing testnaam en commit SHA. Upload JUnit/log-artifacts
   ook bij collection failures.
-- [ ] Controleer dat de bestaande concurrency-groep obsolete runs annuleert en
+- [x] Controleer dat de bestaande concurrency-groep obsolete runs annuleert en
   dat pushes naar dezelfde ref niet onnodig meerdere volledige pipelines
   parallel laten uitwerken.
-- [ ] Verbeter de incidentissue-automatisering waar mogelijk:
-  - dedupliceer op workflow/job/branch/fingerprint én head SHA;
-  - vermeld de eerste failing step en eventuele collection failure;
-  - maak duidelijk wanneer een issue door een latere groene run automatisch is
+- [x] Verbeter de incidentissue-automatisering waar mogelijk:
+  - [x] dedupliceer op workflow/job/branch/fingerprint én head SHA;
+  - [x] vermeld de eerste failing step en eventuele collection failure;
+  - [x] maak duidelijk wanneer een issue door een latere groene run automatisch is
     gesloten;
-  - voorkom een nieuw issue per herstelpush als dezelfde onderliggende
+  - [x] voorkom een nieuw issue per herstelpush als dezelfde onderliggende
     fingerprint nog actief is.
 
 Acceptatie voor deze fase:
 
-- [ ] Een Ruff/import/type failure is zichtbaar als één snelle, actiegerichte
+- [x] Een Ruff/import/type failure is zichtbaar als één snelle, actiegerichte
   failure voordat zware jobs starten.
-- [ ] Eenzelfde defect op één commit maakt geen nieuwe issue voor elk afgeleid
+- [x] Eenzelfde defect op één commit maakt geen nieuwe issue voor elk afgeleid
   jobresultaat tenzij die job werkelijk een andere root cause heeft.
-- [ ] Logs bevatten voldoende informatie om zonder artifact-download de eerste
+- [x] Logs bevatten voldoende informatie om zonder artifact-download de eerste
   defecte test/import/regel te vinden.
 
 ### Fase 6 — `main` branch protection en releaseproces
 
-- [ ] Configureer `main` als protected branch via repository settings of de
+- [x] Configureer `main` als protected branch via repository settings of de
   GitHub API.
-- [ ] Vereis een pull request en minimaal één review voor wijzigingen naar
+- [x] Vereis een pull request en minimaal één review voor wijzigingen naar
   `main`, tenzij het project expliciet een uitzondering documenteert.
-- [ ] Vereis de bestaande CI-checks met stabiele jobnamen: Lint, Type check,
+- [x] Vereis de bestaande CI-checks met stabiele jobnamen: Lint, Type check,
   Test, Migrations, Integration, E2E en relevante security/build gates.
-- [ ] Schakel stale approvals uit of vereist goedkeuring van de laatste push,
+- [x] Schakel stale approvals uit of vereist goedkeuring van de laatste push,
   zodat nieuwe herstelcommits opnieuw worden gevalideerd.
-- [ ] Blokkeer directe pushes voor normale gebruikers en documenteer eventuele
+- [x] Blokkeer directe pushes voor normale gebruikers en documenteer eventuele
   break-glass procedure voor echte incidenten.
-- [ ] Laat de merge queue of een equivalent de PR opnieuw testen op de actuele
+- [x] Laat de strikte branch-up-to-date-eis als equivalent de PR opnieuw testen op de actuele
   `main`-basis wanneer meerdere PR's tegelijk klaarstaan.
-- [ ] Controleer branch protection met een read-only API-call en leg de
+- [x] Controleer branch protection met een read-only API-call en leg de
   geconfigureerde required checks vast in de repository-documentatie.
 
 Acceptatie voor deze fase:
 
-- [ ] Een bewust falende PR kan niet naar `main` worden gemerged.
-- [ ] Een nieuwe commit op een goedgekeurde PR maakt de oude goedkeuring/CI-
+- [x] Een bewust falende PR kan niet naar `main` worden gemerged.
+- [x] Een nieuwe commit op een goedgekeurde PR maakt de oude goedkeuring/CI-
   status ongeldig waar dat nodig is.
-- [ ] Een actuele groene PR kan automatisch worden gemerged volgens de bestaande
-  backlog-pipeline.
-- [ ] De repository retourneert niet langer `Branch not protected` voor `main`.
+- [x] Een actuele groene PR kan automatisch worden gemerged volgens de bestaande
+  backlog-pipeline; repository auto-merge is ingeschakeld en voor PR #832
+  geactiveerd.
+- [x] De repository retourneert niet langer `Branch not protected` voor `main`.
 
 ## Verificatieprotocol voor de coding agent
 
@@ -245,13 +291,15 @@ uv run pytest -m e2e -v
 
 Daarna:
 
-- [ ] `git diff --check` is groen.
-- [ ] `git status --short` bevat alleen bedoelde wijzigingen.
-- [ ] Er zijn geen nieuwe `Any`, brede exception-catches, test skips of
+- [x] `git diff --check` is groen.
+- [x] De agent-commit bevat alleen bedoelde wijzigingen; een bestaande,
+  niet-gerelateerde Wealthfolio-wijziging bleef bewust unstaged behouden.
+- [x] Er zijn geen nieuwe `Any`, brede exception-catches, test skips of
   coverage-exclusions toegevoegd om CI groen te maken.
-- [ ] De PR beschrijft oorzaak, gewijzigde contracten, tests en eventuele
+- [x] De PR beschrijft oorzaak, gewijzigde contracten, tests en eventuele
   GitHub-settings die buiten de repository zijn aangepast.
-- [ ] De volledige remote CI-run op de PR-commit is groen.
+- [x] De volledige remote CI-run op PR-commit `5c0ed8e` is groen
+  (workflow-run `34382735810`).
 - [ ] Na merge is één nieuwe CI-run op `main` groen en zijn er geen nieuwe CI-
   incidentissues gedurende de bestaande observatieperiode.
 

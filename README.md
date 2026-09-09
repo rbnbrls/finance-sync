@@ -95,6 +95,9 @@ Ruff version and `src`/`tests` scope as CI. Run `make ci-fast` before pushing.
 If a check fails, rerun its focused target (`make format-check`, `make lint`,
 `make type` or `make test-ci`) to get the actionable output.
 
+CI and `main` branch protection details are documented in
+[`docs/CI-RELIABILITY.md`](docs/CI-RELIABILITY.md).
+
 Useful CLI groups are:
 
 ```bash

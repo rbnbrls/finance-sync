@@ -17,6 +17,7 @@ from finance_sync.models.enums import (
     ReconciliationResultKind,
     ReconciliationRunStatus,
 )
+from tests.session_doubles import make_async_session
 
 # ═══════════════════════════════════════════════════════════════════════
 # Enums & model basics
@@ -97,14 +98,12 @@ class TestReconciliationHelpers:
         # ratio = 1/50 = 0.02 -> INFO (not > 0.02)
         assert _severity(1, 50) == "info"
 
-    def test_default_since_returns_datetime(self) -> None:
+    def test_default_since_returns_datetime(self, fixed_utc_now) -> None:
         from finance_sync.services.reconciliation import _default_since
 
-        result = _default_since()
-        assert isinstance(result, datetime)
-        # Should be roughly 90 days ago
-        diff = (datetime.now(UTC) - result).total_seconds()
-        assert 89 * 86400 < diff < 91 * 86400
+        assert _default_since(fixed_utc_now) == datetime(
+            2026, 6, 11, 12, 0, tzinfo=UTC
+        )
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -160,9 +159,9 @@ def _make_mock_uow() -> MagicMock:
     return uow
 
 
-def _make_mock_session(accounts: list | None = None) -> AsyncMock:
+def _make_mock_session(accounts: list | None = None) -> MagicMock:
     """Return a mock session whose .execute() returns accounts."""
-    session = AsyncMock()
+    session = make_async_session()
     acct_result = MagicMock()
     acct_result.scalars.return_value.all = MagicMock(
         return_value=accounts or []
@@ -223,7 +222,7 @@ class TestReconciliationServiceMocked:
             started_at=now,
         )
 
-        mock_session = AsyncMock()
+        mock_session = make_async_session()
 
         with patch.object(UnitOfWork, "__aenter__", return_value=mock_uow):
             findings = await RS._detect_duplicates(
@@ -275,7 +274,7 @@ class TestReconciliationServiceMocked:
             started_at=now,
         )
 
-        mock_session = AsyncMock()
+        mock_session = make_async_session()
 
         with patch.object(UnitOfWork, "__aenter__", return_value=mock_uow):
             findings = await RS._detect_duplicates(
@@ -864,7 +863,7 @@ class TestReconciliationServiceMocked:
             ReconciliationService as RS,
         )
 
-        mock_session = AsyncMock()
+        mock_session = make_async_session()
         run = ReconciliationRun(
             tenant_id=tenant_id,
             status=ReconciliationRunStatus.RUNNING,
