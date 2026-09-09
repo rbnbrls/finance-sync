@@ -59,6 +59,13 @@ class ManualExpenseConnector(Connector):
     """
 
     display_name = "Manual Expenses"
+    ingestion_methods = ("file",)
+    import_wizard = {
+        "files": [
+            {"key": "expenses", "label": "Expenses JSON", "required": True}
+        ],
+        "accept": [".json"],
+    }
     sdk_version = "0.1.0"
 
     @property

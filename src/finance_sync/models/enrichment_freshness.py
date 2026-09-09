@@ -57,7 +57,7 @@ class EnrichmentFreshness(TimestampMixin, Base):
         String(32),
         nullable=False,
         default="pending",
-        comment="enrichment_pending/resolved/failed",
+        comment="enrichment_pending/resolved/failed/unavailable_accepted",
     )
     error_message: Mapped[str | None] = mapped_column(
         SA_Text,
