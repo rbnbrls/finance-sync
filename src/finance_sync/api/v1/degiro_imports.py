@@ -27,6 +27,7 @@ from finance_sync.dependencies import get_container, get_db
 from finance_sync.models.credential import Credential
 from finance_sync.models.import_run import ImportRun
 from finance_sync.services.degiro_import import (
+    ExpiredImportError,
     ImportValidationError,
     batch_hash,
     build_preview,
@@ -350,6 +351,20 @@ async def confirm_import(
             connection.last_attempt_at = run.completed_at
             connection.last_error = None
             connection.last_error_category = None
+    except ExpiredImportError as exc:
+        run.status = "expired"
+        run.completed_at = datetime.now(UTC)
+        run.error_details = [str(exc)[:500]]
+        run.audit_events = [
+            *run.audit_events,
+            {
+                "action": "expired",
+                "principal": auth.principal_id,
+                "at": datetime.now(UTC).isoformat(),
+            },
+        ]
+        await db.commit()
+        raise HTTPException(status_code=410, detail=str(exc)) from exc
     except ImportValidationError as exc:
         await report_connector_failure(
             container.settings,
@@ -424,7 +439,6 @@ async def list_import_runs(
     db: AsyncSession = Depends(get_db),
 ) -> list[ImportRunResponse]:
     """List tenant-scoped status/freshness without exposing server paths."""
-    cleanup_expired_previews(get_container(request).settings)
     query = select(ImportRun).where(ImportRun.tenant_id == auth.tenant_id)
     if connection_id:
         query = query.where(ImportRun.connection_id == connection_id)
