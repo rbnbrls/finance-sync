@@ -94,7 +94,6 @@ class FakeActualBudgetClient:
         if type(self).fail_imports:
             _msg = "external AB server unreachable"
             raise RuntimeError(_msg)
-        new_count = 0
         for txn in transactions:
             imported_id = txn.get("imported_id")
             if (
@@ -103,8 +102,10 @@ class FakeActualBudgetClient:
             ):
                 type(self).seen_imported_ids.add(imported_id)
                 type(self).imported_count += 1
-                new_count += 1
-        return new_count
+        # The adapter reports successful reconciliation, not only newly
+        # inserted rows.  Existing imported IDs are idempotent successes and
+        # must advance this destination's cursor as well.
+        return len(transactions)
 
 
 @pytest.fixture(autouse=True)
@@ -205,7 +206,7 @@ async def _run_and_expect_completed(
         f"/api/v1/destinations/{target_id}/run", headers=headers
     )
     assert resp.status_code == 200, resp.text
-    assert resp.json()["status"] == "completed"
+    assert resp.json()["status"] == "completed", resp.text
 
 
 class TestPerDestinationReplaySafeDelivery:

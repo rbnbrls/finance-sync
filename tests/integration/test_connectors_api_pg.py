@@ -850,12 +850,13 @@ class TestNoSecretLeakageHttpPg:
         assert body["success"] is False
         assert secret not in body["message"]
 
-        # The stored last_error is sanitised too.
+        # The stored connection-test error is sanitised too. Sync errors stay
+        # in last_error and must not be overwritten by an auth check.
         after = await api_client.get(
             f"{_CONFIGS_URL}/{conn_id}", headers=headers
         )
-        assert secret not in (after.json()["last_error"] or "")
-        assert after.json()["last_error"]
+        assert secret not in (after.json()["last_test_error"] or "")
+        assert after.json()["last_test_error"]
 
         audit = await api_client.get(_AUDIT_URL, headers=headers)
         assert secret not in audit.text
@@ -863,8 +864,10 @@ class TestNoSecretLeakageHttpPg:
         async with session_factory() as s:
             cred = await s.get(Credential, conn_id)
             assert cred is not None
-            assert cred.last_error is not None
-            assert secret not in cred.last_error
+            # A connection test must not populate the sync error field.
+            assert cred.last_error is None
+            assert cred.last_test_error is not None
+            assert secret not in cred.last_test_error
 
 
 class TestScheduleSeedingHttpPg:

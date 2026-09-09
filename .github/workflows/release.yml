@@ -6,6 +6,7 @@
 #   build          – build the immutable image (sha + semver tags), scan it
 #                    with Trivy (fail on HIGH/CRITICAL, same gate as CI),
 #                    sign it with cosign (keyless, GitHub OIDC), push to GHCR
+#   key-status-check – check encryption key status to block unsafe promotions
 #   release-gates  – mandatory PostgreSQL/Redis integration and API→worker→
 #                    outbox E2E tests for every release candidate
 #   migrate        – migration upgrade/downgrade round-trip against an
@@ -197,10 +198,46 @@ jobs:
             --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
             "${DIGEST}"
 
+  # ── Encryption key status check ────────────────────────
+  key-status-check:
+    name: Encryption key status check
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          pip install pytest
+
+      - name: Check key status for promotion
+        id: key-status
+        run: |
+          # Set required environment variables
+          export COOLIFY_BASE_URL="${COOLIFY_BASE_URL}"
+          export COOLIFY_TOKEN="${{ secrets.COOLIFY_API_TOKEN }}"
+          export STAGING_APP_UUID="${STAGING_APP_UUID}"
+
+          # Run the key status check script
+          python3 scripts/check_key_status_for_promotion.py
+
+      - name: Fail on key status gate violations
+        if: always()
+        run: |
+          test "${{ steps.key-status.outcome }}" = success
+
   # ── Reproducible security evidence for each release candidate ────────
   security-evidence:
     name: Security release evidence
-    needs: build
+    needs: [build, key-status-check]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -284,7 +321,7 @@ jobs:
   # Redis-backed paths have passed without skipped or missing JUnit output.
   release-gates:
     name: Release service gates
-    needs: build
+    needs: [build, key-status-check]
     runs-on: ubuntu-latest
     timeout-minutes: 25
     services:
@@ -389,7 +426,7 @@ jobs:
   # same command (pre-deployment) against its own database on deploy.
   migrate:
     name: Migrations (staging DB)
-    needs: build
+    needs: [build, key-status-check]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     services:
@@ -493,7 +530,7 @@ jobs:
   # ── Deploy the staging stack via Coolify ──────────────────────────────
   deploy-staging:
     name: Deploy staging stack
-    needs: [build, migrate, release-gates, security-evidence]
+    needs: [build, migrate, release-gates, security-evidence, key-status-check]
     runs-on: ubuntu-latest
     timeout-minutes: 25
     environment: staging
@@ -546,7 +583,7 @@ jobs:
   # pipeline — production is never promoted.
   smoke:
     name: Staging smoke tests (gate)
-    needs: [deploy-staging, build]
+    needs: [deploy-staging, build, key-status-check]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:

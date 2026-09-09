@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from decimal import Decimal
-from typing import Any
+from typing import Any, cast
 
 
 def map_transaction(
@@ -11,6 +11,8 @@ def map_transaction(
     *,
     account_name: str,
     import_tag: str = "finance-sync",
+    budget_name: str | None = None,
+    bill_id: str | None = None,
 ) -> dict[str, Any]:
     """Return a valid Firefly split for a canonical transaction.
 
@@ -22,7 +24,11 @@ def map_transaction(
     amount = Decimal(str(transaction.amount))
     positive = amount >= 0
     tx_type = "deposit" if positive else "withdrawal"
-    description = str(transaction.description or transaction.transaction_type)
+    description = str(
+        getattr(transaction, "merchant_name", None)
+        or transaction.description
+        or transaction.transaction_type
+    )
     payload: dict[str, Any] = {
         "type": tx_type,
         "date": transaction.occurred_at.isoformat(),
@@ -42,4 +48,37 @@ def map_transaction(
         payload["destination_name"] = (
             description[:256] or "finance-sync expense"
         )
+    if getattr(transaction, "merchant_category_code", None):
+        payload["category_name"] = str(transaction.merchant_category_code)
+    if getattr(transaction, "cashflow_suggestion", None):
+        suggestion: Any = transaction.cashflow_suggestion
+        if isinstance(suggestion, dict):
+            mapping = cast(dict[str, Any], suggestion)
+            suggestion = mapping.get("value") or mapping.get("category")
+        else:
+            suggestion = getattr(suggestion, "value", suggestion)
+        if suggestion:
+            payload["category_name"] = str(suggestion)
+    if budget_name:
+        payload["budget_name"] = budget_name
+    if bill_id:
+        payload["bill_id"] = bill_id
+    if getattr(transaction, "splits", None):
+        payload["canonical_splits"] = [
+            {
+                "amount": str(getattr(split, "amount", "0")),
+                "currency_code": getattr(
+                    split, "currency_code", transaction.currency_code
+                ),
+                "percentage": getattr(split, "percentage", None),
+                "category": getattr(
+                    getattr(split, "category_suggestion", None),
+                    "value",
+                    getattr(split, "category_suggestion", None),
+                ),
+                "destination": getattr(split, "destination", None),
+                "provenance": getattr(split, "provenance", None),
+            }
+            for split in transaction.splits
+        ]
     return payload
