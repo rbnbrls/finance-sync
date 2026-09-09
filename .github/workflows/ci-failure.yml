@@ -70,9 +70,12 @@ jobs:
                 item.conclusion === 'failure' || item.conclusion === 'timed_out');
               return step ? step.name : 'unknown-step';
             };
-            const key = (job, step) => [
+            const baseKey = (job, step) => [
               normalize(run.name), normalize(job.name), normalize(defaultBranch),
               normalize(category(job.name, step)),
+            ].join('|');
+            const key = (job, step) => [
+              baseKey(job, step), normalize(run.head_sha),
             ].join('|');
 
             const openIssues = await github.paginate(
@@ -81,6 +84,11 @@ jobs:
             );
             const matching = (fingerprint) => openIssues.filter((issue) =>
               (issue.body || '').includes(`${markerPrefix}${fingerprint} -->`));
+            const matchingActive = (job, step) => openIssues.filter((issue) => {
+              const marker = `${markerPrefix}${baseKey(job, step)}`;
+              const body = issue.body || '';
+              return body.includes(`${marker}|`) || body.includes(`${marker} -->`);
+            });
 
             const closeForJob = async (job) => {
               const prefix = `${markerPrefix}${normalize(run.name)}|${normalize(job.name)}|${normalize(defaultBranch)}|`;
@@ -101,7 +109,7 @@ jobs:
             for (const job of failed) {
               const step = firstFailedStep(job);
               const fingerprint = key(job, step);
-              const existing = matching(fingerprint)[0];
+              const existing = matching(fingerprint)[0] || matchingActive(job, step)[0];
               const details = [
                 `**Workflow:** ${run.name}`,
                 `**Branch:** \`${run.head_branch}\``,
@@ -124,8 +132,9 @@ jobs:
               const labels = ['ci-failure', 'scope:main', `workflow:${normalize(run.name)}`, `type:${normalize(category(job.name, step))}`];
               const body = [
                 '## CI failure on the default branch', '', details, '',
-                'This incident is deduplicated by workflow, job, branch and failure category.',
-                'A successful subsequent run of the same job closes it automatically.', '',
+                'This incident is deduplicated by workflow, job, branch, failure category and head SHA; an active incident for the same underlying failure is reused across repair pushes.',
+                'A successful subsequent run of the same job closes it automatically.',
+                'Collection failures are represented by the first failed test/collection step and the attached JUnit/log diagnostics.', '',
                 `${markerPrefix}${fingerprint} -->`,
               ].join('\n');
               await github.rest.issues.create({

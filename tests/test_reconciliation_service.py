@@ -22,6 +22,7 @@ from finance_sync.services.reconciliation import (
     _default_since,
     _severity,
 )
+from tests.session_doubles import make_async_session
 
 # ═══════════════════════════════════════════════════════════════════════
 # Unit: _severity helper
@@ -67,10 +68,10 @@ class TestDefaultSince:
         result = _default_since()
         assert result.tzinfo is not None  # should be timezone-aware
 
-    def test_is_roughly_90_days_ago(self) -> None:
-        result = _default_since()
-        diff = datetime.now(UTC) - result
-        assert 89 <= diff.days <= 91
+    def test_is_roughly_90_days_ago(self, fixed_utc_now) -> None:
+        assert _default_since(fixed_utc_now) == datetime(
+            2026, 6, 11, 12, 0, tzinfo=UTC
+        )
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -82,7 +83,7 @@ class TestDefaultSince:
 def session_factory():
     """Return a mock async_sessionmaker that produces mock sessions."""
     factory = MagicMock()
-    session = AsyncMock()
+    session = make_async_session()
     factory.return_value.__aenter__ = AsyncMock(return_value=session)
     factory.return_value.__aexit__ = AsyncMock(return_value=None)
     return factory
@@ -285,7 +286,7 @@ class TestFinalizeRun:
         self, svc: ReconciliationService
     ) -> None:
         """Findings are persisted and summary is computed."""
-        session = AsyncMock()
+        session = make_async_session()
 
         findings = []
         for kind, sev in [
