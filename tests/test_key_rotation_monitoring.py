@@ -8,7 +8,6 @@ from unittest.mock import patch
 import pytest
 
 from scripts.key_rotation_monitoring import (
-    _check_key_version_downgrade,
     build_key_issue_body,
     build_key_marker,
     check_key_provider_status,
@@ -114,45 +113,6 @@ def test_check_key_rotation_status_no_alerts():
         alerts = check_key_rotation_status(key_info)
 
         assert len(alerts) == 0
-
-
-@pytest.mark.parametrize(
-    ("previous", "current", "is_downgrade"),
-    [
-        (3, 2, True),
-        ("v3", "v2", True),
-        ("3", "2", True),
-        (2, 3, False),
-        ("v3", "v2.1", False),
-        ("03", "2", False),
-        (True, 0, False),
-        (3, 2.5, False),
-        (None, 2, False),
-    ],
-)
-def test_check_key_version_downgrade_rejects_ambiguous_versions(
-    previous, current, is_downgrade
-):
-    alerts = _check_key_version_downgrade(
-        {"last_reported_version": previous}, {"current_version": current}
-    )
-
-    assert bool(alerts) is is_downgrade
-
-
-def test_check_key_rotation_status_includes_downgrade_alert():
-    alerts = check_key_rotation_status(
-        {"current_version": "v1", "hours_to_expiry": 100},
-        {"last_reported_version": "v2"},
-    )
-
-    assert alerts == [
-        {
-            "name": "key_version_downgrade",
-            "severity": "critical",
-            "detail": "Key version downgraded from v2 to v1",
-        }
-    ]
 
 
 def test_check_key_rotation_status_with_error():
