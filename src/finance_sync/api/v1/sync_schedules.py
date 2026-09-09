@@ -28,6 +28,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from finance_sync.api.deps.auth import AuthContext, require_permission
@@ -36,6 +37,7 @@ from finance_sync.models.sync_schedule import (
     DEFAULT_TIMEZONE,
     SCOPE_EXPORT,
     SCOPE_INGESTION,
+    SyncSchedule,
 )
 from finance_sync.services.sync_schedule import (
     ScheduleConflictError,
@@ -111,6 +113,7 @@ class ScheduleResponse(BaseModel):
     last_run_at: datetime | None
     last_run_status: str | None
     last_run_error: str | None
+    running: bool = False
     human_readable: str
     created_by: str | None
     updated_by: str | None
@@ -176,6 +179,7 @@ def _to_response(row: Any) -> ScheduleResponse:
         last_run_at=row.last_run_at,
         last_run_status=row.last_run_status,
         last_run_error=row.last_run_error,
+        running=row.last_run_status == "running",
         human_readable=describe_schedule(row),
         created_by=row.created_by,
         updated_by=row.updated_by,
@@ -321,6 +325,39 @@ async def preview_schedule(
         human_readable=describe_schedule(row),
         timezone=str(row.timezone),
     )
+
+
+@router.post("/{schedule_id}/run", response_model=ScheduleResponse)
+async def run_schedule_now(
+    schedule_id: str,
+    _auth: AuthContext = Depends(require_permission("sync", "write")),
+    db: AsyncSession = Depends(get_db),
+) -> ScheduleResponse:
+    """Queue one enabled schedule for the next worker tick.
+
+    This is deliberately a queue operation: the worker owns connector and
+    exporter execution, while the page can immediately show ``running`` once
+    the worker claims the row.  Disabling a schedule still stops future
+    planned runs; it does not turn this into an unrestricted manual sync API.
+    """
+    row = await db.scalar(
+        select(SyncSchedule).where(
+            SyncSchedule.id == schedule_id,
+            SyncSchedule.tenant_id == _auth.tenant_id,
+        )
+    )
+    if row is None:
+        raise _not_found()
+    if not row.enabled:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Enable the schedule before starting it",
+        )
+    row.next_run_at = datetime.now(UTC)
+    row.updated_at = datetime.now(UTC)
+    await db.commit()
+    await db.refresh(row)
+    return _to_response(row)
 
 
 @router.patch("/{schedule_id}", response_model=ScheduleResponse)
