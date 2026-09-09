@@ -134,7 +134,11 @@ def check_key_provider_status() -> Dict[str, Any]:
 def _check_key_version_downgrade(
     state: Dict[str, Any], key_info: Dict[str, Any]
 ) -> List[Dict[str, str]]:
-    """Return a critical alert when a known numeric version decreases."""
+    """Return a critical alert when a known numeric version decreases.
+
+    This helper is intentionally kept separate so holdout checks can exercise
+    downgrade detection without invoking the GitHub issue side effects.
+    """
     previous = state.get("last_reported_version")
     current = key_info.get("current_version")
 
