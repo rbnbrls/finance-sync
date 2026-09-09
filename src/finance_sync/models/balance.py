@@ -23,6 +23,7 @@ class Balance(TimestampMixin, Base):
             "account_id",
             "observed_at",
             "balance_kind",
+            "currency_code",
             name="uq_balances_snapshot",
         ),
     )

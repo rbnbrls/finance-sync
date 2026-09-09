@@ -47,6 +47,7 @@ class ControlPlaneIssue(BaseModel):
         default_factory=_empty_candidates
     )
     confidence: str | None = None
+    affected_transaction_ids: list[str] = Field(default_factory=list)
 
 
 class InstallationStatus(BaseModel):
@@ -133,6 +134,7 @@ class ControlPlaneDestination(BaseModel):
     last_export_status: str | None = None
     last_export_at: datetime | None = None
     failed_export_count: int = 0
+    delivery_checkpoint: dict[str, Any] | None = None
 
 
 class ControlPlaneOverview(BaseModel):
