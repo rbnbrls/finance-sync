@@ -8,6 +8,7 @@ from unittest.mock import patch
 import pytest
 
 from scripts.key_rotation_monitoring import (
+    _check_key_version_downgrade,
     build_key_issue_body,
     build_key_marker,
     check_key_provider_status,
