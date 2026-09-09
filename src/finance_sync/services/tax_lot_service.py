@@ -23,12 +23,13 @@ from __future__ import annotations
 
 from datetime import timedelta
 from decimal import Decimal
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from finance_sync.db.repositories import TaxLotRepository
 from finance_sync.models.enums import CostBasisMethod, TransactionType
 from finance_sync.models.tax_lot import TaxLot
 from finance_sync.models.transaction import Transaction
+from finance_sync.services.wealthfolio_preflight import quantity_event_ratio
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -39,6 +40,153 @@ E = Decimal
 
 WASH_SALE_LOOKBACK_DAYS = 30
 """Number of days before/after a sale to check for wash-sale repurchases."""
+
+
+def _transfer_reference(transaction: Transaction) -> str | None:
+    """Read the allowlisted provider transfer reference from canonical data."""
+    metadata = transaction.provider_metadata_contract
+    if not isinstance(metadata, dict):
+        return transaction.counterparty_account_reference or None
+    candidates: list[dict[str, Any]] = [metadata]
+    fields = metadata.get("fields")
+    if isinstance(fields, dict):
+        candidates.append(cast("dict[str, Any]", fields))
+    for candidate in candidates:
+        for key in (
+            "transfer_id",
+            "transferId",
+            "transfer_reference",
+            "transferReference",
+        ):
+            value = candidate.get(key)
+            if value not in (None, ""):
+                return str(value).strip() or None
+    return transaction.counterparty_account_reference or None
+
+
+def pair_security_transfer_legs(
+    transactions: list[Transaction],
+) -> dict[str, Transaction]:
+    """Pair security-transfer legs without guessing unidentifiable matches.
+
+    A pair requires the same provider/counterparty reference, security,
+    currency, calendar date and absolute quantity, plus opposite signed cash
+    amounts and different accounts.  The returned map is symmetric.
+    """
+    groups: dict[tuple[str, str, str, str, str], list[Transaction]] = {}
+    for transaction in transactions:
+        if str(transaction.transaction_type) != TransactionType.TRANSFER.value:
+            continue
+        if transaction.security_id is None or not transaction.occurred_at:
+            continue
+        reference = _transfer_reference(transaction)
+        if not reference:
+            continue
+        try:
+            quantity = abs(Decimal(str(transaction.quantity)))
+            amount = Decimal(str(transaction.amount))
+        except Exception:
+            continue
+        if quantity <= 0 or amount == 0:
+            continue
+        key = (
+            str(transaction.security_id),
+            str(transaction.currency_code).upper(),
+            transaction.occurred_at.date().isoformat(),
+            str(quantity),
+            reference,
+        )
+        groups.setdefault(key, []).append(transaction)
+
+    pairs: dict[str, Transaction] = {}
+    for rows in groups.values():
+        outbound = sorted(
+            (row for row in rows if Decimal(str(row.amount)) < 0),
+            key=lambda row: str(row.id),
+        )
+        inbound = sorted(
+            (row for row in rows if Decimal(str(row.amount)) > 0),
+            key=lambda row: str(row.id),
+        )
+        for source, destination in zip(outbound, inbound, strict=False):
+            if str(source.account_id) == str(destination.account_id):
+                continue
+            pairs[str(source.id)] = destination
+            pairs[str(destination.id)] = source
+    return pairs
+
+
+async def transfer_lots_to_destination(
+    session: AsyncSession,
+    tenant_id: str,
+    transaction: Transaction,
+    destination: Transaction,
+) -> dict[str, Any]:
+    """Move FIFO lot basis across a paired security transfer."""
+    quantity = abs(Decimal(str(transaction.quantity or 0)))
+    if quantity <= 0 or Decimal(str(transaction.amount)) >= 0:
+        return {"action": "transfer_basis_skipped", "reason": "not_outbound"}
+
+    repo = TaxLotRepository(session)
+    if await repo.find_lots_for_transfer(tenant_id, str(destination.id)):
+        return {
+            "action": "transfer_basis_already_applied",
+            "transfer_id": str(destination.id),
+        }
+    open_lots = await repo.find_open_lots(
+        tenant_id,
+        str(transaction.account_id),
+        str(transaction.security_id),
+    )
+    remaining = quantity
+    moved = E("0")
+    allocations: list[tuple[TaxLot, Decimal]] = []
+    for lot in open_lots:
+        if remaining <= 0:
+            break
+        available = max(E("0"), lot.remaining_quantity)
+        moved_quantity = min(available, remaining)
+        if moved_quantity <= 0:
+            continue
+        allocations.append((lot, moved_quantity))
+        remaining -= moved_quantity
+        moved += moved_quantity
+    if remaining > 0:
+        return {
+            "action": "transfer_basis_gap",
+            "transfer_id": str(destination.id),
+            "quantity_requested": str(quantity),
+            "quantity_moved": str(moved),
+            "quantity_unmatched": str(remaining),
+            "lots_created": len(allocations),
+        }
+    for lot, moved_quantity in allocations:
+        lot.remaining_quantity = lot.remaining_quantity - moved_quantity
+        if lot.remaining_quantity == 0:
+            lot.closed_at = transaction.occurred_at
+        await repo.update(lot)
+        await repo.add(
+            TaxLot(
+                tenant_id=tenant_id,
+                account_id=str(destination.account_id),
+                security_id=str(destination.security_id),
+                purchase_transaction_id=None,
+                transfer_transaction_id=str(destination.id),
+                quantity=moved_quantity,
+                remaining_quantity=moved_quantity,
+                cost_basis_total=moved_quantity * lot.cost_basis_per_unit,
+                cost_basis_per_unit=lot.cost_basis_per_unit,
+                currency_code=lot.currency_code,
+                acquired_at=lot.acquired_at,
+                cost_basis_method=lot.cost_basis_method,
+            )
+        )
+    return {
+        "action": "transfer_basis_moved",
+        "transfer_id": str(destination.id),
+        "quantity_moved": str(moved),
+        "lots_created": len(allocations),
+    }
 
 
 # ── Public API ─────────────────────────────────────────────────────────
@@ -251,6 +399,45 @@ async def compute_unrealized_pl(
     return results
 
 
+async def apply_quantity_event_to_lots(
+    session: AsyncSession,
+    tenant_id: str,
+    transaction: Transaction,
+    ratio: Decimal,
+) -> dict[str, Any]:
+    """Apply a provider-confirmed quantity ratio to open tax lots.
+
+    A split changes units but not the total acquisition cost.  Updating the
+    per-unit basis by the inverse ratio preserves that invariant while making
+    the reconstructed lots agree with the post-event holding snapshot.
+    Closed lots are historical and intentionally remain unchanged.
+    """
+    if ratio <= E("0") or not transaction.security_id:
+        return {
+            "action": "quantity_event_skipped",
+            "reason": "invalid_ratio_or_missing_security",
+        }
+
+    repo = TaxLotRepository(session)
+    open_lots = await repo.find_open_lots(
+        tenant_id=tenant_id,
+        account_id=str(transaction.account_id),
+        security_id=str(transaction.security_id),
+    )
+    for lot in open_lots:
+        lot.quantity *= ratio
+        lot.remaining_quantity *= ratio
+        lot.cost_basis_per_unit /= ratio
+        await repo.update(lot)
+    return {
+        "action": "quantity_event_applied",
+        "event_id": str(transaction.id),
+        "ratio": str(ratio),
+        "lots_adjusted": len(open_lots),
+        "cost_basis_preserved": True,
+    }
+
+
 async def detect_and_adjust_wash_sales(
     session: AsyncSession,
     tenant_id: str,
@@ -359,6 +546,7 @@ async def process_transaction(
     transaction: Transaction,
     *,
     cost_basis_method: str = CostBasisMethod.FIFO.value,
+    paired_transfer: Transaction | None = None,
 ) -> list[dict[str, Any]]:
     """Process a single transaction and update tax lots accordingly.
 
@@ -410,6 +598,42 @@ async def process_transaction(
                     "action": "wash_sale_adjustment",
                     "adjustments": wash_adjustments,
                 }
+            )
+    elif (
+        txn_type == TransactionType.TRANSFER
+        and transaction.security_id
+        and paired_transfer is not None
+    ):
+        actions.append(
+            await transfer_lots_to_destination(
+                session,
+                tenant_id,
+                transaction,
+                paired_transfer,
+            )
+        )
+    elif txn_type in {
+        TransactionType.SPLIT,
+        TransactionType.ADJUSTMENT,
+        "corporate_action",
+    }:
+        ratio = quantity_event_ratio(transaction.provider_metadata_contract)
+        if ratio is None:
+            actions.append(
+                {
+                    "action": "quantity_event_skipped",
+                    "event_id": str(transaction.id),
+                    "reason": "missing_positive_ratio",
+                }
+            )
+        else:
+            actions.append(
+                await apply_quantity_event_to_lots(
+                    session,
+                    tenant_id,
+                    transaction,
+                    ratio,
+                )
             )
 
     return actions
@@ -481,6 +705,11 @@ async def compute_all_tax_lots(
     """
     from sqlalchemy import select
 
+    # Keep the invariant in the service as well as in the HTTP endpoint:
+    # direct callers must not append a second generation of lots.
+    repo = TaxLotRepository(session)
+    await repo.delete_for_tenant(tenant_id)
+
     # Get all transactions for this tenant ordered by occurred_at
     stmt = (
         select(Transaction)
@@ -490,20 +719,34 @@ async def compute_all_tax_lots(
                 [  # type: ignore[attr-defined]
                     TransactionType.PURCHASE.value,
                     TransactionType.SALE.value,
+                    TransactionType.SPLIT.value,
+                    TransactionType.ADJUSTMENT.value,
+                    "corporate_action",
+                    TransactionType.TRANSFER.value,
                 ]
             ),
             Transaction.security_id.isnot(None),  # type: ignore[attr-defined]
         )
-        .order_by(Transaction.occurred_at.asc())  # type: ignore[attr-defined]
+        .order_by(  # type: ignore[attr-defined]
+            Transaction.occurred_at.asc(), Transaction.id.asc()
+        )
     )
     result = await session.execute(stmt)
     transactions: list[Transaction] = list(result.scalars().all())  # type: ignore[assignment]
+    transfer_pairs = pair_security_transfer_legs(transactions)
 
     stats = {
         "transactions_processed": 0,
         "lots_created": 0,
         "lots_closed": 0,
         "wash_sale_adjustments": 0,
+        "quantity_events_processed": 0,
+        "quantity_lots_adjusted": 0,
+        "quantity_events_skipped": 0,
+        "transfer_events_processed": 0,
+        "transfer_lots_moved": 0,
+        "transfer_basis_gaps": 0,
+        "transfer_events_skipped": 0,
         "total_realized_pl": E("0"),
     }
 
@@ -513,6 +756,7 @@ async def compute_all_tax_lots(
             tenant_id,
             txn,
             cost_basis_method=cost_basis_method,
+            paired_transfer=transfer_pairs.get(str(txn.id)),
         )
         stats["transactions_processed"] += 1
 
@@ -525,5 +769,25 @@ async def compute_all_tax_lots(
                 stats["total_realized_pl"] += pl
             elif action.get("action") == "wash_sale_adjustment":
                 stats["wash_sale_adjustments"] += 1
+            elif action.get("action") == "quantity_event_applied":
+                stats["quantity_events_processed"] += 1
+                stats["quantity_lots_adjusted"] += int(
+                    action.get("lots_adjusted", 0)
+                )
+            elif action.get("action") == "quantity_event_skipped":
+                stats["quantity_events_skipped"] += 1
+            elif action.get("action") == "transfer_basis_moved":
+                stats["transfer_events_processed"] += 1
+                stats["transfer_lots_moved"] += int(
+                    action.get("lots_created", 0)
+                )
+            elif action.get("action") == "transfer_basis_gap":
+                stats["transfer_events_processed"] += 1
+                stats["transfer_basis_gaps"] += 1
+            elif action.get("action") in {
+                "transfer_basis_skipped",
+                "transfer_basis_already_applied",
+            }:
+                stats["transfer_events_skipped"] += 1
 
     return stats
