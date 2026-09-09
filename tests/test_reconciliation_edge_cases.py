@@ -22,6 +22,7 @@ from finance_sync.models.enums import (
     ReconciliationRunStatus,
     ReconciliationSeverity,
 )
+from tests.session_doubles import make_async_session
 
 # Re-use the same mock transaction/account types from the parent test file.
 # (We duplicate them here so this module is self-contained.)
@@ -73,9 +74,9 @@ def _make_mock_uow() -> MagicMock:
     return uow
 
 
-def _make_mock_session(accounts: list | None = None) -> AsyncMock:
+def _make_mock_session(accounts: list | None = None) -> MagicMock:
     """Return a mock session whose .execute() returns accounts."""
-    session = AsyncMock()
+    session = make_async_session()
     acct_result = MagicMock()
     acct_result.scalars.return_value.all = MagicMock(
         return_value=accounts or []
@@ -144,7 +145,7 @@ class TestDuplicateDetectionEdgeCases:
         mock_uow.transactions.find_duplicate_candidates = AsyncMock(
             return_value=[(tx_a, tx_b)]
         )
-        mock_session = AsyncMock()
+        mock_session = make_async_session()
 
         with patch.object(UnitOfWork, "__aenter__", return_value=mock_uow):
             findings = await RS._detect_duplicates(
@@ -845,7 +846,7 @@ class TestFinalizeRunEdgeCases:
             ReconciliationService as RS,
         )
 
-        mock_session = AsyncMock()
+        mock_session = make_async_session()
         run = ReconciliationRun(
             tenant_id=tenant_id,
             status=ReconciliationRunStatus.RUNNING,
@@ -883,7 +884,7 @@ class TestFinalizeRunEdgeCases:
             ReconciliationService as RS,
         )
 
-        mock_session = AsyncMock()
+        mock_session = make_async_session()
         run = ReconciliationRun(
             tenant_id=tenant_id,
             status=ReconciliationRunStatus.RUNNING,
