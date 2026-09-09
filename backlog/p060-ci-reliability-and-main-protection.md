@@ -63,11 +63,11 @@ Maak de ontwikkel- en releaseflow zodanig dat:
 
 ## Voortgang per 2026-09-09
 
-De repository-implementatie is gerealiseerd; de remote validatie moet nog op
-een nieuwe PR-commit worden uitgevoerd. De eerdere remote HEAD (`f3a54bb`)
-faalde in Lint, Test, Integration en E2E door formattering en een ontbrekende
-`_check_key_version_downgrade` tijdens testcollectie. Die oorzaken zijn nu in
-de werkboom hersteld. `main` is inmiddels protected en read-only geverifieerd.
+De repository-implementatie is gerealiseerd en de PR-validatie is groen op
+`0ce424a` (PR #832, workflow-run `34376654095`). De eerdere remote HEAD
+(`f3a54bb`) faalde in Lint, Test, Integration en E2E door formattering en een
+ontbrekende `_check_key_version_downgrade` tijdens testcollectie. Die oorzaken
+zijn hersteld. `main` is inmiddels protected en read-only geverifieerd.
 
 Bevestigd afgerond in repository/code:
 
@@ -93,21 +93,19 @@ Laatste validatie van de huidige werkboom:
 | `make ci-fast` | geslaagd; 3994 passed, 8 skipped |
 | Coverage | 82,77% bij drempel 73% |
 | `uv run pytest --collect-only -q` | geslaagd; 4225 tests verzameld |
-| key-rotation tests | 20 passed |
+| key-rotation tests | 22 passed |
 | `git diff --check` | geslaagd |
 | Integration via Docker | 193 passed |
 | E2E via Docker | 32 passed |
-| Remote CI op `f3a54bb` | historische failure; nieuwe PR-run nog nodig |
+| Remote PR CI op `0ce424a` | groen: Quality, Lint, Type check, Test, Migrations, Integration, E2E, Security en Build & Push |
 | Branch protection API voor `main` | geconfigureerd en geverifieerd |
 
 Resterende afronding voor coding agents:
 
-1. Maak een gefocuste branch/PR-commit met de geïmplementeerde wijzigingen;
-   laat remote CI op die exacte commit draaien.
-2. Controleer de required-checknamen na de eerste `Quality`-run en pas branch
+1. Controleer de required-checknamen na de eerste `Quality`-run en pas branch
    protection alleen aan als GitHub een afwijkende matrixnaam rapporteert.
-3. Merge uitsluitend via de beschermde PR-flow en verifieer daarna één groene
-   CI-run op `main`; sluit dan de story.
+2. Laat een reviewer de PR goedkeuren, merge uitsluitend via de beschermde
+   PR-flow en verifieer daarna één groene CI-run op `main`; sluit dan de story.
 
 ## Implementatiefasen
 
@@ -221,7 +219,7 @@ Acceptatie voor deze fase:
 - [x] Laat zware jobs alleen starten wanneer de snelle gate geslaagd is, waar
   dit verenigbaar is met de gewenste diagnostiek. Gebruik `if: needs.quality.result
   == 'success'` of de bestaande workflowstructuur.
-- [ ] Behoud afzonderlijke jobnamen voor required checks; wijzig namen alleen
+- [x] Behoud afzonderlijke jobnamen voor required checks; wijzig namen alleen
   met gelijktijdige branch-protection-update.
 - [x] Voeg aan falende testjobs een compacte failure summary toe met de eerste
   root-cause-regel, failing testnaam en commit SHA. Upload JUnit/log-artifacts
@@ -229,7 +227,7 @@ Acceptatie voor deze fase:
 - [x] Controleer dat de bestaande concurrency-groep obsolete runs annuleert en
   dat pushes naar dezelfde ref niet onnodig meerdere volledige pipelines
   parallel laten uitwerken.
-- [ ] Verbeter de incidentissue-automatisering waar mogelijk:
+- [x] Verbeter de incidentissue-automatisering waar mogelijk:
   - [x] dedupliceer op workflow/job/branch/fingerprint én head SHA;
   - [x] vermeld de eerste failing step en eventuele collection failure;
   - [x] maak duidelijk wanneer een issue door een latere groene run automatisch is
@@ -294,12 +292,14 @@ uv run pytest -m e2e -v
 Daarna:
 
 - [x] `git diff --check` is groen.
-- [ ] `git status --short` bevat alleen bedoelde wijzigingen.
+- [x] De agent-commit bevat alleen bedoelde wijzigingen; een bestaande,
+  niet-gerelateerde Wealthfolio-wijziging bleef bewust unstaged behouden.
 - [x] Er zijn geen nieuwe `Any`, brede exception-catches, test skips of
   coverage-exclusions toegevoegd om CI groen te maken.
 - [x] De PR beschrijft oorzaak, gewijzigde contracten, tests en eventuele
   GitHub-settings die buiten de repository zijn aangepast.
-- [ ] De volledige remote CI-run op de PR-commit is groen.
+- [x] De volledige remote CI-run op PR-commit `0ce424a` is groen
+  (workflow-run `34376654095`).
 - [ ] Na merge is één nieuwe CI-run op `main` groen en zijn er geen nieuwe CI-
   incidentissues gedurende de bestaande observatieperiode.
 
