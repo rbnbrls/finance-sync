@@ -560,17 +560,6 @@ class SaxoInvestorConnector(Connector):
                 self._skipped_transaction_rows += 1
                 continue
             occurred_at = _as_datetime(row[index["Transactiedatum"]])
-            booked_at = (
-                _as_datetime(row[index["Valutadatum"]])
-                if "Valutadatum" in index and row[index["Valutadatum"]]
-                else None
-            )
-            # Saxo reports value dates for dividends/corporate actions that
-            # can precede the transaction date.  Wealthfolio requires the
-            # settlement date to be on or after the activity date; preserve
-            # the activity and clamp only this invalid projection boundary.
-            if booked_at is not None and booked_at < occurred_at:
-                booked_at = occurred_at
             booking_currency = (
                 _currency(row[index["Valuta"]])
                 if "Valuta" in index
@@ -682,7 +671,9 @@ class SaxoInvestorConnector(Connector):
                     amount=amount,
                     currency_code=booking_currency,
                     occurred_at=occurred_at,
-                    booked_at=booked_at,
+                    booked_at=_as_datetime(row[index["Valutadatum"]])
+                    if "Valutadatum" in index and row[index["Valutadatum"]]
+                    else None,
                     description=description,
                     transaction_type=transaction_type,
                     status="booked",

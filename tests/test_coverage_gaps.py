@@ -3815,14 +3815,7 @@ async def test_security_resolution_honours_mapping_and_figi_fallback() -> None:
     from finance_sync.connectors.models import SecurityReference
     from finance_sync.sync.persistence import SecurityPersistence
 
-    resolved = SimpleNamespace(
-        id="security-resolved",
-        ticker=None,
-        name="Resolved security",
-        isin=None,
-        figi=None,
-        currency_code="EUR",
-    )
+    resolved = SimpleNamespace(id="security-resolved")
     uow = SimpleNamespace(
         unresolved_securities=SimpleNamespace(
             list=AsyncMock(
@@ -3843,14 +3836,7 @@ async def test_security_resolution_honours_mapping_and_figi_fallback() -> None:
     assert result is resolved
     assert unresolved is None
 
-    candidate = SimpleNamespace(
-        id="security-figi",
-        ticker=None,
-        name="FIGI security",
-        isin=None,
-        figi="BBG000B9XRY4",
-        currency_code="EUR",
-    )
+    candidate = SimpleNamespace(id="security-figi")
     uow = SimpleNamespace(
         unresolved_securities=SimpleNamespace(list=AsyncMock(return_value=[])),
         securities=SimpleNamespace(list=AsyncMock(return_value=[candidate])),

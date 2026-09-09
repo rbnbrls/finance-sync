@@ -1590,8 +1590,7 @@
             };
             card('.overview-card:not(.database):not(.export):not(.overview-runs)', connections.length, `${healthyConnections} gezond`, healthyConnections === connections.length ? 'connected' : 'pending', healthyConnections === connections.length ? 'Alle systemen werken' : 'Controle nodig');
             card('.overview-card.database', Number(summary.connections_total || 0).toLocaleString('nl-NL'), 'verbindingen gecontroleerd', 'connected', 'Beschikbaar');
-            const runningExports = destinations.filter(d => d.last_export_status === 'running').length;
-            card('.overview-card.export', destinations.length, runningExports ? `${runningExports} export${runningExports === 1 ? '' : 's'} bezig` : `${summary.destinations_failed || 0} met fout`, runningExports || summary.destinations_failed ? 'pending' : 'connected', runningExports ? 'Export bezig' : (summary.destinations_failed ? 'Controle nodig' : 'Actief'));
+            card('.overview-card.export', destinations.length, `${summary.destinations_failed || 0} met fout`, summary.destinations_failed ? 'pending' : 'connected', summary.destinations_failed ? 'Controle nodig' : 'Actief');
             const runStats = document.querySelectorAll('.run-stat strong');
             if (runStats.length) { runStats[0].textContent = syncs.filter(r => r.status === 'completed').length; runStats[1].textContent = syncs.filter(r => r.status === 'running').length; runStats[2].textContent = summary.syncs_failed || syncs.filter(r => r.status === 'failed').length; runStats[3].textContent = syncs.length; }
             renderOverviewChain(connections, destinations);
@@ -1600,14 +1599,13 @@
             renderControlSyncs(syncs);
             renderControlQuality(data.freshness || {}, data.coverage || {}, quality);
             renderControlDestinations(destinations);
-            ensureDestinationStatusPolling(destinations);
         }
 
         function renderOverviewChain(importers, exporters) {
             const container = document.getElementById('overview-chain');
             if (!container) return;
             const importerNodes = importers.slice(0, 3).map(c => `<div class="chain-node"><span class="chain-circle mdi mdi-bank-outline"></span><div><div class="chain-label">${escapeHtml(c.name || c.provider || 'Bron')}</div><div class="chain-meta">${escapeHtml(readableStatus(c.status))}</div></div></div>`).join('<span class="chain-line"></span>');
-            const exporterNodes = exporters.slice(0, 3).map(d => `<span class="chain-line"></span><div class="chain-node"><span class="chain-circle exporter mdi mdi-export-variant"></span><div><div class="chain-label">${escapeHtml(d.name || d.type || 'Bestemming')}</div><div class="chain-meta">${escapeHtml(d.last_export_status === 'running' ? 'Export bezig' : readableStatus(d.status))}</div></div></div>`).join('');
+            const exporterNodes = exporters.slice(0, 3).map(d => `<span class="chain-line"></span><div class="chain-node"><span class="chain-circle exporter mdi mdi-export-variant"></span><div><div class="chain-label">${escapeHtml(d.name || d.type || 'Bestemming')}</div><div class="chain-meta">${escapeHtml(readableStatus(d.status))}</div></div></div>`).join('');
             const moreImporters = importers.length > 3 ? `<span class="chain-meta" style="margin:0 5px;">+${importers.length - 3}</span>` : '';
             const moreExporters = exporters.length > 3 ? `<span class="chain-meta" style="margin:0 5px;">+${exporters.length - 3}</span>` : '';
             container.innerHTML = `${importerNodes || '<div class="overview-empty">Nog geen actieve importer</div>'}${moreImporters}<span class="chain-line"></span><div class="chain-node"><span class="chain-circle center mdi mdi-database-outline"></span><div><div class="chain-label">Centrale database</div><div class="chain-meta">Bron van waarheid</div></div></div>${exporterNodes}${moreExporters}<button class="chain-add" type="button" title="Nieuwe koppeling toevoegen" aria-label="Nieuwe koppeling toevoegen" onclick="openOverviewCreateWizard();"><span class="mdi mdi-plus"></span></button>`;
@@ -1647,7 +1645,7 @@
 
         function renderControlDestinations(items) {
             const el = document.getElementById('control-destinations'); if (!el) return; el.setAttribute('aria-busy', 'false');
-            el.innerHTML = items.length ? `<div class="control-table-wrap"><table class="data-table control-table"><thead><tr><th>Bestemming</th><th>Status</th><th>Laatste export</th><th>Health check</th><th>Volgende run</th><th>Actie</th></tr></thead><tbody>${items.map(d => `<tr><td><strong>${escapeHtml(d.name)}</strong><br><span class="muted">${escapeHtml(d.type)}</span><br><span class="muted">Accounts: ${escapeHtml((d.selected_account_ids || []).length || 'alle')}</span></td><td>${d.last_export_status === 'running' ? '<span class="badge pending"><span class="spinner"></span> Export bezig</span>' : controlBadge(d.status)}${d.failed_export_count ? `<br><span class="muted">${escapeHtml(d.failed_export_count)} exportfouten</span>` : ''}</td><td>${controlBadge(d.last_export_status || 'pending')}<br><span class="muted">${escapeHtml(formatControlDate(d.last_export_at))}</span>${d.last_export_error ? `<br><span class="run-error-line" title="${escapeHtml(d.last_export_error)}">${escapeHtml(d.last_export_error)}</span>` : ''}</td><td>${controlBadge(d.health_status || 'pending')}<br><span class="muted">${escapeHtml(formatControlDate(d.last_checked_at))}</span></td><td class="muted">${escapeHtml(formatControlDate(d.next_scheduled_at))}</td><td class="control-actions"><button type="button" class="btn btn-secondary btn-sm" onclick="switchSection('exporters')">Beheren</button>${renderControlActions(d.actions)}</td></tr>`).join('')}</tbody></table></div>` : '<div class="overview-empty">Nog geen bestemmingen geconfigureerd.</div>';
+            el.innerHTML = items.length ? `<div class="control-table-wrap"><table class="data-table control-table"><thead><tr><th>Bestemming</th><th>Status</th><th>Laatste export</th><th>Health check</th><th>Volgende run</th><th>Actie</th></tr></thead><tbody>${items.map(d => `<tr><td><strong>${escapeHtml(d.name)}</strong><br><span class="muted">${escapeHtml(d.type)}</span><br><span class="muted">Accounts: ${escapeHtml((d.selected_account_ids || []).length || 'alle')}</span></td><td>${controlBadge(d.status)}${d.failed_export_count ? `<br><span class="muted">${escapeHtml(d.failed_export_count)} exportfouten</span>` : ''}</td><td>${controlBadge(d.last_export_status || 'pending')}<br><span class="muted">${escapeHtml(formatControlDate(d.last_export_at))}</span>${d.last_export_error ? `<br><span class="run-error-line" title="${escapeHtml(d.last_export_error)}">${escapeHtml(d.last_export_error)}</span>` : ''}</td><td>${controlBadge(d.health_status || 'pending')}<br><span class="muted">${escapeHtml(formatControlDate(d.last_checked_at))}</span></td><td class="muted">${escapeHtml(formatControlDate(d.next_scheduled_at))}</td><td class="control-actions"><button type="button" class="btn btn-secondary btn-sm" onclick="switchSection('exporters')">Beheren</button>${renderControlActions(d.actions)}</td></tr>`).join('')}</tbody></table></div>` : '<div class="overview-empty">Nog geen bestemmingen geconfigureerd.</div>';
         }
 
         async function runControlAction(button) {
@@ -2191,7 +2189,6 @@
                 container.prepend(noticeEl);
             }
             if (container) container.setAttribute('aria-busy', 'false');
-            ensureActiveSyncPolling();
         }
 
         async function loadDegiroUploads() {
@@ -2362,7 +2359,6 @@
             const label = escapeHtml(String(cfg.description || `${displayName} connection`));
             const isPaused = cfg.status === 'paused';
             const isConfigured = !!cfg.is_configured;
-            const activeImportJob = activeSyncJobs.get(String(cfg.id || cfg.connection_id));
             const health = connectionHealth[String(cfg.id || cfg.connection_id)];
             const healthStatus = health?.overall_status || (isConfigured ? 'pending' : 'unavailable');
             const resourceRows = (health?.resources || []).map(resource =>
@@ -2382,9 +2378,7 @@
             const selectedText = selected === null || selected === undefined || selected.length === 0
                 ? 'All accounts'
                 : `${selectedCount} selected`;
-            const statusBadge = activeImportJob?.status === 'running'
-                ? '<span class="badge pending"><span class="spinner"></span> Import bezig</span>'
-                : isPaused
+            const statusBadge = isPaused
                 ? '<span class="badge pending">Paused</span>'
                 : (healthStatus === 'healthy'
                     ? '<span class="badge connected">Healthy</span>'
@@ -2410,7 +2404,6 @@
                             <span>Accounts: <strong>${selectedText}</strong></span>
                             ${credCap}
                         </div>
-                        ${activeImportJob ? '<div class="meta-row"><strong>Importstatus</strong><span>Bezig · automatisch vernieuwen</span></div>' : ''}
                         <div class="meta-row">
                             <span>Last attempt: ${escapeHtml(fmtDate(cfg.last_attempt_at))}</span>
                             <span>Last success: ${escapeHtml(fmtDate(cfg.last_success_at))}</span>
@@ -3681,37 +3674,10 @@
 
         const activeSyncJobs = new Map();
         let activeSyncPoller = null;
-        let destinationStatusPoller = null;
-
-        function activeDashboardSection() {
-            return document.querySelector('.sidebar-nav a.active')?.dataset.section || 'overview';
-        }
-
-        function refreshDestinationStatus() {
-            const section = activeDashboardSection();
-            if (section === 'exporters') loadExporters();
-            else if (section === 'sync') loadSyncRuns();
-            else loadOverview();
-        }
-
-        function ensureDestinationStatusPolling(destinations = []) {
-            const running = destinations.some(d => d.last_run_status === 'running' || d.last_export_status === 'running');
-            if (running && !destinationStatusPoller) destinationStatusPoller = setInterval(refreshDestinationStatus, 5000);
-            if (!running && destinationStatusPoller) {
-                clearInterval(destinationStatusPoller);
-                destinationStatusPoller = null;
-            }
-        }
 
         function renderActiveSyncJobs() {
             const jobs = [...activeSyncJobs.values()];
-            const stageLabels = { authenticate: 'Authenticatie', fetch_accounts: 'Accounts ophalen', load_cursors: 'Syncposities laden', persist_account: 'Account opslaan', fetch_holdings: 'Posities ophalen', persist_holdings: 'Posities opslaan', fetch_transactions: 'Transacties ophalen', persist_transactions: 'Transacties opslaan', persist_sync_cursor: 'Syncpositie opslaan', finalize: 'Afronden', stop_requested: 'Stop aangevraagd' };
-            const html = jobs.length ? jobs.map(job => {
-                const stage = stageLabels[job.currentStage] || job.currentStage || (job.status === 'queued' ? 'Wordt gestart' : 'Voortgang wordt opgehaald');
-                const age = job.lastActivityAt ? Math.max(0, Math.floor((Date.now() - new Date(job.lastActivityAt).getTime()) / 1000)) : null;
-                const stale = age !== null && age > 300;
-                return `<div class="sync-activity-item"><span class="spinner" aria-hidden="true"></span><strong>${escapeHtml(job.provider || 'Connector')}</strong><span>Stap: ${escapeHtml(stage)}${job.currentAccountId ? ` · rekening ${escapeHtml(job.currentAccountId)}` : ''}</span><small>Gestart ${job.startedAt ? escapeHtml(fmtDate(job.startedAt)) : 'onbekend'} · laatste activiteit ${age === null ? 'onbekend' : `${age}s geleden`}${stale ? ' · lijkt mogelijk vastgelopen' : ''}</small><div class="sync-activity-actions"><button type="button" class="btn btn-secondary btn-sm" onclick="viewSyncRun('${escapeHtml(job.runId || '')}')">Details</button><button type="button" class="btn btn-danger btn-sm" onclick="stopSyncRun('${escapeHtml(job.runId || '')}')">Stop sync</button></div></div>`;
-            }).join('') : '';
+            const html = jobs.length ? jobs.map(job => `<div class="sync-activity-item"><span class="spinner" aria-hidden="true"></span><strong>${escapeHtml(job.provider || 'Connector')}</strong><span>${job.status === 'queued' ? 'Sync wordt gestart…' : 'Sync is bezig…'}</span><small>Automatisch vernieuwen</small></div>`).join('') : '';
             ['overview-sync-activity', 'sync-page-activity'].forEach(id => {
                 const el = document.getElementById(id);
                 if (el) el.innerHTML = html;
@@ -3725,14 +3691,13 @@
                 const runningConnections = new Set(running.map(run => String(run.connection_id || run.connector)));
                 running.forEach(run => {
                     const key = String(run.connection_id || run.connector);
-                    activeSyncJobs.set(key, { provider: run.connector, status: 'running', runId: run.id, connectionId: run.connection_id, currentStage: run.current_stage, currentAccountId: run.current_account_id, lastActivityAt: run.last_activity_at || run.started_at, startedAt: run.started_at });
+                    activeSyncJobs.set(key, { provider: run.connector, status: 'running', runId: run.id });
                 });
                 for (const [key, job] of activeSyncJobs) {
                     if (job.status === 'running' && !runningConnections.has(key)) activeSyncJobs.delete(key);
                     else if (job.status === 'queued' && Date.now() - job.queuedAt > 30000) activeSyncJobs.delete(key);
                 }
                 renderActiveSyncJobs();
-                if (activeDashboardSection() === 'connectors' && document.getElementById('connector-list')) renderConnections();
                 if (!activeSyncJobs.size && activeSyncPoller) { clearInterval(activeSyncPoller); activeSyncPoller = null; }
             } catch (_) { /* The normal page loaders show API errors. */ }
         }
@@ -3748,31 +3713,6 @@
             renderActiveSyncJobs();
             ensureActiveSyncPolling();
             return result;
-        }
-
-        async function stopSyncRun(runId, restart = false) {
-            if (!runId) return;
-            if (!confirm(restart ? 'Deze sync stoppen en opnieuw starten?' : 'Deze sync bij het volgende veilige checkpoint stoppen?')) return;
-            try {
-                const stopped = await api('POST', `/sync-runs/${encodeURIComponent(runId)}/stop`);
-                toast('Stop aangevraagd. De worker stopt bij het volgende checkpoint.', 'info');
-                if (restart && stopped.connection_id) {
-                    await api('POST', `/sync/connections/${encodeURIComponent(stopped.connection_id)}/start`, {});
-                    toast('Nieuwe sync gestart.', 'success');
-                }
-                await Promise.allSettled([loadOverview(), loadConnectors(), loadSyncRuns()]);
-            } catch (error) { toast(error?.message || 'De sync kon niet worden gestopt.', 'error'); }
-        }
-
-        async function restartSyncRun(runId, connectionId) {
-            if (!runId || !connectionId) return;
-            if (!confirm('Deze sync stoppen en opnieuw starten?')) return;
-            try {
-                await api('POST', `/sync-runs/${encodeURIComponent(runId)}/stop`);
-                await api('POST', `/sync/connections/${encodeURIComponent(connectionId)}/start`, {});
-                toast('Sync opnieuw gestart.', 'success');
-                await Promise.allSettled([loadOverview(), loadConnectors(), loadSyncRuns()]);
-            } catch (error) { toast(error?.message || 'De sync kon niet opnieuw worden gestart.', 'error'); }
         }
 
         // (closeModal is defined once in the modal helpers section above;
@@ -4021,8 +3961,7 @@
                 const info = DESTINATION_INFO[d.target_type] || { name: d.target_type, description: '' };
                 const badge = d.status === 'active' ? 'connected' : (d.status === 'paused' ? 'pending' : 'unconfigured');
                 const health = d.last_health_error ? `<p class="field-hint" style="color:var(--red);">${escapeHtml(d.last_health_error)}</p>` : '';
-                const isRunning = d.last_run_status === 'running';
-                const run = d.target_type === 'jupyter' ? 'Read-only API-consument' : (isRunning ? `<span class="badge pending"><span class="spinner"></span> Export bezig</span><br>Gestart: ${d.last_run_at ? new Date(d.last_run_at).toLocaleString() : 'zojuist'}` : `Laatste run: ${d.last_run_at ? new Date(d.last_run_at).toLocaleString() : 'nog niet uitgevoerd'}${d.last_run_status ? ` (${escapeHtml(d.last_run_status)})` : ''}<br>Volgende run: ${d.next_run_at ? new Date(d.next_run_at).toLocaleString() : (d.status === 'active' ? 'wordt gepland' : '—')}`);
+                const run = d.target_type === 'jupyter' ? 'Read-only API-consument' : `Laatste run: ${d.last_run_at ? new Date(d.last_run_at).toLocaleString() : 'nog niet uitgevoerd'}${d.last_run_status ? ` (${escapeHtml(d.last_run_status)})` : ''}<br>Volgende run: ${d.next_run_at ? new Date(d.next_run_at).toLocaleString() : (d.status === 'active' ? 'wordt gepland' : '—')}`;
                 const runError = d.last_run_error ? `<p class="field-hint" style="color:var(--red);">Laatste syncfout: ${escapeHtml(d.last_run_error)}. Controleer de verbinding en kies daarna Sync nu.</p>` : '';
                 return `<div class="connector-card"><div class="top"><div class="name">${escapeHtml(d.display_name)}</div><span class="badge ${badge}">${escapeHtml(d.status)}</span></div>
                     <div class="desc">${escapeHtml(info.description)}</div>
@@ -4037,7 +3976,6 @@
             }).join('');
             container.innerHTML = `<div class="connector-toolbar"><button class="btn btn-primary" onclick="openDestinationWizard()">+ Exporter toevoegen</button><button class="btn btn-secondary" onclick="openCustomProviderWizard()"><span class="mdi mdi-chart-line"></span> Wealthfolio market-data provider</button></div>
                 ${cards ? `<div class="connector-grid">${cards}</div>` : '<div class="empty-state"><div class="icon mdi mdi-database-outline"></div><p>Nog geen exporters. Je datalake blijft volledig bruikbaar; voeg alleen een downstream-app toe wanneer je die wilt gebruiken.</p><button class="btn btn-primary" onclick="openDestinationWizard()"><span class="mdi mdi-plus"></span> Exporter toevoegen</button></div>'}`;
-            ensureDestinationStatusPolling(destinations);
             const runs = document.getElementById('exporter-runs');
             if (runs) runs.innerHTML = '';
         }
@@ -4198,7 +4136,7 @@
         }
 
         async function previewDestination(id) { try { const result = await api('POST', `/destinations/${id}/preview`); const rows = result.accounts.map(account => `<li><strong>${escapeHtml(String(account.name))}</strong>${account.action ? ` — ${account.action === 'use_existing' ? `koppelen aan ${escapeHtml(String(account.actual_budget_account_name))}` : `aanmaken bij eerste sync (${account.off_budget ? 'off-budget' : 'on-budget'})`}` : ''}</li>`).join(''); const modal = document.createElement('div'); modal.className = 'modal-overlay'; modal.innerHTML = `<div class="modal" role="dialog" aria-modal="true"><h2>Datavoorvertoning</h2><p>${result.account_count} rekening(en) · ${escapeHtml(result.datasets.join(', '))}</p>${result.remote_accounts_read ? '<p class="field-hint">Actual Budget is alleen gelezen; er is niets extern geschreven.</p>' : '<p class="field-hint">Er is niets extern geschreven.</p>'}<ul>${rows || '<li>Geen rekeningen geselecteerd.</li>'}</ul><div class="modal-footer"><button class="btn btn-primary" onclick="closeModal()">Sluiten</button></div></div>`; document.getElementById('modal-container').appendChild(modal); openModal(modal); } catch (e) { toast(e.message || 'Preview mislukt.', 'error'); } }
-        async function runDestination(id) { ensureDestinationStatusPolling([{ last_run_status: 'running' }]); try { const result = await api('POST', `/destinations/${id}/run`); toast(result.status === 'completed' ? 'Export is voltooid.' : `Exportstatus: ${result.status}${result.error ? ` — ${result.error}` : ''}`, result.status === 'completed' ? 'success' : 'error'); await loadExporters(); } catch (e) { toast(e.message || 'Export mislukt.', 'error'); await loadExporters(); } }
+        async function runDestination(id) { try { const result = await api('POST', `/destinations/${id}/run`); toast(result.status === 'completed' ? 'Export is voltooid.' : `Exportstatus: ${result.status}${result.error ? ` — ${result.error}` : ''}`, result.status === 'completed' ? 'success' : 'error'); await loadExporters(); } catch (e) { toast(e.message || 'Export mislukt.', 'error'); } }
         function openDestinationSchedule(scheduleId) { switchSection('sync'); setTimeout(() => openScheduleEditor(scheduleId), 0); }
         async function rotateJupyterKey(id) { if (!confirm('De huidige Jupyter-sleutel stopt direct. Doorgaan?')) return; try { const result = await api('POST', `/destinations/${id}/jupyter-key/rotate`); const modal = document.createElement('div'); modal.className = 'modal-overlay'; modal.innerHTML = `<div class="modal" role="dialog" aria-modal="true"><h2>Nieuwe Jupyter-sleutel</h2><p>Bewaar deze sleutel nu; hij wordt nooit opnieuw getoond.</p><textarea readonly style="width:100%;min-height:80px;">${escapeHtml(result.api_key)}</textarea><div class="modal-footer"><button class="btn btn-primary" onclick="closeModal()">Ik heb de sleutel bewaard</button></div></div>`; document.getElementById('modal-container').appendChild(modal); openModal(modal); } catch (e) { toast(e.message || 'Sleutel roteren mislukt.', 'error'); } }
         async function downloadJupyterNotebook(id) { try { const response = await fetch(`${API_BASE}/destinations/${encodeURIComponent(id)}/jupyter-notebook`, { headers: authHeaders() }); if (!response.ok) throw new Error((await response.json().catch(() => ({}))).detail || 'Notebook downloaden mislukt.'); const blob = await response.blob(); const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = 'finance-sync-datalake-starter.py'; link.click(); URL.revokeObjectURL(link.href); } catch (e) { toast(e.message || 'Notebook downloaden mislukt.', 'error'); } }
@@ -4223,7 +4161,6 @@
         let syncSchedules = [];
         let syncRunHistory = [];
         let scheduleTab = 'ingestion';
-        let scheduleStatusPoller = null;
         // Run-history view state: filters + pagination, mirroring the
         // /sync-runs API query contract (connector/status/limit/offset).
         let syncRunState = { connector: '', status: '', offset: 0, limit: 20, total: 0 };
@@ -4261,9 +4198,6 @@
                     historyContainer.appendChild(notice);
                 }
                 ensureActiveSyncPolling();
-                const hasRunningSchedule = syncSchedules.some(s => s.running || s.last_run_status === 'running');
-                if (hasRunningSchedule && !scheduleStatusPoller) scheduleStatusPoller = setInterval(loadSyncRuns, 5000);
-                if (!hasRunningSchedule && scheduleStatusPoller) { clearInterval(scheduleStatusPoller); scheduleStatusPoller = null; }
                 if (container) container.setAttribute('aria-busy', 'false');
             } catch (e) {
                 renderInlineError('sync-schedules', 'Could not load planning', e.message || 'The planning service did not respond.', loadSyncRuns);
@@ -4291,9 +4225,8 @@
                 if (cfg && cfg.provider_type) return `${cfg.provider_type} (${s.target_id.slice(0, 8)})`;
                 return `Verbinding ${s.target_id.slice(0, 8)}`;
             }
-            const exporterKey = String(s.target_id || '').split(':', 1)[0];
-            const names = { wealthfolio: 'Wealthfolio', 'actual-budget': 'Actual Budget', firefly: 'Firefly III', ghostfolio: 'Ghostfolio', investbrain: 'InvestBrain', securo: 'Securo' };
-            return names[exporterKey] || exporterKey || s.target_id;
+            const names = { wealthfolio: 'Wealthfolio', 'actual-budget': 'Actual Budget', firefly: 'Firefly III', ghostfolio: 'Ghostfolio', investbrain: 'InvestBrain' };
+            return names[s.target_id] || s.target_id;
         }
 
         function scheduleConnectorName(s) {
@@ -4301,9 +4234,8 @@
                 const cfg = (configs || []).find(c => c.id === s.target_id);
                 return cfg ? (cfg.provider_type || 'connector') : 'connector';
             }
-            const exporterKey = String(s.target_id || '').split(':', 1)[0];
-            const names = { wealthfolio: 'Wealthfolio', 'actual-budget': 'Actual Budget', firefly: 'Firefly III', ghostfolio: 'Ghostfolio', investbrain: 'InvestBrain', securo: 'Securo' };
-            return names[exporterKey] || 'exporter';
+            const names = { wealthfolio: 'Wealthfolio', 'actual-budget': 'Actual Budget', firefly: 'Firefly III', ghostfolio: 'Ghostfolio', investbrain: 'InvestBrain' };
+            return names[s.target_id] || 'exporter';
         }
 
         function renderSyncSchedules() {
@@ -4327,9 +4259,7 @@
                             <thead>
                                 <tr>
                                     <th style="padding:8px 12px;text-align:left;font-size:0.8rem;color:var(--text-muted);font-weight:600;border-bottom:2px solid var(--border);">Naam</th>
-                                    <th style="padding:8px 12px;text-align:left;font-size:0.8rem;color:var(--text-muted);font-weight:600;border-bottom:2px solid var(--border);">Status / stap</th>
-                                    <th style="padding:8px 12px;text-align:left;font-size:0.8rem;color:var(--text-muted);font-weight:600;border-bottom:2px solid var(--border);">Laatste activiteit</th>
-                                    <th style="padding:8px 12px;text-align:left;font-size:0.8rem;color:var(--text-muted);font-weight:600;border-bottom:2px solid var(--border);">Actie</th>
+                                    <th style="padding:8px 12px;text-align:left;font-size:0.8rem;color:var(--text-muted);font-weight:600;border-bottom:2px solid var(--border);">Status</th>
                                     <th style="padding:8px 12px;text-align:left;font-size:0.8rem;color:var(--text-muted);font-weight:600;border-bottom:2px solid var(--border);">Schema</th>
                                     <th style="padding:8px 12px;text-align:left;font-size:0.8rem;color:var(--text-muted);font-weight:600;border-bottom:2px solid var(--border);">Tijdzone</th>
                                     <th style="padding:8px 12px;text-align:left;font-size:0.8rem;color:var(--text-muted);font-weight:600;border-bottom:2px solid var(--border);">Volgende run</th>
@@ -4347,14 +4277,11 @@
         }
 
         function scheduleRow(s) {
-            const isRunning = s.running || s.last_run_status === 'running';
-            const statusBadge = isRunning
-                ? '<span class="badge pending">Bezig</span>'
-                : s.enabled
+            const statusBadge = s.enabled
                 ? '<span class="badge connected">Actief</span>'
                 : '<span class="badge disconnected">Uitgeschakeld</span>';
             const next = s.next_run_at ? new Date(s.next_run_at).toLocaleString() : (s.enabled ? '—' : 'Gestopt');
-            const last = isRunning ? 'Nu bezig' : (s.last_run_at ? new Date(s.last_run_at).toLocaleString() + ' <span class="badge ' + (s.last_run_status === 'completed' ? 'connected' : (s.last_run_status === 'failed' ? 'disconnected' : 'pending')) + '">' + escapeHtml(s.last_run_status || '?') + '</span>' : 'Nog geen run');
+            const last = s.last_run_at ? `${new Date(s.last_run_at).toLocaleString()} <span class="badge ${s.last_run_status === 'completed' ? 'connected' : (s.last_run_status === 'failed' ? 'disconnected' : 'pending')}">${escapeHtml(s.last_run_status || '?')}</span>` : 'Nog geen run';
             return `
                 <tr data-schedule-id="${escapeHtml(s.id)}">
                     <td style="padding:8px 12px;border-bottom:1px solid var(--border);font-size:0.85rem;">
@@ -4368,7 +4295,6 @@
                     <td style="padding:8px 12px;border-bottom:1px solid var(--border);font-size:0.85rem;">${last}${s.last_run_error ? `<div style="color:var(--red);font-size:0.75rem;" title="${escapeHtml(s.last_run_error)}"><span class="mdi mdi-alert-outline"></span> ${escapeHtml(String(s.last_run_error).slice(0, 60))}</div>` : ''}</td>
                     <td style="padding:8px 12px;border-bottom:1px solid var(--border);font-size:0.85rem;">
                         <button class="btn btn-sm btn-primary" onclick="openScheduleEditor('${escapeHtml(s.id)}')">Schema wijzigen</button>
-                        ${s.enabled && !isRunning ? '<button class="btn btn-sm" onclick="runScheduleNow(\'' + escapeHtml(s.id) + '\')">Nu uitvoeren</button>' : ''}
                         <button class="btn btn-sm" onclick="toggleSchedule('${escapeHtml(s.id)}', ${s.enabled})">${s.enabled ? 'Uitschakelen' : 'Inschakelen'}</button>
                         <div class="schedule-toggle-status field-hint" style="margin-top:6px;" aria-live="polite"></div>
                     </td>
@@ -4400,16 +4326,6 @@
                 } else {
                     toast('Kon schema niet wijzigen: ' + (e.message || 'onbekende fout'), 'error');
                 }
-            }
-        }
-
-        async function runScheduleNow(scheduleId) {
-            try {
-                await api('POST', '/sync-schedules/' + scheduleId + '/run');
-                toast('Run ingepland; de actuele status verschijnt zodra de worker hem claimt.', 'info');
-                await loadSyncRuns();
-            } catch (e) {
-                toast(e.message || 'Run kon niet worden gestart.', 'error');
             }
         }
 
@@ -4652,7 +4568,7 @@
             for (const r of syncRunHistory) {
                 const badgeClass = r.status === 'completed' ? 'badge connected' : (r.status === 'failed' ? 'badge disconnected' : 'badge pending');
                 const statusLabel = RUN_STATUS_LABELS[r.status] || r.status;
-                const statusHtml = r.status === 'running' ? `<span class="${badgeClass}"><span class="spinner"></span> ${escapeHtml(statusLabel)}</span><br><span class="muted">${escapeHtml(r.current_stage || 'Voortgang wordt opgehaald')}</span>` : `<span class="${badgeClass}">${escapeHtml(statusLabel)}</span>`;
+                const statusHtml = r.status === 'running' ? `<span class="${badgeClass}"><span class="spinner"></span> ${escapeHtml(statusLabel)}</span>` : `<span class="${badgeClass}">${escapeHtml(statusLabel)}</span>`;
                 const errorDetail = r.error_message
                     ? `<div class="run-error-line" title="${escapeHtml(String(r.error_message).slice(0, 300))}"><span class="mdi mdi-alert-outline"></span> ${escapeHtml(String(r.error_message).slice(0, 80))}</div>`
                     : '';
@@ -4665,8 +4581,6 @@
                         <td style="padding:8px 12px;border-bottom:1px solid var(--border);font-size:0.85rem;">${r.completed_at ? escapeHtml(fmtDate(r.completed_at)) : '-'}</td>
                         <td style="padding:8px 12px;border-bottom:1px solid var(--border);font-size:0.85rem;">${r.items_processed ?? '-'}</td>
                         <td style="padding:8px 12px;border-bottom:1px solid var(--border);font-size:0.85rem;">${errorDetail || '-'}</td>
-                        <td style="padding:8px 12px;border-bottom:1px solid var(--border);font-size:0.85rem;">${r.last_activity_at ? escapeHtml(fmtDate(r.last_activity_at)) : '-'}</td>
-                        <td style="padding:8px 12px;border-bottom:1px solid var(--border);font-size:0.85rem;white-space:nowrap;">${r.status === 'running' ? `<button type="button" class="btn btn-secondary btn-sm" onclick="stopSyncRun('${escapeHtml(r.id)}')">Stop</button>${r.connection_id ? ` <button type="button" class="btn btn-secondary btn-sm" onclick="restartSyncRun('${escapeHtml(r.id)}','${escapeHtml(r.connection_id)}')">Herstart</button>` : ''}` : (r.status === 'failed' && r.connection_id ? `<button type="button" class="btn btn-secondary btn-sm" onclick="retrySyncRun('${escapeHtml(r.id)}', this)">Herstart</button>` : '-')}</td>
                     </tr>
                 `;
             }
