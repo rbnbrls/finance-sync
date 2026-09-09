@@ -432,7 +432,9 @@ class EnrichmentGateway:
 
         sector_exposures = [
             SectorExposure(
-                sector=s.get("sector") or s.get("name") or s.get("industry"),
+                sector=str(
+                    s.get("sector") or s.get("name") or s.get("industry") or ""
+                ),
                 weight=_safe_decimal(
                     s.get("weight") or s.get("exposure") or s.get("percentage")
                 )

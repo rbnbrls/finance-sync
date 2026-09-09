@@ -2,7 +2,10 @@
 # Coolify Deployment Configuration — finance-sync
 # ==============================================================================
 # This file documents the Coolify deployment setup for finance-sync.
-# The application is deployed as a Docker Compose stack (see docker-compose.yml).
+# The application is deployed as a Docker Compose stack (see
+# docker-compose.coolify.yml).  Coolify must create both the `app` and
+# singleton `worker` services; a single API container does not run scheduled
+# syncs or Wealthfolio delivery.
 #
 # Deployment type: Docker Compose
 # Base directory: finance-sync/
@@ -144,6 +147,20 @@
 #   MASTER_ENCRYPTION_KEY=<openssl rand -hex 32>
 #   LOG_LEVEL=INFO
 #   CORS_ORIGINS=["*"]
+#
+# Wealthfolio live delivery (set as Coolify secret/config variables, never in
+# git; apply identically to app and worker):
+#   EXPORTER_WEALTHFOLIO_ENABLED=true
+#   WEALTHFOLIO_SERVER_URL=<approved self-hosted Wealthfolio URL>
+#   WEALTHFOLIO_PASSWORD=<Coolify secret>
+#   WORKER_JOB_EXPORT_ENABLED=true
+#   WORKER_JOB_BUNQ_SYNC_ENABLED=true
+#   WORKER_JOB_TRADING212_SYNC_ENABLED=true
+#   BUNQ_API_KEY / TRADING212_API_KEY / TRADING212_API_SECRET=<secrets>
+# Configure connector credentials through POST /api/v1/connectors/configs so
+# they are encrypted in the existing connection store; do not use provider
+# credentials as plaintext deployment variables unless the connector contract
+# explicitly requires it.
 #
 # The Compose `migrate` service applies the schema before the app and worker
 # start. The release pipeline still validates the migration chain separately
