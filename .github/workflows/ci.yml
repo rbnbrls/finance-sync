@@ -34,6 +34,42 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # ── Fast aggregate quality gate ───────────────────────────────────────
+  # This is the single preflight gate for the expensive service-backed jobs.
+  # It deliberately includes collection-only so import/contract failures are
+  # reported before pytest starts any unit, integration or E2E work.
+  quality:
+    name: Quality
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-python-uv
+        with:
+          python-version: "3.12"
+          cache-suffix: quality
+      - name: Run fast quality gate
+        run: |
+          set -o pipefail
+          make ci-fast 2>&1 | tee quality.log
+      - name: Upload quality diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: quality-diagnostics
+          path: |
+            quality.log
+            junit.xml
+            coverage.xml
+          retention-days: 14
+      - name: Summarize quality failure
+        if: failure()
+        run: >-
+          uv run python scripts/ci_failure_summary.py
+          --junit junit.xml
+          --log quality.log
+          --title "Quality gate failure summary"
+
   # ── Lint ──────────────────────────────────────────────────────────────
   lint:
     name: Lint
@@ -132,6 +168,13 @@ jobs:
           path: junit.xml
           retention-days: 14
 
+      - name: Summarize test failure
+        if: failure()
+        run: >-
+          uv run python scripts/ci_failure_summary.py
+          --junit junit.xml
+          --title "Unit test failure summary"
+
   # ── Migration upgrade test ──────────────────────────────────────────
   migrations:
     name: Migrations
@@ -222,6 +265,7 @@ jobs:
   # ── Integration tests (real PG + Redis) ────────────────────────────
   integration:
     name: Integration
+    needs: quality
     runs-on: ubuntu-latest
     timeout-minutes: 20
     services:
@@ -298,6 +342,14 @@ jobs:
           path: junit-integration.xml
           retention-days: 14
 
+      - name: Summarize integration failure
+        if: failure()
+        run: >-
+          uv run python scripts/ci_failure_summary.py
+          --junit junit-integration.xml
+          --log integration.log
+          --title "Integration failure summary"
+
       - name: Upload integration service logs
         uses: actions/upload-artifact@v7
         if: always()
@@ -335,6 +387,7 @@ jobs:
 
   e2e:
     name: E2E
+    needs: quality
     runs-on: ubuntu-latest
     timeout-minutes: 20
     services:
@@ -405,6 +458,14 @@ jobs:
           name: e2e-junit
           path: junit-e2e.xml
           retention-days: 14
+
+      - name: Summarize E2E failure
+        if: failure()
+        run: >-
+          uv run python scripts/ci_failure_summary.py
+          --junit junit-e2e.xml
+          --log e2e.log
+          --title "E2E failure summary"
 
       - name: Upload e2e service logs
         uses: actions/upload-artifact@v7

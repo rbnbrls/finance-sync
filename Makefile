@@ -1,4 +1,4 @@
-.PHONY: install lint format type test test-cov coverage clean test-integration integration-up integration-down test-e2e e2e-up e2e-down ci-fast
+.PHONY: install lint format type test test-cov coverage clean test-collect test-integration integration-up integration-down test-e2e e2e-up e2e-down ci-fast
 
 # ── Setup ──────────────────────────────────────────────────────────
 install:                           ## Install all dependencies (prod + dev)
@@ -42,11 +42,14 @@ test-cov:                          ## Run unit tests with coverage report
 test-cov-xml:                      ## Run unit tests with XML coverage (CI)
 	pytest -m "not integration and not e2e" --cov=finance_sync --cov-report=xml
 
+test-collect:                      ## Collect every test without executing it
+	uv run pytest --collect-only -q
+
 test-ci:                           ## CI unit test run (sequential, coverage threshold)
 	APP_ENVIRONMENT=dev DEBUG=false uv run pytest -m "not integration and not e2e" --cov=finance_sync --cov-report=term --cov-report=xml --cov-fail-under=73 --junitxml=junit.xml
 
 ci-fast:                           ## Run the complete fast PR quality gate locally
-	make format-check lint type test-ci
+	make format-check lint type test-collect test-ci
 
 # ── Integration tests (real PostgreSQL + Redis) ─────────────────────
 # Spins up ephemeral PG+Redis via docker compose and runs the
