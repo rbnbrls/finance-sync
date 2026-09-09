@@ -234,6 +234,41 @@ class GitHubIssueService:
         async with httpx.AsyncClient(timeout=self.DEFAULT_TIMEOUT) as client:
             return await self._do_post(client, url, headers, payload)
 
+    async def find_open_issue_by_marker(
+        self, *, owner: str, repo: str, marker: str
+    ) -> dict[str, Any] | None:
+        """Find an open issue containing an exact incident marker."""
+        url = f"{self.BASE_URL}/search/issues"
+        headers = {
+            "Authorization": f"Bearer {self._token}",
+            "Accept": "application/vnd.github+json",
+            "User-Agent": self.USER_AGENT,
+        }
+        params = {"q": f'repo:{owner}/{repo} is:issue is:open "{marker}"'}
+        try:
+            if self._http_client is not None:
+                response = await self._http_client.get(
+                    url, headers=headers, params=params
+                )
+            else:
+                async with httpx.AsyncClient(
+                    timeout=self.DEFAULT_TIMEOUT
+                ) as client:
+                    response = await client.get(
+                        url, headers=headers, params=params
+                    )
+            if response.is_error:
+                logger.warning(
+                    "github_issue_search_failed",
+                    status_code=response.status_code,
+                )
+                return None
+            items = response.json().get("items", [])
+            return items[0] if items else None
+        except (httpx.TimeoutException, httpx.RequestError) as exc:
+            logger.warning("github_issue_search_request_error", error=str(exc))
+            return None
+
     @staticmethod
     async def _do_post(
         client: httpx.AsyncClient,

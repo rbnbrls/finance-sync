@@ -60,6 +60,18 @@ EXPECTED_TABLES = {
     "detected_subscriptions",
     "resolution_audit_log",
     "import_runs",
+    # provider-neutral spending model (migrations 0047-0054)
+    "merchant_identities",
+    "transaction_source_references",
+    "transaction_splits",
+    "transaction_annotations",
+    "merchant_mappings",
+    "category_mappings",
+    "transaction_overrides",
+    "destination_object_references",
+    "transaction_lifecycle_events",
+    "spending_rules",
+    "spending_privacy_policies",
     # sync cursor persistence (migration 0011)
     "sync_cursor",
     # exporter tables (migration 0008)

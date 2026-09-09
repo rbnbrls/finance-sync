@@ -34,9 +34,11 @@ from finance_sync.services.degiro_import import (
     cleanup_expired_previews,
     connector_options,
     execute_run,
+    missing_required_report_types,
     stage_paths,
     stage_uploads,
 )
+from finance_sync.services.incident_reporting import report_connector_failure
 
 router = APIRouter(
     prefix="/connectors/degiro-pension/imports",
@@ -226,6 +228,14 @@ async def preview_import(
             shutil.rmtree(staged[0].parent, ignore_errors=True)
         await _record_failed_preview(db, run_id, auth, connection, str(exc))
         await db.commit()
+        await report_connector_failure(
+            container.settings,
+            exc,
+            connector="degiro_pension",
+            operation="file_import_preview",
+            connection_id=str(connection.id),
+            correlation_id=run_id,
+        )
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=str(exc),
@@ -238,6 +248,14 @@ async def preview_import(
         detail = str(exc)[:500]
         await _record_failed_preview(db, run_id, auth, connection, detail)
         await db.commit()
+        await report_connector_failure(
+            container.settings,
+            exc,
+            connector="degiro_pension",
+            operation="file_import_preview",
+            connection_id=str(connection.id),
+            correlation_id=run_id,
+        )
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=detail,
@@ -250,6 +268,14 @@ async def preview_import(
         detail = "De DEGIRO-export kon niet veilig worden gevalideerd."
         await _record_failed_preview(db, run_id, auth, connection, detail)
         await db.commit()
+        await report_connector_failure(
+            container.settings,
+            exc,
+            connector="degiro_pension",
+            operation="file_import_preview",
+            connection_id=str(connection.id),
+            correlation_id=run_id,
+        )
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=detail,
@@ -298,6 +324,16 @@ async def confirm_import(
             status_code=409,
             detail="Deze bestanden zijn al succesvol verwerkt.",
         )
+    missing = missing_required_report_types(run.report_types)
+    if missing:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "Deze DEGIRO-import kan niet worden bevestigd. Upload ook: "
+                + ", ".join(missing)
+                + ". Het portefeuilleoverzicht is nodig voor holdings en NAV."
+            ),
+        )
     connection = await _connection(db, str(run.connection_id), auth.tenant_id)
     container = get_container(request)
     paths = stage_paths(container.settings, auth.tenant_id, run)
@@ -325,9 +361,25 @@ async def confirm_import(
         await db.commit()
         raise HTTPException(status_code=410, detail=str(exc)) from exc
     except ImportValidationError as exc:
+        await report_connector_failure(
+            container.settings,
+            exc,
+            connector="degiro_pension",
+            operation="file_import_confirm",
+            connection_id=str(connection.id),
+            correlation_id=run_id,
+        )
         await db.commit()
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except Exception as exc:
+        await report_connector_failure(
+            container.settings,
+            exc,
+            connector="degiro_pension",
+            operation="file_import_confirm",
+            connection_id=str(connection.id),
+            correlation_id=run_id,
+        )
         await db.commit()
         raise HTTPException(
             status_code=500,

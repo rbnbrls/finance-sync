@@ -30,11 +30,26 @@ from finance_sync.services.degiro_import import (
     build_preview,
     cleanup_expired_previews,
     connector_options,
+    missing_required_report_types,
     stage_uploads,
     verify_staged,
 )
 
 FIXTURES = Path(__file__).parent / "connectors/degiro_pension/fixtures"
+
+
+def test_missing_required_report_types_identifies_incomplete_nav_dataset() -> (
+    None
+):
+    assert missing_required_report_types(
+        ["account_statement", "transactions", "transactions"]
+    ) == ["portfolio"]
+    assert (
+        missing_required_report_types(
+            ["account_statement", "transactions", "portfolio"]
+        )
+        == []
+    )
 
 
 def _settings(tmp_path: Path, **changes: Any) -> Settings:
@@ -217,11 +232,10 @@ async def test_worker_loads_options_for_secretless_connector() -> None:
         description='{"watchfolder":"/imports/degiro/incoming"}',
     )
     scalar_result = MagicMock()
-    scalar_result.scalars.return_value.all.return_value = [credential]
+    scalar_result.all.return_value = [(credential, tenant)]
     uow = cast(
         "UnitOfWork",
         SimpleNamespace(
-            tenants=SimpleNamespace(list=AsyncMock(return_value=[tenant])),
             session=SimpleNamespace(
                 execute=AsyncMock(return_value=scalar_result),
                 info={"settings": _settings(Path("/tmp/test-imports"))},
