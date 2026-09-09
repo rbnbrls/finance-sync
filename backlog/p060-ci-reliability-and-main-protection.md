@@ -64,7 +64,7 @@ Maak de ontwikkel- en releaseflow zodanig dat:
 ## Voortgang per 2026-09-09
 
 De repository-implementatie is gerealiseerd en de PR-validatie is groen op
-`7ae9ce3` (PR #832, workflow-run `34380687653`). De eerdere remote HEAD
+`5c0ed8e` (PR #832, workflow-run `34382735810`). De eerdere remote HEAD
 (`f3a54bb`) faalde in Lint, Test, Integration en E2E door formattering en een
 ontbrekende `_check_key_version_downgrade` tijdens testcollectie. Die oorzaken
 zijn hersteld. `main` is inmiddels protected en read-only geverifieerd.
@@ -97,14 +97,13 @@ Laatste validatie van de huidige werkboom:
 | `git diff --check` | geslaagd |
 | Integration via Docker | 193 passed |
 | E2E via Docker | 32 passed |
-| Remote PR CI op `7ae9ce3` | groen: Quality, Lint, Type check, Test, Migrations, Integration, E2E, Security en Build & Push |
+| Remote PR CI op `5c0ed8e` | groen: Quality, Lint, Type check, Test, Migrations, Integration, E2E, Security en Build & Push |
 | Branch protection API voor `main` | geconfigureerd en geverifieerd |
 
 Resterende afronding voor coding agents:
 
-1. Controleer de required-checknamen na de eerste `Quality`-run en pas branch
-   protection alleen aan als GitHub een afwijkende matrixnaam rapporteert.
-2. Laat een reviewer de PR goedkeuren, merge uitsluitend via de beschermde
+1. Laat een reviewer de PR goedkeuren; auto-merge staat klaar en wacht op deze
+   review. Merge daarna uitsluitend via de beschermde
    PR-flow en verifieer daarna één groene CI-run op `main`; sluit dan de story.
 
 ## Implementatiefasen
@@ -266,8 +265,9 @@ Acceptatie voor deze fase:
 - [x] Een bewust falende PR kan niet naar `main` worden gemerged.
 - [x] Een nieuwe commit op een goedgekeurde PR maakt de oude goedkeuring/CI-
   status ongeldig waar dat nodig is.
-- [ ] Een actuele groene PR kan automatisch worden gemerged volgens de bestaande
-  backlog-pipeline.
+- [x] Een actuele groene PR kan automatisch worden gemerged volgens de bestaande
+  backlog-pipeline; repository auto-merge is ingeschakeld en voor PR #832
+  geactiveerd.
 - [x] De repository retourneert niet langer `Branch not protected` voor `main`.
 
 ## Verificatieprotocol voor de coding agent
@@ -298,8 +298,8 @@ Daarna:
   coverage-exclusions toegevoegd om CI groen te maken.
 - [x] De PR beschrijft oorzaak, gewijzigde contracten, tests en eventuele
   GitHub-settings die buiten de repository zijn aangepast.
-- [x] De volledige remote CI-run op PR-commit `7ae9ce3` is groen
-  (workflow-run `34380687653`).
+- [x] De volledige remote CI-run op PR-commit `5c0ed8e` is groen
+  (workflow-run `34382735810`).
 - [ ] Na merge is één nieuwe CI-run op `main` groen en zijn er geen nieuwe CI-
   incidentissues gedurende de bestaande observatieperiode.
 
