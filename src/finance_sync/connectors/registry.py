@@ -18,6 +18,7 @@ from collections.abc import Iterable
 from typing import TYPE_CHECKING, Any, cast
 
 from finance_sync.connectors.base import Connector
+from finance_sync.connectors.capabilities import normalize_capabilities
 from finance_sync.connectors.exceptions import PermanentError
 
 if TYPE_CHECKING:
@@ -32,6 +33,7 @@ _CATALOG_METADATA_KEYS = frozenset(
         "lifecycle_status",
     }
 )
+_INGESTION_METHODS = frozenset({"api", "file"})
 
 
 class ConnectorRegistry:
@@ -172,7 +174,38 @@ class ConnectorRegistry:
             "rate_limit_policy": rate_limit,
             "has_rate_limit_policy": rate_limit is not None,
             "metadata_incomplete": metadata_incomplete,
+            "spending_capabilities": {
+                key: value.model_dump(mode="json")
+                for key, value in normalize_capabilities(
+                    getattr(connector, "capabilities", {})
+                ).items()
+            },
         }
+        raw_methods: object = getattr(connector, "ingestion_methods", ("api",))
+        if not isinstance(raw_methods, (list, tuple, set, frozenset)):
+            metadata_incomplete = True
+            methods = ["api"]
+        else:
+            raw_values = list(cast("Iterable[object]", raw_methods))
+            if not all(isinstance(item, str) for item in raw_values):
+                metadata_incomplete = True
+            methods = sorted(
+                {
+                    item
+                    for item in raw_values
+                    if isinstance(item, str) and item in _INGESTION_METHODS
+                }
+            )
+            if not methods:
+                metadata_incomplete = True
+                methods = ["api"]
+        result["ingestion_methods"] = methods
+        wizard = getattr(connector, "import_wizard", {})
+        if isinstance(wizard, dict):
+            result["import_wizard"] = wizard
+        else:
+            result["import_wizard"] = {}
+            result["metadata_incomplete"] = True
         result.update(safe)
         return result
 

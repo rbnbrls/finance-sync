@@ -25,15 +25,31 @@ if TYPE_CHECKING:
 
     from finance_sync.db.uow import UnitOfWork
 from finance_sync.services.degiro_import import (
+    ExpiredImportError,
     ImportValidationError,
     build_preview,
     cleanup_expired_previews,
     connector_options,
+    missing_required_report_types,
     stage_uploads,
     verify_staged,
 )
 
 FIXTURES = Path(__file__).parent / "connectors/degiro_pension/fixtures"
+
+
+def test_missing_required_report_types_identifies_incomplete_nav_dataset() -> (
+    None
+):
+    assert missing_required_report_types(
+        ["account_statement", "transactions", "transactions"]
+    ) == ["portfolio"]
+    assert (
+        missing_required_report_types(
+            ["account_statement", "transactions", "portfolio"]
+        )
+        == []
+    )
 
 
 def _settings(tmp_path: Path, **changes: Any) -> Settings:
@@ -149,6 +165,14 @@ def test_confirmation_detects_toctou_change(tmp_path: Path) -> None:
         verify_staged(run, [path])
 
 
+def test_confirmation_distinguishes_expired_staging(tmp_path: Path) -> None:
+    path = tmp_path / "01.csv"
+    run = ImportRun(content_hashes=[hashlib.sha256(b"first").hexdigest()])
+
+    with pytest.raises(ExpiredImportError, match="verlopen of verwijderd"):
+        verify_staged(run, [path])
+
+
 def test_cleanup_only_removes_expired_preview_dirs(tmp_path: Path) -> None:
     settings = _settings(tmp_path, degiro_import_preview_ttl_minutes=10)
     old = tmp_path / "tenant" / "old"
@@ -208,11 +232,10 @@ async def test_worker_loads_options_for_secretless_connector() -> None:
         description='{"watchfolder":"/imports/degiro/incoming"}',
     )
     scalar_result = MagicMock()
-    scalar_result.scalars.return_value.all.return_value = [credential]
+    scalar_result.all.return_value = [(credential, tenant)]
     uow = cast(
         "UnitOfWork",
         SimpleNamespace(
-            tenants=SimpleNamespace(list=AsyncMock(return_value=[tenant])),
             session=SimpleNamespace(
                 execute=AsyncMock(return_value=scalar_result),
                 info={"settings": _settings(Path("/tmp/test-imports"))},
