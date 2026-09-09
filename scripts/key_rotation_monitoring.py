@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import sys
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -124,8 +125,8 @@ def check_key_provider_status() -> dict[str, Any]:
 
 
 def _check_key_version_downgrade(
-    state: Dict[str, Any], key_info: Dict[str, Any]
-) -> List[Dict[str, str]]:
+    state: dict[str, Any], key_info: dict[str, Any]
+) -> list[dict[str, str]]:
     """Return a critical alert when a known numeric version decreases.
 
     This helper is intentionally kept separate so holdout checks can exercise
@@ -134,7 +135,7 @@ def _check_key_version_downgrade(
     previous = state.get("last_reported_version")
     current = key_info.get("current_version")
 
-    def parse_version(value: Any) -> Optional[int]:
+    def parse_version(value: Any) -> int | None:
         if isinstance(value, bool):
             return None
         if isinstance(value, int):
@@ -164,8 +165,8 @@ def _check_key_version_downgrade(
 
 
 def check_key_rotation_status(
-    key_info: Dict[str, Any], state: Optional[Dict[str, Any]] = None
-) -> List[Dict[str, str]]:
+    key_info: dict[str, Any], _state: dict[str, Any] | None = None
+) -> list[dict[str, str]]:
     """Check key rotation status and return any alerts.
 
     Args:
@@ -175,7 +176,7 @@ def check_key_rotation_status(
         List of alert dictionaries
     """
     alerts = []
-    
+
     if "error" in key_info:
         alerts.append(
             {
@@ -192,12 +193,16 @@ def check_key_rotation_status(
         alerts.append({
             "name": "key_approaching_expiry",
             "severity": "warning" if hours_to_expiry > 1 else "critical",
-            "detail": f"Key version {key_info['current_version']} expires in {hours_to_expiry:.1f} hours",
+            "detail": (
+                f"Key version {key_info['current_version']} expires in "
+                f"{hours_to_expiry:.1f} hours"
+            ),
         })
-    
-    # Check for unexpected key version downgrade would require comparing with previous state
+
+    # Check for unexpected key version downgrade would require comparing with
+    # previous state.
     # This would be implemented by storing the last known version in state
-    
+
     return alerts
 
 
@@ -216,9 +221,12 @@ def build_key_issue_body(
     Returns:
         Formatted Markdown issue body
     """
-    now = datetime.now(UTC)
-    date_str = now.strftime("%Y-%m-%d")
-    
+    try:
+        event_date = datetime.fromisoformat(timestamp)
+    except ValueError:
+        event_date = datetime.now(UTC)
+    date_str = event_date.strftime("%Y-%m-%d")
+
     lines = [
         "## 🔑 Key Rotation Monitoring — finance-sync",
         "",
@@ -431,7 +439,7 @@ def main() -> int:
 
         # Check for alerts
         alerts = check_key_rotation_status(key_info)
-        
+
         # Build marker for deduplication
         marker = build_key_marker()
 
@@ -471,7 +479,7 @@ def main() -> int:
             )
         else:
             logger.info("No key rotation alerts to report")
-        
+
         # Update last checked timestamp
         state["last_checked"] = datetime.now(UTC).isoformat()
         save_state(state)
