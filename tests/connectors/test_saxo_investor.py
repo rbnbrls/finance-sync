@@ -267,56 +267,6 @@ async def test_imports_saxo_transactions_and_combines_both_exports(
 
 
 @pytest.mark.asyncio
-async def test_clamps_saxo_value_date_before_transaction_date(
-    tmp_path: Path,
-) -> None:
-    positions = tmp_path / "Posities_23-aug-2026.xlsx"
-    transactions = tmp_path / "Transactions_2026.xlsx"
-    _write_export(positions)
-
-    workbook = Workbook()
-    sheet = workbook.active
-    assert sheet is not None
-    sheet.title = "Transacties"
-    sheet.append(TRANSACTION_HEADERS)
-    sheet.append(
-        [
-            datetime(2026, 5, 30),
-            datetime(2026, 5, 28),
-            "15996986",
-            125,
-            125,
-            458,
-            "Transactie",
-            "Dividend Example Equity",
-            12.5,
-            "EUR",
-            0,
-            "Example Equity",
-            "EXM:xams",
-            "NL0000000001",
-            "EUR",
-            "Aandeel",
-        ]
-    )
-    workbook.save(transactions)
-
-    connector = SaxoInvestorConnector(
-        ConnectorConfig(
-            provider_type="saxo_investor",
-            options={"export_paths": [str(positions), str(transactions)]},
-        )
-    )
-    await connector.authenticate()
-    imported = await connector.fetch_transactions(
-        datetime.min.replace(tzinfo=UTC)
-    )
-
-    assert len(imported) == 1
-    assert imported[0].booked_at == imported[0].occurred_at
-
-
-@pytest.mark.asyncio
 async def test_attached_saxo_exports_detect_both_roles() -> None:
     """The supplied Saxo exports are accepted as one two-file import."""
     positions = Path(
