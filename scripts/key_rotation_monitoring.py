@@ -176,7 +176,7 @@ def check_key_rotation_status(
     Returns:
         List of alert dictionaries
     """
-    alerts: List[Dict[str, str]] = []
+    alerts = []
     
     if "error" in key_info:
         alerts.append({
@@ -216,8 +216,8 @@ def build_key_issue_body(
     Returns:
         Formatted Markdown issue body
     """
-    now = datetime.now(UTC)
-    date_str = now.strftime("%Y-%m-%d")
+    event_date = datetime.fromisoformat(timestamp).astimezone(UTC)
+    date_str = event_date.strftime("%Y-%m-%d")
     
     lines = [
         "## 🔑 Key Rotation Monitoring — finance-sync",

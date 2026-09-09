@@ -8,6 +8,7 @@ from unittest.mock import patch
 import pytest
 
 from scripts.key_rotation_monitoring import (
+    _check_key_version_downgrade,
     build_key_issue_body,
     build_key_marker,
     check_key_provider_status,
@@ -129,6 +130,46 @@ def test_check_key_rotation_status_with_error():
     assert "Provider connection failed" in alerts[0]["detail"]
 
 
+@pytest.mark.parametrize(
+    ("previous", "current", "is_downgrade"),
+    [
+        (3, 2, True),
+        ("3", "2", True),
+        (2, 3, False),
+        ("v3", "v2", False),
+        ("03", "2", False),
+        (True, 0, False),
+        (3, 2.5, False),
+        (None, 2, False),
+    ],
+)
+def test_check_key_version_downgrade_requires_canonical_integer_versions(
+    previous, current, is_downgrade
+):
+    alerts = _check_key_version_downgrade(
+        {"last_reported_version": previous}, {"current_version": current}
+    )
+
+    assert bool(alerts) is is_downgrade
+    if is_downgrade:
+        assert alerts == [
+            {
+                "name": "key_version_downgrade",
+                "severity": "critical",
+                "detail": "Key version downgraded from 3 to 2",
+            }
+        ]
+
+
+def test_check_key_rotation_status_includes_downgrade_alert():
+    alerts = check_key_rotation_status(
+        {"current_version": 2, "hours_to_expiry": 100},
+        {"last_reported_version": 3},
+    )
+
+    assert [alert["name"] for alert in alerts] == ["key_version_downgrade"]
+
+
 def test_build_key_issue_body():
     """Test building the key rotation issue body."""
     timestamp = "2026-08-28T12:00:00+00:00"
@@ -161,7 +202,7 @@ def test_build_key_issue_body():
         "- **key_approaching_expiry** (warning): Key version v2 expires in 720.0 hours"
         in body
     )
-    assert build_key_marker() in body
+    assert build_key_marker(datetime.fromisoformat(timestamp)) in body
 
 
 def test_should_block_promotion_error():
