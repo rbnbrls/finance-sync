@@ -64,7 +64,7 @@ Maak de ontwikkel- en releaseflow zodanig dat:
 ## Voortgang per 2026-09-09
 
 De repository-implementatie is gerealiseerd en de PR-validatie is groen op
-`0ce424a` (PR #832, workflow-run `34376654095`). De eerdere remote HEAD
+`7ae9ce3` (PR #832, workflow-run `34380687653`). De eerdere remote HEAD
 (`f3a54bb`) faalde in Lint, Test, Integration en E2E door formattering en een
 ontbrekende `_check_key_version_downgrade` tijdens testcollectie. Die oorzaken
 zijn hersteld. `main` is inmiddels protected en read-only geverifieerd.
@@ -97,7 +97,7 @@ Laatste validatie van de huidige werkboom:
 | `git diff --check` | geslaagd |
 | Integration via Docker | 193 passed |
 | E2E via Docker | 32 passed |
-| Remote PR CI op `0ce424a` | groen: Quality, Lint, Type check, Test, Migrations, Integration, E2E, Security en Build & Push |
+| Remote PR CI op `7ae9ce3` | groen: Quality, Lint, Type check, Test, Migrations, Integration, E2E, Security en Build & Push |
 | Branch protection API voor `main` | geconfigureerd en geverifieerd |
 
 Resterende afronding voor coding agents:
@@ -298,8 +298,8 @@ Daarna:
   coverage-exclusions toegevoegd om CI groen te maken.
 - [x] De PR beschrijft oorzaak, gewijzigde contracten, tests en eventuele
   GitHub-settings die buiten de repository zijn aangepast.
-- [x] De volledige remote CI-run op PR-commit `0ce424a` is groen
-  (workflow-run `34376654095`).
+- [x] De volledige remote CI-run op PR-commit `7ae9ce3` is groen
+  (workflow-run `34380687653`).
 - [ ] Na merge is één nieuwe CI-run op `main` groen en zijn er geen nieuwe CI-
   incidentissues gedurende de bestaande observatieperiode.
 
