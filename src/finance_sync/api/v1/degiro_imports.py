@@ -346,11 +346,6 @@ async def confirm_import(
             session=db,
             retain=body.retain_encrypted,
         )
-        if str(run.status) == "completed":
-            connection.last_success_at = run.completed_at
-            connection.last_attempt_at = run.completed_at
-            connection.last_error = None
-            connection.last_error_category = None
     except ExpiredImportError as exc:
         run.status = "expired"
         run.completed_at = datetime.now(UTC)
