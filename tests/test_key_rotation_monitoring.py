@@ -202,7 +202,7 @@ def test_build_key_issue_body():
         "- **key_approaching_expiry** (warning): Key version v2 expires in 720.0 hours"
         in body
     )
-    assert "<!-- key-rotation-monitor:2026-08-28 -->" in body
+    assert build_key_marker() in body
 
 
 def test_should_block_promotion_error():
