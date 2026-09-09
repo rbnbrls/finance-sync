@@ -134,7 +134,12 @@ def check_key_provider_status() -> Dict[str, Any]:
 def _check_key_version_downgrade(
     state: Dict[str, Any], key_info: Dict[str, Any]
 ) -> List[Dict[str, str]]:
-    """Return a critical alert when a canonical numeric version decreases."""
+    """Return a critical alert when a known numeric version decreases.
+
+    Provider versions are currently ``vN`` strings, while older state files may
+    contain bare numbers.  Accept both forms, but reject ambiguous values so a
+    malformed identifier cannot create a false downgrade alert.
+    """
     previous = state.get("last_reported_version")
     current = key_info.get("current_version")
 
@@ -143,8 +148,10 @@ def _check_key_version_downgrade(
             return None
         if isinstance(value, int):
             return value
-        if isinstance(value, str) and re.fullmatch(r"0|[1-9][0-9]*", value):
-            return int(value)
+        if isinstance(value, str):
+            match = re.fullmatch(r"v?(0|[1-9][0-9]*)", value)
+            if match:
+                return int(match.group(1))
         return None
 
     previous_number = parse_version(previous)
@@ -176,7 +183,7 @@ def check_key_rotation_status(
     Returns:
         List of alert dictionaries
     """
-    alerts = []
+    alerts: List[Dict[str, str]] = []
     
     if "error" in key_info:
         alerts.append({
@@ -447,7 +454,6 @@ def main() -> int:
             if issue_url:
                 # Update state
                 state["last_alert_sent"] = timestamp
-                state["last_reported_version"] = key_info.get("current_version")
                 save_state(state)
                 logger.info("Created key rotation alert issue: %s", issue_url)
             else:
@@ -458,6 +464,11 @@ def main() -> int:
         else:
             logger.info("No key rotation alerts to report")
         
+        # Persist every healthy observation so a later run can detect rollback,
+        # even when no alert was emitted and no GitHub issue was created.
+        if key_info.get("current_version") is not None:
+            state["last_reported_version"] = key_info["current_version"]
+
         # Update last checked timestamp
         state["last_checked"] = datetime.now(UTC).isoformat()
         save_state(state)
