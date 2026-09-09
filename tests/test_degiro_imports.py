@@ -25,6 +25,7 @@ if TYPE_CHECKING:
 
     from finance_sync.db.uow import UnitOfWork
 from finance_sync.services.degiro_import import (
+    ExpiredImportError,
     ImportValidationError,
     build_preview,
     cleanup_expired_previews,
@@ -146,6 +147,14 @@ def test_confirmation_detects_toctou_change(tmp_path: Path) -> None:
     verify_staged(run, [path])
     path.write_bytes(b"second")
     with pytest.raises(ImportValidationError, match="gewijzigd"):
+        verify_staged(run, [path])
+
+
+def test_confirmation_distinguishes_expired_staging(tmp_path: Path) -> None:
+    path = tmp_path / "01.csv"
+    run = ImportRun(content_hashes=[hashlib.sha256(b"first").hexdigest()])
+
+    with pytest.raises(ExpiredImportError, match="verlopen of verwijderd"):
         verify_staged(run, [path])
 
 

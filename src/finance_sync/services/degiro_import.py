@@ -45,6 +45,10 @@ class ImportValidationError(ValueError):
     """A safe validation error suitable for returning to an administrator."""
 
 
+class ExpiredImportError(ImportValidationError):
+    """The validated upload is no longer available to confirm."""
+
+
 def connector_options(credential: Credential) -> dict[str, Any]:
     """Decode the non-secret options stored in the legacy description field."""
     try:
@@ -395,7 +399,7 @@ def verify_staged(run: ImportRun, paths: list[Path]) -> None:
     for path in paths:
         if not path.is_file():
             message = "De gevalideerde upload is verlopen of verwijderd."
-            raise ImportValidationError(message)
+            raise ExpiredImportError(message)
         actual.append(hashlib.sha256(path.read_bytes()).hexdigest())
     if actual != run.content_hashes:
         message = (
