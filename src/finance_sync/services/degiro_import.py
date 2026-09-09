@@ -51,6 +51,11 @@ class ExpiredImportError(ImportValidationError):
     """The validated upload is no longer available to confirm."""
 
 
+def missing_required_report_types(report_types: Iterable[str]) -> list[str]:
+    """Return the required DEGIRO exports absent from a staged dataset."""
+    return sorted(_EXPECTED_REPORTS - set(report_types))
+
+
 def connector_options(credential: Credential) -> dict[str, Any]:
     """Decode the non-secret options stored in the legacy description field."""
     try:
