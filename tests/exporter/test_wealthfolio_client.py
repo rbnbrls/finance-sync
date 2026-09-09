@@ -8,7 +8,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 import pytest
-from httpx import RequestError
+from httpx import HTTPStatusError, Request, RequestError, Response
 
 from finance_sync.exporter.wealthfolio.client import (
     WealthfolioAuthError,
@@ -215,6 +215,34 @@ class TestWealthfolioClientImport:
             )
 
         assert result["valid"] is True
+
+    async def test_check_import_preserves_non_timeout_errors(
+        self, client: WealthfolioClient
+    ) -> None:
+        """HTTP validation failures retain httpx's status error contract."""
+        client._is_authenticated = True
+        request = Request("POST", "http://test/api/v1/activities/import/check")
+        response = Response(400, request=request)
+
+        with (
+            patch.object(client._client, "post", return_value=response),
+            pytest.raises(HTTPStatusError),
+        ):
+            await client.check_activities_import([])
+
+    async def test_check_import_raises_after_timeout_retries(
+        self, client: WealthfolioClient
+    ) -> None:
+        """The final retry timeout is not wrapped as an API error."""
+        client._is_authenticated = True
+        request = Request("POST", "http://test/api/v1/activities/import/check")
+        response = Response(408, request=request)
+
+        with (
+            patch.object(client._client, "post", return_value=response),
+            pytest.raises(HTTPStatusError),
+        ):
+            await client.check_activities_import([])
 
     async def test_get_accounts(self, client: WealthfolioClient) -> None:
         """Fetch accounts from Wealthfolio."""
