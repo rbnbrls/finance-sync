@@ -18,14 +18,7 @@ import os
 import re
 import sys
 from datetime import UTC, datetime, timedelta
-from typing import Any, Dict, List, Optional
-
-from finance_sync.services.key_provider import (
-    KeyProviderError,
-    KeyVersion,
-    LocalTestKeyProvider,
-    ManagedKeyProvider,
-)
+from typing import Any
 
 # Configure logging
 logging.basicConfig(
@@ -53,7 +46,7 @@ def get_state_file() -> str:
     return STATE_FILE
 
 
-def load_state() -> Dict[str, Any]:
+def load_state() -> dict[str, Any]:
     """Load the monitor state JSON file, or return a fresh state."""
     state_file = get_state_file()
     if os.path.exists(state_file):
@@ -69,7 +62,7 @@ def load_state() -> Dict[str, Any]:
     }
 
 
-def save_state(state: Dict[str, Any]) -> None:
+def save_state(state: dict[str, Any]) -> None:
     """Persist the monitor state, creating the parent directory if needed."""
     state_file = get_state_file()
     os.makedirs(os.path.dirname(state_file), exist_ok=True)
@@ -77,7 +70,7 @@ def save_state(state: Dict[str, Any]) -> None:
         json.dump(state, f, indent=2)
 
 
-def build_key_marker(dt: Optional[datetime] = None) -> str:
+def build_key_marker(dt: datetime | None = None) -> str:
     """Build the hidden HTML dedup marker for key rotation events."""
     if dt is None:
         dt = datetime.now(UTC)
@@ -85,13 +78,13 @@ def build_key_marker(dt: Optional[datetime] = None) -> str:
     return f"<!-- key-rotation-monitor:{date_str} -->"
 
 
-def check_key_provider_status() -> Dict[str, Any]:
+def check_key_provider_status() -> dict[str, Any]:
     """Check the key provider status and return key information.
 
     Returns:
         Dictionary containing key version, state, and status information.
     """
-    # In a real implementation, this would initialize the actual ManagedKeyProvider
+    # In production, initialize the actual ManagedKeyProvider here.
     # For now, we'll simulate with a test provider or read from config
 
     try:
@@ -132,13 +125,13 @@ def check_key_provider_status() -> Dict[str, Any]:
 
 
 def _check_key_version_downgrade(
-    state: Dict[str, Any], key_info: Dict[str, Any]
-) -> List[Dict[str, str]]:
+    state: dict[str, Any], key_info: dict[str, Any]
+) -> list[dict[str, str]]:
     """Return a critical alert when a known numeric version decreases."""
     previous = state.get("last_reported_version")
     current = key_info.get("current_version")
 
-    def parse_version(value: Any) -> Optional[int]:
+    def parse_version(value: Any) -> int | None:
         if isinstance(value, bool):
             return None
         if isinstance(value, int):
@@ -168,17 +161,17 @@ def _check_key_version_downgrade(
 
 
 def check_key_rotation_status(
-    key_info: Dict[str, Any], state: Optional[Dict[str, Any]] = None
-) -> List[Dict[str, str]]:
+    key_info: dict[str, Any], state: dict[str, Any] | None = None
+) -> list[dict[str, str]]:
     """Check key rotation status and return any alerts.
 
     Args:
-        key_info: Dictionary containing key information from check_key_provider_status
+        key_info: Dictionary from check_key_provider_status
 
     Returns:
         List of alert dictionaries
     """
-    alerts = []
+    alerts: list[dict[str, str]] = []
 
     if "error" in key_info:
         alerts.append(
@@ -197,7 +190,10 @@ def check_key_rotation_status(
             {
                 "name": "key_approaching_expiry",
                 "severity": "warning" if hours_to_expiry > 1 else "critical",
-                "detail": f"Key version {key_info['current_version']} expires in {hours_to_expiry:.1f} hours",
+                "detail": (
+                    f"Key version {key_info['current_version']} expires in "
+                    f"{hours_to_expiry:.1f} hours"
+                ),
             }
         )
 
@@ -209,8 +205,8 @@ def check_key_rotation_status(
 
 def build_key_issue_body(
     timestamp: str,
-    key_info: Dict[str, Any],
-    alerts: List[Dict[str, str]],
+    key_info: dict[str, Any],
+    alerts: list[dict[str, str]],
 ) -> str:
     """Build the Markdown body for a key rotation monitoring issue.
 
@@ -240,7 +236,10 @@ def build_key_issue_body(
         f"| Provider | {key_info.get('provider', 'unknown')} |",
         f"| Rotated At | {key_info.get('rotated_at', 'unknown')} |",
         f"| Expires At | {key_info.get('expires_at', 'unknown')} |",
-        f"| Hours to Expiry | {key_info.get('hours_to_expiry', 'unknown'):.1f} |",
+        (
+            f"| Hours to Expiry | "
+            f"{key_info.get('hours_to_expiry', 'unknown'):.1f} |"
+        ),
         "",
         "### Configuration",
         "",
@@ -256,10 +255,10 @@ def build_key_issue_body(
                 "",
             ]
         )
-        for alert in alerts:
-            lines.append(
-                f"- **{alert['name']}** ({alert['severity']}): {alert['detail']}"
-            )
+        lines.extend(
+            f"- **{alert['name']}** ({alert['severity']}): {alert['detail']}"
+            for alert in alerts
+        )
         lines.append("")
 
     # Hidden dedup marker
@@ -276,8 +275,8 @@ def build_key_issue_body(
 def create_github_issue(
     title: str,
     body: str,
-    labels: Optional[List[str]] = None,
-) -> Optional[str]:
+    labels: list[str] | None = None,
+) -> str | None:
     """Create a GitHub issue via the REST API.
 
     Args:
@@ -293,7 +292,7 @@ def create_github_issue(
         logger.warning("GITHUB_TOKEN not set — cannot create issue")
         return None
 
-    url = f"https://api.github.com/repos/rbnbrls/finance-sync/issues"
+    url = "https://api.github.com/repos/rbnbrls/finance-sync/issues"
     headers = {
         "Authorization": f"Bearer {token}",
         "Accept": "application/vnd.github+json",
@@ -301,7 +300,7 @@ def create_github_issue(
         "Content-Type": "application/json",
     }
 
-    payload: Dict[str, Any] = {"title": title, "body": body}
+    payload: dict[str, Any] = {"title": title, "body": body}
     if labels:
         payload["labels"] = labels
 
@@ -341,7 +340,7 @@ def create_github_issue(
         return None
 
     try:
-        issue_data: Dict[str, Any] = json.loads(response_body)
+        issue_data: dict[str, Any] = json.loads(response_body)
     except (json.JSONDecodeError, ValueError) as exc:
         logger.warning("Invalid JSON in GitHub API response: %s", exc)
         return None
@@ -365,8 +364,8 @@ def check_existing_issue(marker: str) -> bool:
     if not token:
         return False
 
-    import urllib.request
     import urllib.parse
+    import urllib.request
 
     # Search for open issues containing the marker in the repo body
     query = f"repo:rbnbrls/finance-sync is:issue is:open {marker} in:body"
@@ -388,7 +387,7 @@ def check_existing_issue(marker: str) -> bool:
         return False  # Conservative — skips dedup on error
 
     try:
-        issue_data: Dict[str, Any] = json.loads(response_body)
+        issue_data: dict[str, Any] = json.loads(response_body)
     except (json.JSONDecodeError, ValueError) as exc:
         logger.warning("Invalid JSON in GitHub API response: %s", exc)
         return False
@@ -397,8 +396,8 @@ def check_existing_issue(marker: str) -> bool:
     return total_count > 0
 
 
-def should_block_promotion(key_info: Dict[str, Any]) -> bool:
-    """Determine if staging/release promotion should be blocked based on key status.
+def should_block_promotion(key_info: dict[str, Any]) -> bool:
+    """Determine whether staging/release promotion should be blocked.
 
     Args:
         key_info: Dictionary containing key information
@@ -418,10 +417,7 @@ def should_block_promotion(key_info: Dict[str, Any]) -> bool:
     if hours_to_expiry < 1:  # Less than 1 hour to expiry
         return True
 
-    if key_info.get("material_logged", False):
-        return True
-
-    return False
+    return bool(key_info.get("material_logged", False))
 
 
 def main() -> int:
@@ -450,7 +446,10 @@ def main() -> int:
         if should_alert and not existing_issue:
             # Create GitHub issue
             timestamp = datetime.now(UTC).isoformat()
-            title = f"[Key Rotation] Alert: {len(alerts)} key rotation issue(s) detected"
+            title = (
+                f"[Key Rotation] Alert: {len(alerts)} key rotation "
+                "issue(s) detected"
+            )
             body = build_key_issue_body(timestamp, key_info, alerts)
 
             labels = ["key-rotation", "monitoring"]
@@ -469,7 +468,8 @@ def main() -> int:
                 return 1
         elif should_alert and existing_issue:
             logger.info(
-                "Alert conditions met but existing issue found — skipping duplicate"
+                "Alert conditions met but existing issue found — "
+                "skipping duplicate"
             )
         else:
             logger.info("No key rotation alerts to report")
@@ -483,10 +483,11 @@ def main() -> int:
         state["last_checked"] = datetime.now(UTC).isoformat()
         save_state(state)
 
-        # Check if we should block promotion (for use in CI/deployment pipelines)
+        # Check whether to block promotion in CI/deployment pipelines.
         if should_block_promotion(key_info):
             logger.warning(
-                "Unsafe key status detected — blocking staging/release promotion"
+                "Unsafe key status detected — blocking staging/release "
+                "promotion"
             )
             # In a CI context, this would exit with non-zero to block promotion
             # For monitoring script, we just log the warning
