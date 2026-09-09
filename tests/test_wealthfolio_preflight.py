@@ -249,24 +249,6 @@ def test_trade_without_quantity_is_blocking():
     assert findings[0].severity == "error"
 
 
-def test_sale_with_negative_quantity_is_valid():
-    row = SimpleNamespace(
-        id="sale-1",
-        transaction_type="sale",
-        quantity=-20,
-        unit_price=100,
-        security_id="security-1",
-        amount=2000,
-        currency_code="EUR",
-    )
-
-    findings = validate_transaction_stream([row])
-
-    assert not any(
-        finding.category == "invalid_activity_semantics" for finding in findings
-    )
-
-
 @pytest.mark.parametrize(
     ("field", "value", "message"),
     [

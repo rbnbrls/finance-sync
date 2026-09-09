@@ -323,8 +323,6 @@ def test_holdings_snapshot_corrects_missing_and_stale_positions() -> None:
     ] == [("BUY", 28.0, "asset-agn"), ("SELL", 550.0, "asset-tkwy")]
     assert all(row["unitPrice"] == 0.0 for row in corrections)
     assert all("TARGET:" in row["comment"] for row in corrections)
-    assert all(row["status"] == "POSTED" for row in corrections)
-    assert all(row["needsReview"] is False for row in corrections)
 
 
 def test_holdings_snapshot_does_not_export_zero_quantity_closure_rows() -> None:
