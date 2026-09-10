@@ -866,11 +866,14 @@ class WealthfolioExporter:
                 continue
             asset_id, manual_mode = asset_match
             # Current broker snapshots use connector-owned manual quotes.
-            # Historical market-data enrichment must not overwrite those
-            # quotes with a provider price (which can turn an authoritative
-            # Saxo NAV into a different Wealthfolio NAV immediately after a
-            # successful holdings reconciliation).
-            if manual_mode:
+            # Keep today's manual quote authoritative, but still project
+            # older finance-sync candles so manual-mode assets retain a
+            # complete performance history (for example BESI:XAMS).
+            if (
+                manual_mode
+                and price.timestamp.astimezone(UTC).date()
+                >= datetime.now(UTC).date()
+            ):
                 continue
             timestamp = price.timestamp.astimezone(UTC).isoformat()
             try:

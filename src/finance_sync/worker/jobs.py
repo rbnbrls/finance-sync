@@ -809,12 +809,17 @@ async def _record_watch_failure(
 
 
 async def enrich_prices_job(container: Container) -> dict[str, Any]:
-    """Enrich security prices for all securities that need fresh data.
+    """Enrich latest and daily historical prices for tracked securities.
 
     Runs every 15 minutes during market hours (9:30-16:00 EST).  Fetches
-    latest quotes for all tracked securities and stores them as price
-    observations.
+    latest quotes and a bounded daily history for all tracked securities.
+    The history call is cache-aware, so already complete/fresh series do not
+    cause another provider request.  Keeping this in the same loop means a
+    newly discovered security becomes exportable to Wealthfolio without
+    waiting for a manual identity-resolution action.
     """
+    from finance_sync.enrichment.identifiers import quote_identifier
+
     log = logger.bind()
     log.info("enrich_prices_job_starting")
     gateway = container.enrichment_gateway
@@ -826,22 +831,30 @@ async def enrich_prices_job(container: Container) -> dict[str, Any]:
 
         enriched = 0
         failed = 0
+        historical_observations = 0
+        historical_failed = 0
         for security in securities:
-            # Determine the best identifier to use for the quote lookup
-            identifier: str | None = None
-            id_type: str = "ticker"
-            # ISIN is globally stable and avoids ambiguous exchange tickers.
-            if security.isin:
-                identifier = security.isin
-                id_type = "isin"
-            elif security.ticker:
-                identifier = security.ticker
-            elif security.figi:
-                identifier = security.figi
-                id_type = "figi"
+            identifier, id_type = quote_identifier(security)
 
             if not identifier:
                 continue
+
+            try:
+                history = await gateway.get_historical_prices(
+                    security_id=str(security.id),
+                    identifier=identifier,
+                    identifier_type=id_type,
+                    interval="1d",
+                    limit=365,
+                )
+                historical_observations += len(history.observations)
+            except Exception:
+                historical_failed += 1
+                log.debug(
+                    "enrich_history_failed",
+                    security_id=str(security.id),
+                    identifier=identifier,
+                )
 
             try:
                 quote = await gateway.get_latest_quote(
@@ -867,8 +880,15 @@ async def enrich_prices_job(container: Container) -> dict[str, Any]:
         "enrich_prices_job_complete",
         enriched=enriched,
         failed=failed,
+        historical_observations=historical_observations,
+        historical_failed=historical_failed,
     )
-    return {"enriched": enriched, "failed": failed}
+    return {
+        "enriched": enriched,
+        "failed": failed,
+        "historical_observations": historical_observations,
+        "historical_failed": historical_failed,
+    }
 
 
 async def data_quality_repair_job(container: Container) -> dict[str, Any]:

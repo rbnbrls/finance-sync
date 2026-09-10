@@ -1112,9 +1112,16 @@ async def test_worker_enrich_prices_selects_identifiers_and_counts_failures(
     )
     monkeypatch.setattr("finance_sync.db.uow.UnitOfWork", lambda _session: uow)
     gateway = SimpleNamespace(
+        get_historical_prices=AsyncMock(
+            side_effect=[
+                SimpleNamespace(observations=[1]),
+                SimpleNamespace(observations=[]),
+                SimpleNamespace(observations=[1, 2]),
+            ]
+        ),
         get_latest_quote=AsyncMock(
             side_effect=[{"price": 1}, None, RuntimeError("provider down")]
-        )
+        ),
     )
     container = SimpleNamespace(
         enrichment_gateway=gateway,
@@ -1123,7 +1130,12 @@ async def test_worker_enrich_prices_selects_identifiers_and_counts_failures(
 
     result = await jobs.enrich_prices_job(container)
 
-    assert result == {"enriched": 1, "failed": 2}
+    assert result == {
+        "enriched": 1,
+        "failed": 2,
+        "historical_observations": 3,
+        "historical_failed": 0,
+    }
     assert [
         call.kwargs["identifier_type"]
         for call in gateway.get_latest_quote.await_args_list
