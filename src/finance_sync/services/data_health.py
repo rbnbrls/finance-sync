@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from hashlib import sha256
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from sqlalchemy import and_, case, exists, func, or_, select
 
@@ -3067,7 +3067,7 @@ class DataHealthService:
                 for row in unverified_cost_rows
                 if len(row) > 5
             }
-            missing_basis_transactions: list[tuple[object, ...]] = []
+            missing_basis_transactions: list[Any] = []
             if basis_pairs:
                 pair_filter = or_(
                     *(
