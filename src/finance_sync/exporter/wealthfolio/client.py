@@ -979,17 +979,10 @@ class WealthfolioClient:
         assets, for which Wealthfolio does not run market-profile enrichment.
         """
         self._ensure_authenticated()
-        existing = await self.get_asset_taxonomy_assignments(asset_id)
-        preserved = [
-            assignment
-            for assignment in existing
-            if str(assignment.get("taxonomyId")) != taxonomy_id
-            or str(assignment.get("source", "")).upper() != "AUTO"
-        ]
         response = await self._client.put(
             f"{self.API_PREFIX}/taxonomies/assignments/asset/"
             f"{asset_id}/taxonomy/{taxonomy_id}",
-            json=preserved + assignments,
+            json=assignments,
         )
         response.raise_for_status()
         payload = response.json()
