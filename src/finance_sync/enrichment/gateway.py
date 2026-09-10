@@ -708,13 +708,11 @@ class EnrichmentGateway:
                 },
             )
         response.raise_for_status()
-        payload = cast(dict[str, Any], response.json())
-        chart = cast(dict[str, Any], payload["chart"])
-        result = cast(dict[str, Any], chart["result"][0])
+        payload = response.json()
+        result = cast(dict[str, Any], payload["chart"]["result"][0])
         timestamps = cast(list[int], result.get("timestamp") or [])
         indicators = cast(dict[str, Any], result.get("indicators") or {})
-        quotes = cast(list[dict[str, Any]], indicators.get("quote") or [])
-        quote: dict[str, Any] = quotes[0] if quotes else {}
+        quote = cast(dict[str, Any], (indicators.get("quote") or [{}])[0])
         meta = cast(dict[str, Any], result.get("meta") or {})
         currency = str(meta.get("currency") or "EUR").upper()
         observations: list[PriceObservation] = []
