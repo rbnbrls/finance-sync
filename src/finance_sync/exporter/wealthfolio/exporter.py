@@ -1646,11 +1646,12 @@ class WealthfolioExporter:
                 f"finance-sync:{self._tenant_id}:{account.id}"
                 for account in fs_accounts
             }
-            # Account deletion is only safe for the legacy projection. A
-            # named destination can share the same Wealthfolio instance with
-            # another destination; pruning there would delete accounts owned
-            # by the other projection (which caused only Saxo to remain).
-            if self._target_id == "legacy" and prune_accounts:
+            # Every Wealthfolio destination is a projection of the selected
+            # finance-sync dataset.  The destination scope is therefore the
+            # ownership boundary: stale/manual accounts must be removed even
+            # when the exporter is running through a named destination.
+            # Callers that intentionally push only a subset disable pruning.
+            if prune_accounts:
                 accounts_removed = (
                     await wf_client.delete_accounts_not_owned_by_finance_sync(
                         allowed_provider_ids

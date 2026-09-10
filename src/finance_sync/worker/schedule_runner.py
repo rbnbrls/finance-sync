@@ -161,6 +161,22 @@ async def _reset_next_run(
     await session.flush()
 
 
+def _outcome_error(outcome: dict[str, Any]) -> str | None:
+    """Return a bounded, actionable schedule outcome detail.
+
+    Skip outcomes historically only carried ``reason`` in the in-memory
+    result.  The schedule row persisted an empty error, leaving the UI with
+    no way to explain why an apparently active schedule did not run.
+    Reasons are intentionally fixed/internal labels, never provider or
+    credential data.
+    """
+    error = outcome.get("error")
+    if error:
+        return str(error)[:500]
+    reason = outcome.get("reason")
+    return f"skipped: {str(reason)[:480]}" if reason else None
+
+
 async def _run_ingestion(
     container: Container,
     *,
@@ -671,11 +687,14 @@ async def run_due_schedules(container: Container) -> dict[str, Any]:
                     row.last_run_status = str(
                         outcome.get("status", "completed")
                     )[:16]
-                    row.last_run_error = (
-                        str(outcome.get("error") or "")[:500] or None
-                    )
+                    row.last_run_error = _outcome_error(outcome)
                     if row.enabled:
-                        instants = compute_next_run(row, after=now, count=1)
+                        # Keep hourly schedules anchored to the scheduled
+                        # instant.  Computing from the wall-clock completion
+                        # time makes every delayed/short run move the next
+                        # occurrence and slowly drifts the user's cadence.
+                        after = _ensure_aware(schedule.next_run_at) or now
+                        instants = compute_next_run(row, after=after, count=1)
                         row.next_run_at = instants[0] if instants else None
                     else:
                         row.next_run_at = None
