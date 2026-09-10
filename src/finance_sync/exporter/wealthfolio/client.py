@@ -141,6 +141,11 @@ class WealthfolioClient:
     """
 
     API_PREFIX = "/api/v1"
+    # Wealthfolio's quote contract calls this field ``dataSource`` and
+    # validates the source as a provider label.  ``source=FINANCE_SYNC``
+    # worked with an older API but is rejected with HTTP 422 by current
+    # deployments.
+    QUOTE_DATA_SOURCE = "CUSTOM_SCRAPER:finance-sync"
 
     def __init__(
         self,
@@ -900,7 +905,7 @@ class WealthfolioClient:
         for existing in await self.get_quote_history(asset_id):
             if (
                 (existing.get("source") or existing.get("dataSource"))
-                == "FINANCE_SYNC"
+                in {"FINANCE_SYNC", self.QUOTE_DATA_SOURCE}
                 and str(existing.get("timestamp", ""))[:10] == quote_date
                 and existing.get("id")
             ):

@@ -38,6 +38,7 @@ from sqlalchemy import and_, func, or_, select
 from sqlalchemy.exc import ArgumentError
 
 from finance_sync.exporter.models import ExportRun
+from finance_sync.exporter.wealthfolio.client import WealthfolioClient
 from finance_sync.exporter.wealthfolio.extensions import build_extension_payload
 from finance_sync.exporter.wealthfolio.models import (
     WealthfolioAccountMapping,
@@ -81,9 +82,6 @@ if TYPE_CHECKING:
         async_sessionmaker,
     )
 
-    from finance_sync.exporter.wealthfolio.client import (
-        WealthfolioClient,
-    )
     from finance_sync.exporter.wealthfolio.config import (
         WealthfolioConfig,
     )
@@ -881,10 +879,11 @@ class WealthfolioExporter:
                     asset_id,
                     {
                         "id": (
-                            f"{asset_id}_{price.timestamp.date()}_FINANCE_SYNC"
+                            f"{asset_id}_{price.timestamp.date()}_"
+                            "CUSTOM_SCRAPER:finance-sync"
                         ),
                         "createdAt": datetime.now(UTC).isoformat(),
-                        "source": "FINANCE_SYNC",
+                        "dataSource": WealthfolioClient.QUOTE_DATA_SOURCE,
                         "timestamp": timestamp,
                         "assetId": asset_id,
                         "open": str(price.price_open or close),
