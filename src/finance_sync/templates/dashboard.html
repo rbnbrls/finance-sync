@@ -1358,7 +1358,9 @@
                 return `<div class="health-repair-list"><strong>Historische waarde herstellen</strong><span class="field-hint">Controleer ontbrekende stortingen, aankopen en Transfer In-activiteiten vóór de eerste aankoop.</span><button type="button" class="btn btn-secondary btn-sm" onclick="openHealthData('${escapeHtml(issue.action?.path || '/api/v1/transactions')}')">Transacties beoordelen</button><button type="button" class="btn btn-secondary btn-sm" onclick="runDataQualityCheck(this)">Opnieuw controleren</button></div>`;
             }
             if (issue.category === 'incomplete_cost_basis') {
-                return `<div class="health-repair-list"><strong>Cost basis herstellen</strong><span class="field-hint">Leg per aankoop de hoeveelheid en verkrijgingsprijs vast; zonder die gegevens kan Wealthfolio geen winst/verlies berekenen.</span><button type="button" class="btn btn-secondary btn-sm" onclick="openHealthData('${escapeHtml(issue.action?.path || '/api/v1/transactions?type=purchase')}')">Aankopen beoordelen</button><button type="button" class="btn btn-secondary btn-sm" onclick="runDataQualityCheck(this)">Opnieuw controleren</button></div>`;
+                const basisIds = Array.isArray(issue.affected_transaction_ids) ? issue.affected_transaction_ids : [];
+                const basisRows = basisIds.slice(0, 25).map(id => `<div class="health-repair-row"><code>${escapeHtml(String(id).slice(0, 8))}</code><label>Verkrijgingsprijs <input class="health-price-input" id="health-price-${escapeHtml(id)}" inputmode="decimal" type="number" min="0" step="0.0001" placeholder="bijv. 12,50"></label><button type="button" class="btn btn-secondary btn-sm" onclick="correctHealthTransaction('${escapeHtml(id)}', { unit_price: document.getElementById('health-price-${escapeHtml(id)}')?.value })">Opslaan</button></div>`).join('');
+                return `<div class="health-repair-list"><strong>Cost basis herstellen</strong><span class="field-hint">Leg per aankoop of transfer-in de verkrijgingsprijs vast; de correctie wordt geaudit en verschijnt na de volgende controle opnieuw als er nog gegevens ontbreken.</span>${basisRows ? `<div class="health-repair-list">${basisRows}</div>` : ''}<button type="button" class="btn btn-secondary btn-sm" onclick="openHealthData('${escapeHtml(issue.action?.path || '/api/v1/transactions?type=purchase')}')">Aankopen beoordelen</button><button type="button" class="btn btn-secondary btn-sm" onclick="runDataQualityCheck(this)">Opnieuw controleren</button></div>`;
             }
             if (issue.category === 'incomplete_holding' || issue.category === 'incomplete_valuation') {
                 return `<div class="health-repair-list"><strong>Waardering herstellen</strong><span class="field-hint">Werk eerst beurs, ISIN en prijsvaluta bij. Haal daarna koersen opnieuw op; accepteer alleen bewust ontbrekende marktdata.</span><button type="button" class="btn btn-secondary btn-sm" onclick="runHealthIssueAction(this, '${escapeHtml(issue.action?.path || '/api/v1/enrichment/refresh-quotes')}')">Koersen en waardering bijwerken</button><button type="button" class="btn btn-secondary btn-sm" onclick="openHealthData('/api/v1/holdings')">Posities bekijken</button>${trading212ProviderHelp()}</div>`;
@@ -4225,8 +4227,9 @@
                 if (cfg && cfg.provider_type) return `${cfg.provider_type} (${s.target_id.slice(0, 8)})`;
                 return `Verbinding ${s.target_id.slice(0, 8)}`;
             }
-            const names = { wealthfolio: 'Wealthfolio', 'actual-budget': 'Actual Budget', firefly: 'Firefly III', ghostfolio: 'Ghostfolio', investbrain: 'InvestBrain' };
-            return names[s.target_id] || s.target_id;
+            const exporterKey = String(s.target_id || '').split(':', 1)[0];
+            const names = { wealthfolio: 'Wealthfolio', 'actual-budget': 'Actual Budget', firefly: 'Firefly III', ghostfolio: 'Ghostfolio', investbrain: 'InvestBrain', securo: 'Securo' };
+            return names[exporterKey] || s.target_id;
         }
 
         function scheduleConnectorName(s) {
@@ -4234,8 +4237,9 @@
                 const cfg = (configs || []).find(c => c.id === s.target_id);
                 return cfg ? (cfg.provider_type || 'connector') : 'connector';
             }
-            const names = { wealthfolio: 'Wealthfolio', 'actual-budget': 'Actual Budget', firefly: 'Firefly III', ghostfolio: 'Ghostfolio', investbrain: 'InvestBrain' };
-            return names[s.target_id] || 'exporter';
+            const exporterKey = String(s.target_id || '').split(':', 1)[0];
+            const names = { wealthfolio: 'Wealthfolio', 'actual-budget': 'Actual Budget', firefly: 'Firefly III', ghostfolio: 'Ghostfolio', investbrain: 'InvestBrain', securo: 'Securo' };
+            return names[exporterKey] || 'exporter';
         }
 
         function renderSyncSchedules() {
@@ -4280,7 +4284,8 @@
             const statusBadge = s.enabled
                 ? '<span class="badge connected">Actief</span>'
                 : '<span class="badge disconnected">Uitgeschakeld</span>';
-            const next = s.next_run_at ? new Date(s.next_run_at).toLocaleString() : (s.enabled ? '—' : 'Gestopt');
+            const overdue = Boolean(s.enabled && s.next_run_at && !s.running && new Date(s.next_run_at).getTime() < Date.now());
+            const next = s.next_run_at ? new Date(s.next_run_at).toLocaleString() + (overdue ? ' — achterstallig' : '') : (s.enabled ? '—' : 'Gestopt');
             const last = s.last_run_at ? `${new Date(s.last_run_at).toLocaleString()} <span class="badge ${s.last_run_status === 'completed' ? 'connected' : (s.last_run_status === 'failed' ? 'disconnected' : 'pending')}">${escapeHtml(s.last_run_status || '?')}</span>` : 'Nog geen run';
             return `
                 <tr data-schedule-id="${escapeHtml(s.id)}">
@@ -4291,7 +4296,7 @@
                     <td style="padding:8px 12px;border-bottom:1px solid var(--border);font-size:0.85rem;">${statusBadge}</td>
                     <td style="padding:8px 12px;border-bottom:1px solid var(--border);font-size:0.85rem;">${escapeHtml(s.human_readable)}</td>
                     <td style="padding:8px 12px;border-bottom:1px solid var(--border);font-size:0.85rem;">${escapeHtml(s.timezone)}</td>
-                    <td style="padding:8px 12px;border-bottom:1px solid var(--border);font-size:0.85rem;">${escapeHtml(next)}</td>
+                    <td style="padding:8px 12px;border-bottom:1px solid var(--border);font-size:0.85rem;${overdue ? 'color:var(--red);' : ''}">${escapeHtml(next)}${overdue ? '<div class="field-hint" style="color:var(--red);">Controleer of de worker actief is.</div>' : ''}</td>
                     <td style="padding:8px 12px;border-bottom:1px solid var(--border);font-size:0.85rem;">${last}${s.last_run_error ? `<div style="color:var(--red);font-size:0.75rem;" title="${escapeHtml(s.last_run_error)}"><span class="mdi mdi-alert-outline"></span> ${escapeHtml(String(s.last_run_error).slice(0, 60))}</div>` : ''}</td>
                     <td style="padding:8px 12px;border-bottom:1px solid var(--border);font-size:0.85rem;">
                         <button class="btn btn-sm btn-primary" onclick="openScheduleEditor('${escapeHtml(s.id)}')">Schema wijzigen</button>

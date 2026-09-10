@@ -27,6 +27,7 @@ class SecurityPrice(TimestampMixin, Base):
             "security_id",
             "timestamp",
             "source",
+            "interval",
             name="uq_security_prices_ts_source",
         ),
     )
