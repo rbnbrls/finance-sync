@@ -14,6 +14,11 @@ def quote_identifier(security: Any) -> tuple[str | None, str]:
     """
     ticker = str(getattr(security, "ticker", None) or "").strip()
     if ticker:
+        upper = ticker.upper()
+        if upper.endswith("A_EQ"):
+            ticker = f"{ticker[:-4]}:XAMS"
+        elif upper.endswith("L_EQ"):
+            ticker = f"{ticker[:-4]}:XLON"
         return ticker, "ticker"
     isin = str(getattr(security, "isin", None) or "").strip()
     if isin:
