@@ -1374,10 +1374,10 @@ class TestWealthfolioPushCursor:
         )
 
     @pytest.mark.asyncio
-    async def test_named_destination_does_not_prune_shared_accounts(
+    async def test_named_destination_prunes_stale_accounts_in_its_projection(
         self, exporter: WealthfolioExporter
     ) -> None:
-        """A named destination must not delete another projection's accounts."""
+        """Named destinations still mirror the selected canonical dataset."""
         exporter._target_id = "destination-1"
         acct = _make_mock_account()
         with patch.object(
@@ -1390,7 +1390,9 @@ class TestWealthfolioPushCursor:
             )
             await exporter.push_to_wealthfolio(wf_client)
 
-        wf_client.delete_accounts_not_owned_by_finance_sync.assert_not_awaited()
+        wf_client.delete_accounts_not_owned_by_finance_sync.assert_awaited_once_with(
+            {f"finance-sync:{exporter._tenant_id}:{acct.id}"}
+        )
 
     @pytest.mark.asyncio
     async def test_push_includes_all_owner_accounts_from_explicit_list(
