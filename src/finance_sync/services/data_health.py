@@ -3078,28 +3078,31 @@ class DataHealthService:
                         for account_id, security_id in basis_pairs
                     )
                 )
-                missing_basis_transactions = list(
-                    (
-                        await self._session.execute(
-                            select(
-                                Transaction.id,
-                                Transaction.account_id,
-                                Transaction.security_id,
+                missing_basis_transactions = cast(
+                    "list[tuple[object, ...]]",
+                    list(
+                        (
+                            await self._session.execute(
+                                select(
+                                    Transaction.id,
+                                    Transaction.account_id,
+                                    Transaction.security_id,
+                                )
+                                .where(
+                                    Transaction.tenant_id == self._tenant_id,
+                                    Transaction.transaction_type.in_(
+                                        ("purchase", "transfer")
+                                    ),
+                                    Transaction.quantity.is_not(None),
+                                    Transaction.quantity > 0,
+                                    Transaction.unit_price.is_(None),
+                                    pair_filter,
+                                )
+                                .order_by(Transaction.occurred_at)
+                                .limit(1000)
                             )
-                            .where(
-                                Transaction.tenant_id == self._tenant_id,
-                                Transaction.transaction_type.in_(
-                                    ("purchase", "transfer")
-                                ),
-                                Transaction.quantity.is_not(None),
-                                Transaction.quantity > 0,
-                                Transaction.unit_price.is_(None),
-                                pair_filter,
-                            )
-                            .order_by(Transaction.occurred_at)
-                            .limit(1000)
-                        )
-                    ).all()
+                        ).all()
+                    ),
                 )
             issues.append(
                 DataHealthIssue(
