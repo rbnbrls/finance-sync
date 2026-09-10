@@ -944,16 +944,29 @@ class WealthfolioExporter:
                     ],
                 }
             }
-            await wf_client.update_asset_profile(
-                asset_id,
-                {
-                    "name": asset.get("name") or security.name,
-                    "displayCode": asset.get("displayCode") or provider_symbol,
-                    "notes": asset.get("notes") or "",
-                    "providerConfig": provider_config,
-                    "metadata": jsonable(profile_metadata),
-                },
-            )
+            try:
+                await wf_client.update_asset_profile(
+                    asset_id,
+                    {
+                        "name": asset.get("name") or security.name,
+                        "displayCode": (
+                            asset.get("displayCode") or provider_symbol
+                        ),
+                        "notes": asset.get("notes") or "",
+                        "providerConfig": provider_config,
+                        "metadata": jsonable(profile_metadata),
+                    },
+                )
+            except Exception as exc:
+                # Profile projection is an optional compatibility layer. Older
+                # Wealthfolio versions do not expose this endpoint (or reject
+                # fields introduced by newer versions); that must not abort the
+                # transaction/holdings export for the tenant.
+                self._log.warning(
+                    "wealthfolio_asset_profile_update_failed",
+                    asset_id=asset_id,
+                    error=str(exc),
+                )
 
             asset_class = asset_class_names.get(
                 str(security.security_type).lower()
