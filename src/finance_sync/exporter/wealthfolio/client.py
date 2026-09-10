@@ -932,7 +932,11 @@ class WealthfolioClient:
         )
         response.raise_for_status()
         payload = response.json()
-        return payload if isinstance(payload, list) else []
+        return (
+            cast(list[dict[str, Any]], payload)
+            if isinstance(payload, list)
+            else []
+        )
 
     async def get_taxonomy(self, taxonomy_id: str) -> dict[str, Any]:
         """Read a taxonomy and its categories from Wealthfolio."""
@@ -942,7 +946,9 @@ class WealthfolioClient:
         )
         response.raise_for_status()
         payload = response.json()
-        return payload if isinstance(payload, dict) else {}
+        return (
+            cast(dict[str, Any], payload) if isinstance(payload, dict) else {}
+        )
 
     async def update_asset_profile(
         self, asset_id: str, profile: dict[str, Any]
@@ -955,7 +961,9 @@ class WealthfolioClient:
         )
         response.raise_for_status()
         payload = response.json()
-        return payload if isinstance(payload, dict) else {}
+        return (
+            cast(dict[str, Any], payload) if isinstance(payload, dict) else {}
+        )
 
     async def replace_asset_taxonomy_assignments(
         self,
@@ -985,7 +993,11 @@ class WealthfolioClient:
         )
         response.raise_for_status()
         payload = response.json()
-        return payload if isinstance(payload, list) else []
+        return (
+            cast(list[dict[str, Any]], payload)
+            if isinstance(payload, list)
+            else []
+        )
 
     async def update_quote_mode(
         self, asset_id: str, quote_mode: str

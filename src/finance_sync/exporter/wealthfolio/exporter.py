@@ -689,11 +689,18 @@ class WealthfolioExporter:
                     )
 
         category_ids = {
-            "energy": "10", "materials": "15", "industrials": "20",
-            "consumer discretionary": "25", "consumer staples": "30",
-            "health care": "35", "healthcare": "35", "financials": "40",
-            "information technology": "45", "technology": "45",
-            "communication services": "50", "utilities": "55",
+            "energy": "10",
+            "materials": "15",
+            "industrials": "20",
+            "consumer discretionary": "25",
+            "consumer staples": "30",
+            "health care": "35",
+            "healthcare": "35",
+            "financials": "40",
+            "information technology": "45",
+            "technology": "45",
+            "communication services": "50",
+            "utilities": "55",
             "real estate": "60",
         }
         for security_id, observations in metadata.items():
@@ -715,10 +722,9 @@ class WealthfolioExporter:
             exposures = raw.get("sector_exposures")
             if not isinstance(exposures, list):
                 exposures = [{"sector": raw.get("primary_sector"), "weight": 1}]
+            exposures = cast(list[dict[str, Any]], exposures)
             assignments: list[dict[str, Any]] = []
             for exposure in exposures:
-                if not isinstance(exposure, dict):
-                    continue
                 category_id = category_ids.get(
                     str(exposure.get("sector") or "").strip().lower()
                 )
@@ -769,10 +775,13 @@ class WealthfolioExporter:
                 asset.get("symbol"),
                 asset.get("isin"),
             ]
-            provider_config = asset.get("providerConfig") or {}
-            override = (provider_config.get("overrides") or {}).get(
-                "FINANCE_SYNC", {}
+            provider_config = cast(
+                dict[str, Any], asset.get("providerConfig") or {}
             )
+            overrides = cast(
+                dict[str, Any], provider_config.get("overrides") or {}
+            )
+            override = cast(dict[str, Any], overrides.get("FINANCE_SYNC") or {})
             values.append(override.get("symbol"))
             for value in values:
                 if value:
@@ -788,24 +797,31 @@ class WealthfolioExporter:
                     error=str(exc),
                 )
                 return {}
-            categories = taxonomy.get("categories", [])
-            if not categories and isinstance(taxonomy.get("taxonomy"), dict):
-                categories = taxonomy["taxonomy"].get("categories", [])
-            if isinstance(categories, dict):
-                categories = categories.get("data", [])
+            categories: list[dict[str, Any]] = []
+            raw_categories = taxonomy.get("categories")
+            if isinstance(raw_categories, list):
+                categories = cast(list[dict[str, Any]], raw_categories)
+            elif isinstance(raw_categories, dict):
+                raw_categories_dict = cast(dict[str, Any], raw_categories)
+                categories = cast(
+                    list[dict[str, Any]], raw_categories_dict.get("data", [])
+                )
+            nested = cast(dict[str, Any], taxonomy.get("taxonomy") or {})
+            if not categories:
+                nested_categories: Any = nested.get("categories", [])
+                if isinstance(nested_categories, list):
+                    categories = cast(list[dict[str, Any]], nested_categories)
             result: dict[str, str] = {}
-            pending = list(categories) if isinstance(categories, list) else []
+            pending: list[dict[str, Any]] = list(categories)
             while pending:
                 category = pending.pop()
-                if not isinstance(category, dict):
-                    continue
                 category_id = category.get("id")
                 name = category.get("name") or category.get("label")
                 if category_id and name:
                     result[str(name).strip().lower()] = str(category_id)
-                children = category.get("children") or []
+                children: Any = category.get("children") or []
                 if isinstance(children, list):
-                    pending.extend(children)
+                    pending.extend(cast(list[dict[str, Any]], children))
             return result
 
         taxonomy_maps = {
@@ -961,25 +977,26 @@ class WealthfolioExporter:
 
             sector_values: list[tuple[str, Any]] = []
             region_values: list[tuple[str, Any]] = []
-            if isinstance(raw, dict):
-                exposures = raw.get("sector_exposures")
-                if isinstance(exposures, list):
-                    sector_values = [
-                        (str(item.get("sector")), item.get("weight", 1))
-                        for item in exposures
-                        if isinstance(item, dict) and item.get("sector")
-                    ]
-                if not sector_values and raw.get("primary_sector"):
-                    sector_values = [(str(raw["primary_sector"]), 1)]
-                exposures = raw.get("region_exposures")
-                if isinstance(exposures, list):
-                    region_values = [
-                        (str(item.get("region")), item.get("weight", 1))
-                        for item in exposures
-                        if isinstance(item, dict) and item.get("region")
-                    ]
-                if not region_values and raw.get("region"):
-                    region_values = [(str(raw["region"]), 1)]
+            exposures = raw.get("sector_exposures")
+            if isinstance(exposures, list):
+                sector_exposures = cast(list[dict[str, Any]], exposures)
+                sector_values = [
+                    (str(item.get("sector")), item.get("weight", 1))
+                    for item in sector_exposures
+                    if item.get("sector")
+                ]
+            if not sector_values and raw.get("primary_sector"):
+                sector_values = [(str(raw["primary_sector"]), 1)]
+            exposures = raw.get("region_exposures")
+            if isinstance(exposures, list):
+                region_exposures = cast(list[dict[str, Any]], exposures)
+                region_values = [
+                    (str(item.get("region")), item.get("weight", 1))
+                    for item in region_exposures
+                    if item.get("region")
+                ]
+            if not region_values and raw.get("region"):
+                region_values = [(str(raw["region"]), 1)]
             industry_assignments = assignments(
                 asset_id, "industries_gics", sector_values
             )
@@ -1172,10 +1189,13 @@ class WealthfolioExporter:
                         str(asset["id"]),
                         manual_mode,
                     )
-            provider_config = asset.get("providerConfig") or {}
-            override = (provider_config.get("overrides") or {}).get(
-                "FINANCE_SYNC", {}
+            provider_config = cast(
+                dict[str, Any], asset.get("providerConfig") or {}
             )
+            overrides = cast(
+                dict[str, Any], provider_config.get("overrides") or {}
+            )
+            override = cast(dict[str, Any], overrides.get("FINANCE_SYNC") or {})
             provider_symbol = override.get("symbol")
             if provider_symbol:
                 by_identity[str(provider_symbol).upper()] = (
