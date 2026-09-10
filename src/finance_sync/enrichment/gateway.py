@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 from uuid import uuid4
 
 if TYPE_CHECKING:
@@ -709,10 +709,11 @@ class EnrichmentGateway:
             )
         response.raise_for_status()
         payload = response.json()
-        result = payload["chart"]["result"][0]
-        timestamps = result.get("timestamp") or []
-        quote = (result.get("indicators", {}).get("quote") or [{}])[0]
-        meta = result.get("meta") or {}
+        result = cast(dict[str, Any], payload["chart"]["result"][0])
+        timestamps = cast(list[int], result.get("timestamp") or [])
+        indicators = cast(dict[str, Any], result.get("indicators") or {})
+        quote = cast(dict[str, Any], (indicators.get("quote") or [{}])[0])
+        meta = cast(dict[str, Any], result.get("meta") or {})
         currency = str(meta.get("currency") or "EUR").upper()
         observations: list[PriceObservation] = []
         for index, timestamp in enumerate(timestamps):
@@ -795,9 +796,12 @@ def _safe_decimal(value: Any) -> Decimal | None:
 
 def _series_value(values: Any, index: int) -> Decimal | None:
     """Read one nullable Yahoo series value as a Decimal."""
-    if not isinstance(values, list) or index >= len(values):
+    if not isinstance(values, list):
         return None
-    return _safe_decimal(values[index])
+    values_list = cast(list[Any], values)
+    if index >= len(values_list):
+        return None
+    return _safe_decimal(values_list[index])
 
 
 def _yahoo_symbol(identifier: str) -> str | None:
