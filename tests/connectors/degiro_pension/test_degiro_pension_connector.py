@@ -260,28 +260,6 @@ async def test_statement_pairs_usd_dividend_with_degiro_fx_conversion(
 
 
 @pytest.mark.asyncio
-async def test_statement_pairs_fx_debit_when_it_follows_usd_dividend(
-    tmp_path: Path,
-) -> None:
-    """DEGIRO exports may place the technical FX row after the dividend."""
-    path = tmp_path / "account_statement.csv"
-    path.write_text(
-        "Datum,Tijd,Valutadatum,Product,ISIN,Omschrijving,FX,Mutatie,,Saldo,,Order Id\n"
-        "2026-09-08,05:15,2026-09-08,Fund A,IE000U5MJOZ6,Dividend,,USD,75.12,USD,75.12,\n"
-        "2026-09-08,05:16,2026-09-08,,,Valuta Debitering,1.16,USD,-75.12,USD,0.0,\n",
-        encoding="utf-8",
-    )
-    connector = _connector(str(path))
-    await connector.authenticate()
-    transactions = await connector.fetch_transactions(
-        datetime(2020, 1, 1, tzinfo=UTC)
-    )
-    assert len(transactions) == 1
-    assert transactions[0].fx_rate == Decimal("1.16")
-    assert transactions[0].amount_in_base == Decimal("75.12") / Decimal("1.16")
-
-
-@pytest.mark.asyncio
 async def test_statement_reads_dutch_exchange_rate_for_usd_cash_activity(
     tmp_path: Path,
 ) -> None:

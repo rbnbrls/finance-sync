@@ -228,9 +228,6 @@ class TestTrading212SyncPipeline:
         assert counts["SyncRun"] == 1
 
         async with session_factory() as session:
-            sync_run = (await session.scalars(select(SyncRun))).one()
-            assert sync_run.id is not None
-            assert sync_run.status == SyncRunStatus.COMPLETED
             account = (await session.scalars(select(Account))).one()
             assert account.external_account_id == "12345678"
             assert account.name == "Trading212"

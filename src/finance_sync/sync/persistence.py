@@ -1531,8 +1531,12 @@ class SecurityPersistence:
         visible forever after the first sync.
         """
         external_id = (reference.external_id or "").strip().casefold()
-        current_ticker = (security.ticker or "").strip().casefold()
-        current_name = (security.name or "").strip().casefold()
+        current_ticker = (
+            (getattr(security, "ticker", None) or "").strip().casefold()
+        )
+        current_name = (
+            (getattr(security, "name", None) or "").strip().casefold()
+        )
         candidate_name = (reference.name or "").strip()
         candidate_ticker = (reference.ticker or "").strip()
         if (
@@ -1547,9 +1551,13 @@ class SecurityPersistence:
             security.name = candidate_name
         if candidate_ticker and current_ticker in {"", external_id}:
             security.ticker = candidate_ticker.upper()
-        if allow_isin_fill and reference.isin and not security.isin:
+        if (
+            allow_isin_fill
+            and reference.isin
+            and not getattr(security, "isin", None)
+        ):
             security.isin = reference.isin.upper()
-        if reference.figi and not security.figi:
+        if reference.figi and not getattr(security, "figi", None):
             security.figi = reference.figi.upper()
         if reference.currency_code and current_name in {
             "",

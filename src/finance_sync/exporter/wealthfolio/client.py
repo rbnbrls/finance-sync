@@ -75,6 +75,10 @@ class WealthfolioClientConfig:
     password: str
     request_timeout: float = 60.0
     verify_ssl: bool = True
+    # Retry a request when Wealthfolio answers HTTP 408 (its own
+    # WF_REQUEST_TIMEOUT_MS cap aborted a slow holdings recalculation).
+    # The server keeps working after the abort, so a retry commonly
+    # succeeds (observed 17s vs 30s cap on the prod instance).
     retry_408: bool = True
     retry_408_attempts: int = 3
     retry_408_base_delay: float = 2.0
@@ -467,6 +471,11 @@ class WealthfolioClient:
             f"{self.API_PREFIX}/activities/import/check",
             json={"activities": activities},
         )
+        # Keep httpx's status error intact for the validation endpoint.  In
+        # addition to preserving the server's original request/response
+        # context, callers use the status error to distinguish validation
+        # failures from transport/client failures.  The retry helper has
+        # already exhausted any configured 408 retries before this point.
         response.raise_for_status()
         return response.json()
 
@@ -549,13 +558,6 @@ class WealthfolioClient:
                     "sourceGroupId",
                     "idempotencyKey",
                     "importRunId",
-                    # The check endpoint may default to DRAFT. Preserve the
-                    # explicit lifecycle chosen by the exporter for owned
-                    # corrections and normal booked transactions.
-                    "status",
-                    "needsReview",
-                    "isDraft",
-                    "isValid",
                 ):
                     if original.get(key) not in (None, ""):
                         merged[key] = original[key]
@@ -743,51 +745,18 @@ class WealthfolioClient:
         # existing assets before saving so Wealthfolio updates the intended
         # positions instead of creating anonymous snapshot assets.
         assets = await self.get_assets()
-        asset_groups: dict[str, list[dict[str, Any]]] = {}
-        for asset in assets:
-            if not asset.get("id"):
-                continue
+        by_symbol = {
+            str(value): asset
+            for asset in assets
+            if asset.get("id")
             for value in (
                 asset.get("displayCode"),
                 asset.get("instrumentSymbol"),
                 asset.get("symbol"),
                 asset.get("isin"),
-            ):
-                if value:
-                    asset_groups.setdefault(str(value), []).append(asset)
-
-        # Wealthfolio can contain two assets for the same symbol after a
-        # transaction import followed by a holdings snapshot.  Resolving by
-        # symbol alone is then nondeterministic and can leave the account
-        # showing the old quantity.  For ambiguous symbols, prefer the asset
-        # that is already present in this account's current holdings.
-        active_by_symbol: dict[str, dict[str, Any]] = {}
-        ambiguous_symbols = {
-            symbol
-            for symbol, matches in asset_groups.items()
-            if len(matches) > 1
+            )
+            if value
         }
-        if ambiguous_symbols:
-            for row in await self.get_holdings(account_id):
-                instrument = row.get("instrument")
-                if not isinstance(instrument, dict):
-                    continue
-                instrument = cast(dict[str, Any], instrument)
-                asset_id = instrument.get("id")
-                if not asset_id:
-                    continue
-                for value in (
-                    instrument.get("displayCode"),
-                    instrument.get("instrumentSymbol"),
-                    instrument.get("symbol"),
-                    instrument.get("isin"),
-                ):
-                    if value and str(value) in ambiguous_symbols:
-                        active_by_symbol[str(value)] = {"id": str(asset_id)}
-
-        by_symbol: dict[str, dict[str, Any]] = {}
-        for symbol, matches in asset_groups.items():
-            by_symbol[symbol] = active_by_symbol.get(symbol, matches[0])
         resolved_holdings: list[dict[str, Any]] = []
         for holding in holdings:
             resolved = dict(holding)
@@ -1208,7 +1177,16 @@ class WealthfolioClient:
         *,
         json: dict[str, Any],
     ) -> httpx.Response:
-        """Retry slow Wealthfolio validation requests after HTTP 408."""
+        """POST *url*, retrying with backoff when the server answers 408.
+
+        Wealthfolio aborts slow requests at its own ``WF_REQUEST_TIMEOUT_MS``
+        cap (30s default) and answers HTTP 408 while the underlying work
+        keeps running.  A retry after a short backoff normally completes the
+        request (observed: the snapshot POST failed at 30s then succeeded at
+        17s on the production instance).  Only slow Wealthfolio POST
+        endpoints use this helper; ordinary fast endpoints keep fail-fast
+        semantics.
+        """
         attempts = (
             self._config.retry_408_attempts if self._config.retry_408 else 1
         )
@@ -1217,11 +1195,10 @@ class WealthfolioClient:
             response = await self._client.post(url, json=json)
             if response.status_code != 408 or attempt == attempts:
                 return response
-            await asyncio.sleep(
-                self._config.retry_408_base_delay * (2 ** (attempt - 1))
-            )
-        assert response is not None
-        return response
+            delay = self._config.retry_408_base_delay * (2 ** (attempt - 1))
+            await asyncio.sleep(delay)
+        assert response is not None  # loop above always returns on last attempt
+        return response  # pragma: no cover - defensive for type checkers
 
     def _ensure_authenticated(self) -> None:
         """Raise if the client is not authenticated."""
