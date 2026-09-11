@@ -8,7 +8,11 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from finance_sync.enrichment.gateway import EnrichmentGateway, _safe_decimal
+from finance_sync.enrichment.gateway import (
+    EnrichmentGateway,
+    _safe_decimal,
+    _yahoo_symbol,
+)
 from finance_sync.enrichment.models import PriceObservation
 
 
@@ -30,6 +34,17 @@ class TestSafeDecimal:
     def test_invalid(self) -> None:
         assert _safe_decimal("not-a-number") is None
         assert _safe_decimal({}) is None
+
+
+class TestYahooSymbol:
+    """Tests for exchange-qualified Yahoo fallback identifiers."""
+
+    def test_mic_mapping(self) -> None:
+        assert _yahoo_symbol("BESI:XAMS") == "BESI.AS"
+        assert _yahoo_symbol("ABC:XLON") == "ABC.L"
+
+    def test_rejects_unqualified_identifier(self) -> None:
+        assert _yahoo_symbol("AAPL") is None
 
 
 class TestEnrichmentGatewayDegraded:
