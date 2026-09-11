@@ -28,6 +28,9 @@ services:
       context: .
       dockerfile: Dockerfile
     restart: "no"
+    # Bypass the image entrypoint: it also runs migrations, so leaving it
+    # enabled would execute Alembic twice before the dependent services start.
+    entrypoint: []
     command: ["alembic", "upgrade", "head"]
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-finance_sync}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-finance_sync}
