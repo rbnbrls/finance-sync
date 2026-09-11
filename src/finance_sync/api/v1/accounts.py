@@ -8,6 +8,7 @@ from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from finance_sync.api.deps.auth import (
@@ -16,7 +17,15 @@ from finance_sync.api.deps.auth import (
     require_permission,
 )
 from finance_sync.dependencies import get_db
+from finance_sync.models.account import Account
 from finance_sync.models.enums import TransactionType
+from finance_sync.services.connection_audit import (
+    AUDIT_ACCOUNTS,
+    log_connection_event,
+)
+from finance_sync.services.connector_data_deletion import (
+    ConnectorDataDeletionService,
+)
 from finance_sync.services.read_api import (
     AccountDetailResponse,
     AccountSummary,
@@ -88,6 +97,51 @@ async def get_account(
             detail="Account not found",
         )
     return account.model_dump()
+
+
+@router.delete(
+    "/{account_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def delete_account(
+    account_id: str,
+    auth: AuthContext = Depends(require_permission("accounts", "write")),
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """Delete one tenant account and all locally imported account data."""
+    account = await db.scalar(
+        select(Account).where(
+            Account.id == account_id,
+            Account.tenant_id == auth.tenant_id,
+        )
+    )
+    if account is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Account not found",
+        )
+    provider_key = str(account.provider_key)
+    connection_id = (
+        str(account.connection_id) if account.connection_id else None
+    )
+    external_account_id = str(account.external_account_id)
+    await ConnectorDataDeletionService(db, auth.tenant_id).delete_account(
+        account
+    )
+    await log_connection_event(
+        db,
+        tenant_id=auth.tenant_id,
+        action=AUDIT_ACCOUNTS,
+        provider_key=provider_key,
+        connection_id=connection_id,
+        detail={
+            "deleted_account": external_account_id,
+            "deleted_account_id": account_id,
+            "legacy_account": connection_id is None,
+        },
+        actor_user_id=auth.principal_id,
+        actor_role=auth.user.role if auth.user else None,
+    )
 
 
 # ── GET /v1/accounts/{id}/transactions ───────────────────────────────

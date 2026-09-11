@@ -636,8 +636,8 @@ class ReconciliationService:
 # ── Helpers ───────────────────────────────────────────────────────────
 
 
-def _default_since() -> datetime:
+def _default_since(now: datetime | None = None) -> datetime:
     """Return a default look-back datetime (90 days ago)."""
     from datetime import timedelta
 
-    return datetime.now(UTC) - timedelta(days=_DEFAULT_DAYS_BACK)
+    return (now or datetime.now(UTC)) - timedelta(days=_DEFAULT_DAYS_BACK)

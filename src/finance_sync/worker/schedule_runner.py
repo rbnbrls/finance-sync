@@ -51,6 +51,7 @@ from finance_sync.models.sync_schedule import (
     SCOPE_INGESTION,
 )
 from finance_sync.services.auth import decrypt_credential
+from finance_sync.services.retry_lock import retry_lease
 from finance_sync.services.sync_schedule import (
     CATCHUP_MAX_DELAY_DAYS,
     compute_next_run,
@@ -160,6 +161,22 @@ async def _reset_next_run(
     await session.flush()
 
 
+def _outcome_error(outcome: dict[str, Any]) -> str | None:
+    """Return a bounded, actionable schedule outcome detail.
+
+    Skip outcomes historically only carried ``reason`` in the in-memory
+    result.  The schedule row persisted an empty error, leaving the UI with
+    no way to explain why an apparently active schedule did not run.
+    Reasons are intentionally fixed/internal labels, never provider or
+    credential data.
+    """
+    error = outcome.get("error")
+    if error:
+        return str(error)[:500]
+    reason = outcome.get("reason")
+    return f"skipped: {str(reason)[:480]}" if reason else None
+
+
 async def _run_ingestion(
     container: Container,
     *,
@@ -233,7 +250,7 @@ async def _run_ingestion(
     }
 
 
-async def run_export(
+async def _run_export_unlocked(
     container: Container,
     *,
     schedule: SyncSchedule,
@@ -301,6 +318,11 @@ async def run_export(
                     },
                 }
             )
+        wf_timeout: float = settings.wealthfolio_request_timeout
+        if target:
+            configured = target.configuration.get("request_timeout", 0.0)
+            if configured:
+                wf_timeout = float(configured)
         wf_client = WealthfolioClient(
             config=WealthfolioClientConfig(
                 base_url=(
@@ -313,6 +335,7 @@ async def run_export(
                     if target
                     else secret_value(settings.wealthfolio_password)
                 ),
+                request_timeout=wf_timeout,
             ),
         )
         await wf_client.authenticate()
@@ -407,6 +430,7 @@ async def run_export(
             session_factory=container.session_factory,
             firefly_config=config,
             tenant_id=str(schedule.tenant_id),
+            target_id=str(target.id),
         ).run_export(account_ids=target.selected_account_ids or None)
         return {"status": result.status, "error": result.error_message}
 
@@ -519,6 +543,45 @@ async def run_export(
     return {"status": "skipped", "reason": "unknown_exporter"}
 
 
+async def run_export(
+    container: Container,
+    *,
+    schedule: SyncSchedule,
+) -> dict[str, Any]:
+    """Run one export while preventing overlapping runs for one target.
+
+    The schedule claim is intentionally short-lived so a stuck schedule can
+    recover.  It is not sufficient to serialize long-running exports: a
+    second tick could otherwise start a destructive second projection while
+    the first one is still writing.  Redis is already a worker dependency;
+    when it is configured, this lease covers scheduled and API-triggered
+    exports alike.  SQLite/unit-test containers keep the historical
+    single-process behaviour.
+    """
+    settings: Settings = container.settings
+    lease = None
+    if getattr(settings, "redis_url", None) is not None:
+        lease = retry_lease(
+            container.redis_client,
+            tenant_id=str(schedule.tenant_id),
+            kind="destination-export",
+            item_id=schedule.target_id,
+        )
+
+    if lease is None:
+        return await _run_export_unlocked(container, schedule=schedule)
+
+    async with lease:
+        if not lease.acquired:
+            logger.info(
+                "destination_export_skipped_overlap",
+                tenant_id=str(schedule.tenant_id),
+                target=schedule.target_id,
+            )
+            return {"status": "skipped", "reason": "export_in_progress"}
+        return await _run_export_unlocked(container, schedule=schedule)
+
+
 async def run_due_schedules(container: Container) -> dict[str, Any]:
     """Claim and execute every due schedule; never raises.
 
@@ -624,11 +687,14 @@ async def run_due_schedules(container: Container) -> dict[str, Any]:
                     row.last_run_status = str(
                         outcome.get("status", "completed")
                     )[:16]
-                    row.last_run_error = (
-                        str(outcome.get("error") or "")[:500] or None
-                    )
+                    row.last_run_error = _outcome_error(outcome)
                     if row.enabled:
-                        instants = compute_next_run(row, after=now, count=1)
+                        # Keep hourly schedules anchored to the scheduled
+                        # instant.  Computing from the wall-clock completion
+                        # time makes every delayed/short run move the next
+                        # occurrence and slowly drifts the user's cadence.
+                        after = _ensure_aware(schedule.next_run_at) or now
+                        instants = compute_next_run(row, after=after, count=1)
                         row.next_run_at = instants[0] if instants else None
                     else:
                         row.next_run_at = None
