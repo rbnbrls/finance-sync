@@ -4,8 +4,6 @@ services:
     image: postgres:16-alpine
     container_name: finance-sync-db
     restart: unless-stopped
-    ports:
-      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     environment:
@@ -43,8 +41,6 @@ services:
     image: redis:7-alpine
     container_name: finance-sync-redis
     restart: unless-stopped
-    ports:
-      - "6379:6379"
     volumes:
       - redis_data:/data
     healthcheck:
