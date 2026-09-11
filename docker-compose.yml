@@ -30,7 +30,7 @@ services:
     restart: "no"
     command: ["alembic", "upgrade", "head"]
     environment:
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-finance_sync}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-finance_sync}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://${POSTGRES_USER:-finance_sync}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-finance_sync}}
     depends_on:
       postgres:
         condition: service_healthy
@@ -77,10 +77,10 @@ services:
       GLITCHTIP_TRACES_SAMPLE_RATE: ${GLITCHTIP_TRACES_SAMPLE_RATE:-0.01}
       GLITCHTIP_RELEASE: ${GLITCHTIP_RELEASE:-}
       GLITCHTIP_MAX_BREADCRUMBS: ${GLITCHTIP_MAX_BREADCRUMBS:-20}
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-finance_sync}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-finance_sync}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://${POSTGRES_USER:-finance_sync}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-finance_sync}}
       DATABASE_POOL_MIN_SIZE: ${DATABASE_POOL_MIN_SIZE:-2}
       DATABASE_POOL_MAX_SIZE: ${DATABASE_POOL_MAX_SIZE:-10}
-      REDIS_URL: redis://:${REDIS_PASSWORD:-}@redis:6379/0
+      REDIS_URL: ${REDIS_URL:-redis://:${REDIS_PASSWORD:-}@redis:6379/0}
       SECRET_KEY: ${SECRET_KEY:?SECRET_KEY is required}
       ADMIN_KEY: ${ADMIN_KEY:?ADMIN_KEY is required; run scripts/generate-admin-key.sh}
       ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-30}
@@ -157,10 +157,10 @@ services:
       GLITCHTIP_RELEASE: ${GLITCHTIP_RELEASE:-}
       GLITCHTIP_MAX_BREADCRUMBS: ${GLITCHTIP_MAX_BREADCRUMBS:-20}
       CORS_ORIGINS: ${CORS_ORIGINS:-["http://localhost:8000"]}
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-finance_sync}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-finance_sync}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://${POSTGRES_USER:-finance_sync}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-finance_sync}}
       DATABASE_POOL_MIN_SIZE: 1
       DATABASE_POOL_MAX_SIZE: 2
-      REDIS_URL: redis://:${REDIS_PASSWORD:-}@redis:6379/0
+      REDIS_URL: ${REDIS_URL:-redis://:${REDIS_PASSWORD:-}@redis:6379/0}
       SECRET_KEY: ${SECRET_KEY:?SECRET_KEY is required}
       ADMIN_KEY: ${ADMIN_KEY:?ADMIN_KEY is required; run scripts/generate-admin-key.sh}
       MASTER_ENCRYPTION_KEY: ${MASTER_ENCRYPTION_KEY:-}

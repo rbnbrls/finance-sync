@@ -2,7 +2,7 @@
 # Worker image — same build as the app image, different entrypoint.
 # ==============================================================================
 # finance-sync runs two processes in production:
-#   - app:     FastAPI (uvicorn) — docker-compose.coolify.yml service `app`
+#   - app:     FastAPI (uvicorn) — service `app`
 #   - worker:  APScheduler (python -m finance_sync.worker) — service `worker`
 #
 # The worker container must run `python -m finance_sync.worker` instead of the
