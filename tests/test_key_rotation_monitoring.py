@@ -8,6 +8,7 @@ from unittest.mock import patch
 import pytest
 
 from scripts.key_rotation_monitoring import (
+    _check_key_version_downgrade,
     build_key_issue_body,
     build_key_marker,
     check_key_provider_status,
@@ -127,6 +128,32 @@ def test_check_key_rotation_status_with_error():
     assert alerts[0]["name"] == "key_provider_error"
     assert alerts[0]["severity"] == "critical"
     assert "Provider connection failed" in alerts[0]["detail"]
+
+
+def test_check_key_version_downgrade_alerts_only_for_numeric_decrease():
+    """Report downgrades only for canonical numeric key versions."""
+    state = {"last_reported_version": "10"}
+
+    alert = _check_key_version_downgrade(state, {"current_version": "9"})
+    assert alert == [
+        {
+            "name": "key_version_downgrade",
+            "severity": "critical",
+            "detail": "Key version downgraded from 10 to 9",
+        }
+    ]
+    assert _check_key_version_downgrade(state, {"current_version": "11"}) == []
+    assert _check_key_version_downgrade(state, {"current_version": "v9"}) == []
+
+
+def test_check_key_rotation_status_includes_downgrade_alert():
+    """Include state-based downgrade alerts alongside expiry alerts."""
+    alerts = check_key_rotation_status(
+        {"current_version": "1", "hours_to_expiry": 100},
+        {"last_reported_version": "2"},
+    )
+
+    assert [alert["name"] for alert in alerts] == ["key_version_downgrade"]
 
 
 def test_build_key_issue_body():
