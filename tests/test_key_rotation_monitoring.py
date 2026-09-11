@@ -43,7 +43,6 @@ def test_check_key_provider_status_error():
     with (
         patch.dict("os.environ", {}, clear=True),
         patch("os.getcwd", return_value="/nonexistent"),
-        # Mock os.path.exists to return False for the config file
         patch("os.path.exists", return_value=False),
     ):
         result = check_key_provider_status()
