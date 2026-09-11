@@ -69,12 +69,13 @@ _sa_types.Uuid.bind_processor = _uuid_bind_patched
 from finance_sync.config.settings import Settings
 from finance_sync.container import Container
 from finance_sync.db import Base
-from finance_sync.models import Credential, SyncSchedule, Tenant
-from finance_sync.models.sync_schedule import SCOPE_INGESTION
+from finance_sync.models import Credential, ExportTarget, SyncSchedule, Tenant
+from finance_sync.models.sync_schedule import SCOPE_EXPORT, SCOPE_INGESTION
 from finance_sync.sync.schedule_spec import default_schedule
 from finance_sync.worker.schedule_runner import (
     CATCHUP_MAX_DELAY,
     run_due_schedules,
+    run_export,
 )
 
 if TYPE_CHECKING:
@@ -208,6 +209,32 @@ def _ensure_aware_test(value: datetime | None) -> datetime | None:
 
 
 class TestRunDueSchedules:
+    async def test_export_skips_when_same_target_is_already_running(
+        self, session_factory
+    ) -> None:
+        """A second worker cannot overlap a destination export."""
+        tenant = _tenant("t1")
+        schedule = _schedule(tenant, "wealthfolio:target-1")
+        await _seed(session_factory, [tenant, schedule])
+        container = _make_container(
+            session_factory,
+            redis_url="redis://test",
+        )
+
+        class BusyRedis:
+            async def set(self, *_args: Any, **_kwargs: Any) -> bool:
+                return False
+
+        container._redis = BusyRedis()
+        with patch(
+            "finance_sync.worker.schedule_runner._run_export_unlocked",
+            new=AsyncMock(),
+        ) as run_unlocked:
+            outcome = await run_export(container, schedule=schedule)
+
+        assert outcome == {"status": "skipped", "reason": "export_in_progress"}
+        run_unlocked.assert_not_awaited()
+
     async def test_due_schedule_runs_once_and_advances(
         self, session_factory
     ) -> None:
@@ -234,6 +261,34 @@ class TestRunDueSchedules:
         assert row.next_run_at is not None
         assert row.next_run_at > datetime.now(UTC)
         assert row.last_scheduled_at is not None
+
+    async def test_skipped_outcome_exposes_reason_on_schedule_row(
+        self, session_factory
+    ) -> None:
+        """A skipped destination is diagnosable from the Sync Runs UI."""
+        tenant = _tenant("t1")
+        target = ExportTarget(
+            tenant_id=str(tenant.id),
+            target_type="wealthfolio",
+            display_name="Wealthfolio",
+            status="paused",
+            configuration={"server_url": "http://wealthfolio:8088"},
+        )
+        sched = _schedule(
+            tenant,
+            f"wealthfolio:{target.id}",
+            scope=SCOPE_EXPORT,
+        )
+        await _seed(session_factory, [tenant, target])
+        sched.target_id = f"wealthfolio:{target.id}"
+        await _seed(session_factory, [sched])
+
+        summary = await run_due_schedules(_make_container(session_factory))
+
+        assert summary["results"][0]["status"] == "skipped"
+        row = await _get_row(session_factory, str(sched.id))
+        assert row.last_run_status == "skipped"
+        assert row.last_run_error == "skipped: target_inactive"
 
     async def test_second_tick_within_grace_does_not_double_run(
         self, session_factory
