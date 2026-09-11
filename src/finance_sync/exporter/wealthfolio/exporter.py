@@ -27,6 +27,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import inspect
+import json
 import traceback
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
@@ -38,6 +39,7 @@ from sqlalchemy import and_, func, or_, select
 from sqlalchemy.exc import ArgumentError
 
 from finance_sync.exporter.models import ExportRun
+from finance_sync.exporter.wealthfolio.client import WealthfolioClient
 from finance_sync.exporter.wealthfolio.extensions import build_extension_payload
 from finance_sync.exporter.wealthfolio.models import (
     WealthfolioAccountMapping,
@@ -81,9 +83,6 @@ if TYPE_CHECKING:
         async_sessionmaker,
     )
 
-    from finance_sync.exporter.wealthfolio.client import (
-        WealthfolioClient,
-    )
     from finance_sync.exporter.wealthfolio.config import (
         WealthfolioConfig,
     )
@@ -664,6 +663,366 @@ class WealthfolioExporter:
                 )
             return grouped
 
+    async def _project_sector_assignments(
+        self,
+        wf_client: WealthfolioClient,
+        securities: dict[str, Security],
+        metadata: dict[str, list[SecurityMetadataObservation]],
+    ) -> None:
+        """Project verified sector facts into Wealthfolio's GICS taxonomy."""
+        if not metadata:
+            return
+        assets = await wf_client.get_assets()
+        by_identity: dict[str, str] = {}
+        for asset in assets:
+            asset_id = asset.get("id")
+            if not asset_id:
+                continue
+            for value in (
+                asset.get("displayCode"),
+                asset.get("instrumentSymbol"),
+                asset.get("isin"),
+            ):
+                if value:
+                    by_identity.setdefault(
+                        str(value).strip().upper(), str(asset_id)
+                    )
+
+        category_ids = {
+            "energy": "10",
+            "materials": "15",
+            "industrials": "20",
+            "consumer discretionary": "25",
+            "consumer staples": "30",
+            "health care": "35",
+            "healthcare": "35",
+            "financials": "40",
+            "information technology": "45",
+            "technology": "45",
+            "communication services": "50",
+            "utilities": "55",
+            "real estate": "60",
+        }
+        for security_id, observations in metadata.items():
+            security = securities.get(security_id)
+            if security is None:
+                continue
+            asset_id = next(
+                (
+                    by_identity.get(str(value).strip().upper())
+                    for value in (security.isin, security.ticker)
+                    if value and by_identity.get(str(value).strip().upper())
+                ),
+                None,
+            )
+            if asset_id is None:
+                continue
+            latest = max(observations, key=lambda row: row.timestamp)
+            raw = latest.metadata_json or {}
+            exposures = raw.get("sector_exposures")
+            if not isinstance(exposures, list):
+                exposures = [{"sector": raw.get("primary_sector"), "weight": 1}]
+            exposures = cast(list[dict[str, Any]], exposures)
+            assignments: list[dict[str, Any]] = []
+            for exposure in exposures:
+                category_id = category_ids.get(
+                    str(exposure.get("sector") or "").strip().lower()
+                )
+                if category_id is None:
+                    continue
+                try:
+                    weight = round(float(exposure.get("weight", 1)) * 10000)
+                except (TypeError, ValueError):
+                    continue
+                if weight > 0:
+                    assignments.append(
+                        {
+                            "assetId": asset_id,
+                            "taxonomyId": "industries_gics",
+                            "categoryId": category_id,
+                            "weight": min(weight, 10000),
+                            "source": "AUTO",
+                        }
+                    )
+            if assignments:
+                await wf_client.replace_asset_taxonomy_assignments(
+                    asset_id, "industries_gics", assignments
+                )
+
+    async def _project_security_enrichment(
+        self,
+        wf_client: WealthfolioClient,
+        securities: dict[str, Security],
+        metadata: dict[str, list[SecurityMetadataObservation]],
+    ) -> None:
+        """Project finance-sync profiles and classifications into Wealthfolio.
+
+        Wealthfolio does not run provider enrichment for connector-owned
+        manual quotes.  The sync therefore sends the complete observation
+        set, selects finance-sync as the preferred provider, and writes the
+        three allocation taxonomies explicitly.
+        """
+        if not securities:
+            return
+        assets = await wf_client.get_assets()
+        by_identity: dict[str, dict[str, Any]] = {}
+        for asset in assets:
+            if not asset.get("id"):
+                continue
+            values = [
+                asset.get("displayCode"),
+                asset.get("instrumentSymbol"),
+                asset.get("symbol"),
+                asset.get("isin"),
+            ]
+            provider_config = cast(
+                dict[str, Any], asset.get("providerConfig") or {}
+            )
+            overrides = cast(
+                dict[str, Any], provider_config.get("overrides") or {}
+            )
+            override = cast(dict[str, Any], overrides.get("FINANCE_SYNC") or {})
+            values.append(override.get("symbol"))
+            for value in values:
+                if value:
+                    by_identity.setdefault(str(value).strip().upper(), asset)
+
+        async def category_map(taxonomy_id: str) -> dict[str, str]:
+            try:
+                taxonomy = await wf_client.get_taxonomy(taxonomy_id)
+            except Exception as exc:
+                self._log.warning(
+                    "wealthfolio_taxonomy_read_failed",
+                    taxonomy=taxonomy_id,
+                    error=str(exc),
+                )
+                return {}
+            categories: list[dict[str, Any]] = []
+            raw_categories = taxonomy.get("categories")
+            if isinstance(raw_categories, list):
+                categories = cast(list[dict[str, Any]], raw_categories)
+            elif isinstance(raw_categories, dict):
+                raw_categories_dict = cast(dict[str, Any], raw_categories)
+                categories = cast(
+                    list[dict[str, Any]], raw_categories_dict.get("data", [])
+                )
+            nested = cast(dict[str, Any], taxonomy.get("taxonomy") or {})
+            if not categories:
+                nested_categories: Any = nested.get("categories", [])
+                if isinstance(nested_categories, list):
+                    categories = cast(list[dict[str, Any]], nested_categories)
+            result: dict[str, str] = {}
+            pending: list[dict[str, Any]] = list(categories)
+            while pending:
+                category = pending.pop()
+                category_id = category.get("id")
+                name = category.get("name") or category.get("label")
+                if category_id and name:
+                    result[str(name).strip().lower()] = str(category_id)
+                children: Any = category.get("children") or []
+                if isinstance(children, list):
+                    pending.extend(cast(list[dict[str, Any]], children))
+            return result
+
+        taxonomy_maps = {
+            taxonomy_id: await category_map(taxonomy_id)
+            for taxonomy_id in ("asset_classes", "regions", "industries_gics")
+        }
+        # These are the stable built-in GICS category ids.  Keep them as a
+        # fallback for older Wealthfolio versions whose taxonomy GET route
+        # does not include categories.
+        taxonomy_maps["industries_gics"].update(
+            {
+                "energy": "10",
+                "materials": "15",
+                "industrials": "20",
+                "consumer discretionary": "25",
+                "consumer staples": "30",
+                "health care": "35",
+                "healthcare": "35",
+                "financials": "40",
+                "information technology": "45",
+                "technology": "45",
+                "communication services": "50",
+                "utilities": "55",
+                "real estate": "60",
+            }
+        )
+
+        def jsonable(value: Any) -> Any:
+            return json.loads(json.dumps(value, default=str))
+
+        def match_asset(security: Security) -> dict[str, Any] | None:
+            for value in (security.isin, security.ticker):
+                if value and by_identity.get(str(value).strip().upper()):
+                    return by_identity[str(value).strip().upper()]
+            return None
+
+        def assignments(
+            asset_id: str,
+            taxonomy_id: str,
+            values: list[tuple[str, Any]],
+        ) -> list[dict[str, Any]]:
+            mapping = taxonomy_maps[taxonomy_id]
+            output: list[dict[str, Any]] = []
+            for name, weight in values:
+                category_id = mapping.get(str(name).strip().lower())
+                if category_id is None:
+                    continue
+                try:
+                    basis_points = min(
+                        10000, max(1, round(float(weight) * 10000))
+                    )
+                except (TypeError, ValueError):
+                    continue
+                output.append(
+                    {
+                        "assetId": asset_id,
+                        "taxonomyId": taxonomy_id,
+                        "categoryId": category_id,
+                        "weight": basis_points,
+                        "source": "AUTO",
+                    }
+                )
+            return output
+
+        def taxonomy_name(taxonomy_id: str, *names: str) -> str | None:
+            mapping = taxonomy_maps[taxonomy_id]
+            for name in names:
+                if name.lower() in mapping:
+                    return name
+            return None
+
+        asset_class_names = {
+            "stock": "equity",
+            "etf": "equity",
+            "mutual_fund": "equity",
+            "bond": "fixed income",
+            "crypto": "cryptocurrency",
+            "currency": "cash",
+            "option": "other",
+            "other": "other",
+        }
+        for security_id, security in securities.items():
+            asset = match_asset(security)
+            if asset is None:
+                continue
+            asset_id = str(asset["id"])
+            observations = metadata.get(security_id, [])
+            latest = (
+                max(observations, key=lambda row: row.timestamp)
+                if observations
+                else None
+            )
+            raw = latest.metadata_json if latest else {}
+
+            provider_symbol = security.ticker or security.isin or security.name
+            provider_config = {
+                "preferred_provider": "FINANCE_SYNC",
+                "overrides": {
+                    "FINANCE_SYNC": {
+                        "symbol": provider_symbol,
+                        "type": "equity_symbol",
+                    }
+                },
+            }
+            profile_metadata = {
+                "finance_sync": {
+                    "security_id": security_id,
+                    "isin": security.isin,
+                    "ticker": security.ticker,
+                    "security_type": str(security.security_type),
+                    "observations": [
+                        {
+                            "type": observation.metadata_type,
+                            "timestamp": observation.timestamp,
+                            "label": observation.label,
+                            "source": observation.source,
+                            "data": observation.metadata_json,
+                        }
+                        for observation in observations
+                    ],
+                }
+            }
+            try:
+                await wf_client.update_asset_profile(
+                    asset_id,
+                    {
+                        "name": asset.get("name") or security.name,
+                        "displayCode": (
+                            asset.get("displayCode") or provider_symbol
+                        ),
+                        "notes": asset.get("notes") or "",
+                        "providerConfig": provider_config,
+                        "metadata": jsonable(profile_metadata),
+                    },
+                )
+            except Exception as exc:
+                # Profile projection is an optional compatibility layer. Older
+                # Wealthfolio versions do not expose this endpoint (or reject
+                # fields introduced by newer versions); that must not abort the
+                # transaction/holdings export for the tenant.
+                self._log.warning(
+                    "wealthfolio_asset_profile_update_failed",
+                    asset_id=asset_id,
+                    error=str(exc),
+                )
+
+            asset_class = asset_class_names.get(
+                str(security.security_type).lower()
+            )
+            if asset_class:
+                class_name = taxonomy_name(
+                    "asset_classes",
+                    asset_class,
+                    "digital assets" if asset_class == "cryptocurrency" else "",
+                    "equity" if asset_class == "equity" else "",
+                    "fixed income" if asset_class == "fixed income" else "",
+                )
+                values = [(class_name, 1)] if class_name else []
+                class_assignments = assignments(
+                    asset_id, "asset_classes", values
+                )
+                if class_assignments:
+                    await wf_client.replace_asset_taxonomy_assignments(
+                        asset_id, "asset_classes", class_assignments
+                    )
+
+            sector_values: list[tuple[str, Any]] = []
+            region_values: list[tuple[str, Any]] = []
+            exposures = raw.get("sector_exposures")
+            if isinstance(exposures, list):
+                sector_exposures = cast(list[dict[str, Any]], exposures)
+                sector_values = [
+                    (str(item.get("sector")), item.get("weight", 1))
+                    for item in sector_exposures
+                    if item.get("sector")
+                ]
+            if not sector_values and raw.get("primary_sector"):
+                sector_values = [(str(raw["primary_sector"]), 1)]
+            exposures = raw.get("region_exposures")
+            if isinstance(exposures, list):
+                region_exposures = cast(list[dict[str, Any]], exposures)
+                region_values = [
+                    (str(item.get("region")), item.get("weight", 1))
+                    for item in region_exposures
+                    if item.get("region")
+                ]
+            if not region_values and raw.get("region"):
+                region_values = [(str(raw["region"]), 1)]
+            industry_assignments = assignments(
+                asset_id, "industries_gics", sector_values
+            )
+            if industry_assignments:
+                await wf_client.replace_asset_taxonomy_assignments(
+                    asset_id, "industries_gics", industry_assignments
+                )
+            region_assignments = assignments(asset_id, "regions", region_values)
+            if region_assignments:
+                await wf_client.replace_asset_taxonomy_assignments(
+                    asset_id, "regions", region_assignments
+                )
+
     async def export_historical_holdings(
         self,
         *,
@@ -843,6 +1202,19 @@ class WealthfolioExporter:
                         str(asset["id"]),
                         manual_mode,
                     )
+            provider_config = cast(
+                dict[str, Any], asset.get("providerConfig") or {}
+            )
+            overrides = cast(
+                dict[str, Any], provider_config.get("overrides") or {}
+            )
+            override = cast(dict[str, Any], overrides.get("FINANCE_SYNC") or {})
+            provider_symbol = override.get("symbol")
+            if provider_symbol:
+                by_identity[str(provider_symbol).upper()] = (
+                    str(asset["id"]),
+                    manual_mode,
+                )
 
         synced = 0
         for price in prices:
@@ -866,11 +1238,14 @@ class WealthfolioExporter:
                 continue
             asset_id, manual_mode = asset_match
             # Current broker snapshots use connector-owned manual quotes.
-            # Historical market-data enrichment must not overwrite those
-            # quotes with a provider price (which can turn an authoritative
-            # Saxo NAV into a different Wealthfolio NAV immediately after a
-            # successful holdings reconciliation).
-            if manual_mode:
+            # Keep today's manual quote authoritative, but still project
+            # older finance-sync candles so manual-mode assets retain a
+            # complete performance history (for example BESI:XAMS).
+            if (
+                manual_mode
+                and price.timestamp.astimezone(UTC).date()
+                >= datetime.now(UTC).date()
+            ):
                 continue
             timestamp = price.timestamp.astimezone(UTC).isoformat()
             try:
@@ -878,10 +1253,11 @@ class WealthfolioExporter:
                     asset_id,
                     {
                         "id": (
-                            f"{asset_id}_{price.timestamp.date()}_FINANCE_SYNC"
+                            f"{asset_id}_{price.timestamp.date()}_"
+                            "CUSTOM_SCRAPER:finance-sync"
                         ),
                         "createdAt": datetime.now(UTC).isoformat(),
-                        "source": "FINANCE_SYNC",
+                        "dataSource": WealthfolioClient.QUOTE_DATA_SOURCE,
                         "timestamp": timestamp,
                         "assetId": asset_id,
                         "open": str(price.price_open or close),
@@ -1643,11 +2019,12 @@ class WealthfolioExporter:
                 f"finance-sync:{self._tenant_id}:{account.id}"
                 for account in fs_accounts
             }
-            # Account deletion is only safe for the legacy projection. A
-            # named destination can share the same Wealthfolio instance with
-            # another destination; pruning there would delete accounts owned
-            # by the other projection (which caused only Saxo to remain).
-            if self._target_id == "legacy" and prune_accounts:
+            # Every Wealthfolio destination is a projection of the selected
+            # finance-sync dataset.  The destination scope is therefore the
+            # ownership boundary: stale/manual accounts must be removed even
+            # when the exporter is running through a named destination.
+            # Callers that intentionally push only a subset disable pruning.
+            if prune_accounts:
                 accounts_removed = (
                     await wf_client.delete_accounts_not_owned_by_finance_sync(
                         allowed_provider_ids
@@ -1956,6 +2333,15 @@ class WealthfolioExporter:
                         exception_type=type(exc).__name__,
                         error=str(exc) or repr(exc),
                     )
+
+            # Assets can be created while activities/holdings are imported.
+            # Enrich after that phase so first-time securities are included
+            # in the same sync job as existing securities.
+            await self._project_security_enrichment(
+                wf_client,
+                security_map,
+                await self._load_security_metadata(set(security_map)),
+            )
 
             # Historical quotes are required for Wealthfolio's performance
             # charts; transaction dates alone cannot reconstruct valuations.

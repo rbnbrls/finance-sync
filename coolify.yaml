@@ -2,8 +2,8 @@
 # Coolify Deployment Configuration — finance-sync
 # ==============================================================================
 # This file documents the Coolify deployment setup for finance-sync.
-# The application is deployed as a Docker Compose stack (see
-# docker-compose.coolify.yml).  Coolify must create both the `app` and
+# The application is deployed as the single Docker Compose stack in
+# docker-compose.yml. Coolify must create both the `app` and
 # singleton `worker` services; a single API container does not run scheduled
 # syncs or Wealthfolio delivery.
 #

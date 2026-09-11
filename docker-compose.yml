@@ -4,8 +4,6 @@ services:
     image: postgres:16-alpine
     container_name: finance-sync-db
     restart: unless-stopped
-    ports:
-      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     environment:
@@ -28,7 +26,10 @@ services:
       context: .
       dockerfile: Dockerfile
     restart: "no"
-    command: ["alembic", "upgrade", "head"]
+    # The image entrypoint already runs Alembic. Exit successfully afterward
+    # so the migration is executed exactly once without starting a second
+    # Alembic process.
+    command: ["/bin/true"]
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-finance_sync}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-finance_sync}
     depends_on:
@@ -40,8 +41,6 @@ services:
     image: redis:7-alpine
     container_name: finance-sync-redis
     restart: unless-stopped
-    ports:
-      - "6379:6379"
     volumes:
       - redis_data:/data
     healthcheck:
@@ -61,7 +60,7 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
-      - "8000:8000"
+      - "8000"
     environment:
       APP_ENVIRONMENT: ${APP_ENVIRONMENT:-prod}
       STAGING_CONNECTOR_BASE_URL: ${STAGING_CONNECTOR_BASE_URL:-http://app:8000/api/v1/staging-providers}
@@ -144,7 +143,7 @@ services:
       - "host.docker.internal:host-gateway"
     entrypoint: ["python", "-m", "finance_sync.worker"]
     ports:
-      - "9090:9090"
+      - "9090"
     environment:
       APP_ENVIRONMENT: ${APP_ENVIRONMENT:-prod}
       STAGING_CONNECTOR_BASE_URL: ${STAGING_CONNECTOR_BASE_URL:-http://app:8000/api/v1/staging-providers}

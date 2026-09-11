@@ -4974,8 +4974,8 @@ async def test_wealthfolio_quote_history_filters_manual_assets_and_quarantines_e
                 "s2": SimpleNamespace(ticker="S2", isin=None),
             },
         )
-    assert count == 1
-    client.upsert_quote.assert_awaited_once()
+    assert count == 2
+    assert client.upsert_quote.await_count == 2
 
     exporter._load_security_prices = AsyncMock(return_value=[prices[0]])
     client.upsert_quote = AsyncMock(side_effect=RuntimeError("rejected"))

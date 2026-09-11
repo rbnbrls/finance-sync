@@ -141,6 +141,11 @@ class WealthfolioClient:
     """
 
     API_PREFIX = "/api/v1"
+    # Wealthfolio's quote contract calls this field ``dataSource`` and
+    # validates the source as a provider label.  ``source=FINANCE_SYNC``
+    # worked with an older API but is rejected with HTTP 422 by current
+    # deployments.
+    QUOTE_DATA_SOURCE = "CUSTOM_SCRAPER:finance-sync"
 
     def __init__(
         self,
@@ -900,7 +905,7 @@ class WealthfolioClient:
         for existing in await self.get_quote_history(asset_id):
             if (
                 (existing.get("source") or existing.get("dataSource"))
-                == "FINANCE_SYNC"
+                in {"FINANCE_SYNC", self.QUOTE_DATA_SOURCE}
                 and str(existing.get("timestamp", ""))[:10] == quote_date
                 and existing.get("id")
             ):
@@ -916,6 +921,76 @@ class WealthfolioClient:
         response = await self._client.get(f"{self.API_PREFIX}/assets")
         response.raise_for_status()
         return response.json()
+
+    async def get_asset_taxonomy_assignments(
+        self, asset_id: str
+    ) -> list[dict[str, Any]]:
+        """Read all taxonomy assignments for an asset."""
+        self._ensure_authenticated()
+        response = await self._client.get(
+            f"{self.API_PREFIX}/taxonomies/assignments/asset/{asset_id}"
+        )
+        response.raise_for_status()
+        payload = response.json()
+        return (
+            cast(list[dict[str, Any]], payload)
+            if isinstance(payload, list)
+            else []
+        )
+
+    async def get_taxonomy(self, taxonomy_id: str) -> dict[str, Any]:
+        """Read a taxonomy and its categories from Wealthfolio."""
+        self._ensure_authenticated()
+        response = await self._client.get(
+            f"{self.API_PREFIX}/taxonomies/{taxonomy_id}"
+        )
+        response.raise_for_status()
+        payload = response.json()
+        return (
+            cast(dict[str, Any], payload) if isinstance(payload, dict) else {}
+        )
+
+    async def update_asset_profile(
+        self, asset_id: str, profile: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Update provider configuration and connector-owned metadata."""
+        self._ensure_authenticated()
+        response = await self._client.put(
+            f"{self.API_PREFIX}/assets/profile/{asset_id}",
+            json=profile,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        return (
+            cast(dict[str, Any], payload) if isinstance(payload, dict) else {}
+        )
+
+    async def replace_asset_taxonomy_assignments(
+        self,
+        asset_id: str,
+        taxonomy_id: str,
+        assignments: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Replace the assignments for one asset/taxonomy pair.
+
+        Wealthfolio's allocation views are driven by taxonomy assignments,
+        not by the free-form asset metadata field.  Keep this projection
+        explicit so connector-owned profile data also works for MANUAL-priced
+        assets, for which Wealthfolio does not run market-profile enrichment.
+        """
+        self._ensure_authenticated()
+        response = await self._client.put(
+            f"{self.API_PREFIX}/taxonomies/assignments/asset/"
+            f"{asset_id}/taxonomy/{taxonomy_id}",
+            json=assignments,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        return (
+            cast(list[dict[str, Any]], payload)
+            if isinstance(payload, list)
+            else []
+        )
 
     async def update_quote_mode(
         self, asset_id: str, quote_mode: str
@@ -980,6 +1055,15 @@ class WealthfolioClient:
                 "instrumentExchangeMic": None,
                 "providerId": "FINANCE_SYNC",
                 "providerSymbol": display_code,
+                "providerConfig": {
+                    "preferred_provider": "FINANCE_SYNC",
+                    "overrides": {
+                        "FINANCE_SYNC": {
+                            "symbol": provider_symbol or display_code,
+                            "type": "equity_symbol",
+                        }
+                    },
+                },
                 **identity,
             },
         )

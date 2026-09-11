@@ -730,8 +730,15 @@ def _resolve_quantity_price(
             message = "Trade heeft geen geldige quantity."
             raise ValueError(message)
         unit_price = txn.unit_price
-        if unit_price is None:
+        # Some broker payloads encode an unavailable price as 0.  A zero
+        # unit price is a zero-cost trade to Wealthfolio and triggers its
+        # ``missing purchase price`` health issue, so use the canonical
+        # principal/quantity fallback for both NULL and non-positive values.
+        if unit_price is None or unit_price <= 0:
             unit_price = abs(txn.amount) / quantity
+        if unit_price <= 0:
+            message = "Trade heeft geen geldige unit price."
+            raise ValueError(message)
         return quantity, abs(unit_price)
 
     if activity_type == WF_ACTIVITY_SPLIT:

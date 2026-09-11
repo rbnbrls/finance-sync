@@ -16,6 +16,7 @@ from sqlalchemy import func, select
 from finance_sync.connectors.models import ConnectorConfig
 from finance_sync.connectors.registry import ConnectorRegistry
 from finance_sync.models.credential import Credential
+from finance_sync.models.holding import Holding
 from finance_sync.models.security import Security
 from finance_sync.models.unresolved_security import UnresolvedSecurity
 
@@ -170,13 +171,25 @@ class DataQualityRepairService:
             "resolved_by_isin": resolved,
         }
 
-    async def _refresh_quotes(self, _tenant_id: str) -> dict[str, int]:
+    async def _refresh_quotes(self, tenant_id: str) -> dict[str, int]:
         from finance_sync.db.uow import UnitOfWork
         from finance_sync.enrichment.gateway import EnrichmentGateway
+        from finance_sync.enrichment.identifiers import quote_identifier
         from finance_sync.enrichment.price_store import PriceStore
 
+        # Security is a shared instrument master, so scope the repair to
+        # securities actually held by this tenant.  Repairing the global
+        # master here made one tenant hydrate unrelated instruments and made
+        # the health report look worse than the tenant's own data.
         securities = list(
-            (await self._session.execute(select(Security))).scalars()
+            (
+                await self._session.execute(
+                    select(Security)
+                    .join(Holding, Holding.security_id == Security.id)
+                    .where(Holding.tenant_id == tenant_id)
+                    .distinct()
+                )
+            ).scalars()
         )
         gateway = EnrichmentGateway(
             settings=self._settings,
@@ -184,22 +197,41 @@ class DataQualityRepairService:
             price_store=PriceStore(self._session, self._settings),
         )
         updated = failed = skipped = 0
+        historical_observations = historical_failed = 0
         for security in securities:
-            identifier = security.isin or security.ticker or security.figi
+            identifier, identifier_type = quote_identifier(security)
             if not identifier:
                 skipped += 1
                 continue
             try:
+                history = await gateway.get_historical_prices(
+                    security_id=str(security.id),
+                    identifier=identifier,
+                    identifier_type=identifier_type,
+                    interval="1d",
+                    limit=365,
+                )
+                historical_observations += len(history.observations)
+            except Exception:
+                historical_failed += 1
+
+            try:
                 quote = await gateway.get_latest_quote(
                     security_id=str(security.id),
                     identifier=identifier,
-                    identifier_type="isin" if security.isin else "ticker",
+                    identifier_type=identifier_type,
                 )
                 updated += quote is not None
                 failed += quote is None
             except Exception:
                 failed += 1
-        return {"updated": updated, "failed": failed, "skipped": skipped}
+        return {
+            "updated": updated,
+            "failed": failed,
+            "skipped": skipped,
+            "historical_observations": historical_observations,
+            "historical_failed": historical_failed,
+        }
 
     async def _remaining(self, tenant_id: str) -> dict[str, int]:
         unresolved = await self._session.scalar(

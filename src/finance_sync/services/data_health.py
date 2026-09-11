@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from hashlib import sha256
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from sqlalchemy import and_, case, exists, func, or_, select
 
@@ -2882,7 +2882,11 @@ class DataHealthService:
         valuation_rows = (
             await self._session.execute(
                 select(Holding.id, Account.name, Security.name)
-                .add_columns(func.count(Holding.id).over().label("total_count"))
+                .add_columns(
+                    func.count(Holding.id).over().label("total_count"),
+                    Account.id,
+                    Security.id,
+                )
                 .join(Account, Account.id == Holding.account_id)
                 .join(Security, Security.id == Holding.security_id)
                 .where(
@@ -3054,6 +3058,52 @@ class DataHealthService:
             else len(unverified_cost_rows)
         )
         if unverified_cost_rows:
+            # A holding-level finding is only actionable when it points back
+            # to the acquisition rows that can be corrected.  Keep the
+            # lookup bounded to the affected account/security pairs and only
+            # expose positive buy/transfer-ins with a missing unit price.
+            basis_pairs = {
+                (str(row[4]), str(row[5]))
+                for row in unverified_cost_rows
+                if len(row) > 5
+            }
+            missing_basis_transactions: list[Any] = []
+            if basis_pairs:
+                pair_filter = or_(
+                    *(
+                        and_(
+                            Transaction.account_id == account_id,
+                            Transaction.security_id == security_id,
+                        )
+                        for account_id, security_id in basis_pairs
+                    )
+                )
+                missing_basis_transactions = cast(
+                    "list[tuple[object, ...]]",
+                    list(
+                        (
+                            await self._session.execute(
+                                select(
+                                    Transaction.id,
+                                    Transaction.account_id,
+                                    Transaction.security_id,
+                                )
+                                .where(
+                                    Transaction.tenant_id == self._tenant_id,
+                                    Transaction.transaction_type.in_(
+                                        ("purchase", "transfer")
+                                    ),
+                                    Transaction.quantity.is_not(None),
+                                    Transaction.quantity > 0,
+                                    Transaction.unit_price.is_(None),
+                                    pair_filter,
+                                )
+                                .order_by(Transaction.occurred_at)
+                                .limit(1000)
+                            )
+                        ).all()
+                    ),
+                )
             issues.append(
                 DataHealthIssue(
                     id="wealthfolio:unverified-cost-basis",
@@ -3078,6 +3128,23 @@ class DataHealthService:
                         "basis_present": True,
                         "basis_source": "unverified",
                     },
+                    account_ids=sorted(
+                        {
+                            str(row[4])
+                            for row in unverified_cost_rows
+                            if len(row) > 5
+                        }
+                    ),
+                    security_ids=sorted(
+                        {
+                            str(row[5])
+                            for row in unverified_cost_rows
+                            if len(row) > 5
+                        }
+                    ),
+                    affected_transaction_ids=[
+                        str(row[0]) for row in missing_basis_transactions
+                    ],
                     action=action(
                         "view_transactions",
                         "/api/v1/transactions?type=purchase",

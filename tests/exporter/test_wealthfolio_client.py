@@ -801,3 +801,54 @@ class TestWealthfolioClientIntegration:
         assert imported["assetId"] == "a1"
         assert imported["sourceRecordId"] == "source-1"
         assert imported["idempotencyKey"] == "stable-1"
+
+
+class TestWealthfolioTaxonomyAssignments:
+    async def test_replacement_sends_only_the_selected_taxonomy(
+        self, client: WealthfolioClient
+    ) -> None:
+        """The per-taxonomy endpoint rejects assignments from other taxonomies."""
+        client._is_authenticated = True
+        existing = MagicMock(status_code=200)
+        existing.json.return_value = [
+            {
+                "assetId": "asset-1",
+                "taxonomyId": "asset_classes",
+                "categoryId": "equity",
+                "weight": 10000,
+                "source": "AUTO",
+            },
+            {
+                "assetId": "asset-1",
+                "taxonomyId": "regions",
+                "categoryId": "europe",
+                "weight": 10000,
+                "source": "AUTO",
+            },
+        ]
+        replacement = MagicMock(status_code=200)
+        replacement.json.return_value = []
+        assignments = [
+            {
+                "assetId": "asset-1",
+                "taxonomyId": "industries_gics",
+                "categoryId": "45",
+                "weight": 10000,
+                "source": "AUTO",
+            }
+        ]
+
+        with (
+            patch.object(
+                client._client, "get", return_value=existing
+            ) as mock_get,
+            patch.object(
+                client._client, "put", return_value=replacement
+            ) as mock_put,
+        ):
+            await client.replace_asset_taxonomy_assignments(
+                "asset-1", "industries_gics", assignments
+            )
+
+        mock_get.assert_not_awaited()
+        assert mock_put.call_args.kwargs["json"] == assignments
