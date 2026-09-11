@@ -33,7 +33,7 @@ services:
     entrypoint: []
     command: ["alembic", "upgrade", "head"]
     environment:
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-finance_sync}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-finance_sync}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://${POSTGRES_USER:-finance_sync}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-finance_sync}}
     depends_on:
       postgres:
         condition: service_healthy
@@ -61,10 +61,13 @@ services:
       dockerfile: Dockerfile
     container_name: finance-sync-app
     restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "8000:8000"
     environment:
       APP_ENVIRONMENT: ${APP_ENVIRONMENT:-prod}
+      STAGING_CONNECTOR_BASE_URL: ${STAGING_CONNECTOR_BASE_URL:-http://app:8000/api/v1/staging-providers}
       APP_NAME: ${APP_NAME:-finance-sync}
       APP_VERSION: ${APP_VERSION:-0.7.3}
       # Keep this namespaced so an unrelated host DEBUG value cannot prevent
@@ -77,10 +80,10 @@ services:
       GLITCHTIP_TRACES_SAMPLE_RATE: ${GLITCHTIP_TRACES_SAMPLE_RATE:-0.01}
       GLITCHTIP_RELEASE: ${GLITCHTIP_RELEASE:-}
       GLITCHTIP_MAX_BREADCRUMBS: ${GLITCHTIP_MAX_BREADCRUMBS:-20}
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-finance_sync}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-finance_sync}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://${POSTGRES_USER:-finance_sync}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-finance_sync}}
       DATABASE_POOL_MIN_SIZE: ${DATABASE_POOL_MIN_SIZE:-2}
       DATABASE_POOL_MAX_SIZE: ${DATABASE_POOL_MAX_SIZE:-10}
-      REDIS_URL: redis://:${REDIS_PASSWORD:-}@redis:6379/0
+      REDIS_URL: ${REDIS_URL:-redis://:${REDIS_PASSWORD:-}@redis:6379/0}
       SECRET_KEY: ${SECRET_KEY:?SECRET_KEY is required}
       ADMIN_KEY: ${ADMIN_KEY:?ADMIN_KEY is required; run scripts/generate-admin-key.sh}
       ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-30}
@@ -115,6 +118,7 @@ services:
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
       GITHUB_REPO: ${GITHUB_REPO:-rbnbrls/finance-sync}
       DEGIRO_IMPORT_STAGING_DIRECTORY: /tmp/finance-sync/import-staging
+      WORKER_JOB_DATA_QUALITY_REPAIR_ENABLED: ${WORKER_JOB_DATA_QUALITY_REPAIR_ENABLED:-true}
     volumes:
       - encryption_keys:/app/keys  # Mount for encryption key files if needed
       - degiro_import_staging:/var/lib/finance-sync/import-staging
@@ -139,12 +143,16 @@ services:
       dockerfile: Dockerfile
     container_name: finance-sync-worker
     restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     entrypoint: ["python", "-m", "finance_sync.worker"]
     ports:
       - "9090:9090"
     environment:
       APP_ENVIRONMENT: ${APP_ENVIRONMENT:-prod}
+      STAGING_CONNECTOR_BASE_URL: ${STAGING_CONNECTOR_BASE_URL:-http://app:8000/api/v1/staging-providers}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      WORKER_JOB_DATA_QUALITY_REPAIR_ENABLED: ${WORKER_JOB_DATA_QUALITY_REPAIR_ENABLED:-true}
       GLITCHTIP_ENABLED: ${GLITCHTIP_ENABLED:-false}
       GLITCHTIP_DSN: ${GLITCHTIP_DSN:-}
       GLITCHTIP_SAMPLE_RATE: ${GLITCHTIP_SAMPLE_RATE:-1.0}
@@ -152,10 +160,10 @@ services:
       GLITCHTIP_RELEASE: ${GLITCHTIP_RELEASE:-}
       GLITCHTIP_MAX_BREADCRUMBS: ${GLITCHTIP_MAX_BREADCRUMBS:-20}
       CORS_ORIGINS: ${CORS_ORIGINS:-["http://localhost:8000"]}
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-finance_sync}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-finance_sync}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://${POSTGRES_USER:-finance_sync}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-finance_sync}}
       DATABASE_POOL_MIN_SIZE: 1
       DATABASE_POOL_MAX_SIZE: 2
-      REDIS_URL: redis://:${REDIS_PASSWORD:-}@redis:6379/0
+      REDIS_URL: ${REDIS_URL:-redis://:${REDIS_PASSWORD:-}@redis:6379/0}
       SECRET_KEY: ${SECRET_KEY:?SECRET_KEY is required}
       ADMIN_KEY: ${ADMIN_KEY:?ADMIN_KEY is required; run scripts/generate-admin-key.sh}
       MASTER_ENCRYPTION_KEY: ${MASTER_ENCRYPTION_KEY:-}
