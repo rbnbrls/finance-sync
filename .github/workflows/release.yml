@@ -55,10 +55,8 @@ env:
   # Staging stack (see scripts/provision-staging.sh and docs/RELEASING.md).
   # finance-sync project -> development environment.
   STAGING_APP_UUID: mdeal4aqq9ycnozn3mg83zix
-  # The former production application (obcopz3142hxzs1zlie78amh) no longer
-  # exists on dev.7rb.nl — recreated 2026-08-25 as finance-sync
-  # (5iov9i8w9mazc6vhismo3enx) on finance-sync.7rb.nl (issue #428).
-  PROD_APP_UUID: 5iov9i8w9mazc6vhismo3enx
+  # The current production application on finance-sync.7rb.nl.
+  PROD_APP_UUID: xnenwsyifmv81xkvdxkbkx3a
 
 jobs:
   # ── Build, scan, sign & push the immutable image ──────────────────────
