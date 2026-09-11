@@ -60,7 +60,7 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
-      - "8000:8000"
+      - "8000"
     environment:
       APP_ENVIRONMENT: ${APP_ENVIRONMENT:-prod}
       STAGING_CONNECTOR_BASE_URL: ${STAGING_CONNECTOR_BASE_URL:-http://app:8000/api/v1/staging-providers}
@@ -143,7 +143,7 @@ services:
       - "host.docker.internal:host-gateway"
     entrypoint: ["python", "-m", "finance_sync.worker"]
     ports:
-      - "9090:9090"
+      - "9090"
     environment:
       APP_ENVIRONMENT: ${APP_ENVIRONMENT:-prod}
       STAGING_CONNECTOR_BASE_URL: ${STAGING_CONNECTOR_BASE_URL:-http://app:8000/api/v1/staging-providers}
