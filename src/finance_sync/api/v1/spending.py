@@ -96,8 +96,10 @@ async def correct_data_quality_transaction(
     if body.split_ratio is not None:
         metadata = dict(transaction.provider_metadata_contract or {})
         fields = metadata.get("fields")
-        canonical_fields = (
-            cast("dict[str, Any]", fields) if isinstance(fields, dict) else {}
+        canonical_fields: dict[str, Any] = (
+            dict(cast(dict[str, Any], fields))
+            if isinstance(fields, dict)
+            else {}
         )
         canonical_fields["split_ratio"] = str(body.split_ratio)
         metadata["schema_version"] = str(metadata.get("schema_version") or "1")
