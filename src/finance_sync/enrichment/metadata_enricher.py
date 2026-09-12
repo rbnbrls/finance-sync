@@ -391,7 +391,7 @@ class MetadataEnricher:
                     timestamp=observed_at,
                     metadata_json=metadata_json,
                     label=sector_name,
-                    source="openbb",
+                    source="local",
                 )
                 await self._store_metadata_observation(obs)
                 return obs
@@ -424,7 +424,7 @@ class MetadataEnricher:
                             timestamp=observed_at,
                             metadata_json=metadata_json,
                             label=sector_name,
-                            source="openbb",
+                            source="local",
                         )
                         await self._store_metadata_observation(obs)
                         return obs

@@ -688,15 +688,21 @@ class TestWealthfolioClient408Retry:
                 snapshot_date="2026-08-29",
             )
 
-        # One quote write happens before the final snapshot recalculation and
-        # one after it, so the manual broker quote remains authoritative.
-        assert put.await_count == 3
+        # The initial mode/quote pair prepares the first snapshot.  The final
+        # pair re-applies MANUAL mode after Wealthfolio recalculates the
+        # snapshot, then writes the authoritative broker quote.
+        assert put.await_count == 4
         assert (
             put.await_args_list[0].args[0]
             == "/api/v1/assets/pricing-mode/asset-vwce"
         )
         assert put.await_args_list[0].kwargs["json"] == {"quoteMode": "MANUAL"}
         assert put.await_args_list[1].kwargs["json"]["assetId"] == "asset-vwce"
+        assert (
+            put.await_args_list[2].args[0]
+            == "/api/v1/assets/pricing-mode/asset-vwce"
+        )
+        assert put.await_args_list[2].kwargs["json"] == {"quoteMode": "MANUAL"}
 
     async def test_retry_exhausted_raises_last_408(
         self, client: WealthfolioClient

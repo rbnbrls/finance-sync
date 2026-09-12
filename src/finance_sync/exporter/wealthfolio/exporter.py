@@ -953,6 +953,11 @@ class WealthfolioExporter:
                             asset.get("displayCode") or provider_symbol
                         ),
                         "notes": asset.get("notes") or "",
+                        # These assets are owned by finance-sync.  Wealthfolio
+                        # can reset the mode during profile projection, so
+                        # make the connector-owned manual quote contract
+                        # explicit on every profile update.
+                        "quoteMode": "MANUAL",
                         "providerConfig": provider_config,
                         "metadata": jsonable(profile_metadata),
                     },
@@ -1955,6 +1960,7 @@ class WealthfolioExporter:
         errors: list[dict[str, str]] = []
         accounts_removed = 0
         performance_account_ids: list[str] = []
+        projected_accounts: list[tuple[Account, str]] = []
         preflight_manifest: dict[str, object] | None = None
 
         # ── Create ExportRun ──────────────────────────────────────
@@ -2044,6 +2050,7 @@ class WealthfolioExporter:
                     )
                     wf_account_id = str(wf_account["id"])
                     performance_account_ids.append(wf_account_id)
+                    projected_accounts.append((fs_acct, wf_account_id))
                     delivery_cursor = await self._delivery_cursor(
                         account_id=fs_acct.id,
                     )
@@ -2222,6 +2229,29 @@ class WealthfolioExporter:
                             # Preserve cursor ordering: later events wait until
                             # this review item is resolved.
                             break
+                        except ValueError as exc:
+                            # A malformed trade must not abort the complete
+                            # account.  Keep the unsafe activity out of the
+                            # remote projection while retaining an actionable
+                            # finding for remediation/retry.
+                            errors.append(
+                                {
+                                    "account_id": fs_acct.id,
+                                    "account_name": fs_acct.name,
+                                    "error": (
+                                        f"Transactie {txn.id} is overgeslagen: "
+                                        f"{exc}"
+                                    ),
+                                }
+                            )
+                            log.warning(
+                                "wealthfolio_transaction_mapping_failed",
+                                account=fs_acct.name,
+                                transaction_id=str(txn.id),
+                                exception_type=type(exc).__name__,
+                                error=str(exc),
+                            )
+                            continue
                         wf_activities.append(
                             _wf_row_to_api_activity(
                                 row,
@@ -2319,6 +2349,27 @@ class WealthfolioExporter:
                 except Exception as exc:
                     # Record the failure and continue with the next
                     # account so a retry only re-processes what failed.
+                    if (
+                        isinstance(exc, ValueError)
+                        and str(exc) == "Trade heeft geen geldige unit price."
+                    ):
+                        errors.append(
+                            {
+                                "account_id": fs_acct.id,
+                                "account_name": fs_acct.name,
+                                "error": (
+                                    "Transactie met ongeldige unit price "
+                                    "overgeslagen."
+                                ),
+                            }
+                        )
+                        log.warning(
+                            "wealthfolio_transaction_degraded",
+                            account=fs_acct.name,
+                            category="zero_cost_transaction",
+                            reason="trade has no valid unit price",
+                        )
+                        continue
                     txns_failed += len(txns)
                     errors.append(
                         {
@@ -2383,6 +2434,20 @@ class WealthfolioExporter:
                         if isinstance(history.get("series"), list)
                         else None,
                     )
+
+            # Profile enrichment and performance queries can reset
+            # Wealthfolio's pricing mode after the per-account snapshot
+            # phase. Reconcile only after every other Wealthfolio call so
+            # connector-owned MANUAL quotes are the final projection.
+            for fs_acct, wf_account_id in projected_accounts:
+                errors.extend(
+                    await self._sync_and_reconcile_holdings(
+                        wf_client=wf_client,
+                        fs_account=fs_acct,
+                        wf_account_id=wf_account_id,
+                        security_map=security_map,
+                    )
+                )
 
             # ── Complete the run ──────────────────────────────────
             if errors:
@@ -2909,16 +2974,29 @@ class WealthfolioExporter:
         source_tax = Decimal(0)
         remote_tax = Decimal(0)
         for txn in source:
-            row = map_transaction_to_wf_row(
-                txn,
-                security=(
-                    security_map.get(txn.security_id)
-                    if txn.security_id
-                    else None
-                ),
-                account_currency=fs_account.currency_code,
-                default_currency=self._wf_config.default_currency,
-            )
+            try:
+                row = map_transaction_to_wf_row(
+                    txn,
+                    security=(
+                        security_map.get(txn.security_id)
+                        if txn.security_id
+                        else None
+                    ),
+                    account_currency=fs_account.currency_code,
+                    default_currency=self._wf_config.default_currency,
+                )
+            except ValueError as exc:
+                findings.append(
+                    {
+                        "account_id": fs_account.id,
+                        "account_name": fs_account.name,
+                        "error": (
+                            f"Transactie {txn.id} kan niet worden "
+                            f"gecontroleerd: {exc}"
+                        ),
+                    }
+                )
+                continue
             activity = remote_by_id.get(str(row["idempotencyKey"]))
             if activity is None:
                 activity = remote_by_id.get(str(txn.external_transaction_id))

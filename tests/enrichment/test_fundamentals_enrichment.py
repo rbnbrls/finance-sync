@@ -92,7 +92,7 @@ class TestFundamentalObservationData:
         data = obs.model_dump(mode="json")
         assert data["security_id"] == "sec_1"
         assert data["pe_ratio"] == "15.5"
-        assert data["source"] == "openbb"
+        assert data["source"] == "local"
 
 
 class TestFundamentalRatioSummary:
@@ -205,6 +205,7 @@ class TestETFModels:
 # =====================================================================
 
 
+@pytest.mark.skip(reason="OpenBB provider was removed")
 class TestGatewayFundamentals:
     """Tests for EnrichmentGateway fundamentals endpoint integration."""
 
@@ -318,6 +319,7 @@ class TestGatewayFundamentals:
         assert result is None
 
 
+@pytest.mark.skip(reason="OpenBB provider was removed")
 class TestGatewayETFComposition:
     """Tests for EnrichmentGateway ETF composition endpoint."""
 

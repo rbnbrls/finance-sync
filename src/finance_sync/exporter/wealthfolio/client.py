@@ -840,9 +840,13 @@ class WealthfolioClient:
         for holding in holdings:
             resolved = dict(holding)
             symbol = str(holding.get("symbol") or "")
-            asset = by_symbol.get(
+            # Wealthfolio can contain one ISIN asset per listing/account
+            # projection. Prefer the broker-qualified symbol so a Saxo
+            # holding is not accidentally pointed at the duplicate ISIN
+            # asset created for another account.
+            asset = by_symbol.get(symbol) or by_symbol.get(
                 str(holding.get("_securityIsin") or "")
-            ) or by_symbol.get(symbol)
+            )
             if asset is not None:
                 resolved["assetId"] = asset["id"]
             resolved.pop("_securityIsin", None)
@@ -890,9 +894,9 @@ class WealthfolioClient:
             price = holding.get("unitPrice")
             symbol = str(holding.get("symbol") or "")
             asset = (
-                by_symbol.get(str(holding.get("_securityIsin") or ""))
-                or by_symbol.get(symbol)
+                by_symbol.get(symbol)
                 or by_symbol.get(_normalise_asset_symbol(symbol))
+                or by_symbol.get(str(holding.get("_securityIsin") or ""))
             )
             if price is None or asset is None:
                 continue
@@ -945,8 +949,12 @@ class WealthfolioClient:
             # A zero-price quantity correction is intentionally the latest
             # activity, so Wealthfolio may restore its 0.01 fallback quote
             # during the final snapshot recalculation.  Write the broker
-            # quotes once more after that recalculation.
+            # quotes once more after that recalculation.  The recalculation
+            # can also restore MARKET mode, which makes Wealthfolio ignore
+            # the connector-owned quote for symbols without provider data.
+            # Re-apply MANUAL mode in the same final pass as the quote write.
             for asset_id, quote in manual_quotes:
+                await self.update_quote_mode(asset_id, "MANUAL")
                 quote_response = await self._client.put(
                     f"{self.API_PREFIX}/market-data/quotes/{asset_id}",
                     json=quote,

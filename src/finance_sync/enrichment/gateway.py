@@ -55,7 +55,9 @@ class EnrichmentGateway:
         self._price_store = price_store
 
         self._http_client: httpx.AsyncClient | None = None
-        self._degraded = settings.openbb_api_key is None
+        # OpenBB is unavailable. Keep this facade for local/cache callers,
+        # but never make remote requests even if a legacy key is configured.
+        self._degraded = True
 
     @property
     def http_client(self) -> httpx.AsyncClient:
@@ -168,7 +170,7 @@ class EnrichmentGateway:
             name=data.get("name", "Unknown"),
             currency_code=data.get("currency", "EUR"),
             confidence="exact",
-            source="openbb",
+            source="local",
         )
 
     # ── Quote ────────────────────────────────────────────────────────────
@@ -237,7 +239,7 @@ class EnrichmentGateway:
             change_pct=_safe_decimal(data.get("changePercent")),
             currency_code=data.get("currency", "EUR"),
             timestamp=datetime.now(UTC),
-            source="openbb",
+            source="local",
         )
 
     async def _store_quote_result(
@@ -344,7 +346,7 @@ class EnrichmentGateway:
                 or data.get("fiftyTwoWeekLow")
                 or data.get("low_52w")
             ),
-            source="openbb",
+            source="local",
             provider_metadata={
                 k: v
                 for k, v in data.items()
@@ -475,7 +477,7 @@ class EnrichmentGateway:
             dividend_yield=_safe_decimal(
                 data.get("dividendYield") or data.get("dividend_yield")
             ),
-            source="openbb",
+            source="local",
         )
 
     # ── Historical Prices ────────────────────────────────────────────────
@@ -666,7 +668,7 @@ class EnrichmentGateway:
                 price_low=_safe_decimal(item.get("low")),
                 price_close=_safe_decimal(item.get("close")),
                 volume=_safe_decimal(item.get("volume")),
-                source="openbb",
+                source="local",
                 interval=interval,
                 currency_code=item.get("currency", "EUR"),
                 provider_metadata=item.get("provider_metadata"),

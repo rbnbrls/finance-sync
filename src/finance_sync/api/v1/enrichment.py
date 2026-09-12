@@ -621,5 +621,6 @@ async def get_enrichment_status(
         failed_securities=status_counts.get("failed", 0),
         stale_securities=stale,
         last_enrichment_run=last_enrichment,
-        data_sources=data_sources or ["openbb"],
+        # An empty list is meaningful; do not invent OpenBB as a source.
+        data_sources=data_sources,
     )

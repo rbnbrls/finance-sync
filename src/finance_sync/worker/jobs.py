@@ -1015,6 +1015,9 @@ async def data_quality_remediation_job(container: Container) -> dict[str, Any]:
         data_quality_remediation_pending_by_provider,
     )
     from finance_sync.reconciliation.remediation.batching import create_batches
+    from finance_sync.reconciliation.remediation.connector_enrichment import (
+        ConnectorSecurityEnrichmentStrategy,
+    )
     from finance_sync.reconciliation.remediation.executor import (
         RemediationExecutor,
     )
@@ -1075,6 +1078,9 @@ async def data_quality_remediation_job(container: Container) -> dict[str, Any]:
                     session, container.settings
                 )
                 latest_quote = LatestQuoteStrategy(session, container.settings)
+                connector_enrichment = ConnectorSecurityEnrichmentStrategy(
+                    session, container.settings
+                )
                 wealthfolio_quote = WealthfolioQuoteStrategy(
                     session, container.settings
                 )
@@ -1217,6 +1223,7 @@ async def data_quality_remediation_job(container: Container) -> dict[str, Any]:
                         price_history.key: price_history,
                         transaction_history.key: transaction_history,
                         latest_quote.key: latest_quote,
+                        connector_enrichment.key: connector_enrichment,
                         wealthfolio_quote.key: wealthfolio_quote,
                         wealthfolio_history.key: wealthfolio_history,
                     },
@@ -1241,6 +1248,11 @@ async def data_quality_remediation_job(container: Container) -> dict[str, Any]:
                             container.settings.remediation_quota_requests,
                             container.settings.remediation_quota_window_seconds,
                             latest_quote.endpoint_family,
+                        ),
+                        connector_enrichment.key: QuotaPolicy(
+                            container.settings.remediation_quota_requests,
+                            container.settings.remediation_quota_window_seconds,
+                            connector_enrichment.endpoint_family,
                         ),
                         wealthfolio_quote.key: QuotaPolicy(
                             container.settings.remediation_quota_requests,

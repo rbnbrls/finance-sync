@@ -24,7 +24,6 @@ from apscheduler.triggers.interval import IntervalTrigger
 from finance_sync.worker.jobs import (
     data_quality_remediation_cleanup_job,
     data_quality_remediation_job,
-    wealthfolio_health_sync_job,
     enrich_prices_job,
     export_wealthfolio_job,
     holding_relevance_build_job,
@@ -36,6 +35,7 @@ from finance_sync.worker.jobs import (
     sync_bunq_cards_job,
     sync_bunq_job,
     sync_trading212_job,
+    wealthfolio_health_sync_job,
 )
 from finance_sync.worker.monitoring import JobRunContext
 from finance_sync.worker.schedule_runner import run_scheduled_syncs_job
@@ -422,7 +422,7 @@ class WorkerScheduler:
                 settings, "worker_job_data_quality_repair_enabled", False
             )
         )
-        if settings.wealthfolio_health_bridge_enabled:
+        if getattr(settings, "wealthfolio_health_bridge_enabled", False):
             self._add_job(
                 "wealthfolio_health_bridge",
                 wealthfolio_health_sync_job,

@@ -79,3 +79,24 @@ created: "2026-09-12"
 - [ ] `nyquist_compliant: true` set in frontmatter — blocked by the escalated classifier defect and unavailable PostgreSQL integration run
 
 **Approval:** partial; implementation escalation required
+
+## Validation Rerun 2026-09-12
+
+The local stack was started with `docker compose -f docker-compose.yml -f docker-compose.local-wealthfolio.yml up -d --build`.
+
+| Check | Result |
+|---|---|
+| Phase-focused Wealthfolio bridge, health bridge, and client tests | **68 passed** |
+| Full non-integration/non-e2e suite | **4,083 passed, 8 skipped** |
+| Runtime app `/health/live` | **200** |
+| Runtime app `/docs` | **200**; new Wealthfolio health-sync route visible in Swagger |
+| Unauthenticated control-plane overview | **401** |
+| Local Wealthfolio `/api/v1/auth/status` | **200** |
+| Alembic database head | **0072**; `wealthfolio_health_cursors` present with expected columns |
+| Container health | **healthy** for app, worker, PostgreSQL, Redis, and Wealthfolio |
+
+The three regressions were caused by reduced settings test fixtures lacking the
+newly consumed `wealthfolio_health_bridge_enabled` attribute. The production
+access paths now fall back safely to `False`, and the focused and full suites
+are green. The phase remains non-compliant because the separate blocking
+implementation gaps in `01-VERIFICATION.md` are still unresolved.

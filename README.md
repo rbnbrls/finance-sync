@@ -25,8 +25,8 @@ artifacts commit-bound. See [docs/RELEASING.md](docs/RELEASING.md).
   Plaid-like, YNAB, DEGIRO Pensioen and SaxoInvestor.
 - Durable PostgreSQL model with tenant isolation, idempotent sync runs,
   transactional outbox, webhook delivery, sync cursors and export history.
-- Optional market-data enrichment through OpenBB and the built-in SEC / SEC
-  Press market-intelligence providers.
+- Optional market-data enrichment through local/cache data and the built-in
+  SEC / SEC Press market-intelligence providers. OpenBB is not available.
 - A separate APScheduler worker for scheduled syncs, enrichment, outbox and
   webhook processing, DEGIRO watchfolders, reconciliation and export sweeps.
 - Optional MCP server (`python -m finance_sync.mcp`) and CLI exporters and
