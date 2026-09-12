@@ -298,7 +298,7 @@ This preserves the current executor’s verified status vocabulary and ordering.
 |---|-------|---------|---------------|
 | A1 | The phase-local sanitized `HealthStatus` contract uses `issues`, `fixAction`, `affectedItems`, `severity`, and `code`, with tolerant aliases and fail-closed unknowns. | Resolved Research Decisions / tests/fixtures/wealthfolio_health_status.json | The exact local parser contract is fixed; a real-target/version mismatch remains a runtime compatibility checkpoint and cannot enable automatic repair. [RESOLVED FOR PLANNING] |
 | A2 | A target-scoped cursor/state table is needed in addition to existing `ExportTarget.last_*` health columns. | Resolved Research Decisions / src/finance_sync/models/wealthfolio_health_cursor.py | Resolved: completeness/progress/hash/error state is independently durable per tenant/target, while ExportTarget remains credentials/configuration. [RESOLVED] |
-| A3 | Wealthfolio’s installed deployment supports the documented current fix/market contracts at the project’s target version. | Standard Stack / Code Examples | Older target versions may require compatibility handling or disable automatic repair. [ASSUMED] |
+| A3 | Wealthfolio’s installed deployment supports the required historical-repair primitive at the project’s target version. | Resolved Research Decisions / 01-10 supported-target smoke checkpoint | The implementation uses the existing canonical `PriceStore`/`EnrichmentGateway` plus existing Wealthfolio targeted quote/history projection. The named **A3 supported-target compatibility smoke checkpoint** must validate the sanitized target/version contract before automatic repair is enabled; when a target/version does not support the required primitive, automatic repair remains disabled and unverified, and the item remains fail-closed for manual review. [RUNTIME COMPATIBILITY CHECKPOINT] |
 | A4 | The best remote verification is a fresh health/status call after targeted repair rather than a dedicated per-issue verification endpoint. | Architecture Patterns | Health caching or issue hashing may require a forced check route or a second bounded poll. [ASSUMED] |
 | A5 | Bridge target configuration will be represented by `ExportTarget` rather than legacy global settings. | Alternatives / Pitfalls | If deployment intentionally uses only the legacy global target, the worker design and tenant isolation contract change materially. [ASSUMED] |
 
@@ -332,11 +332,16 @@ smoke check remains an explicit deployment verification item.
    01-11 owns database-backed migration/lifecycle assertions.
 
 3. **Historical repair primitive:** Use the existing canonical-first
-   `WealthfolioClient.upsert_quote`/quote-history projection path for bounded
-   historical repairs, followed by the existing fresh health verification. Do not
-   introduce a second writer or depend on synchronous `market.sync` completion;
-   that upstream operation is treated as an optional compatibility capability, not
-   the phase primitive. 01-10 owns the half-open interval and projection contract.
+   `PriceStore`/`EnrichmentGateway` path plus the existing Wealthfolio targeted
+   quote/history projection for bounded historical repairs, followed by the
+   existing fresh health verification. Do not introduce a second writer or depend
+   on synchronous `market.sync` completion; that upstream operation is treated as
+   an optional compatibility capability, not the phase primitive. The named **A3
+   supported-target compatibility smoke checkpoint** must validate the target/version
+   before automatic repair is enabled. If the required primitive is unsupported,
+   automatic repair remains disabled and unverified and the finding stays
+   fail-closed for manual review. 01-10 owns the checkpoint, half-open interval,
+   and projection contract.
 
 These decisions close the previously open planning questions without adding a
 package or a new queue/credential store. The real-target smoke check is a runtime
