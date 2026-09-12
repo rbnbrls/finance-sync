@@ -35,6 +35,7 @@ from finance_sync.worker.jobs import (
     sync_bunq_cards_job,
     sync_bunq_job,
     sync_trading212_job,
+    wealthfolio_health_sync_job,
 )
 from finance_sync.worker.monitoring import JobRunContext
 from finance_sync.worker.schedule_runner import run_scheduled_syncs_job
@@ -421,6 +422,14 @@ class WorkerScheduler:
                 settings, "worker_job_data_quality_repair_enabled", False
             )
         )
+        if getattr(settings, "wealthfolio_health_bridge_enabled", False):
+            self._add_job(
+                "wealthfolio_health_bridge",
+                wealthfolio_health_sync_job,
+                trigger=IntervalTrigger(
+                    minutes=settings.wealthfolio_health_bridge_interval_minutes
+                ),
+            )
         if remediation_enabled:
             self._add_job(
                 "data_quality_remediation",

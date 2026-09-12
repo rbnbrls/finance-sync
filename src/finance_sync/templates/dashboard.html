@@ -1402,6 +1402,11 @@
             if (issue.category === 'incomplete_import' || issue.category === 'missing_transactions') {
                 return `<div class="health-repair-list"><strong>Brondata aanvullen</strong><span class="field-hint">Open de importdetails, herstel afgewezen bestanden of records en voer de import opnieuw uit.</span><button type="button" class="btn btn-secondary btn-sm" onclick="openHealthData('${escapeHtml(issue.action?.path || '#uploads')}')">Import bekijken</button></div>`;
             }
+            if (issue.category === 'invalid_activity_semantics' && (issue.details || []).some(detail => String(detail?.message || detail).includes('split ratio'))) {
+                const quantityIds = Array.isArray(issue.affected_transaction_ids) ? issue.affected_transaction_ids : [];
+                const ratioRows = quantityIds.slice(0, 25).map(id => `<div class="health-repair-row"><code>${escapeHtml(String(id).slice(0, 8))}</code><label>Type <select id="health-type-${escapeHtml(id)}"><option value="split">Split</option><option value="corporate_action">Corporate action</option><option value="adjustment">Adjustment</option></select></label><label>Ratio nieuw/oud <input class="health-price-input" id="health-ratio-${escapeHtml(id)}" inputmode="decimal" type="number" min="0.000001" step="0.000001" placeholder="bijv. 2"></label><button type="button" class="btn btn-secondary btn-sm" onclick="correctHealthQuantityEvent('${escapeHtml(id)}')">Opslaan</button></div>`).join('');
+                return `<div class="health-repair-list"><strong>Quantity event herstellen</strong><span class="field-hint">Vul de feitelijke verhouding uit het Saxo-overzicht in (nieuwe hoeveelheid gedeeld door oude hoeveelheid). Deze waarde wordt geaudit en gebruikt om de Wealthfolio-activiteit veilig te exporteren.</span>${ratioRows ? `<div class="health-repair-list">${ratioRows}</div>` : ''}<button type="button" class="btn btn-secondary btn-sm" onclick="openHealthData('/api/v1/transactions')">Transacties beoordelen</button><button type="button" class="btn btn-secondary btn-sm" onclick="runDataQualityCheck(this)">Opnieuw controleren</button></div>`;
+            }
             if (issue.category === 'duplicate_accounts' || issue.category === 'balance_conflict' || issue.category === 'negative_balance') {
                 return `<div class="health-repair-list"><strong>Accountgegevens controleren</strong><span class="field-hint">Controleer de provideridentiteit, het actuele saldo en ontbrekende stortingen vóór je opnieuw exporteert.</span><button type="button" class="btn btn-secondary btn-sm" onclick="openHealthData('${escapeHtml(issue.action?.path || '/api/v1/accounts')}')">Accounts bekijken</button></div>`;
             }
@@ -1489,6 +1494,20 @@
                 toast('Transactie gecorrigeerd. Data health wordt opnieuw gecontroleerd.', 'success');
                 await loadDataHealth();
             } catch (error) { toast(error?.message || 'De transactie kon niet worden gecorrigeerd.', 'error'); }
+        }
+
+        async function correctHealthQuantityEvent(transactionId) {
+            const type = document.getElementById(`health-type-${transactionId}`)?.value;
+            const ratio = document.getElementById(`health-ratio-${transactionId}`)?.value;
+            if (!ratio || Number(ratio) <= 0) {
+                toast('Vul een positieve split ratio in.', 'error');
+                return;
+            }
+            try {
+                await api('PATCH', `/transactions/${encodeURIComponent(transactionId)}/data-quality-correction`, { transaction_type: type, split_ratio: String(ratio) });
+                toast('Quantity event gecorrigeerd. Data health wordt opnieuw gecontroleerd.', 'success');
+                await loadDataHealth();
+            } catch (error) { toast(error?.message || 'Het quantity event kon niet worden gecorrigeerd.', 'error'); }
         }
 
         async function tombstoneHealthTransaction(transactionId) {

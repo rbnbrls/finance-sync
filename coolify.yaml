@@ -168,3 +168,15 @@
 #
 # Rollback = image rollback + backward-compatible migrations; runbook in
 # docs/RELEASING.md.
+
+# Wealthfolio remediation bridge rollout (disabled by default):
+#   1. Deploy the migration and confirm `alembic upgrade head` completed.
+#   2. Keep WEALTHFOLIO_HEALTH_BRIDGE_ENABLED=false while observing the
+#      remediation worker with REMEDIATION_ENABLED=true.
+#   3. Enable polling only: WEALTHFOLIO_HEALTH_BRIDGE_ENABLED=true and leave
+#      automatic repair disabled until health cursor/error metrics are stable.
+#   4. Use POST /api/v1/control-plane/wealthfolio/health-sync as a bounded,
+#      permission-protected smoke test for one tenant.
+#   5. Enable safe remediation after imported backlog items and remote quote
+#      verification are confirmed. Missing purchase prices and valuation issues
+#      remain manual_review and are never synthesized.

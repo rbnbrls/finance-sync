@@ -43,6 +43,11 @@ from finance_sync.services.degiro_import import (
 )
 from finance_sync.services.incident_reporting import report_connector_failure
 from finance_sync.services.retry_lock import retry_lease
+from finance_sync.services.wealthfolio_health_bridge import (
+    WealthfolioHealthBridge,
+    prepare_health_poll,
+    repair_capability_is_supported,
+)
 from finance_sync.sync.orchestrator import SyncOrchestrator
 from finance_sync.sync.outbox_publisher import OutboxPublisher
 
@@ -53,6 +58,109 @@ if TYPE_CHECKING:
     from finance_sync.container import Container
 
 logger = structlog.get_logger("finance_sync.worker.jobs")
+
+
+async def wealthfolio_health_sync_job(
+    container: Container, tenant_id: str | None = None
+) -> dict[str, Any]:
+    """Poll active Wealthfolio targets without allowing one target to block others."""
+    if not container.settings.wealthfolio_health_bridge_enabled:
+        return {"enabled": False, "polled": 0, "imported": 0}
+    from finance_sync.exporter.wealthfolio.client import (
+        WealthfolioClient,
+        WealthfolioClientConfig,
+    )
+    from finance_sync.services.auth import decrypt_credential
+
+    from finance_sync.observability.metrics import (
+        wealthfolio_health_imported_issues_total,
+        wealthfolio_health_poll_duration_seconds,
+        wealthfolio_health_incomplete_snapshots_total,
+        wealthfolio_health_polls_total,
+    )
+
+    started = time.perf_counter()
+    polled = 0
+    imported = 0
+    failures = 0
+    async with container.session_factory() as session:
+        targets = list(
+            (
+                await session.execute(
+                    select(ExportTarget)
+                    .where(
+                        ExportTarget.target_type == "wealthfolio",
+                        ExportTarget.status == TARGET_ACTIVE,
+                        *([ExportTarget.tenant_id == tenant_id] if tenant_id else []),
+                    )
+                    .order_by(ExportTarget.tenant_id, ExportTarget.id)
+                    .limit(container.settings.wealthfolio_health_bridge_target_limit)
+                )
+            ).scalars()
+        )
+        for target in targets:
+            bridge = WealthfolioHealthBridge(session, str(target.tenant_id), target)
+            client: WealthfolioClient | None = None
+            try:
+                if not target.encrypted_secret or not target.secret_nonce:
+                    raise ValueError("Wealthfolio target secret is unavailable")
+                payload = json.loads(
+                    decrypt_credential(
+                        target.encrypted_secret,
+                        target.secret_nonce,
+                        container.settings,
+                    )
+                )
+                client = WealthfolioClient(
+                    WealthfolioClientConfig(
+                        base_url=str(
+                            payload.get("base_url")
+                            or target.configuration.get("base_url", "")
+                        ),
+                        password=str(payload.get("password", "")),
+                        request_timeout=container.settings.wealthfolio_request_timeout,
+                    )
+                )
+                await client.authenticate()
+                payload = await client.get_health_status()
+                poll = prepare_health_poll(
+                    payload,
+                    issue_limit=container.settings.wealthfolio_health_bridge_issue_limit,
+                )
+                if not poll.complete:
+                    wealthfolio_health_incomplete_snapshots_total.labels(
+                        reason=str(poll.cursor_state.get("reason", "incomplete"))
+                    ).inc()
+                items = await bridge.enqueue_success(
+                    poll.payload,
+                    complete=poll.complete,
+                    truncated=poll.truncated,
+                    cursor_state=poll.cursor_state,
+                    compatibility_verified=repair_capability_is_supported(
+                        poll.payload,
+                        {
+                            "version": poll.payload.get("version")
+                            or poll.payload.get("serverVersion"),
+                            "capabilities": poll.payload.get("capabilities"),
+                        },
+                    ),
+                )
+                imported += len(items)
+                wealthfolio_health_imported_issues_total.inc(len(items))
+                wealthfolio_health_polls_total.labels(outcome="success").inc()
+                polled += 1
+                logger.info("wealthfolio_health_poll_completed", tenant_id=str(target.tenant_id), target_id=str(target.id), imported=len(items))
+            except Exception as exc:
+                failures += 1
+                wealthfolio_health_polls_total.labels(outcome="failure").inc()
+                await bridge.record_failure(category=type(exc).__name__, message="Wealthfolio health poll failed")
+                logger.warning("wealthfolio_health_poll_failed", tenant_id=str(target.tenant_id), target_id=str(target.id), error=type(exc).__name__)
+            finally:
+                if client is not None:
+                    await client.close()
+        await session.commit()
+    wealthfolio_health_poll_duration_seconds.observe(time.perf_counter() - started)
+    return {"enabled": True, "polled": polled, "imported": imported, "failures": failures}
 
 
 # ── Retry helper ──────────────────────────────────────────────────────
@@ -907,6 +1015,9 @@ async def data_quality_remediation_job(container: Container) -> dict[str, Any]:
         data_quality_remediation_pending_by_provider,
     )
     from finance_sync.reconciliation.remediation.batching import create_batches
+    from finance_sync.reconciliation.remediation.connector_enrichment import (
+        ConnectorSecurityEnrichmentStrategy,
+    )
     from finance_sync.reconciliation.remediation.executor import (
         RemediationExecutor,
     )
@@ -928,6 +1039,10 @@ async def data_quality_remediation_job(container: Container) -> dict[str, Any]:
     )
     from finance_sync.reconciliation.remediation.transaction_history import (
         TransactionHistoryStrategy,
+    )
+    from finance_sync.reconciliation.remediation.wealthfolio import (
+        WealthfolioHistoricalPriceStrategy,
+        WealthfolioQuoteStrategy,
     )
 
     results: dict[str, Any] = {}
@@ -963,11 +1078,61 @@ async def data_quality_remediation_job(container: Container) -> dict[str, Any]:
                     session, container.settings
                 )
                 latest_quote = LatestQuoteStrategy(session, container.settings)
+                connector_enrichment = ConnectorSecurityEnrichmentStrategy(
+                    session, container.settings
+                )
+                wealthfolio_quote = WealthfolioQuoteStrategy(
+                    session, container.settings
+                )
+                wealthfolio_history = WealthfolioHistoricalPriceStrategy(
+                    session, container.settings
+                )
                 tenant_id = str(tenant.id)
 
                 async def _remediation_connector(
                     item: Any, _tenant_id: str = tenant_id
                 ) -> Any:
+                    if str(item.provider_key) == "wealthfolio":
+                        target = (
+                            await session.execute(
+                                select(ExportTarget).where(
+                                    ExportTarget.id == str(item.connection_id),
+                                    ExportTarget.tenant_id == _tenant_id,
+                                    ExportTarget.target_type == "wealthfolio",
+                                )
+                            )
+                        ).scalar_one_or_none()
+                        if (
+                            target is None
+                            or not target.encrypted_secret
+                            or not target.secret_nonce
+                        ):
+                            raise ValueError("Wealthfolio target not found")
+                        from finance_sync.exporter.wealthfolio.client import (
+                            WealthfolioClient,
+                            WealthfolioClientConfig,
+                        )
+                        from finance_sync.services.auth import decrypt_credential
+
+                        payload = json.loads(
+                            decrypt_credential(
+                                target.encrypted_secret,
+                                target.secret_nonce,
+                                container.settings,
+                            )
+                        )
+                        client = WealthfolioClient(
+                            WealthfolioClientConfig(
+                                base_url=str(
+                                    payload.get("base_url")
+                                    or target.configuration.get("base_url", "")
+                                ),
+                                password=str(payload.get("password", "")),
+                                request_timeout=container.settings.wealthfolio_request_timeout,
+                            )
+                        )
+                        await client.authenticate()
+                        return client
                     credential = await session.get(
                         Credential, str(item.connection_id)
                     )
@@ -1058,6 +1223,9 @@ async def data_quality_remediation_job(container: Container) -> dict[str, Any]:
                         price_history.key: price_history,
                         transaction_history.key: transaction_history,
                         latest_quote.key: latest_quote,
+                        connector_enrichment.key: connector_enrichment,
+                        wealthfolio_quote.key: wealthfolio_quote,
+                        wealthfolio_history.key: wealthfolio_history,
                     },
                     quota=quota,
                     quota_policies={
@@ -1081,6 +1249,21 @@ async def data_quality_remediation_job(container: Container) -> dict[str, Any]:
                             container.settings.remediation_quota_window_seconds,
                             latest_quote.endpoint_family,
                         ),
+                        connector_enrichment.key: QuotaPolicy(
+                            container.settings.remediation_quota_requests,
+                            container.settings.remediation_quota_window_seconds,
+                            connector_enrichment.endpoint_family,
+                        ),
+                        wealthfolio_quote.key: QuotaPolicy(
+                            container.settings.remediation_quota_requests,
+                            container.settings.remediation_quota_window_seconds,
+                            wealthfolio_quote.endpoint_family,
+                        ),
+                        wealthfolio_history.key: QuotaPolicy(
+                            container.settings.remediation_quota_requests,
+                            container.settings.remediation_quota_window_seconds,
+                            wealthfolio_history.endpoint_family,
+                        ),
                     },
                     max_verification_attempts=(
                         container.settings.remediation_max_verification_attempts
@@ -1095,6 +1278,7 @@ async def data_quality_remediation_job(container: Container) -> dict[str, Any]:
                         container.settings.remediation_retry_cap_seconds
                     ),
                     retry_jitter=container.settings.remediation_retry_jitter,
+                    connector_factory=_remediation_connector,
                 )
                 outcomes: list[str] = []
                 for batch in create_batches(claimed, batch_limit=50):

@@ -15,6 +15,7 @@ from finance_sync.exporter.wealthfolio.client import (
     WealthfolioAuthError,
     WealthfolioClient,
     WealthfolioClientConfig,
+    WealthfolioHealthError,
     resolve_wealthfolio_server_url,
 )
 
@@ -162,6 +163,72 @@ class TestWealthfolioClientAuth:
         assert status["requiresPassword"] is True
         assert status["oidcEnabled"] is False
         mock_get.assert_called_once_with("/api/v1/auth/status")
+
+
+class TestWealthfolioHealth:
+    async def test_health_status_retries_request_error(
+        self, client: WealthfolioClient
+    ) -> None:
+        """Transient connection failures retry without exposing transport details."""
+        client._is_authenticated = True
+        request = Request("GET", "http://wealthfolio.test/api/v1/health/status")
+        with (
+            patch.object(
+                client._client,
+                "get",
+                new=AsyncMock(
+                    side_effect=[
+                        RequestError("connection reset", request=request),
+                        Response(
+                            200,
+                            json={"issues": []},
+                            request=request,
+                        ),
+                    ]
+                ),
+            ) as get,
+            patch(
+                "finance_sync.exporter.wealthfolio.client.asyncio.sleep",
+                new=AsyncMock(),
+            ) as sleep,
+        ):
+            assert await client.get_health_status() == {"issues": []}
+
+        assert get.await_count == 2
+        sleep.assert_awaited_once()
+
+    async def test_health_status_returns_json_without_logging_payload(
+        self, client: WealthfolioClient
+    ) -> None:
+        client._is_authenticated = True
+        response = MagicMock()
+        response.status_code = 200
+        response.is_error = False
+        response.json.return_value = {
+            "issues": [{"code": "MISSING_PRICE", "affectedItems": ["a1"]}]
+        }
+        with patch.object(client._client, "get", return_value=response) as get:
+            assert (await client.get_health_status())["issues"]
+        get.assert_called_once_with("/api/v1/health/status")
+
+    async def test_health_status_normalizes_malformed_body(
+        self, client: WealthfolioClient
+    ) -> None:
+        client._is_authenticated = True
+        response = MagicMock(status_code=200, is_error=False)
+        response.json.side_effect = ValueError("not json")
+        with patch.object(client._client, "get", return_value=response):
+            with pytest.raises(WealthfolioHealthError, match="malformed"):
+                await client.get_health_status()
+
+    async def test_health_status_maps_auth_failure(
+        self, client: WealthfolioClient
+    ) -> None:
+        client._is_authenticated = True
+        response = MagicMock(status_code=401, is_error=True)
+        with patch.object(client._client, "get", return_value=response):
+            with pytest.raises(WealthfolioAuthError):
+                await client.get_health_status()
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -621,15 +688,21 @@ class TestWealthfolioClient408Retry:
                 snapshot_date="2026-08-29",
             )
 
-        # One quote write happens before the final snapshot recalculation and
-        # one after it, so the manual broker quote remains authoritative.
-        assert put.await_count == 3
+        # The initial mode/quote pair prepares the first snapshot.  The final
+        # pair re-applies MANUAL mode after Wealthfolio recalculates the
+        # snapshot, then writes the authoritative broker quote.
+        assert put.await_count == 4
         assert (
             put.await_args_list[0].args[0]
             == "/api/v1/assets/pricing-mode/asset-vwce"
         )
         assert put.await_args_list[0].kwargs["json"] == {"quoteMode": "MANUAL"}
         assert put.await_args_list[1].kwargs["json"]["assetId"] == "asset-vwce"
+        assert (
+            put.await_args_list[2].args[0]
+            == "/api/v1/assets/pricing-mode/asset-vwce"
+        )
+        assert put.await_args_list[2].kwargs["json"] == {"quoteMode": "MANUAL"}
 
     async def test_retry_exhausted_raises_last_408(
         self, client: WealthfolioClient

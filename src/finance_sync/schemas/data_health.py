@@ -102,6 +102,20 @@ class DataHealthRemediation(BaseModel):
     rate_limit_deferrals: int = 0
 
 
+class DataHealthWealthfolioBridge(BaseModel):
+    """Aggregate, credential-free state of the health bridge."""
+
+    enabled: bool = False
+    target_count: int = 0
+    degraded: bool = False
+    snapshot_complete: bool = False
+    snapshot_truncated: bool = False
+    last_successful_poll: datetime | None = None
+    imported_issues: int = 0
+    resolved_issues: int = 0
+    last_error: str | None = None
+
+
 class DataHealthOverview(BaseModel):
     status: DataHealthStatus
     last_successful_sync: datetime | None = None
@@ -116,6 +130,9 @@ class DataHealthOverview(BaseModel):
     )
     remediation: DataHealthRemediation = Field(
         default_factory=DataHealthRemediation
+    )
+    wealthfolio_bridge: DataHealthWealthfolioBridge = Field(
+        default_factory=DataHealthWealthfolioBridge
     )
     issues: list[DataHealthIssue] = Field(
         default_factory=lambda: list[DataHealthIssue]()

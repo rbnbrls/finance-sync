@@ -127,6 +127,10 @@ class Trading212Connector(Connector):
             "endpoint_family": "metadata",
             "batch_limit": 50,
         },
+        "connector_security_enrichment": {
+            "endpoint_family": "connector_holdings",
+            "batch_limit": 25,
+        },
         "transaction_history_gap": {
             "endpoint_family": "transaction_history",
             "batch_limit": 1,

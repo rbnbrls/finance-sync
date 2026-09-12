@@ -53,6 +53,7 @@ class DataQualityCorrectionRequest(BaseModel):
 
     transaction_type: TransactionType | None = None
     unit_price: Decimal | None = Field(default=None, ge=0)
+    split_ratio: Decimal | None = Field(default=None, gt=0)
 
 
 @router.patch(
@@ -67,14 +68,19 @@ async def correct_data_quality_transaction(
 ) -> dict[str, Any]:
     """Apply an explicit, auditable correction to a canonical transaction.
 
-    This is deliberately limited to classification and unit price. Source
-    records remain intact and the change is recorded as an override plus a
-    lifecycle event so a later sync can be reviewed safely.
+    Source records remain intact and the change is recorded as an override plus
+    a lifecycle event so a later sync can be reviewed safely.  ``split_ratio``
+    is stored in the canonical provider-metadata contract because it is a
+    quantity-event fact, not a price correction.
     """
-    if body.transaction_type is None and body.unit_price is None:
+    if (
+        body.transaction_type is None
+        and body.unit_price is None
+        and body.split_ratio is None
+    ):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Provide transaction_type or unit_price.",
+            detail="Provide transaction_type, unit_price, or split_ratio.",
         )
     transaction = await _load_transaction(db, auth.tenant_id, transaction_id)
     actor = str(auth.user.id) if auth.user is not None else None
@@ -87,6 +93,15 @@ async def correct_data_quality_transaction(
     if body.unit_price is not None:
         transaction.unit_price = body.unit_price
         changes["unit_price"] = str(body.unit_price)
+    if body.split_ratio is not None:
+        metadata = dict(transaction.provider_metadata_contract or {})
+        fields = metadata.get("fields")
+        canonical_fields = dict(fields) if isinstance(fields, dict) else {}
+        canonical_fields["split_ratio"] = str(body.split_ratio)
+        metadata["schema_version"] = str(metadata.get("schema_version") or "1")
+        metadata["fields"] = canonical_fields
+        transaction.provider_metadata_contract = metadata
+        changes["split_ratio"] = str(body.split_ratio)
     db.add(
         TransactionLifecycleEvent(
             tenant_id=auth.tenant_id,

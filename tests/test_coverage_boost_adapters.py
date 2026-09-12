@@ -3242,6 +3242,22 @@ async def test_spending_mutation_endpoints_cover_idempotency_and_corrections() -
             "transaction_type": "payment",
             "unit_price": "12.50",
         }
+        quantity_result = await spending.correct_data_quality_transaction(
+            "tx",
+            spending.DataQualityCorrectionRequest(
+                transaction_type=TransactionType.SPLIT, split_ratio="2"
+            ),
+            auth,
+            db,
+        )
+        assert quantity_result["changes"] == {
+            "transaction_type": "split",
+            "split_ratio": "2",
+        }
+        assert tx.provider_metadata_contract == {
+            "schema_version": "1",
+            "fields": {"split_ratio": "2"},
+        }
         override = await spending.create_spending_override(
             "tx",
             spending.SpendingOverrideRequest(

@@ -48,6 +48,14 @@ class WealthfolioAPIError(WealthfolioClientError):
     """Wealthfolio API returned an error response."""
 
 
+class WealthfolioHealthError(WealthfolioAPIError):
+    """The health endpoint could not be read or returned an invalid body."""
+
+    def __init__(self, message: str, *, category: str = "api") -> None:
+        super().__init__(message)
+        self.category = category
+
+
 # ═══════════════════════════════════════════════════════════════════════
 # Config
 # ═══════════════════════════════════════════════════════════════════════
@@ -199,6 +207,77 @@ class WealthfolioClient:
         response = await self._client.get(f"{self.API_PREFIX}/auth/status")
         response.raise_for_status()
         return response.json()
+
+    async def get_health_status(self) -> dict[str, Any]:
+        """Read the bounded, authenticated Wealthfolio health contract.
+
+        Health polling is deliberately stricter than the export APIs: callers
+        must be able to distinguish an unavailable target from a successful
+        response containing zero issues.  Transient transport/server errors
+        are retried with a small exponential backoff; credentials and response
+        bodies are never included in the raised error messages.
+        """
+        self._ensure_authenticated()
+        attempts = max(1, min(self._config.retry_408_attempts, 3))
+        transient_statuses = {408, 429, 500, 502, 503, 504}
+        for attempt in range(attempts):
+            try:
+                response = await self._client.get(
+                    f"{self.API_PREFIX}/health/status"
+                )
+            except httpx.TimeoutException as exc:
+                if attempt + 1 < attempts:
+                    await asyncio.sleep(
+                        self._config.retry_408_base_delay * (2**attempt)
+                    )
+                    continue
+                raise WealthfolioHealthError(
+                    "Wealthfolio health request timed out", category="timeout"
+                ) from exc
+            except httpx.RequestError as exc:
+                if attempt + 1 < attempts:
+                    await asyncio.sleep(
+                        self._config.retry_408_base_delay * (2**attempt)
+                    )
+                    continue
+                raise WealthfolioHealthError(
+                    "Wealthfolio health request failed", category="transport"
+                ) from exc
+
+            if response.status_code in {401, 403}:
+                raise WealthfolioAuthError(
+                    "Wealthfolio health authentication failed"
+                )
+            if response.status_code in transient_statuses:
+                if attempt + 1 < attempts:
+                    await asyncio.sleep(
+                        self._config.retry_408_base_delay * (2**attempt)
+                    )
+                    continue
+                category = "rate_limit" if response.status_code == 429 else "server"
+                raise WealthfolioHealthError(
+                    f"Wealthfolio health request returned {category} error",
+                    category=category,
+                )
+            if response.is_error:
+                raise WealthfolioHealthError(
+                    "Wealthfolio health request was rejected",
+                    category="http_error",
+                )
+            try:
+                payload = response.json()
+            except (ValueError, TypeError) as exc:
+                raise WealthfolioHealthError(
+                    "Wealthfolio health response was malformed",
+                    category="malformed",
+                ) from exc
+            if not isinstance(payload, dict):
+                raise WealthfolioHealthError(
+                    "Wealthfolio health response was malformed",
+                    category="malformed",
+                )
+            return payload
+        raise AssertionError("health polling loop must return or raise")
 
     async def authenticate(self) -> bool:
         """Authenticate with the Wealthfolio instance.
@@ -761,9 +840,13 @@ class WealthfolioClient:
         for holding in holdings:
             resolved = dict(holding)
             symbol = str(holding.get("symbol") or "")
-            asset = by_symbol.get(
+            # Wealthfolio can contain one ISIN asset per listing/account
+            # projection. Prefer the broker-qualified symbol so a Saxo
+            # holding is not accidentally pointed at the duplicate ISIN
+            # asset created for another account.
+            asset = by_symbol.get(symbol) or by_symbol.get(
                 str(holding.get("_securityIsin") or "")
-            ) or by_symbol.get(symbol)
+            )
             if asset is not None:
                 resolved["assetId"] = asset["id"]
             resolved.pop("_securityIsin", None)
@@ -811,9 +894,9 @@ class WealthfolioClient:
             price = holding.get("unitPrice")
             symbol = str(holding.get("symbol") or "")
             asset = (
-                by_symbol.get(str(holding.get("_securityIsin") or ""))
-                or by_symbol.get(symbol)
+                by_symbol.get(symbol)
                 or by_symbol.get(_normalise_asset_symbol(symbol))
+                or by_symbol.get(str(holding.get("_securityIsin") or ""))
             )
             if price is None or asset is None:
                 continue
@@ -866,8 +949,12 @@ class WealthfolioClient:
             # A zero-price quantity correction is intentionally the latest
             # activity, so Wealthfolio may restore its 0.01 fallback quote
             # during the final snapshot recalculation.  Write the broker
-            # quotes once more after that recalculation.
+            # quotes once more after that recalculation.  The recalculation
+            # can also restore MARKET mode, which makes Wealthfolio ignore
+            # the connector-owned quote for symbols without provider data.
+            # Re-apply MANUAL mode in the same final pass as the quote write.
             for asset_id, quote in manual_quotes:
+                await self.update_quote_mode(asset_id, "MANUAL")
                 quote_response = await self._client.put(
                     f"{self.API_PREFIX}/market-data/quotes/{asset_id}",
                     json=quote,

@@ -110,7 +110,7 @@ class TestFxRateCreateSchema:
         assert schema.base_currency == "EUR"
         assert schema.quote_currency == "USD"
         assert schema.rate == Decimal("1.0945")
-        assert schema.source == "openbb"  # default
+        assert schema.source == "local"  # default
 
     def test_create_with_explicit_source(self) -> None:
         """Can override the default source."""
@@ -136,7 +136,7 @@ class TestFxRateCreateSchema:
         assert restored.base_currency == "EUR"
         assert restored.quote_currency == "USD"
         assert restored.rate == Decimal("1.0945")
-        assert restored.source == "openbb"
+        assert restored.source == "local"
 
     def test_dict_round_trip(self) -> None:
         """Schema can be serialized to a dict and restored."""

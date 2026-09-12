@@ -126,6 +126,7 @@ from finance_sync.models.transaction_event import TransactionLifecycleEvent
 from finance_sync.models.unresolved_security import UnresolvedSecurity
 from finance_sync.models.user import User
 from finance_sync.models.webhook import Webhook, WebhookDeliveryLog
+from finance_sync.models.wealthfolio_health_cursor import WealthfolioHealthCursor
 
 # ── Lazy exporter model registration ─────────────────────────────────
 # These are imported lazily so that finance_sync.exporter.exporter
@@ -212,6 +213,7 @@ __all__ = [
     "DataMartConsumer",
     "DataMartGrant",
     "DataQualityRemediationItem",
+    "WealthfolioHealthCursor",
     "DestinationObjectReference",
     "DetectedSubscription",
     "DetectionMethod",

@@ -50,7 +50,7 @@ class EnrichmentFreshness(TimestampMixin, Base):
     data_source: Mapped[str] = mapped_column(
         SA_Text,
         nullable=False,
-        default="openbb",
+        default="local",
         comment="Primary data source identifier",
     )
     status: Mapped[str] = mapped_column(

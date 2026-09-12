@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import TYPE_CHECKING, Any, cast
 
 from sqlalchemy import exists, func, select
@@ -29,6 +29,9 @@ class HistoricalPriceStrategy:
     def supports(self, item: Any) -> bool:
         """Require the complete, explicit price-window contract."""
         context = _context(item)
+        start, end = normalize_window(
+            context.get("start_date"), context.get("end_date")
+        )
         return bool(
             all(
                 context.get(key)
@@ -40,6 +43,9 @@ class HistoricalPriceStrategy:
                 )
             )
             and str(context.get("interval", "1d")) in {"1d", "1h", "5m", "1m"}
+            and start is not None
+            and end is not None
+            and start < end
         )
 
     def __init__(self, session: AsyncSession, settings: Any) -> None:
@@ -55,13 +61,18 @@ class HistoricalPriceStrategy:
     async def execute(self, item: Any, connector: Any = None) -> None:
         del connector
         context = _context(item)
+        start, end = normalize_window(
+            context.get("start_date"), context.get("end_date")
+        )
+        if start is None or end is None or start >= end:
+            raise ValueError("price gap has no valid half-open window")
         await self.gateway.get_historical_prices(
             security_id=str(context["security_id"]),
             identifier=str(context["identifier"]),
             identifier_type=str(context.get("identifier_type", "ticker")),
             interval=str(context.get("interval", "1d")),
-            start_date=_date(context.get("start_date")),
-            end_date=_date(context.get("end_date")),
+            start_date=start,
+            end_date=end,
             limit=min(int(context.get("limit", 365)), 1000),
         )
 
@@ -74,7 +85,7 @@ class HistoricalPriceStrategy:
             return {}
         contexts = [_context(item) for item in items]
         windows = [
-            (_date(context.get("start_date")), _date(context.get("end_date")))
+            normalize_window(context.get("start_date"), context.get("end_date"))
             for context in contexts
         ]
         if any(
@@ -86,7 +97,7 @@ class HistoricalPriceStrategy:
         ends = [end for _, end in windows if end is not None]
         earliest = min(starts)
         latest = max(ends)
-        if (latest - earliest).days + 1 > 1000:
+        if (latest - earliest).days > 1000:
             return await self._execute_batch_individually(items)
         first = contexts[0]
         await self.gateway.get_historical_prices(
@@ -117,8 +128,10 @@ class HistoricalPriceStrategy:
         context = _context(item)
         security_id = str(context.get("security_id", ""))
         interval = str(context.get("interval", "1d"))
-        start = _date(context.get("start_date"))
-        end = _date(context.get("end_date")) or datetime.now(UTC)
+        start, end = normalize_window(
+            context.get("start_date"), context.get("end_date")
+        )
+        end = end or datetime.now(UTC)
         if not security_id or start is None or start >= end:
             return VerificationResult(False, "price gap has no valid scope")
         filters = [
@@ -149,7 +162,9 @@ class HistoricalPriceStrategy:
 
 def _date(value: object) -> datetime | None:
     if isinstance(value, datetime):
-        return value
+        return value.astimezone(UTC) if value.tzinfo else value.replace(tzinfo=UTC)
+    if isinstance(value, date):
+        return datetime.combine(value, datetime.min.time(), tzinfo=UTC)
     if isinstance(value, str):
         parsed = datetime.fromisoformat(value)
         return (
@@ -158,6 +173,17 @@ def _date(value: object) -> datetime | None:
             else parsed.replace(tzinfo=UTC)
         )
     return None
+
+
+def normalize_window(
+    start_value: object, end_value: object
+) -> tuple[datetime | None, datetime | None]:
+    """Normalize one timezone-aware half-open ``[start, end)`` window."""
+    start = _date(start_value)
+    end = _date(end_value)
+    if isinstance(end_value, str) and "T" not in end_value and " " not in end_value:
+        end = end + timedelta(days=1) if end is not None else None
+    return start, end
 
 
 def _context(item: Any) -> dict[str, Any]:

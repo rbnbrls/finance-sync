@@ -217,8 +217,15 @@ class RemediationService:
         self,
     ) -> list[DataQualityRemediationItem]:
         """Enqueue safe repair work without calling providers."""
+        from finance_sync.connectors.registry import ConnectorRegistry
         from finance_sync.enrichment.identifiers import quote_identifier
-        from finance_sync.models import EnrichmentFreshness, Holding, Security
+        from finance_sync.models import (
+            Account,
+            Credential,
+            EnrichmentFreshness,
+            Holding,
+            Security,
+        )
         from finance_sync.models.unresolved_security import UnresolvedSecurity
 
         rows = list(
@@ -251,26 +258,63 @@ class RemediationService:
             )
             for row in rows
         ]
-        securities = list(
-            (
-                await self.session.execute(
-                    select(Security)
-                    .join(Holding, Holding.security_id == Security.id)
-                    .outerjoin(
-                        EnrichmentFreshness,
-                        EnrichmentFreshness.security_id == Security.id,
-                    )
-                    .where(
-                        Holding.tenant_id == self.tenant_id,
-                        EnrichmentFreshness.last_daily_price_fetch.is_(None),
-                    )
-                    .distinct()
+        connector_catalog = ConnectorRegistry().list_connectors()
+        api_holding_providers = {
+            provider
+            for provider, metadata in connector_catalog.items()
+            if "api" in metadata.get("ingestion_methods", [])
+            and "holdings" in metadata.get("supported_resources", [])
+        }
+        target_rows = (
+            await self.session.execute(
+                select(
+                    Security,
+                    Account.provider_key,
+                    Account.connection_id,
+                    Account.external_account_id,
                 )
+                .join(Holding, Holding.security_id == Security.id)
+                .join(Account, Account.id == Holding.account_id)
+                .join(
+                    Credential,
+                    (Credential.id == Account.connection_id)
+                    & (Credential.status == "active"),
+                )
+                .outerjoin(
+                    EnrichmentFreshness,
+                    EnrichmentFreshness.security_id == Security.id,
+                )
+                .where(
+                    Holding.tenant_id == self.tenant_id,
+                    EnrichmentFreshness.last_daily_price_fetch.is_(None),
+                    Account.provider_key.in_(api_holding_providers),
+                )
+                .distinct()
             )
-            .scalars()
-            .all()
-        )
-        for security in securities:
+        ).all()
+        securities: dict[str, tuple[Any, str, str, str]] = {}
+        for (
+            security,
+            provider,
+            connection_id,
+            external_account_id,
+        ) in target_rows:
+            if connection_id is not None:
+                securities.setdefault(
+                    str(security.id),
+                    (
+                        security,
+                        str(provider),
+                        str(connection_id),
+                        str(external_account_id),
+                    ),
+                )
+        for (
+            security,
+            provider,
+            connection_id,
+            external_account_id,
+        ) in securities.values():
             identifier, identifier_type = quote_identifier(security)
             if not identifier:
                 continue
@@ -279,12 +323,16 @@ class RemediationService:
             issues.append(
                 DetectedIssue(
                     tenant_id=self.tenant_id,
-                    provider_key="openbb",
+                    provider_key=provider,
+                    connection_id=connection_id,
                     issue_type="historical_price_gap",
                     affected_entity_type="security",
                     affected_entity_id=str(security.id),
                     severity="warning",
-                    remediation_strategy="historical_price_enrichment",
+                    # Holdings APIs provide a current quote, not a historical
+                    # series; keep this finding manual until a provider
+                    # declares a historical-price remediation strategy.
+                    remediation_strategy="unsupported",
                     context={
                         "security_id": str(security.id),
                         "identifier": identifier,
@@ -293,6 +341,7 @@ class RemediationService:
                         "start_date": price_start.isoformat(),
                         "end_date": price_end.isoformat(),
                         "minimum_observations": 1,
+                        "provider_account_id": external_account_id,
                     },
                 )
             )
@@ -319,17 +368,19 @@ class RemediationService:
             issues.append(
                 DetectedIssue(
                     tenant_id=self.tenant_id,
-                    provider_key="openbb",
+                    provider_key=provider,
+                    connection_id=connection_id,
                     issue_type="quote_gap",
                     affected_entity_type="security",
                     affected_entity_id=str(security.id),
                     severity="warning",
-                    remediation_strategy="latest_quote_enrichment",
+                    remediation_strategy="connector_security_enrichment",
                     context={
                         "security_id": str(security.id),
                         "identifier": identifier,
                         "identifier_type": identifier_type,
                         "max_age_hours": 48,
+                        "provider_account_id": external_account_id,
                     },
                 )
             )

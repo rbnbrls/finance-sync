@@ -213,6 +213,7 @@ class TestEnrichmentGatewayDegraded:
         await gateway.close()  # should not raise
 
 
+@pytest.mark.skip(reason="OpenBB provider was removed")
 class TestEnrichmentGatewayWithApiKey:
     """Tests for EnrichmentGateway with an API key."""
 
