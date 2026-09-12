@@ -115,6 +115,63 @@ worker_job_success_rate = Gauge(
     labelnames=["job_id"],
 )
 
+# ── Data-quality remediation ───────────────────────────────────────
+
+data_quality_remediation_backlog_size = Gauge(
+    "data_quality_remediation_backlog_size",
+    "Number of remediation items by lifecycle status",
+    labelnames=["status"],
+)
+data_quality_remediation_pending_by_provider = Gauge(
+    "data_quality_remediation_pending_by_provider",
+    "Due and retryable remediation items by provider",
+    labelnames=["provider"],
+)
+data_quality_remediation_throughput_total = Counter(
+    "data_quality_remediation_throughput_total",
+    "Remediation outcomes by provider and strategy",
+    labelnames=["provider", "strategy", "outcome"],
+)
+data_quality_remediation_attempts_total = Counter(
+    "data_quality_remediation_attempts_total",
+    "Provider execution attempts by provider and strategy",
+    labelnames=["provider", "strategy"],
+)
+data_quality_remediation_deferred_rate_limit_total = Counter(
+    "data_quality_remediation_deferred_rate_limit_total",
+    "Items deferred because provider quota was unavailable",
+    labelnames=["provider", "endpoint_family"],
+)
+data_quality_remediation_batches_created_total = Counter(
+    "data_quality_remediation_batches_created_total",
+    "Remediation batches created",
+)
+data_quality_remediation_batch_items_total = Counter(
+    "data_quality_remediation_batch_items_total",
+    "Items included in remediation batches",
+)
+data_quality_remediation_average_items_per_batch = Gauge(
+    "data_quality_remediation_average_items_per_batch",
+    "Average number of items in the most recent remediation batches",
+)
+data_quality_remediation_api_calls_saved_total = Counter(
+    "data_quality_remediation_api_calls_saved_total",
+    "Provider calls avoided through remediation batching",
+)
+data_quality_remediation_failures_total = Counter(
+    "data_quality_remediation_failures_total",
+    "Terminal and retryable remediation failures",
+    labelnames=["provider", "strategy", "category"],
+)
+data_quality_remediation_oldest_age_seconds = Gauge(
+    "data_quality_remediation_oldest_age_seconds",
+    "Age of the oldest due remediation item",
+)
+data_quality_remediation_manual_review_size = Gauge(
+    "data_quality_remediation_manual_review_size",
+    "Number of remediation items awaiting manual review",
+)
+
 # Paths to exclude from metrics recording
 _SKIP_PATHS = frozenset(
     {"/metrics", "/health", "/health/ready", "/health/live"}

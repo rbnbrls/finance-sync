@@ -18,6 +18,7 @@ from collections.abc import Iterable
 from typing import TYPE_CHECKING, Any, cast
 
 from finance_sync.connectors.base import Connector
+from finance_sync.connectors.capabilities import normalize_capabilities
 from finance_sync.connectors.exceptions import PermanentError
 
 if TYPE_CHECKING:
@@ -32,6 +33,7 @@ _CATALOG_METADATA_KEYS = frozenset(
         "lifecycle_status",
     }
 )
+_INGESTION_METHODS = frozenset({"api", "file"})
 
 
 class ConnectorRegistry:
@@ -171,10 +173,76 @@ class ConnectorRegistry:
             "supported_resources": supported_resources,
             "rate_limit_policy": rate_limit,
             "has_rate_limit_policy": rate_limit is not None,
+            "remediation_strategies": cls._remediation_metadata(connector),
             "metadata_incomplete": metadata_incomplete,
+            "spending_capabilities": {
+                key: value.model_dump(mode="json")
+                for key, value in normalize_capabilities(
+                    getattr(connector, "capabilities", {})
+                ).items()
+            },
         }
+        raw_methods: object = getattr(connector, "ingestion_methods", ("api",))
+        if not isinstance(raw_methods, (list, tuple, set, frozenset)):
+            metadata_incomplete = True
+            methods = ["api"]
+        else:
+            raw_values = list(cast("Iterable[object]", raw_methods))
+            if not all(isinstance(item, str) for item in raw_values):
+                metadata_incomplete = True
+            methods = sorted(
+                {
+                    item
+                    for item in raw_values
+                    if isinstance(item, str) and item in _INGESTION_METHODS
+                }
+            )
+            if not methods:
+                metadata_incomplete = True
+                methods = ["api"]
+        result["ingestion_methods"] = methods
+        wizard = getattr(connector, "import_wizard", {})
+        if isinstance(wizard, dict):
+            result["import_wizard"] = wizard
+        else:
+            result["import_wizard"] = {}
+            result["metadata_incomplete"] = True
         result.update(safe)
         return result
+
+    @staticmethod
+    def _remediation_metadata(
+        connector: type[Connector],
+    ) -> list[dict[str, Any]]:
+        """Expose only validated, non-secret strategy metadata."""
+        raw = getattr(connector, "remediation_strategies", {})
+        if not isinstance(raw, dict):
+            return []
+        result: list[dict[str, Any]] = []
+        entries = cast("dict[object, object]", raw)
+        for key, value in entries.items():
+            if (
+                not isinstance(key, str)
+                or not key.strip()
+                or not isinstance(value, dict)
+            ):
+                continue
+            values = cast("dict[object, object]", value)
+            endpoint = values.get("endpoint_family", "default")
+            batch_limit = values.get("batch_limit", 1)
+            if (
+                isinstance(endpoint, str)
+                and isinstance(batch_limit, int)
+                and batch_limit > 0
+            ):
+                result.append(
+                    {
+                        "key": key.strip(),
+                        "endpoint_family": endpoint,
+                        "batch_limit": batch_limit,
+                    }
+                )
+        return sorted(result, key=lambda item: item["key"])
 
     # ── Registration ───────────────────────────────────────────────────
 

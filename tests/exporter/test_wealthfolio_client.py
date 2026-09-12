@@ -5,16 +5,17 @@ Follows TDD: RED phase — write failing tests first.
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from httpx import HTTPStatusError, RequestError
+from httpx import HTTPStatusError, Request, RequestError, Response
 
 from finance_sync.exporter.wealthfolio.client import (
     WealthfolioAPIError,
     WealthfolioAuthError,
     WealthfolioClient,
     WealthfolioClientConfig,
+    resolve_wealthfolio_server_url,
 )
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -57,6 +58,21 @@ class TestWealthfolioClientConfig:
         """Config requires a non-empty base_url."""
         with pytest.raises(ValueError, match="base_url"):
             WealthfolioClientConfig(base_url="", password="secret")
+
+    @pytest.mark.parametrize("host", ["localhost", "127.0.0.1", "[::1]"])
+    def test_container_resolves_host_local_url(self, host: str) -> None:
+        url = resolve_wealthfolio_server_url(
+            f"http://{host}:8088", running_in_container=True
+        )
+        assert url == "http://host.docker.internal:8088"
+
+    def test_host_local_url_is_unchanged_outside_container(self) -> None:
+        assert (
+            resolve_wealthfolio_server_url(
+                "http://localhost:8088", running_in_container=False
+            )
+            == "http://localhost:8088"
+        )
 
     def test_config_requires_password(self) -> None:
         """Config requires a non-empty password."""
@@ -197,6 +213,31 @@ class TestWealthfolioClientImport:
         with pytest.raises(WealthfolioAuthError, match="Not authenticated"):
             await client.import_activities([])
 
+    async def test_import_activities_rejection_preserves_api_details(
+        self, client: WealthfolioClient
+    ) -> None:
+        """A rejected batch includes Wealthfolio's validation response."""
+        client._is_authenticated = True
+        request = Request("POST", "http://test/api/v1/activities/import")
+        response = Response(
+            422,
+            request=request,
+            json={
+                "quoteCcy": [
+                    "Price currency (quoteCcy) is required to import this activity."
+                ]
+            },
+        )
+
+        with (
+            patch.object(client._client, "post", return_value=response),
+            pytest.raises(WealthfolioAPIError, match="quoteCcy") as exc_info,
+        ):
+            await client.import_activities([{"activityType": "BUY"}])
+
+        assert "HTTP 422" in str(exc_info.value)
+        assert "Price currency" in str(exc_info.value)
+
     async def test_check_import_success(
         self, client: WealthfolioClient
     ) -> None:
@@ -217,41 +258,33 @@ class TestWealthfolioClientImport:
 
         assert result["valid"] is True
 
-    @pytest.mark.parametrize(
-        "method_name, endpoint",
-        [
-            ("check_activities_import", "/api/v1/activities/import/check"),
-            ("import_activities", "/api/v1/activities/import"),
-        ],
-    )
-    async def test_rejected_activity_batch_preserves_provider_details(
-        self,
-        client: WealthfolioClient,
-        method_name: str,
-        endpoint: str,
+    async def test_check_import_preserves_non_timeout_errors(
+        self, client: WealthfolioClient
     ) -> None:
-        """Activity endpoint failures expose Wealthfolio's validation body."""
+        """HTTP validation failures retain httpx's status error contract."""
         client._is_authenticated = True
-        activities = [{"activityType": "BUY"}]
-        response = MagicMock()
-        response.status_code = 400
-        response.text = '{"message":"Invalid activity at index 2"}'
-        response.raise_for_status.side_effect = HTTPStatusError(
-            "400 Bad Request",
-            request=MagicMock(),
-            response=response,
-        )
+        request = Request("POST", "http://test/api/v1/activities/import/check")
+        response = Response(400, request=request)
 
         with (
-            patch.object(client._client, "post", return_value=response) as post,
-            pytest.raises(
-                WealthfolioAPIError,
-                match="Invalid activity at index 2",
-            ),
+            patch.object(client._client, "post", return_value=response),
+            pytest.raises(HTTPStatusError),
         ):
-            await getattr(client, method_name)(activities)
+            await client.check_activities_import([])
 
-        post.assert_called_once_with(endpoint, json={"activities": activities})
+    async def test_check_import_raises_after_timeout_retries(
+        self, client: WealthfolioClient
+    ) -> None:
+        """The final retry timeout is not wrapped as an API error."""
+        client._is_authenticated = True
+        request = Request("POST", "http://test/api/v1/activities/import/check")
+        response = Response(408, request=request)
+
+        with (
+            patch.object(client._client, "post", return_value=response),
+            pytest.raises(HTTPStatusError),
+        ):
+            await client.check_activities_import([])
 
     async def test_get_accounts(self, client: WealthfolioClient) -> None:
         """Fetch accounts from Wealthfolio."""
@@ -293,6 +326,143 @@ class TestWealthfolioClientImport:
         assert result == existing
         create.assert_not_awaited()
 
+    async def test_ensure_account_migrates_holdings_tracking_mode(
+        self, client: WealthfolioClient
+    ) -> None:
+        """Existing connector accounts must calculate positions from trades."""
+        client._is_authenticated = True
+        existing = {
+            "id": "wf-brokerage",
+            "name": "Brokerage",
+            "provider": "FINANCE_SYNC",
+            "providerAccountId": "finance-sync:t:b",
+            "trackingMode": "HOLDINGS",
+        }
+        migrated = {**existing, "trackingMode": "TRANSACTIONS"}
+        with (
+            patch.object(client, "get_accounts", return_value=[existing]),
+            patch.object(
+                client,
+                "update_account_tracking_mode",
+                return_value=migrated,
+            ) as update,
+        ):
+            result = await client.ensure_account(
+                name="Brokerage",
+                currency="EUR",
+                provider_account_id="finance-sync:t:b",
+            )
+
+        update.assert_awaited_once_with(existing, "TRANSACTIONS")
+        assert result["trackingMode"] == "TRANSACTIONS"
+
+    async def test_ensure_account_reconciles_remote_account_content(
+        self, client: WealthfolioClient
+    ) -> None:
+        client._is_authenticated = True
+        existing = {
+            "id": "wf-brokerage",
+            "name": "Old name",
+            "currency": "USD",
+            "accountType": "CASH",
+            "trackingMode": "HOLDINGS",
+            "group": "Cash",
+            "isActive": False,
+            "isArchived": True,
+            "provider": "FINANCE_SYNC",
+            "providerAccountId": "finance-sync:t:b",
+        }
+        reconciled = {
+            **existing,
+            "name": "Brokerage",
+            "currency": "EUR",
+            "accountType": "SECURITIES",
+            "trackingMode": "TRANSACTIONS",
+            "group": "Investments",
+            "isActive": True,
+            "isArchived": False,
+        }
+        with (
+            patch.object(client, "get_accounts", return_value=[existing]),
+            patch.object(
+                client, "update_account", return_value=reconciled
+            ) as update,
+        ):
+            result = await client.ensure_account(
+                name="Brokerage",
+                currency="EUR",
+                provider_account_id="finance-sync:t:b",
+                account_type="SECURITIES",
+                tracking_mode="TRANSACTIONS",
+            )
+
+        update.assert_awaited_once_with(
+            existing,
+            name="Brokerage",
+            currency="EUR",
+            account_type="SECURITIES",
+            tracking_mode="TRANSACTIONS",
+        )
+        assert result == reconciled
+
+    async def test_delete_accounts_keeps_only_exact_finance_sync_dataset(
+        self, client: WealthfolioClient
+    ) -> None:
+        client._is_authenticated = True
+        accounts = [
+            {
+                "id": "owned",
+                "provider": "FINANCE_SYNC",
+                "providerAccountId": "finance-sync:tenant:acct-1",
+            },
+            {
+                "id": "old-smoke",
+                "provider": "FINANCE_SYNC",
+                "providerAccountId": "test:snap-test-f83d67",
+            },
+            {"id": "manual", "provider": "MANUAL", "providerAccountId": None},
+        ]
+        with (
+            patch.object(client, "get_accounts", return_value=accounts),
+            patch.object(
+                client, "delete_account", new_callable=AsyncMock
+            ) as delete,
+        ):
+            removed = await client.delete_accounts_not_owned_by_finance_sync(
+                {"finance-sync:tenant:acct-1"}
+            )
+
+        assert removed == 2
+        assert [call.args[0] for call in delete.await_args_list] == [
+            "old-smoke",
+            "manual",
+        ]
+
+    async def test_delete_activities_not_in_source_dataset(
+        self, client: WealthfolioClient
+    ) -> None:
+        """Stale/manual activities are removed from the projection account."""
+        client._is_authenticated = True
+        with (
+            patch.object(
+                client,
+                "search_activities",
+                return_value={
+                    "data": [
+                        {"id": "keep", "comment": "Buy | ID: current"},
+                        {"id": "stale", "comment": "Old import"},
+                    ]
+                },
+            ),
+            patch.object(client, "delete_activity") as delete,
+        ):
+            removed = await client.delete_activities_not_in(
+                "wf-account", {"current"}
+            )
+
+        assert removed == 1
+        delete.assert_awaited_once_with("stale")
+
     async def test_current_import_response_is_normalized(
         self, client: WealthfolioClient
     ) -> None:
@@ -314,6 +484,229 @@ class TestWealthfolioClientImport:
         assert result["imported"] == 3
         assert result["skipped"] == 2
         assert result["failed"] == 0
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# HTTP 408 retry (server-side WF_REQUEST_TIMEOUT_MS cap)
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class TestWealthfolioClient408Retry:
+    """Slow snapshot/holdings POSTs are retried with backoff on HTTP 408."""
+
+    async def test_save_manual_holdings_retries_408_then_succeeds(
+        self, client: WealthfolioClient
+    ) -> None:
+        """POST /snapshots retries after a 408 and succeeds on the retry."""
+        client._is_authenticated = True
+        timeout = MagicMock()
+        timeout.status_code = 408
+        timeout.raise_for_status.side_effect = Exception("408")
+        ok = MagicMock()
+        ok.status_code = 200
+        ok.json.return_value = {"ok": True}
+        ok2 = MagicMock()
+        ok2.status_code = 200
+        ok2.json.return_value = {"ok": True}
+
+        with (
+            # First _post_with_408_retry: 408 then 200; re-save POST: 200.
+            patch.object(
+                client._client, "post", side_effect=[timeout, ok, ok2]
+            ) as p,
+            patch.object(client, "get_assets", return_value=[]),
+            patch.object(client, "get_quote_history", return_value=[]),
+            patch("asyncio.sleep", new_callable=lambda: AsyncMock()) as sleep,
+        ):
+            result = await client.save_manual_holdings(
+                [{"symbol": "AAPL", "quantity": 10, "unitPrice": 100}],
+                "acct-1",
+                snapshot_date="2026-08-29",
+            )
+
+        # 3 POSTs: 408 -> backoff -> 200 (snapshot), then 200 (re-save).
+        assert p.await_count == 3
+        sleep.assert_awaited_once()
+        assert result == {"ok": True}
+
+    async def test_save_manual_holdings_preserves_average_cost(
+        self, client: WealthfolioClient
+    ) -> None:
+        """The live snapshots payload must retain Wealthfolio's cost basis."""
+        client._is_authenticated = True
+        snapshot_response = MagicMock(status_code=200)
+        snapshot_response.raise_for_status.return_value = None
+        snapshot_response.content = b'{"ok": true}'
+
+        with (
+            patch.object(
+                client._client, "post", return_value=snapshot_response
+            ) as post,
+            patch.object(
+                client,
+                "get_assets",
+                return_value=[{"id": "asset-aapl", "displayCode": "AAPL"}],
+            ),
+            patch.object(client, "get_quote_history", return_value=[]),
+            patch.object(
+                client._client,
+                "put",
+                return_value=MagicMock(status_code=200),
+            ),
+        ):
+            await client.save_manual_holdings(
+                [
+                    {
+                        "symbol": "AAPL",
+                        "quantity": "10",
+                        "unitPrice": "190",
+                        "averageCost": "150.50",
+                        "sourceValue": "1900",
+                        "currency": "USD",
+                    }
+                ],
+                "acct-1",
+                snapshot_date="2026-08-29",
+            )
+
+        payload = post.await_args_list[0].kwargs["json"]
+        assert payload["holdings"] == [
+            {
+                "symbol": "AAPL",
+                "quantity": "10",
+                "averageCost": "150.50",
+                "sourceValue": "1900",
+                "currency": "USD",
+                "assetId": "asset-aapl",
+            }
+        ]
+        # The quote is saved first and the same complete payload is used for
+        # the recalculation pass.
+        assert post.await_args_list[1].kwargs["json"] == payload
+
+    async def test_save_manual_holdings_matches_exchange_qualified_symbol(
+        self, client: WealthfolioClient
+    ) -> None:
+        """Manual quotes match when WF resolves ``VWCE.DE`` to ``VWCE``."""
+        client._is_authenticated = True
+        snapshot_response = MagicMock(status_code=200)
+        snapshot_response.raise_for_status.return_value = None
+        snapshot_response.content = b'{"ok": true}'
+        quote_response = MagicMock(status_code=200)
+        quote_response.raise_for_status.return_value = None
+
+        with (
+            patch.object(
+                client._client, "post", return_value=snapshot_response
+            ),
+            patch.object(
+                client,
+                "get_assets",
+                return_value=[{"id": "asset-vwce", "displayCode": "VWCE"}],
+            ),
+            patch.object(client, "get_quote_history", return_value=[]),
+            patch.object(
+                client._client, "put", return_value=quote_response
+            ) as put,
+        ):
+            await client.save_manual_holdings(
+                [{"symbol": "VWCE.DE", "quantity": "10", "unitPrice": "125"}],
+                "acct-1",
+                snapshot_date="2026-08-29",
+            )
+
+        # One quote write happens before the final snapshot recalculation and
+        # one after it, so the manual broker quote remains authoritative.
+        assert put.await_count == 3
+        assert (
+            put.await_args_list[0].args[0]
+            == "/api/v1/assets/pricing-mode/asset-vwce"
+        )
+        assert put.await_args_list[0].kwargs["json"] == {"quoteMode": "MANUAL"}
+        assert put.await_args_list[1].kwargs["json"]["assetId"] == "asset-vwce"
+
+    async def test_retry_exhausted_raises_last_408(
+        self, client: WealthfolioClient
+    ) -> None:
+        """After retry_408_attempts 408s, the last 408 response surfaces."""
+        client._is_authenticated = True
+        # Default attempts = 3; make two responses 408 so the third attempt
+        # is the last and its 408 raise_for_status propagates.
+        timeout = MagicMock()
+        timeout.status_code = 408
+        timeout.raise_for_status.side_effect = Exception("408")
+
+        with (
+            patch.object(client._client, "post", return_value=timeout) as p,
+            patch.object(client, "get_assets", return_value=[]),
+            patch.object(client, "get_quote_history", return_value=[]),
+            patch("asyncio.sleep", new_callable=lambda: AsyncMock()),
+            pytest.raises(Exception, match="408"),
+        ):
+            await client.save_manual_holdings(
+                [{"symbol": "AAPL", "quantity": 10, "unitPrice": 100}],
+                "acct-1",
+                snapshot_date="2026-08-29",
+            )
+        # 3 attempts (retry_408_attempts default), no more.
+        assert p.await_count == 3
+
+    async def test_retry_disabled_fails_fast(
+        self, client_config: WealthfolioClientConfig
+    ) -> None:
+        """retry_408=False posts once and surfaces the 408 immediately."""
+        config = WealthfolioClientConfig(
+            base_url=client_config.base_url,
+            password=client_config.password,
+            retry_408=False,
+        )
+        no_retry_client = WealthfolioClient(config=config)
+        no_retry_client._is_authenticated = True
+        timeout = MagicMock()
+        timeout.status_code = 408
+        timeout.raise_for_status.side_effect = Exception("408")
+
+        with (
+            patch.object(
+                no_retry_client._client, "post", return_value=timeout
+            ) as p,
+            patch.object(no_retry_client, "get_assets", return_value=[]),
+            patch.object(no_retry_client, "get_quote_history", return_value=[]),
+            patch("asyncio.sleep", new_callable=lambda: AsyncMock()) as sleep,
+            pytest.raises(Exception, match="408"),
+        ):
+            await no_retry_client.save_manual_holdings(
+                [{"symbol": "AAPL", "quantity": 10, "unitPrice": 100}],
+                "acct-1",
+                snapshot_date="2026-08-29",
+            )
+        assert p.await_count == 1
+        sleep.assert_not_awaited()
+
+    async def test_check_holdings_import_retries_408(
+        self, client: WealthfolioClient
+    ) -> None:
+        """The holdings import-check POST also retries on 408."""
+        client._is_authenticated = True
+        timeout = MagicMock()
+        timeout.status_code = 408
+        timeout.raise_for_status.side_effect = Exception("408")
+        ok = MagicMock()
+        ok.status_code = 200
+        ok.json.return_value = {"validationErrors": []}
+
+        with (
+            patch.object(
+                client._client, "post", side_effect=[timeout, ok]
+            ) as p,
+            patch("asyncio.sleep", new_callable=lambda: AsyncMock()) as sleep,
+        ):
+            result = await client.check_holdings_import(
+                [{"symbol": "AAPL", "quantity": 10}], "acct-1"
+            )
+        assert result == {"validationErrors": []}
+        assert p.await_count == 2
+        sleep.assert_awaited_once()
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -354,3 +747,108 @@ class TestWealthfolioClientIntegration:
 
         assert result["imported"] == 5
         assert result["failed"] == 0
+
+    async def test_push_activities_imports_wealthfolio_resolved_rows(
+        self, client: WealthfolioClient
+    ) -> None:
+        """The hydrated check response must be passed to the import call."""
+        client._is_authenticated = True
+        activities = [{"activityType": "BUY", "symbol": "VWCE"}]
+        resolved = [{**activities[0], "assetId": "asset-vwce"}]
+
+        mock_check = MagicMock()
+        mock_check.status_code = 200
+        mock_check.json.return_value = resolved
+        mock_import = MagicMock()
+        mock_import.status_code = 200
+        mock_import.json.return_value = {"imported": 1, "skipped": 0}
+
+        with patch.object(client._client, "post") as mock_post:
+            mock_post.side_effect = [mock_check, mock_import]
+            await client.push_activities(activities)
+
+        assert mock_post.call_args_list[1].kwargs == {
+            "json": {"activities": resolved}
+        }
+
+    async def test_push_activities_restores_provenance_dropped_by_check(
+        self, client: WealthfolioClient
+    ) -> None:
+        """Import keeps connector identity when check hydration drops it."""
+        client._is_authenticated = True
+        activities = [
+            {
+                "activityType": "DIVIDEND",
+                "symbol": "VWCE",
+                "sourceSystem": "FINANCE_SYNC",
+                "sourceRecordId": "source-1",
+                "idempotencyKey": "stable-1",
+            }
+        ]
+        mock_check = MagicMock(status_code=200)
+        mock_check.json.return_value = [
+            {"activityType": "DIVIDEND", "symbol": "VWCE", "assetId": "a1"}
+        ]
+        mock_import = MagicMock(status_code=200)
+        mock_import.json.return_value = {"imported": 1, "skipped": 0}
+
+        with patch.object(
+            client._client, "post", side_effect=[mock_check, mock_import]
+        ) as mock_post:
+            await client.push_activities(activities)
+
+        imported = mock_post.call_args_list[1].kwargs["json"]["activities"][0]
+        assert imported["assetId"] == "a1"
+        assert imported["sourceRecordId"] == "source-1"
+        assert imported["idempotencyKey"] == "stable-1"
+
+
+class TestWealthfolioTaxonomyAssignments:
+    async def test_replacement_sends_only_the_selected_taxonomy(
+        self, client: WealthfolioClient
+    ) -> None:
+        """The per-taxonomy endpoint rejects assignments from other taxonomies."""
+        client._is_authenticated = True
+        existing = MagicMock(status_code=200)
+        existing.json.return_value = [
+            {
+                "assetId": "asset-1",
+                "taxonomyId": "asset_classes",
+                "categoryId": "equity",
+                "weight": 10000,
+                "source": "AUTO",
+            },
+            {
+                "assetId": "asset-1",
+                "taxonomyId": "regions",
+                "categoryId": "europe",
+                "weight": 10000,
+                "source": "AUTO",
+            },
+        ]
+        replacement = MagicMock(status_code=200)
+        replacement.json.return_value = []
+        assignments = [
+            {
+                "assetId": "asset-1",
+                "taxonomyId": "industries_gics",
+                "categoryId": "45",
+                "weight": 10000,
+                "source": "AUTO",
+            }
+        ]
+
+        with (
+            patch.object(
+                client._client, "get", return_value=existing
+            ) as mock_get,
+            patch.object(
+                client._client, "put", return_value=replacement
+            ) as mock_put,
+        ):
+            await client.replace_asset_taxonomy_assignments(
+                "asset-1", "industries_gics", assignments
+            )
+
+        mock_get.assert_not_awaited()
+        assert mock_put.call_args.kwargs["json"] == assignments

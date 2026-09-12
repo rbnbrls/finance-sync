@@ -1275,6 +1275,51 @@ class TestTransactionRepositoryEdgeCases:
         # Should find the duplicate since same amount + different ext IDs
         assert len(pairs) == 1
 
+    async def test_find_duplicate_candidates_skips_distinct_ids_in_descriptions(
+        self,
+        session_factory: async_sessionmaker[AsyncSession],
+        session: AsyncSession,
+        tenant_id: str,
+    ) -> None:
+        """Equal amounts are not duplicates when descriptions identify each ID."""
+        from finance_sync.db.repositories import TransactionRepository
+
+        acct = await _create_account(
+            session, tenant_id=tenant_id, provider_key="trading212"
+        )
+        now = datetime.now()
+        await _create_transaction(
+            session,
+            acct.id,
+            tenant_id=tenant_id,
+            provider_key="trading212",
+            external_transaction_id="txn_01a02c2b",
+            amount=Decimal("0.39"),
+            occurred_at=now - timedelta(hours=1),
+            description="01a02c2b",
+        )
+        await _create_transaction(
+            session,
+            acct.id,
+            tenant_id=tenant_id,
+            provider_key="trading212",
+            external_transaction_id="txn_01a0314f",
+            amount=Decimal("0.39"),
+            occurred_at=now - timedelta(hours=2),
+            description="01a0314f",
+        )
+        await session.commit()
+
+        repo = TransactionRepository(session)
+        pairs = await repo.find_duplicate_candidates(
+            tenant_id,
+            account_ids=[str(acct.id)],
+            date_from=now - timedelta(days=7),
+            date_to=now + timedelta(hours=1),
+        )
+
+        assert pairs == []
+
     async def test_find_duplicate_candidates_with_provider_keys(
         self,
         session_factory: async_sessionmaker[AsyncSession],

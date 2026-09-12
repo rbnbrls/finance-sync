@@ -14,10 +14,17 @@ because FastAPI needs runtime type introspection for OpenAPI generation.
 """
 
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    HTTPException,
+    Request,
+    status,
+)
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -33,6 +40,7 @@ from finance_sync.services.auth import decrypt_credential
 from finance_sync.sync.orchestrator import SyncOrchestrator
 
 router = APIRouter(prefix="/sync", tags=["sync"])
+_QUEUED_CONNECTION_SYNCS: set[str] = set()
 
 
 # ── Request / response models ─────────────────────────────────────────
@@ -205,6 +213,7 @@ async def _run_connection_sync(
     cred: Credential,
     *,
     allow_paused: bool = False,
+    full_history: bool = False,
 ) -> SyncRunLink:
     """Run one connection's sync; never raises — failures become entries.
 
@@ -224,6 +233,7 @@ async def _run_connection_sync(
             status="skipped",
             error_message="Connection is paused",
         )
+
     try:
         config = _decrypt_config(cred, cred.provider_key, container.settings)
         orchestrator = SyncOrchestrator(
@@ -235,11 +245,18 @@ async def _run_connection_sync(
         result = await orchestrator.run_sync(
             provider_type=cred.provider_key,
             config=config,
+            since=(
+                datetime.now(UTC) - timedelta(days=3650)
+                if full_history and cred.provider_key == "trading212"
+                else None
+            ),
             connection_id=str(cred.id),
             selected_accounts=list(cred.selected_accounts or []),
         )
         run_id = await _latest_run_id(db, cred.provider_key, str(cred.id))
         status = str(result.status.value)
+        if getattr(result, "error_category", None) == "already_running":
+            status = "running"
         await _record_sync_audit(
             db,
             tenant_id=tenant_id,
@@ -273,6 +290,38 @@ async def _run_connection_sync(
             status="error",
             error_message=str(exc)[:500],
         )
+
+
+async def _run_connection_sync_in_background(
+    container: Any,
+    tenant_id: str,
+    connection_id: str,
+    full_history: bool = False,
+) -> None:
+    """Run a queued sync with a fresh request-independent database session."""
+    try:
+        async with container.session_factory() as session:
+            cred = await session.scalar(
+                select(Credential).where(
+                    Credential.id == connection_id,
+                    Credential.tenant_id == tenant_id,
+                )
+            )
+            if cred is not None:
+                await _run_connection_sync(
+                    container,
+                    session,
+                    tenant_id,
+                    cred,
+                    full_history=full_history,
+                )
+                await session.commit()
+    except Exception:
+        # _run_connection_sync records provider failures. This guard prevents
+        # an ASGI background task exception from becoming an unobserved error.
+        pass
+    finally:
+        _QUEUED_CONNECTION_SYNCS.discard(connection_id)
 
 
 async def _trigger(
@@ -448,3 +497,56 @@ async def trigger_sync_connection(
     )
     await db.flush()
     return link
+
+
+@router.post(
+    "/connections/{connection_id}/start",
+    response_model=SyncRunLink,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def start_sync_connection(
+    connection_id: str,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    full_history: bool = False,
+    auth: AuthContext = Depends(require_permission("sync", "write")),
+    db: AsyncSession = Depends(get_db),
+) -> SyncRunLink:
+    """Queue one connection sync and return immediately for live progress UI."""
+    cred = await db.scalar(
+        select(Credential).where(
+            Credential.id == connection_id,
+            Credential.tenant_id == auth.tenant_id,
+        )
+    )
+    if cred is None:
+        raise HTTPException(status_code=404, detail="Connection not found")
+    running_id = await db.scalar(
+        select(SyncRun.id)
+        .where(
+            SyncRun.connection_id == connection_id, SyncRun.status == "running"
+        )
+        .order_by(SyncRun.started_at.desc())
+        .limit(1)
+    )
+    if connection_id in _QUEUED_CONNECTION_SYNCS or running_id is not None:
+        return SyncRunLink(
+            connection_id=connection_id,
+            provider=cred.provider_key,
+            sync_run_id=str(running_id) if running_id else None,
+            status="running",
+            link=f"/api/v1/sync-runs/{running_id}" if running_id else None,
+        )
+    _QUEUED_CONNECTION_SYNCS.add(connection_id)
+    background_tasks.add_task(
+        _run_connection_sync_in_background,
+        get_container(request),
+        auth.tenant_id,
+        connection_id,
+        full_history,
+    )
+    return SyncRunLink(
+        connection_id=connection_id,
+        provider=cred.provider_key,
+        status="queued",
+    )

@@ -25,6 +25,11 @@ Why this is needed.
 Write acceptance criteria specific enough that an agent can implement without
 back-and-forth. `status: todo` = candidate for the next build task.
 
+## Naming convention
+
+Active stories use `pNNN-...md`, where `NNN` is the numeric priority from the
+frontmatter; a higher number is picked first. Keep `README.md` unprefixed.
+
 ## Rules (how the pipeline works)
 
 1. Hermes picks **one story at a time** (highest `priority` first) and creates

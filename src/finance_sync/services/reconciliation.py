@@ -20,10 +20,14 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import structlog
+from sqlalchemy import select
 
+from finance_sync.duplicate_detection import (
+    has_distinct_transaction_ids_in_descriptions,
+)
 from finance_sync.models import ReconciliationResult, ReconciliationRun
 from finance_sync.models.enums import (
     ReconciliationResultKind,
@@ -239,6 +243,11 @@ class ReconciliationService:
             )
 
             for tx_a, tx_b in pairs:
+                # Keep this guard here as well as in the repository so a
+                # candidate from another implementation cannot become a
+                # misleading Potential duplicate finding.
+                if has_distinct_transaction_ids_in_descriptions(tx_a, tx_b):
+                    continue
                 # Derive a simple confidence score
                 same_provider = tx_a.provider_key == tx_b.provider_key
                 same_desc = (
@@ -533,6 +542,153 @@ class ReconciliationService:
 
         await session.flush()
 
+        # Detection only registers durable work.  It never constructs a
+        # connector or performs provider I/O.
+        from finance_sync.connectors.registry import ConnectorRegistry
+        from finance_sync.models import Account
+        from finance_sync.reconciliation.remediation.backlog import (
+            DetectedIssue,
+        )
+        from finance_sync.services.remediation import RemediationService
+
+        account_ids = {
+            str(finding.account_id)
+            for finding in findings
+            if isinstance(finding.account_id, str)
+            and finding.account_id
+            and (
+                finding.kind.value
+                if hasattr(finding.kind, "value")
+                else str(finding.kind)
+            )
+            == "missing_transaction"
+        }
+        account_by_id: dict[str, Account] = {}
+        if account_ids:
+            account_rows = await session.execute(
+                select(Account).where(Account.id.in_(account_ids))
+            )
+            account_by_id = {
+                str(account.id): account for account in account_rows.scalars()
+            }
+        connector_catalog = ConnectorRegistry().list_connectors()
+
+        issues: list[DetectedIssue] = []
+        for finding in findings:
+            entity_ids = sorted(
+                value
+                for value in (
+                    finding.transaction_id_a,
+                    finding.transaction_id_b,
+                )
+                if isinstance(value, str) and value
+            )
+            account_id = (
+                finding.account_id
+                if isinstance(finding.account_id, str)
+                else None
+            )
+            strategy = "unsupported"
+            connection_id: str | None = None
+            context: dict[str, Any] = {
+                "account_id": account_id,
+                "details": finding.details
+                if isinstance(finding.details, dict)
+                else {},
+            }
+            finding_kind = (
+                finding.kind.value
+                if hasattr(finding.kind, "value")
+                else str(finding.kind)
+            )
+            if finding_kind == "missing_transaction" and account_id is not None:
+                account = account_by_id.get(account_id)
+                provider = (
+                    str(finding.provider_key).lower()
+                    if isinstance(finding.provider_key, str)
+                    else ""
+                )
+                metadata = connector_catalog.get(provider, {})
+                declared_value = metadata.get("remediation_strategies", [])
+                declared = (
+                    cast("list[object]", declared_value)
+                    if isinstance(declared_value, list)
+                    else []
+                )
+                supports_history = any(
+                    isinstance(entry, dict)
+                    and cast("dict[str, Any]", entry).get("key")
+                    == "transaction_history_gap"
+                    for entry in declared
+                )
+                details = (
+                    finding.details if isinstance(finding.details, dict) else {}
+                )
+                run_scope = run.scope if isinstance(run.scope, dict) else {}
+                window_start = (
+                    details.get("analysis_start")
+                    or details.get("overall_start")
+                    or run_scope.get("date_from")
+                )
+                if isinstance(window_start, datetime):
+                    window_start = window_start.astimezone(UTC).isoformat()
+                window_end = details.get("overall_end") or run_scope.get(
+                    "date_to"
+                )
+                if isinstance(window_end, datetime):
+                    window_end = window_end.astimezone(UTC).isoformat()
+                if (
+                    account is not None
+                    and account.connection_id is not None
+                    and supports_history
+                    and isinstance(window_start, str)
+                    and isinstance(window_end, str)
+                ):
+                    strategy = "transaction_history_gap"
+                    connection_id = str(account.connection_id)
+                    context = {
+                        "account_id": account_id,
+                        "provider_account_id": account.external_account_id,
+                        "from": window_start,
+                        "to": window_end,
+                        "minimum_transactions": 1,
+                        "limit": 500,
+                    }
+            finding_id = finding.id
+            entity_id = ":".join(entity_ids) or account_id or finding_id
+            issues.append(
+                DetectedIssue(
+                    tenant_id=str(run.tenant_id),
+                    provider_key=finding.provider_key
+                    if isinstance(finding.provider_key, str)
+                    else "unknown",
+                    issue_type=finding.kind.value
+                    if hasattr(finding.kind, "value")
+                    else str(finding.kind),
+                    affected_entity_type="transaction_pair"
+                    if len(entity_ids) > 1
+                    else "account",
+                    affected_entity_id=entity_id,
+                    severity=finding.severity.value
+                    if hasattr(finding.severity, "value")
+                    else str(finding.severity),
+                    remediation_strategy=strategy,
+                    connection_id=connection_id,
+                    context=context,
+                    scope=str(finding.details)
+                    if isinstance(finding.details, dict)
+                    else entity_id,
+                    detected_at=datetime.now(UTC),
+                )
+            )
+        if issues:
+            remediation_items = await RemediationService(
+                session, str(run.tenant_id)
+            ).register_detected_issues(issues)
+            for finding, item in zip(findings, remediation_items, strict=True):
+                finding.remediation_item_id = str(item.id)
+            await session.flush()
+
         # Compute summary stats
         by_kind: dict[str, int] = {}
         by_severity: dict[str, int] = {}
@@ -636,8 +792,8 @@ class ReconciliationService:
 # ── Helpers ───────────────────────────────────────────────────────────
 
 
-def _default_since() -> datetime:
+def _default_since(now: datetime | None = None) -> datetime:
     """Return a default look-back datetime (90 days ago)."""
     from datetime import timedelta
 
-    return datetime.now(UTC) - timedelta(days=_DEFAULT_DAYS_BACK)
+    return (now or datetime.now(UTC)) - timedelta(days=_DEFAULT_DAYS_BACK)

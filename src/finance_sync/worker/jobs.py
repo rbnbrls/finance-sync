@@ -9,13 +9,14 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import inspect
 import json
 import shutil
 import time
 import traceback
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 from uuid import uuid4
 
 import structlog
@@ -29,7 +30,10 @@ from finance_sync.models.credential import (
     CONNECTION_STATUS_PAUSED,
     Credential,
 )
+from finance_sync.models.export_target import TARGET_ACTIVE, ExportTarget
 from finance_sync.models.import_run import ImportRun
+from finance_sync.models.sync_schedule import SCOPE_EXPORT, SyncSchedule
+from finance_sync.models.tenant import Tenant
 from finance_sync.services.degiro_import import (
     batch_hash,
     build_preview,
@@ -37,6 +41,8 @@ from finance_sync.services.degiro_import import (
     execute_run,
     validate_local_files,
 )
+from finance_sync.services.incident_reporting import report_connector_failure
+from finance_sync.services.retry_lock import retry_lease
 from finance_sync.sync.orchestrator import SyncOrchestrator
 from finance_sync.sync.outbox_publisher import OutboxPublisher
 
@@ -45,7 +51,6 @@ if TYPE_CHECKING:
 
     from finance_sync.config.settings import Settings
     from finance_sync.container import Container
-    from finance_sync.models import Tenant
 
 logger = structlog.get_logger("finance_sync.worker.jobs")
 
@@ -132,54 +137,54 @@ async def _get_tenant_connections(
     secrets (for error sanitisation).  A tenant may hold several
     connections for the same provider; each is synced independently.
     """
-    tenants = await uow.tenants.list(limit=100)
     result: list[dict[str, Any]] = []
 
-    for tenant in tenants:
-        stmt = select(Credential).where(
-            Credential.tenant_id == tenant.id,
-            Credential.provider_key == provider_key,
+    stmt = (
+        select(Credential, Tenant)
+        .join(Tenant, Tenant.id == Credential.tenant_id)
+        .where(Credential.provider_key == provider_key)
+        .order_by(Tenant.created_at, Credential.created_at)
+    )
+    rows = (await uow.session.execute(stmt)).all()
+
+    for cred, tenant in rows:
+        credentials: dict[str, str] = {}
+        secrets: list[str] = []
+        if cred.encrypted_payload:
+            from finance_sync.services.auth import decrypt_credential
+
+            try:
+                decrypted = decrypt_credential(
+                    cred.encrypted_payload,
+                    cred.nonce,
+                    uow.session.info.get("settings"),
+                )
+                parsed: dict[str, Any] = json.loads(decrypted)
+                credentials = {str(k): str(v) for k, v in parsed.items()}
+                secrets = [str(v) for v in credentials.values()]
+            except Exception:
+                logger.error(
+                    "credential_decrypt_failed",
+                    tenant_id=tenant.id,
+                    provider_key=provider_key,
+                    connection_id=str(cred.id),
+                )
+                continue
+        config = ConnectorConfig(
+            provider_type=provider_key,
+            credentials=credentials,
+            options=connector_options(cred),
+            connection_id=str(cred.id),
+            selected_accounts=list(cred.selected_accounts or []),
         )
-        cred_rows = (await uow.session.execute(stmt)).scalars().all()
-
-        for cred in cred_rows:
-            credentials: dict[str, str] = {}
-            secrets: list[str] = []
-            if cred.encrypted_payload:
-                from finance_sync.services.auth import decrypt_credential
-
-                try:
-                    decrypted = decrypt_credential(
-                        cred.encrypted_payload,
-                        cred.nonce,
-                        uow.session.info.get("settings"),
-                    )
-                    parsed: dict[str, Any] = json.loads(decrypted)
-                    credentials = {str(k): str(v) for k, v in parsed.items()}
-                    secrets = [str(v) for v in credentials.values()]
-                except Exception:
-                    logger.error(
-                        "credential_decrypt_failed",
-                        tenant_id=tenant.id,
-                        provider_key=provider_key,
-                        connection_id=str(cred.id),
-                    )
-                    continue
-            config = ConnectorConfig(
-                provider_type=provider_key,
-                credentials=credentials,
-                options=connector_options(cred),
-                connection_id=str(cred.id),
-                selected_accounts=list(cred.selected_accounts or []),
-            )
-            result.append(
-                {
-                    "tenant": tenant,
-                    "credential": cred,
-                    "config": config,
-                    "secrets": secrets,
-                }
-            )
+        result.append(
+            {
+                "tenant": tenant,
+                "credential": cred,
+                "config": config,
+                "secrets": secrets,
+            }
+        )
 
     return result
 
@@ -282,13 +287,24 @@ async def sync_connector_job(
             return {
                 "tenant_id": _tenant.id,
                 "connection_id": _connection_id,
-                "status": result.status.value,
+                "status": (
+                    "skipped"
+                    if getattr(result, "error_category", None)
+                    == "already_running"
+                    else result.status.value
+                ),
                 "accounts_synced": result.accounts_synced,
                 "transactions_synced": result.transactions_synced,
                 "holdings_synced": result.holdings_synced,
                 "unresolved_securities": result.unresolved_securities,
                 "duration_s": round(result.duration_s, 2),
                 "error": result.error_message,
+                "reason": (
+                    "already_running"
+                    if getattr(result, "error_category", None)
+                    == "already_running"
+                    else None
+                ),
             }
 
         try:
@@ -306,6 +322,13 @@ async def sync_connector_job(
             # Note: auto-reconciliation is handled inside run_sync() in
             # the orchestrator — no need to run it again here.
         except Exception as exc:
+            await report_connector_failure(
+                container.settings,
+                exc,
+                connector=provider_key,
+                operation="sync_connection",
+                connection_id=connection_id,
+            )
             tenant_result = {
                 "tenant_id": tenant.id,
                 "connection_id": connection_id,
@@ -786,12 +809,17 @@ async def _record_watch_failure(
 
 
 async def enrich_prices_job(container: Container) -> dict[str, Any]:
-    """Enrich security prices for all securities that need fresh data.
+    """Enrich latest and daily historical prices for tracked securities.
 
     Runs every 15 minutes during market hours (9:30-16:00 EST).  Fetches
-    latest quotes for all tracked securities and stores them as price
-    observations.
+    latest quotes and a bounded daily history for all tracked securities.
+    The history call is cache-aware, so already complete/fresh series do not
+    cause another provider request.  Keeping this in the same loop means a
+    newly discovered security becomes exportable to Wealthfolio without
+    waiting for a manual identity-resolution action.
     """
+    from finance_sync.enrichment.identifiers import quote_identifier
+
     log = logger.bind()
     log.info("enrich_prices_job_starting")
     gateway = container.enrichment_gateway
@@ -803,21 +831,30 @@ async def enrich_prices_job(container: Container) -> dict[str, Any]:
 
         enriched = 0
         failed = 0
+        historical_observations = 0
+        historical_failed = 0
         for security in securities:
-            # Determine the best identifier to use for the quote lookup
-            identifier: str | None = None
-            id_type: str = "ticker"
-            if security.ticker:
-                identifier = security.ticker
-            elif security.figi:
-                identifier = security.figi
-                id_type = "figi"
-            elif security.isin:
-                identifier = security.isin
-                id_type = "isin"
+            identifier, id_type = quote_identifier(security)
 
             if not identifier:
                 continue
+
+            try:
+                history = await gateway.get_historical_prices(
+                    security_id=str(security.id),
+                    identifier=identifier,
+                    identifier_type=id_type,
+                    interval="1d",
+                    limit=365,
+                )
+                historical_observations += len(history.observations)
+            except Exception:
+                historical_failed += 1
+                log.debug(
+                    "enrich_history_failed",
+                    security_id=str(security.id),
+                    identifier=identifier,
+                )
 
             try:
                 quote = await gateway.get_latest_quote(
@@ -843,8 +880,319 @@ async def enrich_prices_job(container: Container) -> dict[str, Any]:
         "enrich_prices_job_complete",
         enriched=enriched,
         failed=failed,
+        historical_observations=historical_observations,
+        historical_failed=historical_failed,
     )
-    return {"enriched": enriched, "failed": failed}
+    return {
+        "enriched": enriched,
+        "failed": failed,
+        "historical_observations": historical_observations,
+        "historical_failed": historical_failed,
+    }
+
+
+async def data_quality_repair_job(container: Container) -> dict[str, Any]:
+    """Legacy compatibility entrypoint; enqueue-only remediation tick."""
+    return await data_quality_remediation_job(container)
+
+
+async def data_quality_remediation_job(container: Container) -> dict[str, Any]:
+    """Claim bounded remediation work; provider calls belong to an executor."""
+    from finance_sync.models.remediation import DataQualityRemediationItem
+    from finance_sync.models.tenant import Tenant
+    from finance_sync.observability.metrics import (
+        data_quality_remediation_backlog_size,
+        data_quality_remediation_manual_review_size,
+        data_quality_remediation_oldest_age_seconds,
+        data_quality_remediation_pending_by_provider,
+    )
+    from finance_sync.reconciliation.remediation.batching import create_batches
+    from finance_sync.reconciliation.remediation.executor import (
+        RemediationExecutor,
+    )
+    from finance_sync.reconciliation.remediation.planner import (
+        RemediationPlanner,
+    )
+    from finance_sync.reconciliation.remediation.price_history import (
+        HistoricalPriceStrategy,
+    )
+    from finance_sync.reconciliation.remediation.quote import (
+        LatestQuoteStrategy,
+    )
+    from finance_sync.reconciliation.remediation.rate_limit import (
+        QuotaPolicy,
+        RemediationRateLimitCoordinator,
+    )
+    from finance_sync.reconciliation.remediation.trading212 import (
+        Trading212InstrumentMetadataStrategy,
+    )
+    from finance_sync.reconciliation.remediation.transaction_history import (
+        TransactionHistoryStrategy,
+    )
+
+    results: dict[str, Any] = {}
+    async with container.session_factory() as session:
+        tenants = (await session.execute(select(Tenant))).scalars().all()
+        for tenant in tenants:
+            try:
+                planner = RemediationPlanner(
+                    session,
+                    claim_limit=container.settings.remediation_claim_limit,
+                    lease_seconds=max(
+                        container.settings.remediation_lease_seconds,
+                        container.settings.remediation_max_execution_seconds
+                        + 30,
+                    ),
+                )
+                claimed = await planner.claim_due(tenant_id=str(tenant.id))
+                # Make the lease durable before any connector construction or
+                # provider I/O.  A crash after this commit leaves work
+                # recoverable through the persisted lease, rather than
+                # allowing a provider call under an uncommitted claim.
+                if claimed:
+                    await session.commit()
+                quota = RemediationRateLimitCoordinator(
+                    container.redis_client
+                    if container.settings.redis_url is not None
+                    else None
+                )
+                trading212 = Trading212InstrumentMetadataStrategy(
+                    session, container.settings
+                )
+                price_history = HistoricalPriceStrategy(
+                    session, container.settings
+                )
+                latest_quote = LatestQuoteStrategy(session, container.settings)
+                tenant_id = str(tenant.id)
+
+                async def _remediation_connector(
+                    item: Any, _tenant_id: str = tenant_id
+                ) -> Any:
+                    credential = await session.get(
+                        Credential, str(item.connection_id)
+                    )
+                    if (
+                        credential is None
+                        or str(credential.tenant_id) != _tenant_id
+                        or credential.provider_key != item.provider_key
+                    ):
+                        message = "remediation connection not found"
+                        raise ValueError(message)
+                    from finance_sync.services.auth import decrypt_credential
+
+                    payload = json.loads(
+                        decrypt_credential(
+                            credential.encrypted_payload,
+                            credential.nonce,
+                            container.settings,
+                        )
+                    )
+                    config = ConnectorConfig(
+                        provider_type=str(item.provider_key),
+                        credentials={
+                            str(key): str(value)
+                            for key, value in payload.items()
+                        },
+                        options=connector_options(credential),
+                        connection_id=str(credential.id),
+                    )
+                    connector = ConnectorRegistry().get_connector(config)
+                    await connector.authenticate()
+                    return connector
+
+                async def _persist_transactions(
+                    item: Any,
+                    account_id: str,
+                    canonical: list[Any],
+                    _tenant_id: str = tenant_id,
+                ) -> int:
+                    from finance_sync.sync.persistence import (
+                        PersistenceContext,
+                        SyncPersistence,
+                    )
+                    from finance_sync.sync.stages.transactions import (
+                        TransactionSyncStage,
+                    )
+
+                    persistence = SyncPersistence(
+                        object(),
+                        context=PersistenceContext(
+                            tenant_id=_tenant_id,
+                            provider_type=str(item.provider_key),
+                            connection_id=str(item.connection_id),
+                        ),
+                    )
+                    result = await TransactionSyncStage(persistence).run(
+                        UnitOfWork(session),
+                        canonical,
+                        account_id=account_id,
+                        provider_type=str(item.provider_key),
+                        connection_id=str(item.connection_id),
+                    )
+                    return result.count
+
+                transaction_history = TransactionHistoryStrategy(
+                    session,
+                    persist=_persist_transactions,
+                    connector_factory=_remediation_connector,
+                    supported_providers=frozenset(
+                        provider
+                        for provider, metadata in ConnectorRegistry()
+                        .list_connectors()
+                        .items()
+                        if any(
+                            isinstance(entry, dict)
+                            and cast("dict[str, Any]", entry).get("key")
+                            == "transaction_history_gap"
+                            for entry in cast(
+                                "list[Any]",
+                                metadata.get("remediation_strategies", []),
+                            )
+                        )
+                    ),
+                )
+                executor = RemediationExecutor(
+                    session,
+                    strategies={
+                        trading212.key: trading212,
+                        price_history.key: price_history,
+                        transaction_history.key: transaction_history,
+                        latest_quote.key: latest_quote,
+                    },
+                    quota=quota,
+                    quota_policies={
+                        trading212.key: QuotaPolicy(
+                            container.settings.remediation_quota_requests,
+                            container.settings.remediation_quota_window_seconds,
+                            trading212.endpoint_family,
+                        ),
+                        price_history.key: QuotaPolicy(
+                            container.settings.remediation_quota_requests,
+                            container.settings.remediation_quota_window_seconds,
+                            price_history.endpoint_family,
+                        ),
+                        transaction_history.key: QuotaPolicy(
+                            container.settings.remediation_quota_requests,
+                            container.settings.remediation_quota_window_seconds,
+                            transaction_history.endpoint_family,
+                        ),
+                        latest_quote.key: QuotaPolicy(
+                            container.settings.remediation_quota_requests,
+                            container.settings.remediation_quota_window_seconds,
+                            latest_quote.endpoint_family,
+                        ),
+                    },
+                    max_verification_attempts=(
+                        container.settings.remediation_max_verification_attempts
+                    ),
+                    max_execution_seconds=(
+                        container.settings.remediation_max_execution_seconds
+                    ),
+                    retry_base_seconds=(
+                        container.settings.remediation_retry_base_seconds
+                    ),
+                    retry_cap_seconds=(
+                        container.settings.remediation_retry_cap_seconds
+                    ),
+                    retry_jitter=container.settings.remediation_retry_jitter,
+                )
+                outcomes: list[str] = []
+                for batch in create_batches(claimed, batch_limit=50):
+                    outcomes.extend(await executor.execute_batch(batch))
+                results[str(tenant.id)] = {
+                    "claimed": len(claimed),
+                    "outcomes": outcomes,
+                }
+            except Exception as exc:
+                logger.exception(
+                    "data_quality_repair_failed",
+                    tenant_id=str(tenant.id),
+                    error=type(exc).__name__,
+                )
+                await session.rollback()
+                results[str(tenant.id)] = {"error": type(exc).__name__}
+        await session.commit()
+        from sqlalchemy import func
+
+        counts = {
+            str(status): int(count)
+            for status, count in (
+                await session.execute(
+                    select(
+                        DataQualityRemediationItem.status, func.count()
+                    ).group_by(DataQualityRemediationItem.status)
+                )
+            ).all()
+        }
+        data_quality_remediation_backlog_size.clear()
+        for status, count in counts.items():
+            data_quality_remediation_backlog_size.labels(status=status).set(
+                count
+            )
+        pending_by_provider = {
+            str(provider): int(count)
+            for provider, count in (
+                await session.execute(
+                    select(
+                        DataQualityRemediationItem.provider_key,
+                        func.count(),
+                    )
+                    .where(
+                        DataQualityRemediationItem.status.in_(
+                            ("pending", "retry_wait", "deferred")
+                        )
+                    )
+                    .group_by(DataQualityRemediationItem.provider_key)
+                )
+            ).all()
+        }
+        data_quality_remediation_pending_by_provider.clear()
+        for provider, count in pending_by_provider.items():
+            data_quality_remediation_pending_by_provider.labels(
+                provider=provider
+            ).set(count)
+        data_quality_remediation_manual_review_size.set(
+            counts.get("manual_review", 0)
+        )
+        oldest = await session.scalar(
+            select(
+                func.min(DataQualityRemediationItem.first_detected_at)
+            ).where(
+                DataQualityRemediationItem.status.in_(("pending", "retry_wait"))
+            )
+        )
+        data_quality_remediation_oldest_age_seconds.set(
+            max(0, (datetime.now(UTC) - oldest).total_seconds())
+            if oldest is not None
+            else 0
+        )
+    logger.info("data_quality_remediation_complete", tenants=len(results))
+    return {"tenants": results}
+
+
+async def data_quality_remediation_cleanup_job(
+    container: Container,
+) -> dict[str, int]:
+    """Retention job for terminal backlog history only."""
+    from finance_sync.reconciliation.remediation.backlog import (
+        BacklogRepository,
+    )
+
+    async with container.session_factory() as session:
+        repository = BacklogRepository(session)
+        removed = await repository.cleanup_terminal(
+            retention_days=container.settings.remediation_retention_days
+        )
+        audit_removed = await repository.cleanup_operator_audit(
+            retention_days=container.settings.remediation_retention_days
+        )
+        await session.commit()
+    logger.info(
+        "data_quality_remediation_cleanup_complete",
+        removed=removed,
+        audit_removed=audit_removed,
+    )
+    return {"removed": removed, "audit_removed": audit_removed}
 
 
 async def nightly_reconciliation_job(container: Container) -> dict[str, Any]:
@@ -1060,6 +1408,50 @@ async def export_wealthfolio_job(container: Container) -> dict[str, Any]:
             "reason": "WEALTHFOLIO_SERVER_URL/WEALTHFOLIO_PASSWORD not set",
         }
 
+    # Destination schedules supersede the historical global sweep.  The
+    # legacy lease uses the literal item id ``legacy`` while destination
+    # runs use ``wealthfolio:<target-id>``; allowing both therefore permits
+    # two writers to mutate the same Wealthfolio accounts concurrently.
+    async with container.session_factory() as session:
+        scalars_method: Any = getattr(cast("Any", session), "scalars", None)
+        if callable(scalars_method):
+            scalars_result: Any = scalars_method(
+                select(ExportTarget.id).where(
+                    ExportTarget.target_type == "wealthfolio",
+                    ExportTarget.status == TARGET_ACTIVE,
+                )
+            )
+            if inspect.isawaitable(scalars_result):
+                scalars_result = await scalars_result
+            active_targets = list(scalars_result.all())
+        else:
+            active_targets = []
+        scheduled_target_ids = {
+            f"wealthfolio:{target_id}" for target_id in active_targets
+        }
+        scalar_method = getattr(session, "scalar", None)
+        if scheduled_target_ids and callable(scalar_method):
+            schedule_result = scalar_method(
+                select(SyncSchedule.id).where(
+                    SyncSchedule.scope == SCOPE_EXPORT,
+                    SyncSchedule.enabled.is_(True),
+                    SyncSchedule.target_id.in_(scheduled_target_ids),
+                )
+            )
+            if inspect.isawaitable(schedule_result):
+                schedule_result = await schedule_result
+        else:
+            schedule_result = None
+        has_destination_schedule = bool(
+            scheduled_target_ids and schedule_result
+        )
+    if has_destination_schedule:
+        log.info("export_job_skipped_destination_schedule_active")
+        return {
+            "status": "skipped",
+            "reason": "destination_schedule_active",
+        }
+
     # ── Load configured tenants ─────────────────────────────────────
     async with container.session_factory() as session:
         uow = UnitOfWork(session)
@@ -1082,6 +1474,7 @@ async def export_wealthfolio_job(container: Container) -> dict[str, Any]:
         config=WealthfolioClientConfig(
             base_url=server_url,
             password=password,
+            request_timeout=settings.wealthfolio_request_timeout,
         ),
     )
 
@@ -1091,14 +1484,45 @@ async def export_wealthfolio_job(container: Container) -> dict[str, Any]:
         for tenant in tenants:
             tenant_log = log.bind(tenant_id=tenant.id)
             try:
-                exporter = WealthfolioExporter(
-                    session_factory=container.session_factory,
-                    wf_config=wf_config,
-                    tenant_id=tenant.id,
+                lease = (
+                    retry_lease(
+                        container.redis_client,
+                        tenant_id=str(tenant.id),
+                        kind="destination-export",
+                        item_id="legacy",
+                    )
+                    if settings.redis_url is not None
+                    else None
                 )
-                result = await exporter.push_to_wealthfolio(
-                    wf_client=wf_client,
-                )
+                if lease is not None:
+                    async with lease:
+                        if not lease.acquired:
+                            tenant_log.info("export_job_tenant_skipped_overlap")
+                            summary.append(
+                                {
+                                    "tenant_id": tenant.id,
+                                    "status": "skipped",
+                                    "reason": "export_in_progress",
+                                }
+                            )
+                            continue
+                        exporter = WealthfolioExporter(
+                            session_factory=container.session_factory,
+                            wf_config=wf_config,
+                            tenant_id=tenant.id,
+                        )
+                        result = await exporter.push_to_wealthfolio(
+                            wf_client=wf_client,
+                        )
+                else:
+                    exporter = WealthfolioExporter(
+                        session_factory=container.session_factory,
+                        wf_config=wf_config,
+                        tenant_id=tenant.id,
+                    )
+                    result = await exporter.push_to_wealthfolio(
+                        wf_client=wf_client,
+                    )
                 tenant_status = (
                     "failed" if result.get("errors") else "completed"
                 )
@@ -1108,6 +1532,7 @@ async def export_wealthfolio_job(container: Container) -> dict[str, Any]:
                     imported=result.get("imported", 0),
                     skipped=result.get("skipped", 0),
                     failed=result.get("failed", 0),
+                    accounts_removed=result.get("accounts_removed", 0),
                     run_id=result.get("run_id"),
                 )
                 summary.append(
@@ -1117,10 +1542,18 @@ async def export_wealthfolio_job(container: Container) -> dict[str, Any]:
                         "imported": result.get("imported", 0),
                         "skipped": result.get("skipped", 0),
                         "failed": result.get("failed", 0),
+                        "accounts_removed": result.get("accounts_removed", 0),
                         "run_id": result.get("run_id"),
                     },
                 )
             except Exception as exc:
+                await report_connector_failure(
+                    settings,
+                    exc,
+                    connector="wealthfolio",
+                    operation="delivery_sweep",
+                    correlation_id=str(tenant.id),
+                )
                 tenant_log.error(
                     "export_job_tenant_failed",
                     error=str(exc)[:300],

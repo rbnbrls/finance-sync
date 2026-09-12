@@ -254,6 +254,7 @@ class CardsSyncMixin:
         )
         cards_connector = cast(_CardsConnector, connector)
         run = None
+        run_id: str | None = None
         schedules_synced = 0
         card_txns_synced = 0
 
@@ -273,7 +274,8 @@ class CardsSyncMixin:
                     connector="bunq_cards",
                     connection_id=connection_id,
                 )
-                log = log.bind(sync_run_id=str(run.id))
+                run_id = str(run.id)
+                log = log.bind(sync_run_id=run_id)
 
                 # 2. Authenticate
                 await connector.authenticate()
@@ -372,7 +374,13 @@ class CardsSyncMixin:
         except (PermanentError, TransientError, ConnectorError) as exc:
             end_ts = _dt.now(UTC)
             await self._mark_run_failed(
-                session, run, str(exc), log, connection_id=connection_id
+                session,
+                run,
+                str(exc),
+                log,
+                connection_id=connection_id,
+                run_id=run_id,
+                connector="bunq_cards",
             )
             return BunqCardsSyncResult(
                 status=SyncRunStatus.FAILED,
@@ -385,7 +393,13 @@ class CardsSyncMixin:
             end_ts = _dt.now(UTC)
             tb = traceback.format_exc()
             await self._mark_run_failed(
-                session, run, tb, log, connection_id=connection_id
+                session,
+                run,
+                tb,
+                log,
+                connection_id=connection_id,
+                run_id=run_id,
+                connector="bunq_cards",
             )
             return BunqCardsSyncResult(
                 status=SyncRunStatus.FAILED,
