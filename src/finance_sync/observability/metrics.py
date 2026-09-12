@@ -177,6 +177,11 @@ wealthfolio_health_polls_total = Counter(
     "Wealthfolio health polls by outcome",
     labelnames=["outcome"],
 )
+wealthfolio_health_incomplete_snapshots_total = Counter(
+    "wealthfolio_health_incomplete_snapshots_total",
+    "Wealthfolio health polls whose issue snapshot was incomplete",
+    labelnames=["reason"],
+)
 wealthfolio_health_imported_issues_total = Counter(
     "wealthfolio_health_imported_issues_total",
     "Wealthfolio health issues imported into remediation",

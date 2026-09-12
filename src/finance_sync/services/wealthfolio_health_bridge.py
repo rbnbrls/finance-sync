@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
@@ -20,6 +21,60 @@ from finance_sync.reconciliation.remediation.backlog import (
 PROVIDER_KEY = "wealthfolio"
 MAX_CONTEXT_TEXT = 256
 MAX_AFFECTED_ITEMS = 100
+
+
+@dataclass(frozen=True, slots=True)
+class HealthPollResult:
+    """Sanitized health payload plus durable completeness metadata."""
+
+    payload: dict[str, Any]
+    complete: bool
+    truncated: bool = False
+    cursor_state: dict[str, Any] = field(default_factory=dict)
+
+
+def prepare_health_poll(
+    payload: dict[str, Any], *, issue_limit: int
+) -> HealthPollResult:
+    """Bound a health response without treating omitted issues as absent."""
+    issues = payload.get("issues")
+    if not isinstance(issues, list):
+        return HealthPollResult(
+            payload=dict(payload),
+            complete=False,
+            cursor_state={"reason": "malformed_issues"},
+        )
+
+    metadata: dict[str, Any] = {
+        "issue_limit": max(1, issue_limit),
+        "returned_issues": min(len(issues), max(1, issue_limit)),
+    }
+    next_cursor = payload.get("nextCursor", payload.get("next_cursor"))
+    has_more = payload.get("hasMore", payload.get("has_more"))
+    pagination = payload.get("pagination")
+    if isinstance(pagination, dict):
+        next_cursor = pagination.get("nextCursor", pagination.get("next_cursor", next_cursor))
+        has_more = pagination.get("hasMore", pagination.get("has_more", has_more))
+    if next_cursor is not None:
+        metadata["next_cursor"] = _text(next_cursor, limit=128)
+    if has_more is True or next_cursor:
+        metadata["reason"] = "provider_pagination"
+        complete = False
+    elif len(issues) > issue_limit:
+        metadata["reason"] = "issue_limit"
+        complete = False
+    else:
+        metadata["reason"] = "complete"
+        complete = True
+    bounded = dict(payload)
+    if len(issues) > issue_limit:
+        bounded["issues"] = issues[: max(1, issue_limit)]
+    return HealthPollResult(
+        payload=bounded,
+        complete=complete,
+        truncated=len(issues) > issue_limit or bool(next_cursor) or has_more is True,
+        cursor_state=metadata,
+    )
 
 
 def _text(value: object, *, limit: int = MAX_CONTEXT_TEXT) -> str:
@@ -157,7 +212,14 @@ class WealthfolioHealthBridge:
         self.tenant_id = tenant_id
         self.target = target
 
-    async def enqueue_success(self, payload: dict[str, Any]) -> list[DataQualityRemediationItem]:
+    async def enqueue_success(
+        self,
+        payload: dict[str, Any],
+        *,
+        complete: bool | None = None,
+        truncated: bool = False,
+        cursor_state: dict[str, Any] | None = None,
+    ) -> list[DataQualityRemediationItem]:
         now = datetime.now(UTC)
         findings = normalize_health_issues(
             payload, tenant_id=self.tenant_id, target_id=str(self.target.id)
@@ -174,9 +236,15 @@ class WealthfolioHealthBridge:
                 tenant_id=self.tenant_id, target_id=self.target.id
             )
             self.session.add(cursor)
+        if complete is None:
+            complete = isinstance(payload.get("issues"), list) and "issues" in payload
+        complete = bool(complete) and isinstance(payload.get("issues"), list)
         cursor.last_successful_poll = now
         cursor.payload_hash = health_payload_hash(payload)
         cursor.issue_count = len(findings)
+        cursor.complete = complete
+        cursor.truncated = bool(truncated)
+        cursor.cursor_state = dict(cursor_state or {})
         cursor.last_error = None
         cursor.last_error_category = None
         backlog = BacklogRepository(self.session)
@@ -194,7 +262,7 @@ class WealthfolioHealthBridge:
             )
         ).scalars()
         for item in active:
-            if item.deduplication_key not in current_keys and item.issue_type.startswith("wealthfolio_"):
+            if complete and not truncated and item.deduplication_key not in current_keys and item.issue_type.startswith("wealthfolio_"):
                 await backlog.transition(
                     self.tenant_id,
                     str(item.id),
@@ -217,6 +285,9 @@ class WealthfolioHealthBridge:
                 tenant_id=self.tenant_id, target_id=self.target.id
             )
             self.session.add(cursor)
+        cursor.complete = False
+        cursor.truncated = False
+        cursor.cursor_state = {"reason": "poll_failed"}
         cursor.last_error_category = _text(category, limit=32)
         cursor.last_error = _text(message, limit=MAX_CONTEXT_TEXT)
         await self.session.flush()

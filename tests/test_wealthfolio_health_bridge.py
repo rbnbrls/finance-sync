@@ -1,11 +1,15 @@
 """Contract tests for Wealthfolio health issue normalization."""
 
 import pytest
+from types import SimpleNamespace
 
 from finance_sync.services.wealthfolio_health_bridge import (
+    WealthfolioHealthBridge,
     health_payload_hash,
     normalize_health_issues,
+    prepare_health_poll,
 )
+from finance_sync.models.wealthfolio_health_cursor import WealthfolioHealthCursor
 from finance_sync.reconciliation.remediation.backlog import deduplication_key
 
 
@@ -122,3 +126,139 @@ def test_payload_hash_is_order_independent() -> None:
     assert health_payload_hash({"issues": [], "status": "ok"}) == health_payload_hash(
         {"status": "ok", "issues": []}
     )
+
+
+def test_over_limit_health_snapshot_is_bounded_but_incomplete() -> None:
+    result = prepare_health_poll(
+        {"issues": [{"code": "MISSING_PRICE", "affectedItems": [str(i)]} for i in range(3)]},
+        issue_limit=2,
+    )
+
+    assert result.complete is False
+    assert result.truncated is True
+    assert len(result.payload["issues"]) == 2
+    assert result.cursor_state == {
+        "issue_limit": 2,
+        "returned_issues": 2,
+        "reason": "issue_limit",
+    }
+
+
+def test_complete_empty_health_snapshot_is_reconcilable() -> None:
+    result = prepare_health_poll({"issues": []}, issue_limit=2)
+
+    assert result.complete is True
+    assert result.truncated is False
+    assert result.cursor_state["reason"] == "complete"
+
+
+def test_malformed_health_snapshot_is_incomplete() -> None:
+    result = prepare_health_poll({"status": "ok"}, issue_limit=2)
+
+    assert result.complete is False
+    assert result.truncated is False
+    assert result.cursor_state["reason"] == "malformed_issues"
+
+
+@pytest.mark.asyncio
+async def test_incomplete_success_persists_cursor_and_does_not_reconcile(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Result:
+        def __init__(self, value: object) -> None:
+            self.value = value
+
+        def scalar_one_or_none(self) -> object:
+            return self.value
+
+        def scalars(self) -> list[object]:
+            return active_items
+
+    class Session:
+        def __init__(self) -> None:
+            self.responses = [Result(cursor), Result(None)]
+
+        async def execute(self, _statement: object) -> Result:
+            return self.responses.pop(0)
+
+        async def flush(self) -> None:
+            return None
+
+    transitions: list[str] = []
+
+    class Backlog:
+        def __init__(self, _session: object) -> None:
+            pass
+
+        async def register(self, _issue: object) -> object:
+            return SimpleNamespace()
+
+        async def transition(self, _tenant: str, item_id: str, **_kwargs: object) -> None:
+            transitions.append(item_id)
+
+    active_items = [
+        SimpleNamespace(
+            id="active-1",
+            deduplication_key="not-current",
+            issue_type="wealthfolio_quote_sync_failure",
+            status="pending",
+        )
+    ]
+    cursor = WealthfolioHealthCursor(tenant_id="tenant-1", target_id="target-1")
+    monkeypatch.setattr(
+        "finance_sync.services.wealthfolio_health_bridge.BacklogRepository",
+        Backlog,
+    )
+
+    bridge = WealthfolioHealthBridge(
+        Session(), "tenant-1", SimpleNamespace(id="target-1")
+    )
+    await bridge.enqueue_success(
+        {"issues": [{"code": "MISSING_PRICE", "affectedItems": ["asset"]}]},
+        complete=False,
+        truncated=True,
+        cursor_state={"reason": "issue_limit", "issue_limit": 1},
+    )
+
+    assert cursor.complete is False
+    assert cursor.truncated is True
+    assert cursor.cursor_state["reason"] == "issue_limit"
+    assert transitions == []
+
+
+@pytest.mark.asyncio
+async def test_failed_poll_persists_error_without_marking_cursor_complete() -> None:
+    class Result:
+        def scalar_one_or_none(self) -> object:
+            return cursor
+
+    class Session:
+        async def execute(self, _statement: object) -> Result:
+            return Result()
+
+        async def flush(self) -> None:
+            return None
+
+    cursor = WealthfolioHealthCursor(
+        tenant_id="tenant-1",
+        target_id="target-1",
+        complete=True,
+        truncated=False,
+    )
+    bridge = WealthfolioHealthBridge(
+        Session(), "tenant-1", SimpleNamespace(id="target-1")
+    )
+
+    await bridge.record_failure(category="transport", message="poll failed")
+
+    assert cursor.complete is False
+    assert cursor.truncated is False
+    assert cursor.cursor_state == {"reason": "poll_failed"}
+    assert cursor.last_error_category == "transport"
+
+
+def test_cursor_model_and_migration_expose_durable_completeness_state() -> None:
+    columns = WealthfolioHealthCursor.__table__.c
+    assert columns.complete.nullable is False
+    assert columns.truncated.nullable is False
+    assert columns.cursor_state.nullable is False

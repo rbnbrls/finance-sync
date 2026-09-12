@@ -6,6 +6,8 @@ from datetime import datetime
 from typing import ClassVar
 
 from sqlalchemy import (
+    Boolean,
+    JSON,
     DateTime,
     ForeignKey,
     Index,
@@ -14,10 +16,13 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
+from sqlalchemy.dialects import postgresql
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from finance_sync.db import Base, created_at_ts, pk_uuid, updated_at_ts
+
+_JSON = JSON().with_variant(postgresql.JSONB(), "postgresql")
 
 
 class WealthfolioHealthCursor(Base):
@@ -62,6 +67,15 @@ class WealthfolioHealthCursor(Base):
     payload_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     issue_count: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, server_default="0"
+    )
+    complete: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    truncated: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    cursor_state: Mapped[dict[str, object]] = mapped_column(
+        _JSON, nullable=False, default=dict, server_default="{}"
     )
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     last_error_category: Mapped[str | None] = mapped_column(

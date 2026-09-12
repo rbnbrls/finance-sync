@@ -43,7 +43,10 @@ from finance_sync.services.degiro_import import (
 )
 from finance_sync.services.incident_reporting import report_connector_failure
 from finance_sync.services.retry_lock import retry_lease
-from finance_sync.services.wealthfolio_health_bridge import WealthfolioHealthBridge
+from finance_sync.services.wealthfolio_health_bridge import (
+    WealthfolioHealthBridge,
+    prepare_health_poll,
+)
 from finance_sync.sync.orchestrator import SyncOrchestrator
 from finance_sync.sync.outbox_publisher import OutboxPublisher
 
@@ -71,6 +74,7 @@ async def wealthfolio_health_sync_job(
     from finance_sync.observability.metrics import (
         wealthfolio_health_imported_issues_total,
         wealthfolio_health_poll_duration_seconds,
+        wealthfolio_health_incomplete_snapshots_total,
         wealthfolio_health_polls_total,
     )
 
@@ -118,9 +122,20 @@ async def wealthfolio_health_sync_job(
                 )
                 await client.authenticate()
                 payload = await client.get_health_status()
-                if isinstance(payload.get("issues"), list):
-                    payload["issues"] = payload["issues"][: container.settings.wealthfolio_health_bridge_issue_limit]
-                items = await bridge.enqueue_success(payload)
+                poll = prepare_health_poll(
+                    payload,
+                    issue_limit=container.settings.wealthfolio_health_bridge_issue_limit,
+                )
+                if not poll.complete:
+                    wealthfolio_health_incomplete_snapshots_total.labels(
+                        reason=str(poll.cursor_state.get("reason", "incomplete"))
+                    ).inc()
+                items = await bridge.enqueue_success(
+                    poll.payload,
+                    complete=poll.complete,
+                    truncated=poll.truncated,
+                    cursor_state=poll.cursor_state,
+                )
                 imported += len(items)
                 wealthfolio_health_imported_issues_total.inc(len(items))
                 wealthfolio_health_polls_total.labels(outcome="success").inc()
