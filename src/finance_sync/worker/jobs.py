@@ -1062,15 +1062,18 @@ async def data_quality_remediation_job(container: Container) -> dict[str, Any]:
                 async def _remediation_connector(
                     item: Any, _tenant_id: str = tenant_id
                 ) -> Any:
-                    item_context = item.context if isinstance(item.context, dict) else {}
                     if str(item.provider_key) == "wealthfolio":
-                        target = await session.get(
-                            ExportTarget, str(item_context.get("target_id", ""))
-                        )
+                        target = (
+                            await session.execute(
+                                select(ExportTarget).where(
+                                    ExportTarget.id == str(item.connection_id),
+                                    ExportTarget.tenant_id == _tenant_id,
+                                    ExportTarget.target_type == "wealthfolio",
+                                )
+                            )
+                        ).scalar_one_or_none()
                         if (
                             target is None
-                            or str(target.tenant_id) != _tenant_id
-                            or target.target_type != "wealthfolio"
                             or not target.encrypted_secret
                             or not target.secret_nonce
                         ):

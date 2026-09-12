@@ -68,6 +68,8 @@ def normalize_health_issues(
                 severity="error",
                 remediation_strategy="unsupported",
                 context={"target_id": target_id, "reason": "issues_not_array"},
+                connection_id=target_id,
+                scope=target_id,
             )
         ]
     findings: list[DetectedIssue] = []
@@ -123,6 +125,8 @@ def normalize_health_issues(
                     priority=10 if severity == "error" else 0,
                     remediation_strategy=_strategy(kind),
                     context=context,
+                    connection_id=target_id,
+                    scope=target_id,
                 )
             )
     return findings

@@ -4,6 +4,7 @@ from finance_sync.services.wealthfolio_health_bridge import (
     health_payload_hash,
     normalize_health_issues,
 )
+from finance_sync.reconciliation.remediation.backlog import deduplication_key
 
 
 def test_normalization_is_one_traceable_item_per_affected_asset() -> None:
@@ -25,6 +26,30 @@ def test_normalization_is_one_traceable_item_per_affected_asset() -> None:
     assert {issue.affected_entity_id for issue in issues} == {"asset-1", "asset-2"}
     assert all(issue.issue_type == "wealthfolio_historical_price_gap" for issue in issues)
     assert all(issue.context["target_id"] == "target-1" for issue in issues)
+
+
+def test_target_identity_is_part_of_backlog_identity() -> None:
+    payload = {
+        "issues": [
+            {
+                "code": "MISSING_HISTORICAL_PRICES",
+                "affectedItems": [{"id": "asset-1"}],
+            }
+        ]
+    }
+    target_a = normalize_health_issues(
+        payload, tenant_id="tenant-1", target_id="target-a"
+    )[0]
+    target_b = normalize_health_issues(
+        payload, tenant_id="tenant-1", target_id="target-b"
+    )[0]
+
+    assert target_a.connection_id == "target-a"
+    assert target_a.scope == "target-a"
+    assert target_b.connection_id == "target-b"
+    assert target_a.context["target_id"] == "target-a"
+    assert target_b.context["target_id"] == "target-b"
+    assert deduplication_key(target_a) != deduplication_key(target_b)
 
 
 def test_unknown_category_fails_closed_to_manual_review_strategy() -> None:
