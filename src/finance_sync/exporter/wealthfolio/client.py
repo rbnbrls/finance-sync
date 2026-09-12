@@ -476,12 +476,7 @@ class WealthfolioClient:
             f"{self.API_PREFIX}/activities/import/check",
             json={"activities": activities},
         )
-        # Keep httpx's status error intact for the validation endpoint.  In
-        # addition to preserving the server's original request/response
-        # context, callers use the status error to distinguish validation
-        # failures from transport/client failures.  The retry helper has
-        # already exhausted any configured 408 retries before this point.
-        response.raise_for_status()
+        self._raise_for_status(response)
         return response.json()
 
     async def import_activities(

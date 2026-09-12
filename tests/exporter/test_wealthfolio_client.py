@@ -8,7 +8,7 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from httpx import HTTPStatusError, Request, RequestError, Response
+from httpx import Request, RequestError, Response
 
 from finance_sync.exporter.wealthfolio.client import (
     WealthfolioAPIError,
@@ -261,14 +261,20 @@ class TestWealthfolioClientImport:
     async def test_check_import_preserves_non_timeout_errors(
         self, client: WealthfolioClient
     ) -> None:
-        """HTTP validation failures retain httpx's status error contract."""
+        """HTTP validation failures retain the provider's error details."""
         client._is_authenticated = True
         request = Request("POST", "http://test/api/v1/activities/import/check")
-        response = Response(400, request=request)
+        response = Response(
+            400,
+            json={"message": "Invalid activity at index 2"},
+            request=request,
+        )
 
         with (
             patch.object(client._client, "post", return_value=response),
-            pytest.raises(HTTPStatusError),
+            pytest.raises(
+                WealthfolioAPIError, match="Invalid activity at index 2"
+            ),
         ):
             await client.check_activities_import([])
 
@@ -282,7 +288,7 @@ class TestWealthfolioClientImport:
 
         with (
             patch.object(client._client, "post", return_value=response),
-            pytest.raises(HTTPStatusError),
+            pytest.raises(WealthfolioAPIError, match="HTTP 408"),
         ):
             await client.check_activities_import([])
 
