@@ -46,6 +46,7 @@ from finance_sync.services.retry_lock import retry_lease
 from finance_sync.services.wealthfolio_health_bridge import (
     WealthfolioHealthBridge,
     prepare_health_poll,
+    repair_capability_is_supported,
 )
 from finance_sync.sync.orchestrator import SyncOrchestrator
 from finance_sync.sync.outbox_publisher import OutboxPublisher
@@ -135,6 +136,14 @@ async def wealthfolio_health_sync_job(
                     complete=poll.complete,
                     truncated=poll.truncated,
                     cursor_state=poll.cursor_state,
+                    compatibility_verified=repair_capability_is_supported(
+                        poll.payload,
+                        {
+                            "version": poll.payload.get("version")
+                            or poll.payload.get("serverVersion"),
+                            "capabilities": poll.payload.get("capabilities"),
+                        },
+                    ),
                 )
                 imported += len(items)
                 wealthfolio_health_imported_issues_total.inc(len(items))

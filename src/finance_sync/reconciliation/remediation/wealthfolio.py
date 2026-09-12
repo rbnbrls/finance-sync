@@ -10,6 +10,7 @@ from sqlalchemy import select
 from finance_sync.models.security_price import SecurityPrice
 from finance_sync.reconciliation.remediation.price_history import (
     HistoricalPriceStrategy,
+    normalize_window,
 )
 from finance_sync.reconciliation.remediation.quote import LatestQuoteStrategy
 from finance_sync.reconciliation.remediation.verification import VerificationResult
@@ -87,15 +88,20 @@ class WealthfolioHistoricalPriceStrategy(WealthfolioQuoteStrategy):
     async def execute(self, item: Any, connector: Any = None) -> None:
         if connector is None:
             raise ValueError("Wealthfolio price repair requires a target client")
-        await self.canonical.execute(item)
         context = _context(item)
+        start, end = normalize_window(
+            context.get("start_date"), context.get("end_date")
+        )
+        if start is None or end is None or start >= end:
+            raise ValueError("price gap has no valid half-open window")
+        await self.canonical.execute(item)
         rows = (
             await self.session.execute(
                 select(SecurityPrice).where(
                     SecurityPrice.security_id == str(context["security_id"]),
                     SecurityPrice.interval == str(context.get("interval", "1d")),
-                    SecurityPrice.timestamp >= _date(context["start_date"]),
-                    SecurityPrice.timestamp <= _date(context["end_date"]),
+                    SecurityPrice.timestamp >= start,
+                    SecurityPrice.timestamp < end,
                     SecurityPrice.price_close.is_not(None),
                 )
             )
@@ -115,10 +121,3 @@ class WealthfolioHistoricalPriceStrategy(WealthfolioQuoteStrategy):
 def _context(item: Any) -> dict[str, Any]:
     value = getattr(item, "context", {})
     return dict(cast("dict[str, Any]", value)) if isinstance(value, dict) else {}
-
-
-def _date(value: object) -> datetime:
-    if isinstance(value, datetime):
-        return value
-    parsed = datetime.fromisoformat(str(value))
-    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)

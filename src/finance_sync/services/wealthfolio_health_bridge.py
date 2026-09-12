@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
-from finance_sync.models import ExportTarget, WealthfolioHealthCursor
+from finance_sync.models import ExportTarget, Security, SecurityListing, WealthfolioHealthCursor
 from finance_sync.models.remediation import DataQualityRemediationItem
 from finance_sync.reconciliation.remediation.backlog import (
     BacklogRepository,
@@ -21,6 +21,28 @@ from finance_sync.reconciliation.remediation.backlog import (
 PROVIDER_KEY = "wealthfolio"
 MAX_CONTEXT_TEXT = 256
 MAX_AFFECTED_ITEMS = 100
+
+
+def repair_capability_is_supported(
+    health_payload: object, capability_response: object
+) -> bool:
+    """Evaluate the sanitized A3 target/version compatibility contract."""
+    if not isinstance(health_payload, dict) or not isinstance(
+        health_payload.get("issues"), list
+    ):
+        return False
+    if not isinstance(capability_response, dict):
+        return False
+    version = capability_response.get("version")
+    capabilities = capability_response.get("capabilities")
+    if not isinstance(version, str) or not version.strip():
+        return False
+    if not isinstance(capabilities, dict):
+        return False
+    return all(
+        capabilities.get(name) is True
+        for name in ("quote_history_read", "quote_upsert")
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -112,6 +134,114 @@ def _strategy(kind: str) -> str:
     return "unsupported"
 
 
+async def resolve_canonical_health_issues(
+    session: Any, findings: list[DetectedIssue]
+) -> list[DetectedIssue]:
+    """Hydrate health findings from the existing canonical security tables.
+
+    Wealthfolio asset ids are opaque and are never treated as local security
+    ids.  A repair is eligible only when exactly one canonical Security can
+    be proven from the explicit security id or identifier in the finding.
+    """
+    resolved: list[DetectedIssue] = []
+    for finding in findings:
+        if finding.remediation_strategy not in {"wealthfolio_quote", "wealthfolio_price_history"}:
+            resolved.append(finding)
+            continue
+        context = dict(finding.context)
+        security = await _find_canonical_security(session, context)
+        if security is None:
+            context["manual_review"] = True
+            context["identity_resolution"] = "unresolved_or_ambiguous"
+            resolved.append(
+                replace(finding, remediation_strategy="unsupported", context=context)
+            )
+            continue
+        identifier, identifier_type = _canonical_identifier(context, security)
+        if not identifier:
+            context["manual_review"] = True
+            context["identity_resolution"] = "canonical_identifier_missing"
+            resolved.append(
+                replace(finding, remediation_strategy="unsupported", context=context)
+            )
+            continue
+        context.update(
+            security_id=str(security.id),
+            identifier=identifier,
+            identifier_type=identifier_type,
+            identity_resolution="canonical",
+        )
+        resolved.append(replace(finding, context=context))
+    return resolved
+
+
+async def _find_canonical_security(session: Any, context: dict[str, Any]) -> Any | None:
+    security_id = context.get("security_id")
+    if security_id:
+        rows = list(
+            (
+                await session.execute(
+                    select(Security).where(Security.id == str(security_id))
+                )
+            ).scalars()
+        )
+        return rows[0] if len(rows) == 1 else None
+    identifier = context.get("identifier")
+    identifier_type = str(context.get("identifier_type", "")).lower()
+    if not identifier:
+        return None
+    value = str(identifier).strip()
+    if not value or identifier_type not in {
+        "isin",
+        "ticker",
+        "figi",
+        "cusip",
+        "provider_symbol",
+    }:
+        return None
+    if identifier_type == "provider_symbol":
+        statements = (
+            select(Security).where(func.upper(Security.ticker) == value.upper()),
+            select(Security)
+            .join(SecurityListing, SecurityListing.security_id == Security.id)
+            .where(func.upper(SecurityListing.ticker) == value.upper()),
+        )
+        rows: list[Any] = []
+        for statement in statements:
+            rows.extend(
+                list((await session.execute(statement)).scalars())
+            )
+        unique = {str(row.id): row for row in rows}
+        return next(iter(unique.values())) if len(unique) == 1 else None
+    column = getattr(Security, identifier_type)
+    rows = list(
+        (
+            await session.execute(
+                select(Security).where(func.upper(column) == value.upper())
+            )
+        ).scalars()
+    )
+    return rows[0] if len(rows) == 1 else None
+
+
+def _canonical_identifier(context: dict[str, Any], security: Any) -> tuple[str | None, str | None]:
+    explicit = context.get("identifier")
+    explicit_type = str(context.get("identifier_type", "")).lower()
+    if explicit and explicit_type in {
+        "isin",
+        "ticker",
+        "figi",
+        "cusip",
+        "provider_symbol",
+    }:
+        return str(explicit), explicit_type
+    for field, kind in (("isin", "isin"), ("ticker", "ticker"), ("figi", "figi"), ("cusip", "cusip")):
+        value = getattr(security, field, None)
+        if value:
+            return str(value), kind
+    return None, None
+
+
 def normalize_health_issues(
     payload: dict[str, Any], *, tenant_id: str, target_id: str
 ) -> list[DetectedIssue]:
@@ -145,7 +275,12 @@ def normalize_health_issues(
             affected = [raw.get("assetId") or raw.get("securityId") or "summary"]
         for item in affected[:MAX_AFFECTED_ITEMS]:
             if isinstance(item, dict):
-                entity_id = item.get("id") or item.get("assetId") or item.get("symbol")
+                entity_id = (
+                    item.get("id")
+                    or item.get("assetId")
+                    or item.get("asset_id")
+                    or item.get("symbol")
+                )
                 entity_type = item.get("type") or "wealthfolio_asset"
             else:
                 entity_id = item
@@ -163,11 +298,30 @@ def normalize_health_issues(
                     if item.get(source_key) is not None:
                         context["security_id"] = _text(item[source_key], limit=64)
                         break
-                if item.get("isin") is not None:
-                    context["identifier"] = _text(item["isin"], limit=64)
+                if item.get("isin", item.get("ISIN")) is not None:
+                    context["identifier"] = _text(
+                        item.get("isin", item.get("ISIN")), limit=64
+                    )
                     context["identifier_type"] = "isin"
-                elif item.get("ticker") is not None:
-                    context["identifier"] = _text(item["ticker"], limit=64)
+                elif item.get("ticker", item.get("Ticker")) is not None:
+                    context["identifier"] = _text(
+                        item.get("ticker", item.get("Ticker")), limit=64
+                    )
+                    context["identifier_type"] = "ticker"
+                elif item.get("figi") is not None:
+                    context["identifier"] = _text(item["figi"], limit=64)
+                    context["identifier_type"] = "figi"
+                elif item.get("cusip") is not None:
+                    context["identifier"] = _text(item["cusip"], limit=64)
+                    context["identifier_type"] = "cusip"
+                elif item.get("providerSymbol", item.get("provider_symbol")) is not None:
+                    context["identifier"] = _text(
+                        item.get("providerSymbol", item.get("provider_symbol")),
+                        limit=64,
+                    )
+                    context["identifier_type"] = "provider_symbol"
+                elif item.get("symbol") is not None:
+                    context["identifier"] = _text(item["symbol"], limit=64)
                     context["identifier_type"] = "ticker"
                 for source_key, context_key in (
                     ("startDate", "start_date"),
@@ -219,11 +373,34 @@ class WealthfolioHealthBridge:
         complete: bool | None = None,
         truncated: bool = False,
         cursor_state: dict[str, Any] | None = None,
+        compatibility_verified: bool = False,
     ) -> list[DataQualityRemediationItem]:
         now = datetime.now(UTC)
         findings = normalize_health_issues(
             payload, tenant_id=self.tenant_id, target_id=str(self.target.id)
         )
+        findings = await resolve_canonical_health_issues(self.session, findings)
+        if not compatibility_verified:
+            findings = [
+                replace(
+                    finding,
+                    remediation_strategy=(
+                        "unsupported"
+                        if finding.remediation_strategy
+                        in {"wealthfolio_quote", "wealthfolio_price_history"}
+                        else finding.remediation_strategy
+                    ),
+                    context={
+                        **finding.context,
+                        "manual_review": (
+                            finding.remediation_strategy
+                            in {"wealthfolio_quote", "wealthfolio_price_history"}
+                        ),
+                        "compatibility": "unsupported_or_unverified",
+                    },
+                )
+                for finding in findings
+            ]
         result = await self.session.execute(
             select(WealthfolioHealthCursor).where(
                 WealthfolioHealthCursor.tenant_id == self.tenant_id,
