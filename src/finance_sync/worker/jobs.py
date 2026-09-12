@@ -43,6 +43,7 @@ from finance_sync.services.degiro_import import (
 )
 from finance_sync.services.incident_reporting import report_connector_failure
 from finance_sync.services.retry_lock import retry_lease
+from finance_sync.services.wealthfolio_health_bridge import WealthfolioHealthBridge
 from finance_sync.sync.orchestrator import SyncOrchestrator
 from finance_sync.sync.outbox_publisher import OutboxPublisher
 
@@ -53,6 +54,75 @@ if TYPE_CHECKING:
     from finance_sync.container import Container
 
 logger = structlog.get_logger("finance_sync.worker.jobs")
+
+
+async def wealthfolio_health_sync_job(container: Container) -> dict[str, Any]:
+    """Poll active Wealthfolio targets without allowing one target to block others."""
+    if not container.settings.wealthfolio_health_bridge_enabled:
+        return {"enabled": False, "polled": 0, "imported": 0}
+    from finance_sync.exporter.wealthfolio.client import (
+        WealthfolioClient,
+        WealthfolioClientConfig,
+    )
+    from finance_sync.services.auth import decrypt_credential
+
+    polled = 0
+    imported = 0
+    failures = 0
+    async with container.session_factory() as session:
+        targets = list(
+            (
+                await session.execute(
+                    select(ExportTarget)
+                    .where(
+                        ExportTarget.target_type == "wealthfolio",
+                        ExportTarget.status == TARGET_ACTIVE,
+                    )
+                    .order_by(ExportTarget.tenant_id, ExportTarget.id)
+                    .limit(container.settings.wealthfolio_health_bridge_target_limit)
+                )
+            ).scalars()
+        )
+        for target in targets:
+            bridge = WealthfolioHealthBridge(session, str(target.tenant_id), target)
+            client: WealthfolioClient | None = None
+            try:
+                if not target.encrypted_secret or not target.secret_nonce:
+                    raise ValueError("Wealthfolio target secret is unavailable")
+                payload = json.loads(
+                    decrypt_credential(
+                        target.encrypted_secret,
+                        target.secret_nonce,
+                        container.settings,
+                    )
+                )
+                client = WealthfolioClient(
+                    WealthfolioClientConfig(
+                        base_url=str(
+                            payload.get("base_url")
+                            or target.configuration.get("base_url", "")
+                        ),
+                        password=str(payload.get("password", "")),
+                        request_timeout=container.settings.wealthfolio_request_timeout,
+                    )
+                )
+                await client.authenticate()
+                payload = await client.get_health_status()
+                if isinstance(payload.get("issues"), list):
+                    payload["issues"] = payload["issues"][: container.settings.wealthfolio_health_bridge_issue_limit]
+                items = await bridge.enqueue_success(payload)
+                imported += len(items)
+                polled += 1
+                logger.info("wealthfolio_health_poll_completed", tenant_id=str(target.tenant_id), target_id=str(target.id), imported=len(items))
+            except Exception as exc:
+                failures += 1
+                await bridge.record_failure(category=type(exc).__name__, message="Wealthfolio health poll failed")
+                logger.warning("wealthfolio_health_poll_failed", tenant_id=str(target.tenant_id), target_id=str(target.id), error=type(exc).__name__)
+            finally:
+                if client is not None:
+                    await client.close()
+        await session.commit()
+    return {"enabled": True, "polled": polled, "imported": imported, "failures": failures}
 
 
 # ── Retry helper ──────────────────────────────────────────────────────

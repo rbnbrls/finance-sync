@@ -944,6 +944,29 @@ class Settings(BaseSettings):
         le=1,
         validation_alias="REMEDIATION_RETRY_JITTER",
     )
+    wealthfolio_health_bridge_enabled: bool = Field(
+        default=False,
+        validation_alias="WEALTHFOLIO_HEALTH_BRIDGE_ENABLED",
+        description="Poll active Wealthfolio targets for bounded health issues.",
+    )
+    wealthfolio_health_bridge_interval_minutes: int = Field(
+        default=15,
+        ge=1,
+        le=1440,
+        validation_alias="WEALTHFOLIO_HEALTH_BRIDGE_INTERVAL_MINUTES",
+    )
+    wealthfolio_health_bridge_target_limit: int = Field(
+        default=20,
+        ge=1,
+        le=200,
+        validation_alias="WEALTHFOLIO_HEALTH_BRIDGE_TARGET_LIMIT",
+    )
+    wealthfolio_health_bridge_issue_limit: int = Field(
+        default=100,
+        ge=1,
+        le=1000,
+        validation_alias="WEALTHFOLIO_HEALTH_BRIDGE_ISSUE_LIMIT",
+    )
 
     # ── Worker: Nightly reconciliation job ─────────────────────────
     worker_job_reconciliation_enabled: bool = Field(
