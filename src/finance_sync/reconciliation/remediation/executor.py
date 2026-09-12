@@ -44,7 +44,9 @@ class RemediationStrategy(Protocol):
         self, item: DataQualityRemediationItem, connector: Any = None
     ) -> None: ...
 
-    async def verify(self, item: DataQualityRemediationItem) -> Any: ...
+    async def verify(
+        self, item: DataQualityRemediationItem, connector: Any = None
+    ) -> Any: ...
 
 
 if TYPE_CHECKING:

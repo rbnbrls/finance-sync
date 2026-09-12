@@ -176,6 +176,12 @@ reportOptionalMemberAccess = "warning"
 reportArgumentType = "warning"
 reportCallIssue = "warning"
 reportAttributeAccessIssue = "warning"
+# Existing dynamic JSON and strategy registries are tracked as warnings while
+# the warning-budget gate drives their gradual elimination.
+reportUnknownArgumentType = "warning"
+reportUnknownVariableType = "warning"
+reportUnknownMemberType = "warning"
+reportUnknownParameterType = "warning"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
