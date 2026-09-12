@@ -14,6 +14,7 @@ from finance_sync.models.remediation import DataQualityRemediationItem
 from finance_sync.reconciliation.remediation.backlog import (
     BacklogRepository,
     DetectedIssue,
+    deduplication_key,
 )
 
 PROVIDER_KEY = "wealthfolio"
@@ -165,7 +166,7 @@ class WealthfolioHealthBridge:
         cursor.last_error_category = None
         backlog = BacklogRepository(self.session)
         items = [await backlog.register(issue) for issue in findings]
-        current_keys = {issue.deduplication_key for issue in findings}
+        current_keys = {deduplication_key(issue) for issue in findings}
         active = (
             await self.session.execute(
                 select(DataQualityRemediationItem).where(
