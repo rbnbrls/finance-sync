@@ -31,16 +31,21 @@ def _issue_kind(issue: dict[str, Any]) -> str:
         _text(issue.get(key)).lower()
         for key in ("code", "category", "type", "fixAction")
     )
-    if any(token in raw for token in ("quote", "price", "market_data")):
-        if "histor" in raw or "gap" in raw or "missing_price" in raw:
-            return "wealthfolio_historical_price_gap"
-        return "wealthfolio_quote_sync_failure"
-    if "purchase" in raw or "cost_basis" in raw:
+    # Unsafe financial findings must win over generic ``price`` wording in
+    # codes such as MISSING_PURCHASE_PRICE.  They have no safe automatic
+    # repair primitive and therefore remain manual-review-only.
+    if "purchase" in raw or "cost_basis" in raw or "cost basis" in raw:
         return "wealthfolio_missing_purchase_price"
     if "negative" in raw and "valuation" in raw:
         return "wealthfolio_negative_valuation"
     if "incomplete" in raw and "valuation" in raw:
         return "wealthfolio_incomplete_valuation"
+    if any(token in raw for token in ("transaction", "transfer")):
+        return "wealthfolio_transaction_or_transfer_issue"
+    if any(token in raw for token in ("quote", "price", "market_data")):
+        if "histor" in raw or "gap" in raw or "missing_price" in raw:
+            return "wealthfolio_historical_price_gap"
+        return "wealthfolio_quote_sync_failure"
     return "wealthfolio_unsupported_issue"
 
 
@@ -99,11 +104,17 @@ def normalize_health_issues(
                 "details": _text(raw.get("details") or raw.get("message")),
             }
             if isinstance(item, dict):
+                for source_key in ("securityId", "security_id"):
+                    if item.get(source_key) is not None:
+                        context["security_id"] = _text(item[source_key], limit=64)
+                        break
+                if item.get("isin") is not None:
+                    context["identifier"] = _text(item["isin"], limit=64)
+                    context["identifier_type"] = "isin"
+                elif item.get("ticker") is not None:
+                    context["identifier"] = _text(item["ticker"], limit=64)
+                    context["identifier_type"] = "ticker"
                 for source_key, context_key in (
-                    ("securityId", "security_id"),
-                    ("security_id", "security_id"),
-                    ("isin", "identifier"),
-                    ("ticker", "identifier"),
                     ("startDate", "start_date"),
                     ("endDate", "end_date"),
                 ):
