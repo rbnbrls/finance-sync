@@ -2,17 +2,17 @@
 gsd_state_version: "1.0"
 current_phase: 01
 current_phase_name: wealthfolio-remediation-bridge
-status: verifying
-stopped_at: Phase 01 context gathered for gap closure
-last_updated: "2026-09-12T15:59:49.782Z"
+status: executing
+stopped_at: Completed 01-08-PLAN.md
+last_updated: "2026-09-12T16:43:39.103Z"
 last_activity: 2026-09-12
 last_activity_desc: Phase 01 execution started
-state_head: 343b0351a55056edffe87b7ecbb0bf0a09913270
+state_head: 8ef3dc223a17a90dc04174ff241f12fc1423ae43
 progress:
   total_phases: 1
   completed_phases: 0
-  total_plans: 1
-  completed_plans: 1
+  total_plans: 5
+  completed_plans: 2
   percent: 0
 ---
 
@@ -28,8 +28,8 @@ See: .planning/ROADMAP.md (updated 2026-09-12)
 ## Current Position
 
 Phase: 01 (wealthfolio-remediation-bridge) — EXECUTING
-Plan: 1 of 1
-Status: Phase complete — ready for verification
+Plan: 2 of 5
+Status: Ready to execute
 Last activity: 2026-09-12 — Phase 01 execution started
 
 Progress: [░░░░░░░░░░] 0%
@@ -52,6 +52,7 @@ Progress: [░░░░░░░░░░] 0%
 | Plan | Duration | Tasks | Files |
 |------|----------|-------|-------|
 | Phase 01 P01 | 0 | 7 tasks | 17 files |
+| Phase 01 P08 | 14 | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -61,6 +62,9 @@ Progress: [░░░░░░░░░░] 0%
 - Phase 1: Keep the bridge disabled by default and resolve only after remote verification.
 - [Phase 01]: Keep Wealthfolio health polling disabled by default and reuse encrypted ExportTarget credentials.
 - [Phase 01]: Resolve only canonical quote/history repairs after remote Wealthfolio verification; route unsafe findings to manual_review.
+- [Phase 01]: Use ExportTarget.id as the stable Wealthfolio identity in DetectedIssue.connection_id and scope.
+- [Phase 01]: Resolve remediation connectors only through exact tenant-scoped ExportTarget lookup by persisted connection_id.
+- [Phase 01]: Treat unsafe and unknown findings, plus ambiguous or unresolved legacy identity, as manual_review.
 
 ### Pending Todos
 
@@ -78,6 +82,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-09-12T15:59:49.771Z
-Stopped at: Phase 01 context gathered for gap closure
-Resume file: .planning/phases/01-wealthfolio-remediation-bridge/01-CONTEXT.md
+Last session: 2026-09-12T16:43:39.090Z
+Stopped at: Completed 01-08-PLAN.md
+Resume file: None

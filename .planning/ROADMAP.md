@@ -14,8 +14,9 @@ Wealthfolio.
 **Gap-closure plans:** 4
 
 Gap-closure plans:
-- [ ] 01-08-PLAN.md — target-scoped backlog identity and unsafe classification
-- [ ] 01-09-PLAN.md — complete-snapshot lifecycle guards and operational truth
+
+- [x] 01-08-PLAN.md — target-scoped backlog identity and unsafe classification
+- [x] 01-09-PLAN.md — complete-snapshot lifecycle guards and operational truth
 - [ ] 01-10-PLAN.md — canonical identity and half-open historical repair
 - [ ] 01-11-PLAN.md — persisted lifecycle and migration validation
 
