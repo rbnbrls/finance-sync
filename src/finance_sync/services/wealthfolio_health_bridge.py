@@ -10,7 +10,12 @@ from typing import Any, cast
 
 from sqlalchemy import func, select
 
-from finance_sync.models import ExportTarget, Security, SecurityListing, WealthfolioHealthCursor
+from finance_sync.models import (
+    ExportTarget,
+    Security,
+    SecurityListing,
+    WealthfolioHealthCursor,
+)
 from finance_sync.models.remediation import DataQualityRemediationItem
 from finance_sync.reconciliation.remediation.backlog import (
     BacklogRepository,
@@ -103,7 +108,9 @@ def prepare_health_poll(
     return HealthPollResult(
         payload=bounded,
         complete=complete,
-        truncated=len(issues) > issue_limit or bool(next_cursor) or has_more is True,
+        truncated=len(issues) > issue_limit
+        or bool(next_cursor)
+        or has_more is True,
         cursor_state=metadata,
     )
 
@@ -154,7 +161,10 @@ async def resolve_canonical_health_issues(
     """
     resolved: list[DetectedIssue] = []
     for finding in findings:
-        if finding.remediation_strategy not in {"wealthfolio_quote", "wealthfolio_price_history"}:
+        if finding.remediation_strategy not in {
+            "wealthfolio_quote",
+            "wealthfolio_price_history",
+        }:
             resolved.append(finding)
             continue
         context = dict(finding.context)
@@ -163,7 +173,9 @@ async def resolve_canonical_health_issues(
             context["manual_review"] = True
             context["identity_resolution"] = "unresolved_or_ambiguous"
             resolved.append(
-                replace(finding, remediation_strategy="unsupported", context=context)
+                replace(
+                    finding, remediation_strategy="unsupported", context=context
+                )
             )
             continue
         identifier, identifier_type = _canonical_identifier(context, security)
@@ -171,7 +183,9 @@ async def resolve_canonical_health_issues(
             context["manual_review"] = True
             context["identity_resolution"] = "canonical_identifier_missing"
             resolved.append(
-                replace(finding, remediation_strategy="unsupported", context=context)
+                replace(
+                    finding, remediation_strategy="unsupported", context=context
+                )
             )
             continue
         context.update(
@@ -184,7 +198,9 @@ async def resolve_canonical_health_issues(
     return resolved
 
 
-async def _find_canonical_security(session: Any, context: dict[str, Any]) -> Any | None:
+async def _find_canonical_security(
+    session: Any, context: dict[str, Any]
+) -> Any | None:
     security_id = context.get("security_id")
     if security_id:
         rows = list(
@@ -210,16 +226,16 @@ async def _find_canonical_security(session: Any, context: dict[str, Any]) -> Any
         return None
     if identifier_type == "provider_symbol":
         statements = (
-            select(Security).where(func.upper(Security.ticker) == value.upper()),
+            select(Security).where(
+                func.upper(Security.ticker) == value.upper()
+            ),
             select(Security)
             .join(SecurityListing, SecurityListing.security_id == Security.id)
             .where(func.upper(SecurityListing.ticker) == value.upper()),
         )
         rows: list[Any] = []
         for statement in statements:
-            rows.extend(
-                list((await session.execute(statement)).scalars())
-            )
+            rows.extend(list((await session.execute(statement)).scalars()))
         unique = {str(row.id): row for row in rows}
         return next(iter(unique.values())) if len(unique) == 1 else None
     column = getattr(Security, identifier_type)
@@ -233,7 +249,9 @@ async def _find_canonical_security(session: Any, context: dict[str, Any]) -> Any
     return rows[0] if len(rows) == 1 else None
 
 
-def _canonical_identifier(context: dict[str, Any], security: Any) -> tuple[str | None, str | None]:
+def _canonical_identifier(
+    context: dict[str, Any], security: Any
+) -> tuple[str | None, str | None]:
     explicit = context.get("identifier")
     explicit_type = str(context.get("identifier_type", "")).lower()
     if explicit and explicit_type in {
@@ -244,8 +262,13 @@ def _canonical_identifier(context: dict[str, Any], security: Any) -> tuple[str |
         "provider_symbol",
     }:
         return str(explicit), explicit_type
-    for field, kind in (("isin", "isin"), ("ticker", "ticker"), ("figi", "figi"), ("cusip", "cusip")):
-        value = getattr(security, field, None)
+    for attribute, kind in (
+        ("isin", "isin"),
+        ("ticker", "ticker"),
+        ("figi", "figi"),
+        ("cusip", "cusip"),
+    ):
+        value = getattr(security, attribute, None)
         if value:
             return str(value), kind
     return None, None
@@ -254,7 +277,7 @@ def _canonical_identifier(context: dict[str, Any], security: Any) -> tuple[str |
 def normalize_health_issues(
     payload: dict[str, Any], *, tenant_id: str, target_id: str
 ) -> list[DetectedIssue]:
-    """Convert tolerant Wealthfolio issue shapes into bounded stable findings."""
+    """Convert tolerant Wealthfolio issue shapes into bounded findings."""
     raw_issues = payload.get("issues", [])
     if not isinstance(raw_issues, list):
         return [
@@ -384,14 +407,18 @@ def normalize_health_issues(
 
 def health_payload_hash(payload: dict[str, Any]) -> str:
     """Hash normalized JSON for cursor idempotency without storing payload."""
-    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
+    encoded = json.dumps(
+        payload, sort_keys=True, separators=(",", ":"), default=str
+    )
     return hashlib.sha256(encoded.encode()).hexdigest()
 
 
 class WealthfolioHealthBridge:
     """Poll result persistence and backlog lifecycle for one tenant."""
 
-    def __init__(self, session: Any, tenant_id: str, target: ExportTarget) -> None:
+    def __init__(
+        self, session: Any, tenant_id: str, target: ExportTarget
+    ) -> None:
         self.session = session
         self.tenant_id = tenant_id
         self.target = target
@@ -424,7 +451,10 @@ class WealthfolioHealthBridge:
                         **finding.context,
                         "manual_review": (
                             finding.remediation_strategy
-                            in {"wealthfolio_quote", "wealthfolio_price_history"}
+                            in {
+                                "wealthfolio_quote",
+                                "wealthfolio_price_history",
+                            }
                         ),
                         "compatibility": "unsupported_or_unverified",
                     },
@@ -444,7 +474,9 @@ class WealthfolioHealthBridge:
             )
             self.session.add(cursor)
         if complete is None:
-            complete = isinstance(payload.get("issues"), list) and "issues" in payload
+            complete = (
+                isinstance(payload.get("issues"), list) and "issues" in payload
+            )
         complete = bool(complete) and isinstance(payload.get("issues"), list)
         cursor.last_successful_poll = now
         cursor.payload_hash = health_payload_hash(payload)
@@ -462,14 +494,21 @@ class WealthfolioHealthBridge:
                 select(DataQualityRemediationItem).where(
                     DataQualityRemediationItem.tenant_id == self.tenant_id,
                     DataQualityRemediationItem.provider_key == PROVIDER_KEY,
-                    DataQualityRemediationItem.status.in_(("pending", "retry_wait", "deferred")),
+                    DataQualityRemediationItem.status.in_(
+                        ("pending", "retry_wait", "deferred")
+                    ),
                     DataQualityRemediationItem.context["target_id"].as_string()
                     == str(self.target.id),
                 )
             )
         ).scalars()
         for item in active:
-            if complete and not truncated and item.deduplication_key not in current_keys and item.issue_type.startswith("wealthfolio_"):
+            if (
+                complete
+                and not truncated
+                and item.deduplication_key not in current_keys
+                and item.issue_type.startswith("wealthfolio_")
+            ):
                 await backlog.transition(
                     self.tenant_id,
                     str(item.id),
