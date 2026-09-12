@@ -24,9 +24,8 @@ def has_distinct_transaction_ids_in_descriptions(
 
     if not external_a or not external_b or external_a == external_b:
         return False
-    return (
-        _contains_id(description_a, external_a)
-        and _contains_id(description_b, external_b)
+    return _contains_id(description_a, external_a) and _contains_id(
+        description_b, external_b
     )
 
 
