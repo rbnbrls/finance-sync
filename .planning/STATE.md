@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 01
 current_phase_name: wealthfolio-remediation-bridge
 status: executing
-stopped_at: Completed 01-10-PLAN.md
-last_updated: "2026-09-12T17:06:29.334Z"
+stopped_at: Completed 01-11-PLAN.md
+last_updated: "2026-09-12T17:14:33.919Z"
 last_activity: 2026-09-12
 last_activity_desc: Phase 01 execution started
-state_head: 5dd25caeb21b69b28e66a5cb37121eb548f42012
+state_head: 808b56992fb03d811116320d93688fcf3011c4b4
 progress:
   total_phases: 1
   completed_phases: 0
   total_plans: 5
-  completed_plans: 4
+  completed_plans: 5
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/ROADMAP.md (updated 2026-09-12)
 ## Current Position
 
 Phase: 01 (wealthfolio-remediation-bridge) — EXECUTING
-Plan: 4 of 5
+Plan: 5 of 5
 Status: Ready to execute
 Last activity: 2026-09-12 — Phase 01 execution started
 
@@ -55,6 +55,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 01 P08 | 14 | 2 tasks | 5 files |
 | Phase 01 P09 | 12 | 2 tasks | 12 files |
 | Phase 01 P10 | 9 | 2 tasks | 5 files |
+| Phase 01 P11 | 0 | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -73,6 +74,8 @@ Progress: [░░░░░░░░░░] 0%
 - [Phase 01]: Opaque Wealthfolio asset IDs require exactly one canonical security match; unresolved or ambiguous identity is manual-review-only.
 - [Phase 01]: Automatic repair requires sanitized supported-target capability evidence; absent or unsupported A3 capability fails closed.
 - [Phase 01]: Historical projection and verification share a half-open [start,end) window, with date-only ends normalized to the next day.
+- [Phase 01]: Use real PostgreSQL sessions and persisted rows for every lifecycle claim; only remote Wealthfolio responses are doubled.
+- [Phase 01]: Treat absent TEST_DATABASE_URL and TEST_REDIS_URL as SKIPPED/UNVERIFIED and retain the manual service checkpoint.
 
 ### Pending Todos
 
@@ -90,6 +93,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-09-12T17:06:29.319Z
-Stopped at: Completed 01-10-PLAN.md
+Last session: 2026-09-12T17:14:33.904Z
+Stopped at: Completed 01-11-PLAN.md
 Resume file: None
