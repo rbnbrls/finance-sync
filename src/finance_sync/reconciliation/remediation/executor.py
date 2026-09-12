@@ -76,6 +76,7 @@ class RemediationExecutor:
         retry_base_seconds: float = 30.0,
         retry_cap_seconds: float = 3600.0,
         retry_jitter: float = 0.2,
+        connector_factory: Any | None = None,
     ) -> None:
         self.backlog = BacklogRepository(session)
         self.strategies = strategies or {}
@@ -86,6 +87,7 @@ class RemediationExecutor:
         self.retry_base_seconds = retry_base_seconds
         self.retry_cap_seconds = retry_cap_seconds
         self.retry_jitter = retry_jitter
+        self.connector_factory = connector_factory
 
     def _retry_at(self, attempt: int) -> datetime:
         return retry_at(
@@ -116,7 +118,11 @@ class RemediationExecutor:
             ).inc()
             return "manual_review"
         policy: QuotaPolicy | None = None
+        owned_connector = False
         try:
+            if connector is None and self.connector_factory is not None:
+                connector = await self.connector_factory(item)
+                owned_connector = connector is not None
             policy = self.quota_policies.get(item.remediation_strategy)
             if self.quota is None or policy is None:
                 await self.backlog.transition(
@@ -156,7 +162,10 @@ class RemediationExecutor:
             ).inc()
             async with asyncio.timeout(self.max_execution_seconds):
                 await strategy.execute(item, connector)
-                verification = await strategy.verify(item)
+                if str(getattr(strategy, "key", "")).startswith("wealthfolio_"):
+                    verification = await strategy.verify(item, connector)
+                else:
+                    verification = await strategy.verify(item)
             item.verification_count += 1
             _record_verification(item, verification)
             status = (
@@ -253,6 +262,13 @@ class RemediationExecutor:
                 category=classification.category,
             ).inc()
             return classification.status
+        finally:
+            if owned_connector and connector is not None:
+                close = getattr(connector, "close", None)
+                if callable(close):
+                    result = close()
+                    if asyncio.iscoroutine(result):
+                        await result
 
     async def execute_batch(self, batch: RemediationBatch) -> list[str]:
         """Process a compatibility batch with per-item verification."""

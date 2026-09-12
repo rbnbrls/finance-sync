@@ -95,6 +95,17 @@ def normalize_health_issues(
                 "fix_action": _text(raw.get("fixAction"), limit=64),
                 "details": _text(raw.get("details") or raw.get("message")),
             }
+            if isinstance(item, dict):
+                for source_key, context_key in (
+                    ("securityId", "security_id"),
+                    ("security_id", "security_id"),
+                    ("isin", "identifier"),
+                    ("ticker", "identifier"),
+                    ("startDate", "start_date"),
+                    ("endDate", "end_date"),
+                ):
+                    if item.get(source_key) is not None:
+                        context[context_key] = _text(item[source_key], limit=64)
             if kind not in {
                 "wealthfolio_quote_sync_failure",
                 "wealthfolio_historical_price_gap",

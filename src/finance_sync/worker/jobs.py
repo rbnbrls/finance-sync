@@ -929,6 +929,10 @@ async def data_quality_remediation_job(container: Container) -> dict[str, Any]:
     from finance_sync.reconciliation.remediation.transaction_history import (
         TransactionHistoryStrategy,
     )
+    from finance_sync.reconciliation.remediation.wealthfolio import (
+        WealthfolioHistoricalPriceStrategy,
+        WealthfolioQuoteStrategy,
+    )
 
     results: dict[str, Any] = {}
     async with container.session_factory() as session:
@@ -963,11 +967,55 @@ async def data_quality_remediation_job(container: Container) -> dict[str, Any]:
                     session, container.settings
                 )
                 latest_quote = LatestQuoteStrategy(session, container.settings)
+                wealthfolio_quote = WealthfolioQuoteStrategy(
+                    session, container.settings
+                )
+                wealthfolio_history = WealthfolioHistoricalPriceStrategy(
+                    session, container.settings
+                )
                 tenant_id = str(tenant.id)
 
                 async def _remediation_connector(
                     item: Any, _tenant_id: str = tenant_id
                 ) -> Any:
+                    item_context = item.context if isinstance(item.context, dict) else {}
+                    if str(item.provider_key) == "wealthfolio":
+                        target = await session.get(
+                            ExportTarget, str(item_context.get("target_id", ""))
+                        )
+                        if (
+                            target is None
+                            or str(target.tenant_id) != _tenant_id
+                            or target.target_type != "wealthfolio"
+                            or not target.encrypted_secret
+                            or not target.secret_nonce
+                        ):
+                            raise ValueError("Wealthfolio target not found")
+                        from finance_sync.exporter.wealthfolio.client import (
+                            WealthfolioClient,
+                            WealthfolioClientConfig,
+                        )
+                        from finance_sync.services.auth import decrypt_credential
+
+                        payload = json.loads(
+                            decrypt_credential(
+                                target.encrypted_secret,
+                                target.secret_nonce,
+                                container.settings,
+                            )
+                        )
+                        client = WealthfolioClient(
+                            WealthfolioClientConfig(
+                                base_url=str(
+                                    payload.get("base_url")
+                                    or target.configuration.get("base_url", "")
+                                ),
+                                password=str(payload.get("password", "")),
+                                request_timeout=container.settings.wealthfolio_request_timeout,
+                            )
+                        )
+                        await client.authenticate()
+                        return client
                     credential = await session.get(
                         Credential, str(item.connection_id)
                     )
@@ -1058,6 +1106,8 @@ async def data_quality_remediation_job(container: Container) -> dict[str, Any]:
                         price_history.key: price_history,
                         transaction_history.key: transaction_history,
                         latest_quote.key: latest_quote,
+                        wealthfolio_quote.key: wealthfolio_quote,
+                        wealthfolio_history.key: wealthfolio_history,
                     },
                     quota=quota,
                     quota_policies={
@@ -1081,6 +1131,16 @@ async def data_quality_remediation_job(container: Container) -> dict[str, Any]:
                             container.settings.remediation_quota_window_seconds,
                             latest_quote.endpoint_family,
                         ),
+                        wealthfolio_quote.key: QuotaPolicy(
+                            container.settings.remediation_quota_requests,
+                            container.settings.remediation_quota_window_seconds,
+                            wealthfolio_quote.endpoint_family,
+                        ),
+                        wealthfolio_history.key: QuotaPolicy(
+                            container.settings.remediation_quota_requests,
+                            container.settings.remediation_quota_window_seconds,
+                            wealthfolio_history.endpoint_family,
+                        ),
                     },
                     max_verification_attempts=(
                         container.settings.remediation_max_verification_attempts
@@ -1095,6 +1155,7 @@ async def data_quality_remediation_job(container: Container) -> dict[str, Any]:
                         container.settings.remediation_retry_cap_seconds
                     ),
                     retry_jitter=container.settings.remediation_retry_jitter,
+                    connector_factory=_remediation_connector,
                 )
                 outcomes: list[str] = []
                 for batch in create_batches(claimed, batch_limit=50):
