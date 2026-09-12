@@ -37,9 +37,10 @@ def repair_capability_is_supported(
     health_payload: object, capability_response: object
 ) -> bool:
     """Evaluate the sanitized A3 target/version compatibility contract."""
-    if not isinstance(health_payload, dict) or not isinstance(
-        health_payload.get("issues"), list
-    ):
+    if not isinstance(health_payload, dict):
+        return False
+    health_payload = cast("dict[str, Any]", health_payload)
+    if not isinstance(health_payload.get("issues"), list):
         return False
     if not isinstance(capability_response, dict):
         return False
@@ -51,6 +52,7 @@ def repair_capability_is_supported(
         return False
     if not isinstance(capabilities, dict):
         return False
+    capabilities = cast("dict[str, Any]", capabilities)
     return all(
         capabilities.get(name) is True
         for name in ("quote_history_read", "quote_upsert")
@@ -64,7 +66,7 @@ class HealthPollResult:
     payload: dict[str, Any]
     complete: bool
     truncated: bool = False
-    cursor_state: dict[str, Any] = field(default_factory=dict)
+    cursor_state: dict[str, Any] = field(default_factory=dict[str, Any])
 
 
 def prepare_health_poll(
@@ -88,6 +90,7 @@ def prepare_health_poll(
     has_more = payload.get("hasMore", payload.get("has_more"))
     pagination = payload.get("pagination")
     if isinstance(pagination, dict):
+        pagination = cast("dict[str, Any]", pagination)
         next_cursor = pagination.get(
             "nextCursor", pagination.get("next_cursor", next_cursor)
         )
@@ -335,46 +338,56 @@ def normalize_health_issues(
                 "details": _text(raw.get("details") or raw.get("message")),
             }
             if isinstance(item, dict):
+                item_data: Any = cast("Any", item)
                 for source_key in ("securityId", "security_id"):
-                    if item.get(source_key) is not None:
+                    if item_data.get(source_key) is not None:
                         context["security_id"] = _text(
-                            item[source_key], limit=64
+                            item_data[source_key], limit=64
                         )
                         break
-                if item.get("isin", item.get("ISIN")) is not None:
+                if item_data.get("isin", item_data.get("ISIN")) is not None:
                     context["identifier"] = _text(
-                        item.get("isin", item.get("ISIN")), limit=64
+                        item_data.get("isin", item_data.get("ISIN")), limit=64
                     )
                     context["identifier_type"] = "isin"
-                elif item.get("ticker", item.get("Ticker")) is not None:
+                elif (
+                    item_data.get("ticker", item_data.get("Ticker")) is not None
+                ):
                     context["identifier"] = _text(
-                        item.get("ticker", item.get("Ticker")), limit=64
+                        item_data.get("ticker", item_data.get("Ticker")),
+                        limit=64,
                     )
                     context["identifier_type"] = "ticker"
-                elif item.get("figi") is not None:
-                    context["identifier"] = _text(item["figi"], limit=64)
+                elif item_data.get("figi") is not None:
+                    context["identifier"] = _text(item_data["figi"], limit=64)
                     context["identifier_type"] = "figi"
-                elif item.get("cusip") is not None:
-                    context["identifier"] = _text(item["cusip"], limit=64)
+                elif item_data.get("cusip") is not None:
+                    context["identifier"] = _text(item_data["cusip"], limit=64)
                     context["identifier_type"] = "cusip"
                 elif (
-                    item.get("providerSymbol", item.get("provider_symbol"))
+                    item_data.get(
+                        "providerSymbol", item_data.get("provider_symbol")
+                    )
                     is not None
                 ):
                     context["identifier"] = _text(
-                        item.get("providerSymbol", item.get("provider_symbol")),
+                        item_data.get(
+                            "providerSymbol", item_data.get("provider_symbol")
+                        ),
                         limit=64,
                     )
                     context["identifier_type"] = "provider_symbol"
-                elif item.get("symbol") is not None:
-                    context["identifier"] = _text(item["symbol"], limit=64)
+                elif item_data.get("symbol") is not None:
+                    context["identifier"] = _text(item_data["symbol"], limit=64)
                     context["identifier_type"] = "ticker"
                 for source_key, context_key in (
                     ("startDate", "start_date"),
                     ("endDate", "end_date"),
                 ):
-                    if item.get(source_key) is not None:
-                        context[context_key] = _text(item[source_key], limit=64)
+                    if item_data.get(source_key) is not None:
+                        context[context_key] = _text(
+                            item_data[source_key], limit=64
+                        )
             if kind not in {
                 "wealthfolio_quote_sync_failure",
                 "wealthfolio_historical_price_gap",

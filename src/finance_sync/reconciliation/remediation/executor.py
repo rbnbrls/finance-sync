@@ -167,7 +167,7 @@ class RemediationExecutor:
                         "Any", await strategy.verify(item, connector)
                     )
                 else:
-                    verification = await strategy.verify(item)
+                    verification = await cast("Any", strategy).verify(item)
             item.verification_count += 1
             _record_verification(item, verification)
             verified_resolved = bool(getattr(verification, "resolved", False))
