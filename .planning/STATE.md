@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 01
 current_phase_name: wealthfolio-remediation-bridge
 status: executing
-stopped_at: Completed 01-09-PLAN.md
-last_updated: "2026-09-12T16:55:34.020Z"
+stopped_at: Completed 01-10-PLAN.md
+last_updated: "2026-09-12T17:06:29.334Z"
 last_activity: 2026-09-12
 last_activity_desc: Phase 01 execution started
-state_head: 577b66eb5519d4c01e0562f3f8141f0a0e1b698f
+state_head: 5dd25caeb21b69b28e66a5cb37121eb548f42012
 progress:
   total_phases: 1
   completed_phases: 0
   total_plans: 5
-  completed_plans: 3
+  completed_plans: 4
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/ROADMAP.md (updated 2026-09-12)
 ## Current Position
 
 Phase: 01 (wealthfolio-remediation-bridge) — EXECUTING
-Plan: 3 of 5
+Plan: 4 of 5
 Status: Ready to execute
 Last activity: 2026-09-12 — Phase 01 execution started
 
@@ -54,6 +54,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 01 P01 | 0 | 7 tasks | 17 files |
 | Phase 01 P08 | 14 | 2 tasks | 5 files |
 | Phase 01 P09 | 12 | 2 tasks | 12 files |
+| Phase 01 P10 | 9 | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -69,6 +70,9 @@ Progress: [░░░░░░░░░░] 0%
 - [Phase 01]: Only complete successful Wealthfolio snapshots may reconcile omitted active findings.
 - [Phase 01]: Transient RequestError failures retry within the existing bounded exponential budget while auth/configuration failures remain fail-fast.
 - [Phase 01]: Data Health enabled is sourced from Settings independently from target availability and degraded snapshot state.
+- [Phase 01]: Opaque Wealthfolio asset IDs require exactly one canonical security match; unresolved or ambiguous identity is manual-review-only.
+- [Phase 01]: Automatic repair requires sanitized supported-target capability evidence; absent or unsupported A3 capability fails closed.
+- [Phase 01]: Historical projection and verification share a half-open [start,end) window, with date-only ends normalized to the next day.
 
 ### Pending Todos
 
@@ -86,6 +90,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-09-12T16:55:34.004Z
-Stopped at: Completed 01-09-PLAN.md
+Last session: 2026-09-12T17:06:29.319Z
+Stopped at: Completed 01-10-PLAN.md
 Resume file: None
