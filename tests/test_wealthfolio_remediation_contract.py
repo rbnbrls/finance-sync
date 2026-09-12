@@ -10,6 +10,9 @@ from finance_sync.reconciliation.remediation.price_history import (
     HistoricalPriceStrategy,
     normalize_window,
 )
+from finance_sync.reconciliation.remediation.wealthfolio import (
+    WealthfolioHistoricalPriceStrategy,
+)
 from finance_sync.services.wealthfolio_health_bridge import (
     normalize_health_issues,
     repair_capability_is_supported,
@@ -175,3 +178,29 @@ async def test_historical_verification_uses_exclusive_end_predicate() -> None:
     assert start < end
     assert datetime(2026, 2, 1, tzinfo=UTC) >= end
     assert datetime(2026, 1, 31, 23, 59, tzinfo=UTC) < end
+
+
+@pytest.mark.asyncio
+async def test_remote_historical_verification_excludes_end_boundary() -> None:
+    strategy = object.__new__(WealthfolioHistoricalPriceStrategy)
+    connector = SimpleNamespace(
+        QUOTE_DATA_SOURCE="CUSTOM_SCRAPER:finance-sync",
+        get_quote_history=AsyncMock(
+            return_value=[
+                {"timestamp": "2026-02-01T00:00:00+00:00", "dataSource": "CUSTOM_SCRAPER:finance-sync"},
+                {"timestamp": "2026-01-31T23:59:00+00:00", "dataSource": "CUSTOM_SCRAPER:finance-sync"},
+            ]
+        ),
+    )
+    item = SimpleNamespace(
+        context={
+            "remote_entity_id": "wf-asset",
+            "start_date": "2026-01-01",
+            "end_date": "2026-01-31",
+        }
+    )
+
+    result = await strategy.verify(item, connector)
+
+    assert result.resolved is True
+    assert "found 1" in result.reason

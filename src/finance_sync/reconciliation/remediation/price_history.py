@@ -97,7 +97,7 @@ class HistoricalPriceStrategy:
         ends = [end for _, end in windows if end is not None]
         earliest = min(starts)
         latest = max(ends)
-        if (latest - earliest).days + 1 > 1000:
+        if (latest - earliest).days > 1000:
             return await self._execute_batch_individually(items)
         first = contexts[0]
         await self.gateway.get_historical_prices(

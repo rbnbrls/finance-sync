@@ -78,11 +78,17 @@ class WealthfolioHistoricalPriceStrategy(WealthfolioQuoteStrategy):
 
     def supports(self, item: Any) -> bool:
         context = _context(item)
+        start, end = normalize_window(
+            context.get("start_date"), context.get("end_date")
+        )
         return bool(
             context.get("security_id")
             and context.get("remote_entity_id")
             and context.get("start_date")
             and context.get("end_date")
+            and start is not None
+            and end is not None
+            and start < end
         )
 
     async def execute(self, item: Any, connector: Any = None) -> None:
@@ -116,6 +122,39 @@ class WealthfolioHistoricalPriceStrategy(WealthfolioQuoteStrategy):
                     "dataSource": connector.QUOTE_DATA_SOURCE,
                 },
             )
+
+    async def verify(self, item: Any, connector: Any = None) -> VerificationResult:
+        """Verify owned remote observations in the same half-open window."""
+        if connector is None:
+            return VerificationResult(False, "Wealthfolio target client unavailable")
+        context = _context(item)
+        start, end = normalize_window(
+            context.get("start_date"), context.get("end_date")
+        )
+        if start is None or end is None or start >= end:
+            return VerificationResult(False, "price gap has no valid half-open window")
+        count = 0
+        for row in await connector.get_quote_history(
+            str(context["remote_entity_id"])
+        ):
+            if (row.get("source") or row.get("dataSource")) != connector.QUOTE_DATA_SOURCE:
+                continue
+            try:
+                timestamp = datetime.fromisoformat(str(row.get("timestamp")))
+                timestamp = (
+                    timestamp.astimezone(UTC)
+                    if timestamp.tzinfo
+                    else timestamp.replace(tzinfo=UTC)
+                )
+            except (TypeError, ValueError):
+                continue
+            if start <= timestamp < end:
+                count += 1
+        expected = max(1, int(context.get("minimum_observations", 1)))
+        return VerificationResult(
+            count >= expected,
+            f"found {count} Wealthfolio price observations; expected {expected}",
+        )
 
 
 def _context(item: Any) -> dict[str, Any]:
