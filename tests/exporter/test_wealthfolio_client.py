@@ -8,9 +8,10 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 import pytest
-from httpx import RequestError
+from httpx import HTTPStatusError, RequestError
 
 from finance_sync.exporter.wealthfolio.client import (
+    WealthfolioAPIError,
     WealthfolioAuthError,
     WealthfolioClient,
     WealthfolioClientConfig,
@@ -215,6 +216,42 @@ class TestWealthfolioClientImport:
             )
 
         assert result["valid"] is True
+
+    @pytest.mark.parametrize(
+        "method_name, endpoint",
+        [
+            ("check_activities_import", "/api/v1/activities/import/check"),
+            ("import_activities", "/api/v1/activities/import"),
+        ],
+    )
+    async def test_rejected_activity_batch_preserves_provider_details(
+        self,
+        client: WealthfolioClient,
+        method_name: str,
+        endpoint: str,
+    ) -> None:
+        """Activity endpoint failures expose Wealthfolio's validation body."""
+        client._is_authenticated = True
+        activities = [{"activityType": "BUY"}]
+        response = MagicMock()
+        response.status_code = 400
+        response.text = '{"message":"Invalid activity at index 2"}'
+        response.raise_for_status.side_effect = HTTPStatusError(
+            "400 Bad Request",
+            request=MagicMock(),
+            response=response,
+        )
+
+        with (
+            patch.object(client._client, "post", return_value=response) as post,
+            pytest.raises(
+                WealthfolioAPIError,
+                match="Invalid activity at index 2",
+            ),
+        ):
+            await getattr(client, method_name)(activities)
+
+        post.assert_called_once_with(endpoint, json={"activities": activities})
 
     async def test_get_accounts(self, client: WealthfolioClient) -> None:
         """Fetch accounts from Wealthfolio."""

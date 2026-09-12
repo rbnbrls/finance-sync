@@ -317,7 +317,7 @@ class WealthfolioClient:
             f"{self.API_PREFIX}/activities/import/check",
             json={"activities": activities},
         )
-        response.raise_for_status()
+        self._raise_for_status(response)
         return response.json()
 
     async def import_activities(
@@ -346,7 +346,7 @@ class WealthfolioClient:
             f"{self.API_PREFIX}/activities/import",
             json={"activities": activities},
         )
-        response.raise_for_status()
+        self._raise_for_status(response)
         payload = response.json()
         # Wealthfolio 2.x returns counts in ``summary``; older compatible
         # servers returned them at the top level. Expose one stable contract.
@@ -363,6 +363,19 @@ class WealthfolioClient:
             ),
             "raw": payload,
         }
+
+    @staticmethod
+    def _raise_for_status(response: httpx.Response) -> None:
+        """Raise an actionable client error for a rejected API request."""
+        try:
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            detail = response.text.strip() or str(exc)
+            msg = (
+                f"Wealthfolio API request failed with HTTP "
+                f"{response.status_code}: {detail}"
+            )
+            raise WealthfolioAPIError(msg) from exc
 
     async def push_activities(
         self,
