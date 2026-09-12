@@ -277,7 +277,8 @@ class WealthfolioClient:
                     category="malformed",
                 )
             return cast("dict[str, Any]", payload)
-        raise AssertionError("health polling loop must return or raise")
+        msg = "health polling loop must return or raise"
+        raise AssertionError(msg)
 
     async def authenticate(self) -> bool:
         """Authenticate with the Wealthfolio instance.

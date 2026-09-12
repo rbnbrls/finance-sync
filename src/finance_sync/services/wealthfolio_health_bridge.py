@@ -80,8 +80,12 @@ def prepare_health_poll(
     pagination = payload.get("pagination")
     if isinstance(pagination, dict):
         pagination = cast("dict[str, Any]", pagination)
-        next_cursor = pagination.get("nextCursor", pagination.get("next_cursor", next_cursor))
-        has_more = pagination.get("hasMore", pagination.get("has_more", has_more))
+        next_cursor = pagination.get(
+            "nextCursor", pagination.get("next_cursor", next_cursor)
+        )
+        has_more = pagination.get(
+            "hasMore", pagination.get("has_more", has_more)
+        )
     if next_cursor is not None:
         metadata["next_cursor"] = _text(next_cursor, limit=128)
     if has_more is True or next_cursor:
@@ -279,7 +283,9 @@ def normalize_health_issues(
             severity = "warning"
         affected = raw.get("affectedItems", raw.get("affected_items", []))
         if not isinstance(affected, list) or not affected:
-            affected = [raw.get("assetId") or raw.get("securityId") or "summary"]
+            affected = [
+                raw.get("assetId") or raw.get("securityId") or "summary"
+            ]
         affected = cast("list[Any]", affected)
         for item in affected[:MAX_AFFECTED_ITEMS]:
             if isinstance(item, dict):
@@ -306,16 +312,21 @@ def normalize_health_issues(
                 item_data: Any = cast("Any", item)
                 for source_key in ("securityId", "security_id"):
                     if item_data.get(source_key) is not None:
-                        context["security_id"] = _text(item_data[source_key], limit=64)
+                        context["security_id"] = _text(
+                            item_data[source_key], limit=64
+                        )
                         break
                 if item_data.get("isin", item_data.get("ISIN")) is not None:
                     context["identifier"] = _text(
                         item_data.get("isin", item_data.get("ISIN")), limit=64
                     )
                     context["identifier_type"] = "isin"
-                elif item_data.get("ticker", item_data.get("Ticker")) is not None:
+                elif (
+                    item_data.get("ticker", item_data.get("Ticker")) is not None
+                ):
                     context["identifier"] = _text(
-                        item_data.get("ticker", item_data.get("Ticker")), limit=64
+                        item_data.get("ticker", item_data.get("Ticker")),
+                        limit=64,
                     )
                     context["identifier_type"] = "ticker"
                 elif item_data.get("figi") is not None:
@@ -324,9 +335,16 @@ def normalize_health_issues(
                 elif item_data.get("cusip") is not None:
                     context["identifier"] = _text(item_data["cusip"], limit=64)
                     context["identifier_type"] = "cusip"
-                elif item_data.get("providerSymbol", item_data.get("provider_symbol")) is not None:
+                elif (
+                    item_data.get(
+                        "providerSymbol", item_data.get("provider_symbol")
+                    )
+                    is not None
+                ):
                     context["identifier"] = _text(
-                        item_data.get("providerSymbol", item_data.get("provider_symbol")),
+                        item_data.get(
+                            "providerSymbol", item_data.get("provider_symbol")
+                        ),
                         limit=64,
                     )
                     context["identifier_type"] = "provider_symbol"
@@ -338,7 +356,9 @@ def normalize_health_issues(
                     ("endDate", "end_date"),
                 ):
                     if item_data.get(source_key) is not None:
-                        context[context_key] = _text(item_data[source_key], limit=64)
+                        context[context_key] = _text(
+                            item_data[source_key], limit=64
+                        )
             if kind not in {
                 "wealthfolio_quote_sync_failure",
                 "wealthfolio_historical_price_gap",

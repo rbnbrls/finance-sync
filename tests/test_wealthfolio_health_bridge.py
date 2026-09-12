@@ -1,6 +1,7 @@
 """Contract tests for Wealthfolio health issue normalization."""
 
 from types import SimpleNamespace
+from typing import cast
 
 import pytest
 
@@ -186,7 +187,7 @@ async def test_incomplete_success_persists_cursor_and_does_not_reconcile(
             return self.value
 
         def scalars(self) -> list[object]:
-            return active_items
+            return cast("list[object]", active_items)
 
     class Session:
         def __init__(self) -> None:

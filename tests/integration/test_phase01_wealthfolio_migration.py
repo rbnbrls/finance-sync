@@ -18,7 +18,7 @@ pytestmark = pytest.mark.integration
 
 
 @pytest.fixture(autouse=True)
-async def _require_redis(redis_client) -> None:
+async def _require_redis(redis_client) -> None:  # pyright: ignore[reportUnusedFunction]
     """Keep migration validation explicit when Redis is unavailable."""
     await redis_client.ping()
 
