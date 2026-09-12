@@ -296,56 +296,28 @@ This preserves the current executor’s verified status vocabulary and ordering.
 
 | # | Claim | Section | Risk if Wrong |
 |---|-------|---------|---------------|
-| A1 | The phase-local sanitized `HealthStatus` contract uses `issues`, `fixAction`, `affectedItems`, `severity`, and `code`, with tolerant aliases and fail-closed unknowns. | Resolved Research Decisions / tests/fixtures/wealthfolio_health_status.json | The exact local parser contract is fixed; a real-target/version mismatch remains a runtime compatibility checkpoint and cannot enable automatic repair. [RESOLVED FOR PLANNING] |
-| A2 | A target-scoped cursor/state table is needed in addition to existing `ExportTarget.last_*` health columns. | Resolved Research Decisions / src/finance_sync/models/wealthfolio_health_cursor.py | Resolved: completeness/progress/hash/error state is independently durable per tenant/target, while ExportTarget remains credentials/configuration. [RESOLVED] |
-| A3 | Wealthfolio’s installed deployment supports the required historical-repair primitive at the project’s target version. | Resolved Research Decisions / 01-10 supported-target smoke checkpoint | The implementation uses the existing canonical `PriceStore`/`EnrichmentGateway` plus existing Wealthfolio targeted quote/history projection. The named **A3 supported-target compatibility smoke checkpoint** must validate the sanitized target/version contract before automatic repair is enabled; when a target/version does not support the required primitive, automatic repair remains disabled and unverified, and the item remains fail-closed for manual review. [RUNTIME COMPATIBILITY CHECKPOINT] |
+| A1 | The supported Wealthfolio deployment returns issue fields that can be normalized from `issues`, `fixAction`, `affectedItems`, `severity`, and `code`. | Summary / Architecture Patterns | Parser and fixture design could be wrong; planner must add a contract capture/checkpoint against the actual target or exact upstream `HealthStatus` definition. [ASSUMED] |
+| A2 | A target-scoped cursor/state table is needed in addition to existing `ExportTarget.last_*` health columns. | Summary / Architecture Patterns | Schema may be overbuilt or duplicate existing state; planner should compare required cursor/hash/error fields to the target model before migration. [ASSUMED] |
+| A3 | Wealthfolio’s installed deployment supports the documented current fix/market contracts at the project’s target version. | Standard Stack / Code Examples | Older target versions may require compatibility handling or disable automatic repair. [ASSUMED] |
 | A4 | The best remote verification is a fresh health/status call after targeted repair rather than a dedicated per-issue verification endpoint. | Architecture Patterns | Health caching or issue hashing may require a forced check route or a second bounded poll. [ASSUMED] |
 | A5 | Bridge target configuration will be represented by `ExportTarget` rather than legacy global settings. | Alternatives / Pitfalls | If deployment intentionally uses only the legacy global target, the worker design and tenant isolation contract change materially. [ASSUMED] |
 
-## Resolved Research Decisions
+## Open Questions
 
-The following three questions are resolved for the gap-closure plans. These are
-implementation contracts grounded in the current repository; a real target/version
-smoke check remains an explicit deployment verification item.
+1. **What is the exact serialized `HealthStatus` payload for the supported Wealthfolio version?**
+   - What we know: The route returns `HealthStatus`; official docs enumerate categories and fix action IDs, and the server fix source shows asset-ID payload behavior. [CITED: https://raw.githubusercontent.com/wealthfolio/wealthfolio/main/apps/server/src/api/health.rs; https://wealthfolio.app/docs/guide/health-center/]
+   - What’s unclear: Exact field names, issue IDs/data hashes, category codes, affected-item nesting, severity values, and whether `/health/status` is sufficiently fresh after `/health/fix`.
+   - Recommendation: Make a sanitized real-response fixture and upstream-version compatibility test a Wave 0 checkpoint before locking the normalizer.
 
-1. **Serialized `HealthStatus` contract:** The phase normalizer consumes the
-   sanitized contract captured in `tests/fixtures/wealthfolio_health_status.json`:
-   top-level `issues` list; issue `code`, `severity`, `fixAction`, `details`; and
-   `affectedItems` entries carrying `assetId`/`id`, optional `securityId`, `isin`,
-   `ticker`, `startDate`, and `endDate`. Unknown top-level fields and unknown issue
-   categories are tolerated and fail closed to `manual_review`. The parser also
-   accepts the documented snake_case aliases for affected-item fields. This is the
-   exact local fixture contract consumed by 01-08, 01-09, and 01-10; it does not
-   claim that every upstream version serializes additional fields identically.
-   A supported-target smoke test must compare a sanitized response to this contract
-   before enabling automatic repair, with incompatibilities recorded as unverified
-   and routed to manual review.
+2. **Should bridge state extend `ExportTarget` or use a separate target-keyed table?**
+   - What we know: `ExportTarget` already stores `last_health_status`, `last_health_error`, and `last_checked_at`, while the phase plan requests payload hash, issue count, and successful-poll semantics. [VERIFIED: src/finance_sync/models/export_target.py:100-110; .planning/phases/01-wealthfolio-remediation-bridge/01-PLAN.md:57-61]
+   - What’s unclear: Whether multiple bridge runs, cursors, or per-target issue-generation state require separate rows.
+   - Recommendation: Decide after listing the minimum state needed for safe absence reconciliation; prefer extending the target if one row is sufficient, otherwise add a foreign-keyed table.
 
-2. **Cursor-state architecture:** Use the existing separate
-   `WealthfolioHealthCursor` table rather than extending `ExportTarget`. The cursor
-   is one row per tenant/target and owns aggregate payload hash, issue count,
-   successful-poll timestamp, bounded error state, durable `complete` and
-   `truncated` flags, and bounded cursor/progress state. `ExportTarget` remains the
-   credential/configuration boundary. The separate row is required because
-   completeness and progress must survive poll retries independently of mutable
-   target configuration. 01-09 owns the model, migration, and metrics wiring;
-   01-11 owns database-backed migration/lifecycle assertions.
-
-3. **Historical repair primitive:** Use the existing canonical-first
-   `PriceStore`/`EnrichmentGateway` path plus the existing Wealthfolio targeted
-   quote/history projection for bounded historical repairs, followed by the
-   existing fresh health verification. Do not introduce a second writer or depend
-   on synchronous `market.sync` completion; that upstream operation is treated as
-   an optional compatibility capability, not the phase primitive. The named **A3
-   supported-target compatibility smoke checkpoint** must validate the target/version
-   before automatic repair is enabled. If the required primitive is unsupported,
-   automatic repair remains disabled and unverified and the finding stays
-   fail-closed for manual review. 01-10 owns the checkpoint, half-open interval,
-   and projection contract.
-
-These decisions close the previously open planning questions without adding a
-package or a new queue/credential store. The real-target smoke check is a runtime
-compatibility gate, not an unresolved implementation choice.
+3. **What exact remote repair primitive should be used for historical gaps?**
+   - What we know: Upstream documents targeted `market.sync` and quote history/update APIs. [CITED: https://wealthfolio.app/docs/addons/api-reference/]
+   - What’s unclear: Whether direct quote PUTs, `market.sync` with recent-day refetch, or both are needed for the supported Wealthfolio deployment, and whether server-side sync can report completion synchronously.
+   - Recommendation: Prefer targeted market sync for provider-owned quote issues; use direct quote projection only when canonical history is authoritative and the current client contract is proven against fixtures.
 
 ## Environment Availability
 
