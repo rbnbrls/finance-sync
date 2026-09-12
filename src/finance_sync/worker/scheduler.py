@@ -22,7 +22,8 @@ from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
 from finance_sync.worker.jobs import (
-    data_quality_repair_job,
+    data_quality_remediation_cleanup_job,
+    data_quality_remediation_job,
     enrich_prices_job,
     export_wealthfolio_job,
     holding_relevance_build_job,
@@ -414,13 +415,30 @@ class WorkerScheduler:
                 trigger=trigger,
             )
 
-        if getattr(settings, "worker_job_data_quality_repair_enabled", False):
+        remediation_enabled = bool(
+            getattr(settings, "remediation_enabled", False)
+            or getattr(
+                settings, "worker_job_data_quality_repair_enabled", False
+            )
+        )
+        if remediation_enabled:
             self._add_job(
-                "data_quality_repair",
-                data_quality_repair_job,
+                "data_quality_remediation",
+                data_quality_remediation_job,
                 trigger=IntervalTrigger(
-                    minutes=settings.worker_job_data_quality_repair_interval_minutes,
+                    minutes=(
+                        settings.remediation_poll_interval_minutes
+                        if getattr(settings, "remediation_enabled", False)
+                        else (
+                            settings.worker_job_data_quality_repair_interval_minutes
+                        )
+                    ),
                 ),
+            )
+            self._add_job(
+                "data_quality_remediation_cleanup",
+                data_quality_remediation_cleanup_job,
+                trigger=IntervalTrigger(hours=24),
             )
 
         # ── Nightly reconciliation job ──────────────────────────────

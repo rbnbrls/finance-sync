@@ -978,6 +978,56 @@ async def test_holdings_stage_persists_resolved_and_tracks_unresolved() -> None:
 
 
 @pytest.mark.asyncio
+async def test_holdings_stage_merges_duplicate_resolved_security_snapshots() -> (
+    None
+):
+    from finance_sync.connectors.models import (
+        CanonicalHoldingData,
+        SecurityReference,
+    )
+
+    writer = MagicMock()
+    writer.resolve_security_reference = AsyncMock(
+        side_effect=[
+            (SimpleNamespace(id="security-1"), None),
+            (SimpleNamespace(id="security-1"), None),
+        ]
+    )
+    writer.persist_holding = AsyncMock()
+    observed = datetime(2026, 1, 1, tzinfo=UTC)
+    holdings = [
+        CanonicalHoldingData(
+            provider_key="trading212",
+            external_account_id="account-1",
+            observed_at=observed,
+            quantity=2,
+            security_reference=SecurityReference(isin="US0000000001"),
+            cost_basis=100,
+            market_value=120,
+        ),
+        CanonicalHoldingData(
+            provider_key="trading212",
+            external_account_id="account-1",
+            observed_at=observed,
+            quantity=3,
+            security_reference=SecurityReference(isin="US0000000002"),
+            cost_basis=150,
+            market_value=180,
+        ),
+    ]
+
+    result = await HoldingsSyncStage(writer).run(
+        MagicMock(), holdings, account_id="account-1", provider_key="trading212"
+    )
+
+    assert result.count == 1
+    merged = writer.persist_holding.await_args.args[1]
+    assert merged.quantity == 5
+    assert merged.cost_basis == 250
+    assert merged.market_value == 300
+
+
+@pytest.mark.asyncio
 async def test_portfolio_read_returns_empty_shapes() -> None:
     first_result = MagicMock()
     first_result.scalars.return_value.all.return_value = []

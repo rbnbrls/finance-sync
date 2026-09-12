@@ -60,6 +60,12 @@ class ManualExpenseConnector(Connector):
 
     display_name = "Manual Expenses"
     ingestion_methods = ("file",)
+    remediation_strategies = {
+        "transaction_history_gap": {
+            "endpoint_family": "transaction_history",
+            "batch_limit": 1,
+        }
+    }
     import_wizard = {
         "files": [
             {"key": "expenses", "label": "Expenses JSON", "required": True}

@@ -10,7 +10,7 @@ make ci-fast
 ```
 
 `make ci-fast` runs, in order, Ruff format, Ruff lint, Pyright, test
-collection, and the unit suite with the 73% coverage threshold. Collection is
+collection, and the unit suite with the 74% coverage threshold. Collection is
 intentionally before test execution so missing imports or renamed helpers fail
 without starting the expensive suite. Integration and E2E remain separate
 PostgreSQL/Redis-backed checks.

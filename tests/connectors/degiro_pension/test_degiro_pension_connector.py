@@ -161,6 +161,11 @@ async def test_contract_and_all_report_types() -> None:
     )
     assert len({item.external_transaction_id for item in transactions}) == 8
     assert all(isinstance(item.amount, Decimal) for item in transactions)
+    assert all(
+        item.quantity is None or item.quantity > 0
+        for item in transactions
+        if item.transaction_type in {"purchase", "sale"}
+    )
     assert connector.validation_report.rows_skipped == 5
 
     holdings = await connector.fetch_holdings()

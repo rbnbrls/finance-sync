@@ -9,9 +9,10 @@ The harness is environment-driven so the same tests run in CI (GitHub
 Actions service containers) and locally (docker compose or an existing
 PG/Redis on localhost):
 
-* ``TEST_DATABASE_URL`` — asyncpg DSN (default
-  ``postgresql+asyncpg://postgres:postgres@localhost:5432/finance_sync_test``)
-* ``TEST_REDIS_URL`` — redis DSN (default ``redis://localhost:6379/15``)
+* ``TEST_DATABASE_URL`` — asyncpg DSN. The Makefile test stack uses
+  ``postgresql+asyncpg://postgres:postgres@localhost:5433/finance_sync_test``.
+* ``TEST_REDIS_URL`` — redis DSN. The Makefile test stack uses
+  ``redis://localhost:6380/15``.
 
 When the env vars are **not** set the whole suite is skipped with a pointer
 to the README, so a plain ``pytest`` run (unit suite) stays fast and green
@@ -23,8 +24,8 @@ Run locally:
 
 or manually:
 
-    TEST_DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/finance_sync_test \
-    TEST_REDIS_URL=redis://localhost:6379/15 \
+    TEST_DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5433/finance_sync_test \
+    TEST_REDIS_URL=redis://localhost:6380/15 \
     uv run pytest -m integration -v
 """
 # pyright: basic
@@ -53,9 +54,9 @@ if TYPE_CHECKING:
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
 DEFAULT_DATABASE_URL = (
-    "postgresql+asyncpg://postgres:postgres@localhost:5432/finance_sync_test"
+    "postgresql+asyncpg://postgres:postgres@localhost:5433/finance_sync_test"
 )
-DEFAULT_REDIS_URL = "redis://localhost:6379/15"
+DEFAULT_REDIS_URL = "redis://localhost:6380/15"
 
 
 def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:

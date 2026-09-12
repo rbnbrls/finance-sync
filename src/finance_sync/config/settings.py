@@ -877,6 +877,73 @@ class Settings(BaseSettings):
         ge=5,
         validation_alias="WORKER_JOB_DATA_QUALITY_REPAIR_INTERVAL_MINUTES",
     )
+    remediation_enabled: bool = Field(
+        default=False,
+        validation_alias="REMEDIATION_ENABLED",
+        description="Enable the bounded asynchronous remediation worker.",
+    )
+    remediation_poll_interval_minutes: int = Field(
+        default=60,
+        ge=1,
+        validation_alias="REMEDIATION_POLL_INTERVAL_MINUTES",
+    )
+    remediation_claim_limit: int = Field(
+        default=20, ge=1, le=200, validation_alias="REMEDIATION_CLAIM_LIMIT"
+    )
+    remediation_lease_seconds: int = Field(
+        default=300,
+        ge=30,
+        le=3600,
+        validation_alias="REMEDIATION_LEASE_SECONDS",
+    )
+    remediation_quota_requests: int = Field(
+        default=60,
+        ge=1,
+        le=10000,
+        validation_alias="REMEDIATION_QUOTA_REQUESTS",
+    )
+    remediation_quota_window_seconds: int = Field(
+        default=60,
+        ge=1,
+        le=86400,
+        validation_alias="REMEDIATION_QUOTA_WINDOW_SECONDS",
+    )
+    remediation_retention_days: int = Field(
+        default=365,
+        ge=30,
+        le=3650,
+        validation_alias="REMEDIATION_RETENTION_DAYS",
+    )
+    remediation_max_execution_seconds: int = Field(
+        default=300,
+        ge=1,
+        le=3600,
+        validation_alias="REMEDIATION_MAX_EXECUTION_SECONDS",
+    )
+    remediation_max_verification_attempts: int = Field(
+        default=3,
+        ge=1,
+        le=20,
+        validation_alias="REMEDIATION_MAX_VERIFICATION_ATTEMPTS",
+    )
+    remediation_retry_base_seconds: float = Field(
+        default=30.0,
+        gt=0,
+        le=3600,
+        validation_alias="REMEDIATION_RETRY_BASE_SECONDS",
+    )
+    remediation_retry_cap_seconds: float = Field(
+        default=3600.0,
+        gt=0,
+        le=86400,
+        validation_alias="REMEDIATION_RETRY_CAP_SECONDS",
+    )
+    remediation_retry_jitter: float = Field(
+        default=0.2,
+        ge=0,
+        le=1,
+        validation_alias="REMEDIATION_RETRY_JITTER",
+    )
 
     # ── Worker: Nightly reconciliation job ─────────────────────────
     worker_job_reconciliation_enabled: bool = Field(

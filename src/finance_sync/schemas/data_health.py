@@ -92,6 +92,16 @@ class DataHealthReconciliation(BaseModel):
     latest_run_at: datetime | None = None
 
 
+class DataHealthRemediation(BaseModel):
+    """Small SQL aggregate for the remediation dashboard."""
+
+    backlog_size: int = 0
+    by_status: dict[str, int] = Field(default_factory=dict)
+    by_provider_status: dict[str, dict[str, int]] = Field(default_factory=dict)
+    oldest_pending_at: datetime | None = None
+    rate_limit_deferrals: int = 0
+
+
 class DataHealthOverview(BaseModel):
     status: DataHealthStatus
     last_successful_sync: datetime | None = None
@@ -103,6 +113,9 @@ class DataHealthOverview(BaseModel):
     failed_exports: int = 0
     reconciliation: DataHealthReconciliation = Field(
         default_factory=DataHealthReconciliation
+    )
+    remediation: DataHealthRemediation = Field(
+        default_factory=DataHealthRemediation
     )
     issues: list[DataHealthIssue] = Field(
         default_factory=lambda: list[DataHealthIssue]()

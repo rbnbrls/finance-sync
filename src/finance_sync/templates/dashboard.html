@@ -1016,6 +1016,8 @@
         @media (max-width: 420px) { .run-summary { grid-template-columns:1fr 1fr; gap:8px; } .run-stat { padding:11px; } .overview-value { font-size:1.85rem; } }
     </style>
     <link rel="stylesheet" href="/static/brand.css">
+    <link rel="icon" href="/favicon.ico">
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@mdi/font@7.4.47/css/materialdesignicons.min.css">
 </head>
 <body>
@@ -1094,6 +1096,7 @@
             </div>
             <div id="data-health-status" class="control-status" data-status="loading" aria-live="polite" aria-busy="true"><div><h2 class="control-status-label">Data health laden…</h2><p>De actuele status wordt opgehaald.</p></div><span class="spinner" aria-hidden="true"></span></div>
             <div id="data-health-summary" class="quality-grid" aria-live="polite" aria-busy="true"><div class="overview-empty"><span class="spinner"></span> Overzicht laden…</div></div>
+            <div class="card control-section"><div class="card-header"><div><h2>Herstelqueue</h2><p class="chain-subtitle">Asynchrone herstelacties worden door de worker uitgevoerd.</p></div><button type="button" class="btn btn-secondary btn-sm" onclick="loadDataHealth()">Verversen</button></div><div id="data-health-remediation" aria-live="polite" aria-busy="true"><div class="overview-empty">Herstelqueue laden…</div></div></div>
             <div class="card control-section"><div class="card-header"><div><h2>Bronnen</h2><p class="chain-subtitle">Laatste succesvolle sync en datadekking per bron.</p></div></div><div id="data-health-sources" aria-live="polite" aria-busy="true"><div class="overview-empty">Bronnen laden…</div></div></div>
             <div class="card control-section"><div class="card-header"><div><h2>Actie vereist</h2><p class="chain-subtitle">Elke melding heeft één concrete vervolgstap.</p></div></div><div id="data-health-issues" class="issue-list" aria-live="polite" aria-busy="true"><div class="overview-empty">Issues laden…</div></div></div>
             <div id="data-health-reconciliation-detail" class="card control-section hidden" aria-live="polite" aria-busy="false"></div>
@@ -1296,9 +1299,14 @@
         }
 
         async function loadDataHealth() {
-            const ids = ['data-health-status', 'data-health-summary', 'data-health-sources', 'data-health-issues'];
+            const ids = ['data-health-status', 'data-health-summary', 'data-health-remediation', 'data-health-sources', 'data-health-issues'];
             ids.forEach(id => document.getElementById(id)?.setAttribute('aria-busy', 'true'));
-            try { renderDataHealth(await api('GET', '/control-plane/data-health')); }
+            try {
+                const data = await api('GET', '/control-plane/data-health');
+                let remediation = [];
+                try { remediation = (await api('GET', '/control-plane/remediation?limit=50')).items || []; } catch (_) { /* summary remains useful */ }
+                renderDataHealth(data, remediation);
+            }
             catch (error) { renderDataHealthError(error); }
         }
 
@@ -1313,19 +1321,22 @@
             }
             const summary = document.getElementById('data-health-summary');
             if (summary) { summary.setAttribute('aria-busy', 'false'); summary.innerHTML = '<div class="overview-empty">Overzicht tijdelijk niet beschikbaar.</div>'; }
+            const remediation = document.getElementById('data-health-remediation');
+            if (remediation) { remediation.setAttribute('aria-busy', 'false'); remediation.innerHTML = '<div class="overview-empty">Herstelqueue tijdelijk niet beschikbaar.</div>'; }
             const sources = document.getElementById('data-health-sources');
             if (sources) { sources.setAttribute('aria-busy', 'false'); sources.innerHTML = '<div class="overview-empty">Bronnen tijdelijk niet beschikbaar.</div>'; }
             renderInlineError('data-health-issues', 'Data health kon niet worden geladen.', error?.message, loadDataHealth);
         }
 
-        function renderDataHealth(data) {
+        function renderDataHealth(data, remediationItems = []) {
             const status = data.status || 'unavailable';
             const statusEl = document.getElementById('data-health-status');
             if (statusEl) { statusEl.dataset.status = status; statusEl.setAttribute('aria-busy', 'false'); statusEl.innerHTML = `<div><h2 class="control-status-label">${escapeHtml(dataHealthLabels[status] || readableStatus(status))}</h2><p>Laatste succesvolle sync: ${escapeHtml(formatControlDate(data.last_successful_sync))} · Gecontroleerd: ${escapeHtml(formatControlDate(data.generated_at))}</p></div><span class="badge ${status === 'healthy' ? 'connected' : status === 'error' ? 'disconnected' : 'pending'}">${escapeHtml((data.issues || []).length ? `${data.issues.length} actiepunten` : 'Geen actiepunten')}</span>`; }
             const reconciliation = data.reconciliation || {};
             const stale = data.stale_data || {};
             const summary = document.getElementById('data-health-summary');
-            if (summary) { summary.setAttribute('aria-busy', 'false'); summary.innerHTML = `<div class="quality-stat"><strong>${escapeHtml((data.sources || []).length)}</strong><span>Bronnen</span></div><div class="quality-stat"><strong>${escapeHtml(data.unresolved_securities || 0)}</strong><span>Niet-gematchte securities</span></div><div class="quality-stat"><strong>${escapeHtml(stale.securities_stale || 0)}</strong><span>Verouderde koersen</span></div><div class="quality-stat"><strong>${escapeHtml(data.failed_exports || 0)}</strong><span>Mislukte exports</span></div><div class="quality-stat"><strong>${escapeHtml(reconciliation.findings_total || 0)}</strong><span>Reconciliatieverschillen</span></div>`; }
+            if (summary) { summary.setAttribute('aria-busy', 'false'); summary.innerHTML = `<div class="quality-stat"><strong>${escapeHtml((data.sources || []).length)}</strong><span>Bronnen</span></div><div class="quality-stat"><strong>${escapeHtml(data.unresolved_securities || 0)}</strong><span>Niet-gematchte securities</span></div><div class="quality-stat"><strong>${escapeHtml(stale.securities_stale || 0)}</strong><span>Verouderde koersen</span></div><div class="quality-stat"><strong>${escapeHtml(data.failed_exports || 0)}</strong><span>Mislukte exports</span></div><div class="quality-stat"><strong>${escapeHtml(reconciliation.findings_total || 0)}</strong><span>Reconciliatieverschillen</span></div><div class="quality-stat"><strong>${escapeHtml(data.remediation?.backlog_size || 0)}</strong><span>Herstelqueue</span></div>`; }
+            renderDataHealthRemediation(remediationItems, data.remediation || {});
             const sources = document.getElementById('data-health-sources');
             const sourceRows = (data.sources || []).map(source => `<tr><td><strong>${escapeHtml(source.provider)}</strong></td><td>${controlBadge(source.status)}</td><td>${escapeHtml(formatControlDate(source.last_success_at))}</td><td>${escapeHtml(source.accounts)} accounts · ${escapeHtml(source.transactions)} transacties</td></tr>`).join('');
             if (sources) { sources.setAttribute('aria-busy', 'false'); sources.innerHTML = sourceRows ? `<div class="control-table-wrap"><table class="data-table control-table"><thead><tr><th>Bron</th><th>Status</th><th>Laatste succesvolle sync</th><th>Dekking</th></tr></thead><tbody>${sourceRows}</tbody></table></div>` : '<div class="overview-empty">Nog geen bronnen geconfigureerd.</div>'; }
@@ -1347,6 +1358,22 @@
             }
         }
 
+        function renderDataHealthRemediation(items, summary) {
+            const el = document.getElementById('data-health-remediation');
+            if (!el) return;
+            el.setAttribute('aria-busy', 'false');
+            const counts = summary.by_status || {};
+            const providers = Object.entries(summary.by_provider_status || {}).map(([provider, statuses]) => `${escapeHtml(provider)} (${Object.entries(statuses).map(([key, value]) => `${escapeHtml(readableStatus(key))}: ${escapeHtml(value)}`).join(', ')})`).join(' · ');
+            const statusLine = [Object.entries(counts).map(([key, value]) => `${escapeHtml(readableStatus(key))}: ${escapeHtml(value)}`).join(' · '), providers].filter(Boolean).join(' · ');
+            const rows = items.slice(0, 10).map(item => `<tr><td><code>${escapeHtml(String(item.id).slice(0, 8))}</code></td><td>${escapeHtml(item.issue_type)}</td><td>${escapeHtml(item.remediation_strategy)}</td><td>${controlBadge(item.status)}</td><td>${['failed', 'manual_review', 'deferred', 'retry_wait'].includes(item.status) ? `<button type="button" class="btn btn-secondary btn-sm" onclick="retryRemediationItem('${escapeHtml(item.id)}')">Opnieuw proberen</button>` : ''}</td></tr>`).join('');
+            el.innerHTML = `<p class="action-result">${escapeHtml(statusLine || 'Geen backlog-items')}</p>${rows ? `<div class="control-table-wrap"><table class="data-table control-table"><thead><tr><th>ID</th><th>Issue</th><th>Strategy</th><th>Status</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>` : '<div class="overview-empty">Geen open herstelacties.</div>'}`;
+        }
+
+        async function retryRemediationItem(itemId) {
+            try { await api('POST', `/control-plane/remediation/${encodeURIComponent(itemId)}/retry`, {}); toast('Herstelactie opnieuw ingepland.', 'success'); await loadDataHealth(); }
+            catch (error) { toast(error?.message || 'De herstelactie kon niet opnieuw worden ingepland.', 'error'); }
+        }
+
         function renderDataHealthIssueTools(issue) {
             if (issue.category === 'quote_sync_failure' || issue.category === 'stale_prices') {
                 return `<div class="health-repair-list"><strong>Koersen herstellen</strong><span class="field-hint">Controleer eerst ISIN, beurs en prijsvaluta. Daarna kun je de koersprovider opnieuw uitvoeren.</span><button type="button" class="btn btn-secondary btn-sm" onclick="runHealthIssueAction(this, '${escapeHtml(issue.action?.path || '/enrichment/refresh-quotes')}')">Koersen bijwerken</button>${trading212ProviderHelp()}</div>`;
@@ -1360,7 +1387,8 @@
             if (issue.category === 'incomplete_cost_basis') {
                 const basisIds = Array.isArray(issue.affected_transaction_ids) ? issue.affected_transaction_ids : [];
                 const basisRows = basisIds.slice(0, 25).map(id => `<div class="health-repair-row"><code>${escapeHtml(String(id).slice(0, 8))}</code><label>Verkrijgingsprijs <input class="health-price-input" id="health-price-${escapeHtml(id)}" inputmode="decimal" type="number" min="0" step="0.0001" placeholder="bijv. 12,50"></label><button type="button" class="btn btn-secondary btn-sm" onclick="correctHealthTransaction('${escapeHtml(id)}', { unit_price: document.getElementById('health-price-${escapeHtml(id)}')?.value })">Opslaan</button></div>`).join('');
-                return `<div class="health-repair-list"><strong>Cost basis herstellen</strong><span class="field-hint">Leg per aankoop of transfer-in de verkrijgingsprijs vast; de correctie wordt geaudit en verschijnt na de volgende controle opnieuw als er nog gegevens ontbreken.</span>${basisRows ? `<div class="health-repair-list">${basisRows}</div>` : ''}<button type="button" class="btn btn-secondary btn-sm" onclick="openHealthData('${escapeHtml(issue.action?.path || '/api/v1/transactions?type=purchase')}')">Aankopen beoordelen</button><button type="button" class="btn btn-secondary btn-sm" onclick="runDataQualityCheck(this)">Opnieuw controleren</button></div>`;
+                const providerRepair = issue.action?.key === 'sync_connection' ? `<button type="button" class="btn btn-secondary btn-sm" onclick="runHealthIssueAction(this, '${escapeHtml(issue.action.path)}')">Trading212-historie ophalen</button>` : '';
+                return `<div class="health-repair-list"><strong>Cost basis herstellen</strong><span class="field-hint">Leg per aankoop of transfer-in de verkrijgingsprijs vast; de correctie wordt geaudit en verschijnt na de volgende controle opnieuw als er nog gegevens ontbreken.</span>${basisRows ? `<div class="health-repair-list">${basisRows}</div>` : ''}${providerRepair}<button type="button" class="btn btn-secondary btn-sm" onclick="openHealthData('/api/v1/transactions?type=purchase')">Aankopen beoordelen</button><button type="button" class="btn btn-secondary btn-sm" onclick="runDataQualityCheck(this)">Opnieuw controleren</button></div>`;
             }
             if (issue.category === 'incomplete_holding' || issue.category === 'incomplete_valuation') {
                 return `<div class="health-repair-list"><strong>Waardering herstellen</strong><span class="field-hint">Werk eerst beurs, ISIN en prijsvaluta bij. Haal daarna koersen opnieuw op; accepteer alleen bewust ontbrekende marktdata.</span><button type="button" class="btn btn-secondary btn-sm" onclick="runHealthIssueAction(this, '${escapeHtml(issue.action?.path || '/api/v1/enrichment/refresh-quotes')}')">Koersen en waardering bijwerken</button><button type="button" class="btn btn-secondary btn-sm" onclick="openHealthData('/api/v1/holdings')">Posities bekijken</button>${trading212ProviderHelp()}</div>`;
@@ -3679,7 +3707,7 @@
 
         function renderActiveSyncJobs() {
             const jobs = [...activeSyncJobs.values()];
-            const html = jobs.length ? jobs.map(job => `<div class="sync-activity-item"><span class="spinner" aria-hidden="true"></span><strong>${escapeHtml(job.provider || 'Connector')}</strong><span>${job.status === 'queued' ? 'Sync wordt gestart…' : 'Sync is bezig…'}</span><small>Automatisch vernieuwen</small></div>`).join('') : '';
+            const html = jobs.length ? jobs.map(job => `<div class="sync-activity-item"><span class="spinner" aria-hidden="true"></span><strong>${escapeHtml(job.provider || 'Connector')}</strong><span>${job.current_stage ? escapeHtml(syncStageLabel(job.current_stage)) : (job.status === 'queued' ? 'Sync wordt gestart…' : 'Sync is bezig…')}</span>${job.last_activity_at ? `<small>Laatste activiteit: ${escapeHtml(fmtDate(job.last_activity_at))}</small>` : '<small>Automatisch vernieuwen</small>'}<button type="button" class="btn btn-sm" onclick="openSyncRunDetail('${escapeHtml(job.runId || '')}')">Details</button></div>`).join('') : '';
             ['overview-sync-activity', 'sync-page-activity'].forEach(id => {
                 const el = document.getElementById(id);
                 if (el) el.innerHTML = html;
@@ -3693,7 +3721,7 @@
                 const runningConnections = new Set(running.map(run => String(run.connection_id || run.connector)));
                 running.forEach(run => {
                     const key = String(run.connection_id || run.connector);
-                    activeSyncJobs.set(key, { provider: run.connector, status: 'running', runId: run.id });
+                    activeSyncJobs.set(key, { provider: run.connector, status: 'running', runId: run.id, current_stage: run.current_stage, last_activity_at: run.last_activity_at });
                 });
                 for (const [key, job] of activeSyncJobs) {
                     if (job.status === 'running' && !runningConnections.has(key)) activeSyncJobs.delete(key);
@@ -4172,6 +4200,10 @@
             failed: 'Mislukt',
             cancelled: 'Geannuleerd',
         };
+        const SYNC_STAGE_LABELS = {
+            start_sync_run: 'Run voorbereiden', authenticate: 'Authenticatie', fetch_accounts: 'Accounts ophalen', persist_accounts: 'Accounts opslaan', fetch_holdings: 'Posities ophalen', persist_holdings: 'Posities opslaan', fetch_transactions: 'Transacties ophalen', persist_transactions: 'Transacties opslaan', persist_sync_cursor: 'Sync-cursor opslaan', complete_sync_run: 'Afronden'
+        };
+        function syncStageLabel(stage) { return SYNC_STAGE_LABELS[stage] || String(stage || 'Bezig').replaceAll('_', ' '); }
 
         async function loadSyncRuns() {
             const container = document.getElementById('sync-schedules');
@@ -4584,8 +4616,10 @@
                         <td style="padding:8px 12px;border-bottom:1px solid var(--border);font-size:0.85rem;">${statusHtml}</td>
                         <td style="padding:8px 12px;border-bottom:1px solid var(--border);font-size:0.85rem;">${r.started_at ? escapeHtml(fmtDate(r.started_at)) : '-'}</td>
                         <td style="padding:8px 12px;border-bottom:1px solid var(--border);font-size:0.85rem;">${r.completed_at ? escapeHtml(fmtDate(r.completed_at)) : '-'}</td>
+                        <td style="padding:8px 12px;border-bottom:1px solid var(--border);font-size:0.85rem;">${r.current_stage ? escapeHtml(syncStageLabel(r.current_stage)) : '-'}${r.current_account_id ? `<div class="field-hint">Account: ${escapeHtml(r.current_account_id)}</div>` : ''}${r.last_activity_at ? `<div class="field-hint">Activiteit: ${escapeHtml(fmtDate(r.last_activity_at))}</div>` : ''}</td>
                         <td style="padding:8px 12px;border-bottom:1px solid var(--border);font-size:0.85rem;">${r.items_processed ?? '-'}</td>
                         <td style="padding:8px 12px;border-bottom:1px solid var(--border);font-size:0.85rem;">${errorDetail || '-'}</td>
+                        <td style="padding:8px 12px;border-bottom:1px solid var(--border);font-size:0.85rem;"><button type="button" class="btn btn-sm" onclick="openSyncRunDetail('${escapeHtml(r.id)}')">Details</button></td>
                     </tr>
                 `;
             }
@@ -4622,8 +4656,10 @@
                                     <th style="padding:8px 12px;text-align:left;font-size:0.8rem;color:var(--text-muted);font-weight:600;border-bottom:2px solid var(--border);">Status</th>
                                     <th style="padding:8px 12px;text-align:left;font-size:0.8rem;color:var(--text-muted);font-weight:600;border-bottom:2px solid var(--border);">Gestart</th>
                                     <th style="padding:8px 12px;text-align:left;font-size:0.8rem;color:var(--text-muted);font-weight:600;border-bottom:2px solid var(--border);">Voltooid</th>
+                                    <th style="padding:8px 12px;text-align:left;font-size:0.8rem;color:var(--text-muted);font-weight:600;border-bottom:2px solid var(--border);">Fase / activiteit</th>
                                     <th style="padding:8px 12px;text-align:left;font-size:0.8rem;color:var(--text-muted);font-weight:600;border-bottom:2px solid var(--border);">Items</th>
                                     <th style="padding:8px 12px;text-align:left;font-size:0.8rem;color:var(--text-muted);font-weight:600;border-bottom:2px solid var(--border);">Fout</th>
+                                    <th style="padding:8px 12px;text-align:left;font-size:0.8rem;color:var(--text-muted);font-weight:600;border-bottom:2px solid var(--border);">Actie</th>
                                 </tr>
                             </thead>
                             <tbody>${rows}</tbody>
@@ -4632,6 +4668,43 @@
                     ${pagination}
                 </div>
             `;
+        }
+
+        async function openSyncRunDetail(runId) {
+            if (!runId) return;
+            try {
+                const run = await api('GET', `/sync-runs/${encodeURIComponent(runId)}`);
+                const isRunning = run.status === 'running';
+                const statusLabel = RUN_STATUS_LABELS[run.status] || run.status;
+                const badgeClass = run.status === 'completed' ? 'badge connected' : (run.status === 'failed' ? 'badge disconnected' : 'badge pending');
+                const duration = run.duration_seconds != null
+                    ? `${Math.round(run.duration_seconds)} s`
+                    : (isRunning && run.started_at ? `${Math.max(0, Math.round((Date.now() - new Date(run.started_at).getTime()) / 1000))} s (lopend)` : '—');
+                const warnings = (run.warnings || []).map(w => `<li>${escapeHtml(w)}</li>`).join('');
+                const modal = document.createElement('div');
+                modal.className = 'modal-overlay';
+                modal.innerHTML = `<div class="modal" style="width:680px;max-width:calc(100vw - 28px);" role="dialog" aria-modal="true" aria-labelledby="sync-run-detail-title">
+                    <div class="card-header" style="padding:0 0 12px;"><h2 id="sync-run-detail-title">Sync-detail — ${escapeHtml(run.connector || 'connector')}</h2><span class="${badgeClass}">${escapeHtml(statusLabel)}</span></div>
+                    <p class="field-hint" style="font-family:monospace;word-break:break-all;">${escapeHtml(run.id)}</p>
+                    <dl class="duplicate-review-fields" style="margin-top:16px;">
+                        <dt>Huidige fase</dt><dd>${escapeHtml(run.current_stage ? syncStageLabel(run.current_stage) : (isRunning ? 'Bezig' : 'Niet vastgelegd'))}</dd>
+                        <dt>Account</dt><dd>${escapeHtml(run.current_account_id || '—')}</dd>
+                        <dt>Gestart</dt><dd>${escapeHtml(fmtDate(run.started_at))}</dd>
+                        <dt>Laatste activiteit</dt><dd>${escapeHtml(fmtDate(run.last_activity_at))}</dd>
+                        <dt>Duur</dt><dd>${escapeHtml(duration)}</dd>
+                        <dt>Items verwerkt</dt><dd>${run.items_processed ?? '—'}</dd>
+                        <dt>Onopgeloste securities</dt><dd>${run.unresolved_securities ?? 0}</dd>
+                        <dt>Foutcategorie</dt><dd>${escapeHtml(run.error_category || '—')}</dd>
+                    </dl>
+                    ${run.error_message ? `<div class="alert alert-error" role="alert" style="white-space:pre-wrap;word-break:break-word;"><strong>Foutmelding</strong><br>${escapeHtml(run.error_message)}</div>` : ''}
+                    ${warnings ? `<div class="alert alert-warning" role="status"><strong>Waarschuwingen</strong><ul>${warnings}</ul></div>` : ''}
+                    <div class="modal-footer"><button type="button" class="btn btn-primary" onclick="closeModal()">Sluiten</button>${run.status === 'failed' ? `<button type="button" class="btn" onclick="closeModal(); retrySyncRun('${escapeHtml(run.id)}', this)">Opnieuw proberen</button>` : ''}</div>
+                </div>`;
+                document.getElementById('modal-container').appendChild(modal);
+                openModal(modal);
+            } catch (e) {
+                toast(e.message || 'Sync-detail kon niet worden geladen.', 'error');
+            }
         }
 
         // Aggregate status counts from the loaded run history. The API

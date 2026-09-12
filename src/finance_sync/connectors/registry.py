@@ -173,6 +173,7 @@ class ConnectorRegistry:
             "supported_resources": supported_resources,
             "rate_limit_policy": rate_limit,
             "has_rate_limit_policy": rate_limit is not None,
+            "remediation_strategies": cls._remediation_metadata(connector),
             "metadata_incomplete": metadata_incomplete,
             "spending_capabilities": {
                 key: value.model_dump(mode="json")
@@ -208,6 +209,40 @@ class ConnectorRegistry:
             result["metadata_incomplete"] = True
         result.update(safe)
         return result
+
+    @staticmethod
+    def _remediation_metadata(
+        connector: type[Connector],
+    ) -> list[dict[str, Any]]:
+        """Expose only validated, non-secret strategy metadata."""
+        raw = getattr(connector, "remediation_strategies", {})
+        if not isinstance(raw, dict):
+            return []
+        result: list[dict[str, Any]] = []
+        entries = cast("dict[object, object]", raw)
+        for key, value in entries.items():
+            if (
+                not isinstance(key, str)
+                or not key.strip()
+                or not isinstance(value, dict)
+            ):
+                continue
+            values = cast("dict[object, object]", value)
+            endpoint = values.get("endpoint_family", "default")
+            batch_limit = values.get("batch_limit", 1)
+            if (
+                isinstance(endpoint, str)
+                and isinstance(batch_limit, int)
+                and batch_limit > 0
+            ):
+                result.append(
+                    {
+                        "key": key.strip(),
+                        "endpoint_family": endpoint,
+                        "batch_limit": batch_limit,
+                    }
+                )
+        return sorted(result, key=lambda item: item["key"])
 
     # ── Registration ───────────────────────────────────────────────────
 

@@ -46,7 +46,7 @@ test-collect:                      ## Collect every test without executing it
 	uv run pytest --collect-only -q
 
 test-ci:                           ## CI unit test run (sequential, coverage threshold)
-	APP_ENVIRONMENT=dev DEBUG=false uv run pytest -m "not integration and not e2e" --cov=finance_sync --cov-report=term --cov-report=xml --cov-fail-under=73 --junitxml=junit.xml
+	APP_ENVIRONMENT=dev DEBUG=false uv run pytest -m "not integration and not e2e" --cov=finance_sync --cov-report=term --cov-report=xml --cov-fail-under=74 --junitxml=junit.xml
 
 ci-fast:                           ## Run the complete fast PR quality gate locally
 	make format-check lint type test-collect test-ci
@@ -64,6 +64,8 @@ integration-down:                  ## Stop ephemeral integration services
 	docker compose -f docker-compose.test.yml down
 
 test-integration:                  ## Run the integration suite (requires Docker)
+	trap 'make integration-down' EXIT; \
+	make integration-up; \
 	DEBUG=false TEST_DATABASE_URL=$(TEST_DATABASE_URL) TEST_REDIS_URL=$(TEST_REDIS_URL) \
 		uv run pytest -m integration -v
 
@@ -78,6 +80,8 @@ e2e-down:                          ## Stop ephemeral e2e services
 	docker compose -f docker-compose.test.yml down
 
 test-e2e:                          ## Run the e2e suite (requires Docker)
+	trap 'make e2e-down' EXIT; \
+	make e2e-up; \
 	DEBUG=false TEST_DATABASE_URL=$(TEST_DATABASE_URL) TEST_REDIS_URL=$(TEST_REDIS_URL) \
 		uv run pytest -m e2e -v
 

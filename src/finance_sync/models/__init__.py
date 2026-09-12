@@ -91,6 +91,7 @@ from finance_sync.models.reconciliation import (
     ReconciliationRun,
 )
 from finance_sync.models.refresh_token import RefreshToken
+from finance_sync.models.remediation import DataQualityRemediationItem
 from finance_sync.models.resolution_audit_log import ResolutionAuditLog
 from finance_sync.models.scheduled_payment import ScheduledPayment
 from finance_sync.models.security import Security
@@ -210,6 +211,7 @@ __all__ = [
     "DataMart",
     "DataMartConsumer",
     "DataMartGrant",
+    "DataQualityRemediationItem",
     "DestinationObjectReference",
     "DetectedSubscription",
     "DetectionMethod",

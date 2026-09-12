@@ -33,6 +33,32 @@ Connectors translate provider-specific data into canonical models. Services,
 repositories and API schemas must not depend on provider SDK models. Exporters
 translate canonical data into destination-specific formats or APIs.
 
+## Data-quality remediation boundary
+
+Reconciliation and other detectors only persist `DetectedIssue` values in the
+PostgreSQL `data_quality_remediation_items` backlog. Explicitly declared
+transaction-history capabilities are mapped during reconciliation finalization
+to a typed account/window contract; this still performs no provider I/O. The
+planner claims due rows with a lease; only an executor-owned strategy may
+decrypt credentials or call a provider. A successful call is not resolution
+until the strategy's tenant-scoped verification passes. Redis is used only for
+shared quota and cooldown coordination, never as the durable backlog or
+deduplication source.
+
+The persisted states are `pending`, `processing`, `deferred`, `retry_wait`,
+`resolved`, `failed`, `ignored` and `manual_review`. Missing strategy,
+unsupported provider semantics and exhausted verification attempts are
+explicitly routed to `manual_review`.
+
+Trading212, Bunq, YNAB, DEGIRO Pensioen, SaxoInvestor, CSV import, manual
+expense and Plaid-like remediation use the connector's bounded historical
+fetch and canonical transaction persistence; verification fails closed unless
+the issue declares an explicit minimum local transaction count. Plaid-like
+production uses an injectable `/transactions/get` date-range client while its
+sandbox mode retains deterministic fixtures. Historical-price and latest-quote remediation use
+the provider-neutral `EnrichmentGateway` strategies with typed local
+`SecurityPrice` verification.
+
 ## Package layout
 
 | Package | Responsibility |

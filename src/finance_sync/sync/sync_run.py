@@ -182,6 +182,10 @@ async def complete_sync_run(
     """
     run.status = status
     run.completed_at = datetime.now(UTC)
+    run.current_stage = (
+        "completed" if status == SyncRunStatus.COMPLETED else "failed"
+    )
+    run.last_activity_at = run.completed_at
     if items_processed is not None:
         run.items_processed = items_processed
     if error_message is not None:

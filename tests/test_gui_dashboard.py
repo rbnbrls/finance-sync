@@ -119,6 +119,9 @@ def test_dashboard_exposes_connector_lifecycle_delete_guards(
     assert "function renderDataHealthError" in html
     assert "window.location.hash.slice(1)" in html
     assert "function renderDataHealth" in html
+    assert 'id="data-health-remediation"' in html
+    assert "control-plane/remediation?limit=50" in html
+    assert "function retryRemediationItem" in html
     assert "Elke melding heeft één concrete vervolgstap." in html
     assert "deleteLinkedAccount(connectionId, externalAccountId)" in html
     assert "/accounts/${encodeURIComponent(externalAccountId)}" in html

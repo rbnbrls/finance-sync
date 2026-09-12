@@ -52,6 +52,7 @@ class SyncRunDetailResponse(BaseModel):
     cursor: Any
     error_message: str | None
     error_category: str | None
+    report: dict[str, object] | None = None
 
 
 class SyncRetryResponse(BaseModel):
@@ -85,6 +86,7 @@ def _detail(row: SyncRun, unresolved: int) -> SyncRunDetailResponse:
         cursor=row.cursor,
         error_category=row.error_category,
         error_message=row.error_message,
+        report=row.report,
     )
 
 

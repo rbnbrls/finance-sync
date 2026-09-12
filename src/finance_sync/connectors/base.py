@@ -90,6 +90,10 @@ class Connector(ABC):
     #: Optional capability -> availability contract.
     capabilities: ClassVar[dict[str, str]] = {}
 
+    #: Optional safe remediation declarations consumed by the backlog worker.
+    #: Values are metadata only; credentials and callables never live here.
+    remediation_strategies: ClassVar[dict[str, dict[str, object]]] = {}
+
     #: Optional rate-limit policy.  When set, the base class wraps
     #: ``fetch_accounts`` and ``fetch_transactions`` with rate-limited,
     #: auto-retrying variants.

@@ -72,6 +72,7 @@ from finance_sync.sync.sync_run import (
     complete_sync_run,
     recover_stale_sync_runs,
     start_sync_run,
+    update_sync_run_progress,
 )
 
 if TYPE_CHECKING:
@@ -691,6 +692,16 @@ class SyncOrchestrator(CardsSyncMixin):
         current_operation = "start_sync_run"
         current_account_id: str | None = None
 
+        async def heartbeat(stage: str, account_id: str | None = None) -> None:
+            """Expose the current pipeline stage without sharing its UoW."""
+            if run_id is not None:
+                await update_sync_run_progress(
+                    self._session_factory,
+                    run_id,
+                    stage=stage,
+                    account_id=account_id,
+                )
+
         selected_set: set[str] | None = (
             set(selected_accounts) if selected_accounts else None
         )
@@ -723,10 +734,12 @@ class SyncOrchestrator(CardsSyncMixin):
                     raise PermanentError(compatibility_error)
 
                 current_operation = "authenticate"
+                await heartbeat(current_operation)
                 await connector.authenticate()
                 log.debug("authenticated")
 
                 current_operation = "fetch_accounts"
+                await heartbeat(current_operation)
                 account_result = await AccountSyncStage(persistence).run(
                     uow,
                     connector,
@@ -765,6 +778,7 @@ class SyncOrchestrator(CardsSyncMixin):
                 for ca in canonical_accounts:
                     current_account_id = ca.external_account_id
                     acct_since = cursors.get(ca.external_account_id, since)
+                    await heartbeat("persist_account", current_account_id)
 
                     account_holdings = 0
                     account_holdings_unresolved: set[str] = set()
@@ -829,6 +843,9 @@ class SyncOrchestrator(CardsSyncMixin):
                         )
                         if supports_holdings:
                             current_operation = "fetch_holdings"
+                            await heartbeat(
+                                current_operation, current_account_id
+                            )
                             raw_holdings = (
                                 await connector._rate_limited_fetch_holdings(  # type: ignore[attr-defined]
                                     account_id=ca.external_account_id
@@ -838,6 +855,9 @@ class SyncOrchestrator(CardsSyncMixin):
                                 raw_holdings
                             )
                             current_operation = "persist_holdings"
+                            await heartbeat(
+                                current_operation, current_account_id
+                            )
                             holdings_result = await HoldingsSyncStage(
                                 persistence
                             ).run(
@@ -865,6 +885,7 @@ class SyncOrchestrator(CardsSyncMixin):
                                 await holdings_uow.session.flush()
 
                         current_operation = "fetch_transactions"
+                        await heartbeat(current_operation, current_account_id)
                         raw_txns = (
                             await connector._rate_limited_fetch_transactions(  # type: ignore[attr-defined]
                                 acct_since, account_id=ca.external_account_id
@@ -876,6 +897,7 @@ class SyncOrchestrator(CardsSyncMixin):
                         account_transactions = 0
                         account_unresolved: set[str] = set()
                         current_operation = "persist_transactions"
+                        await heartbeat(current_operation, current_account_id)
                         transaction_result = await TransactionSyncStage(
                             persistence
                         ).run(
@@ -890,6 +912,7 @@ class SyncOrchestrator(CardsSyncMixin):
                             transaction_result.unresolved_keys
                         )
                         current_operation = "persist_sync_cursor"
+                        await heartbeat(current_operation, current_account_id)
                         await upsert_sync_cursor(
                             holdings_uow.session,
                             tenant_id=self._tenant_id,
@@ -981,6 +1004,8 @@ class SyncOrchestrator(CardsSyncMixin):
                 log,
                 error_category=categorize_sync_error(exc),
                 connection_id=connection_id,
+                run_id=run_id,
+                connector=provider_type,
             )
             return SyncResult(
                 status=SyncRunStatus.FAILED,
@@ -1019,6 +1044,8 @@ class SyncOrchestrator(CardsSyncMixin):
                 log,
                 error_category=category,
                 connection_id=connection_id,
+                run_id=run_id,
+                connector=provider_type,
                 retry_after_at=retry_after_at,
                 rate_limit_attempts=1,
                 rate_limit_scope="connection",
@@ -1058,6 +1085,8 @@ class SyncOrchestrator(CardsSyncMixin):
                 log,
                 error_category=categorize_sync_error(exc),
                 connection_id=connection_id,
+                run_id=run_id,
+                connector=provider_type,
             )
             return SyncResult(
                 status=SyncRunStatus.FAILED,
@@ -1098,6 +1127,8 @@ class SyncOrchestrator(CardsSyncMixin):
                 log,
                 error_category=categorize_sync_error(exc),
                 connection_id=connection_id,
+                run_id=run_id,
+                connector=provider_type,
             )
             return SyncResult(
                 status=SyncRunStatus.FAILED,
@@ -1114,12 +1145,14 @@ class SyncOrchestrator(CardsSyncMixin):
 
     async def _mark_run_failed(
         self,
-        session: AsyncSession,
+        _session: AsyncSession,
         run: object | None,
         error_message: str,
         log: structlog.BoundLogger,
         *,
         connection_id: str | None = None,
+        run_id: str | None = None,
+        connector: str | None = None,
         error_category: str = "unknown",
         retry_after_at: datetime | None = None,
         rate_limit_attempts: int = 0,
@@ -1142,13 +1175,14 @@ class SyncOrchestrator(CardsSyncMixin):
         from finance_sync.models import SyncRun as _SyncRun
 
         try:
-            async with _UnitOfWork(session) as uow:
-                run_id = getattr(run, "id", None)
-                reloaded = (
-                    await uow.sync_runs.get(run_id)
-                    if run_id is not None
-                    else None
-                )
+            # The pipeline may have committed checkpoints before a later
+            # stage fails.  Its session is then in a failed/expired state;
+            # always record the terminal status through a fresh transaction.
+            async with (
+                self._session_factory() as recovery_session,
+                _UnitOfWork(recovery_session) as uow,
+            ):
+                reloaded = await uow.sync_runs.get(run_id) if run_id else None
                 if reloaded is not None:
                     await complete_sync_run(
                         uow,
@@ -1162,10 +1196,9 @@ class SyncOrchestrator(CardsSyncMixin):
                         last_http_status=last_http_status,
                     )
                 else:
-                    connector = getattr(run, "connector", None) or "unknown"
                     uow.session.add(
                         _SyncRun(
-                            connector=connector,
+                            connector=connector or "unknown",
                             connection_id=connection_id,
                             status=SyncRunStatus.FAILED,
                             completed_at=datetime.now(UTC),

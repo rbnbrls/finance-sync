@@ -210,6 +210,12 @@ class DegiroPensionConnector(Connector):
     display_name = "DEGIRO Pensioen"
     sdk_version = "0.1.0"
     supported_resources = frozenset({"accounts", "transactions", "holdings"})
+    remediation_strategies = {
+        "transaction_history_gap": {
+            "endpoint_family": "transaction_history",
+            "batch_limit": 1,
+        }
+    }
     ingestion_methods = ("file",)
     import_wizard = {
         "files": [
@@ -678,8 +684,14 @@ class DegiroPensionConnector(Connector):
                         "Reference exchange",
                     )
                 )
-                quantity = _decimal(
+                raw_quantity = _decimal(
                     row.get("Aantal", "Quantity"), required=True
+                )
+                # DEGIRO exports sells as negative quantities.  Direction is
+                # represented by the canonical transaction type; Wealthfolio
+                # expects the quantity itself to be a positive unit count.
+                quantity = (
+                    abs(raw_quantity) if raw_quantity is not None else None
                 )
                 price = _decimal(row.get("Koers", "Price"))
                 fx_rate = _decimal(row.get("Wisselkoers", "Exchange rate"))
@@ -732,7 +744,9 @@ class DegiroPensionConnector(Connector):
                 if eur_value is None:
                     message = "EUR-waarde ontbreekt"
                     raise ValueError(message)
-                event = "purchase" if quantity and quantity > 0 else "sale"
+                event = (
+                    "purchase" if raw_quantity and raw_quantity > 0 else "sale"
+                )
                 original_value = local_value or eur_value
                 amount = (
                     -abs(original_value)

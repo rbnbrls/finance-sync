@@ -19,6 +19,7 @@ from finance_sync.models import (
     Account,
     Balance,
     Credential,
+    DataQualityRemediationItem,
     EnrichmentFreshness,
     ExportTarget,
     Holding,
@@ -35,6 +36,7 @@ from finance_sync.schemas.data_health import (
     DataHealthIssue,
     DataHealthOverview,
     DataHealthReconciliation,
+    DataHealthRemediation,
     DataHealthSource,
     DataHealthStatus,
 )
@@ -72,14 +74,14 @@ class DataHealthService:
 
     def __init__(
         self,
-        session: AsyncSession,
+        session: AsyncSession | None,
         tenant_id: str,
         *,
         permissions: set[str] | None = None,
         redis_configured: bool = False,
         now: datetime | None = None,
     ) -> None:
-        self._session = session
+        self._session: AsyncSession | None = session
         self._tenant_id = tenant_id
         self._permissions = permissions
         self._redis_configured = redis_configured
@@ -164,6 +166,7 @@ class DataHealthService:
                 control.freshness.holdings_without_valuation
             ),
         }
+        remediation = await self._remediation_summary()
         return DataHealthOverview(
             status=self._status(control.status, quality.status, issues),
             last_successful_sync=max(
@@ -189,9 +192,72 @@ class DataHealthService:
                 findings_by_kind=quality.findings_by_kind,
                 latest_run_at=quality.latest_run_at,
             ),
+            remediation=remediation,
             issues=issues,
             as_of=control.as_of,
             generated_at=self._now,
+        )
+
+    async def _remediation_summary(self) -> DataHealthRemediation:
+        """Aggregate backlog state without loading individual items."""
+        if self._session is None:
+            return DataHealthRemediation()
+        rows = (
+            await self._session.execute(
+                select(
+                    DataQualityRemediationItem.status,
+                    func.count(),
+                )
+                .where(DataQualityRemediationItem.tenant_id == self._tenant_id)
+                .group_by(DataQualityRemediationItem.status)
+            )
+        ).all()
+        by_status = {str(status): int(count) for status, count in rows}
+        provider_rows = (
+            await self._session.execute(
+                select(
+                    DataQualityRemediationItem.provider_key,
+                    DataQualityRemediationItem.status,
+                    func.count(),
+                )
+                .where(DataQualityRemediationItem.tenant_id == self._tenant_id)
+                .group_by(
+                    DataQualityRemediationItem.provider_key,
+                    DataQualityRemediationItem.status,
+                )
+            )
+        ).all()
+        by_provider_status: dict[str, dict[str, int]] = {}
+        for provider, status, count in provider_rows:
+            by_provider_status.setdefault(str(provider), {})[str(status)] = int(
+                count
+            )
+        oldest = await self._session.scalar(
+            select(
+                func.min(DataQualityRemediationItem.first_detected_at)
+            ).where(
+                DataQualityRemediationItem.tenant_id == self._tenant_id,
+                DataQualityRemediationItem.status.in_(
+                    ("pending", "retry_wait")
+                ),
+            )
+        )
+        deferrals = await self._session.scalar(
+            select(
+                func.coalesce(
+                    func.sum(
+                        DataQualityRemediationItem.rate_limit_deferral_count
+                    ),
+                    0,
+                )
+            ).where(DataQualityRemediationItem.tenant_id == self._tenant_id)
+        )
+        return DataHealthRemediation(
+            backlog_size=sum(by_status.values()),
+            by_status=by_status,
+            by_provider_status=by_provider_status,
+            oldest_pending_at=oldest,
+            rate_limit_deferrals=int(deferrals or 0),
         )
 
     async def _tombstoned_export_issues(self) -> list[DataHealthIssue]:
@@ -3017,6 +3083,12 @@ class DataHealthService:
             await self._session.execute(
                 select(Holding.id, Account.name, Security.name)
                 .add_columns(func.count(Holding.id).over().label("total_count"))
+                .add_columns(
+                    Account.id,
+                    Security.id,
+                    Account.connection_id,
+                    Account.provider_key,
+                )
                 .join(Account, Account.id == Holding.account_id)
                 .join(Security, Security.id == Holding.security_id)
                 .join(
@@ -3068,6 +3140,19 @@ class DataHealthService:
                 if len(row) > 5
             }
             missing_basis_transactions: list[Any] = []
+            trading212_connections = {
+                str(row[6])
+                for row in unverified_cost_rows
+                if len(row) > 6 and row[6]
+            }
+            can_backfill_trading212 = (
+                len(trading212_connections) == 1
+                and all(
+                    str(row[7]).lower() == "trading212"
+                    for row in unverified_cost_rows
+                    if len(row) > 7
+                )
+            )
             if basis_pairs:
                 pair_filter = or_(
                     *(
@@ -3145,10 +3230,18 @@ class DataHealthService:
                     affected_transaction_ids=[
                         str(row[0]) for row in missing_basis_transactions
                     ],
-                    action=action(
-                        "view_transactions",
-                        "/api/v1/transactions?type=purchase",
-                        permissions=self._permissions,
+                    action=(
+                        action(
+                            "sync_connection",
+                            f"/api/v1/sync/connections/{next(iter(trading212_connections))}/start?full_history=true",
+                            permissions=self._permissions,
+                        )
+                        if can_backfill_trading212
+                        else action(
+                            "view_transactions",
+                            "/api/v1/transactions?type=purchase",
+                            permissions=self._permissions,
+                        )
                     ),
                 )
             )

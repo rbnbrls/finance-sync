@@ -13,12 +13,16 @@ from typing import Any, cast
 from sqlalchemy import delete, select
 
 from finance_sync.db.repository import Repository
+from finance_sync.duplicate_detection import (
+    has_distinct_transaction_ids_in_descriptions,
+)
 from finance_sync.models import (
     Account,
     ActualBudgetAccountMapping,
     Balance,
     CardTransaction,
     ConnectionAuditLog,
+    DataQualityRemediationItem,
     DetectedSubscription,
     EnrichmentFreshness,
     ExportRun,
@@ -54,6 +58,10 @@ from finance_sync.models import (
     Webhook,
     WebhookDeliveryLog,
 )
+
+
+class DataQualityRemediationRepository(Repository[DataQualityRemediationItem]):
+    model_class = DataQualityRemediationItem
 
 
 class TenantRepository(Repository[Tenant]):
@@ -364,6 +372,11 @@ class TransactionRepository(Repository[Transaction]):
                         and a.external_transaction_id
                         == b.external_transaction_id
                     ):
+                        continue
+                    # A provider can legitimately book equal amounts close
+                    # together. If each description carries its own distinct
+                    # transaction ID, these are separate provider events.
+                    if has_distinct_transaction_ids_in_descriptions(a, b):
                         continue
                     # Check time proximity
                     t_a = a.occurred_at

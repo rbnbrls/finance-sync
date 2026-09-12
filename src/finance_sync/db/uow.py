@@ -13,6 +13,7 @@ from finance_sync.db.repositories import (
     BalanceRepository,
     CardTransactionRepository,
     ConnectionAuditLogRepository,
+    DataQualityRemediationRepository,
     EnrichmentFreshnessRepository,
     FundamentalObservationRepository,
     FxRateRepository,
@@ -152,6 +153,10 @@ class UnitOfWork:
         return self._repo(
             "reconciliation_results", ReconciliationResultRepository
         )  # type: ignore[return-value]
+
+    @property
+    def remediation_items(self) -> DataQualityRemediationRepository:
+        return self._repo("remediation_items", DataQualityRemediationRepository)  # type: ignore[return-value]
 
     @property
     def webhooks(self) -> WebhookRepository:

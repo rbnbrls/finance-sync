@@ -149,7 +149,7 @@ jobs:
           restore-keys: |
             pytest-${{ runner.os }}-${{ matrix.python-version }}-
 
-      - name: Run unit tests with coverage (≥73%)
+      - name: Run unit tests with coverage (≥74%)
         run: make test-ci
 
       - name: Upload coverage report

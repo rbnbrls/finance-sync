@@ -74,6 +74,12 @@ class BunqConnector(Connector):
 
     display_name = "Bunq"
     sdk_version = "0.1.0"
+    remediation_strategies = {
+        "transaction_history_gap": {
+            "endpoint_family": "transaction_history",
+            "batch_limit": 1,
+        }
+    }
     capabilities = {
         "merchant_data": "partial",
         "mcc_category": "partial",

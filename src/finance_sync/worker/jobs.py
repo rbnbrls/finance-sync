@@ -892,10 +892,42 @@ async def enrich_prices_job(container: Container) -> dict[str, Any]:
 
 
 async def data_quality_repair_job(container: Container) -> dict[str, Any]:
-    """Continuously apply safe, deterministic Data Health repairs."""
+    """Legacy compatibility entrypoint; enqueue-only remediation tick."""
+    return await data_quality_remediation_job(container)
+
+
+async def data_quality_remediation_job(container: Container) -> dict[str, Any]:
+    """Claim bounded remediation work; provider calls belong to an executor."""
+    from finance_sync.models.remediation import DataQualityRemediationItem
     from finance_sync.models.tenant import Tenant
-    from finance_sync.services.data_quality_repair import (
-        DataQualityRepairService,
+    from finance_sync.observability.metrics import (
+        data_quality_remediation_backlog_size,
+        data_quality_remediation_manual_review_size,
+        data_quality_remediation_oldest_age_seconds,
+        data_quality_remediation_pending_by_provider,
+    )
+    from finance_sync.reconciliation.remediation.batching import create_batches
+    from finance_sync.reconciliation.remediation.executor import (
+        RemediationExecutor,
+    )
+    from finance_sync.reconciliation.remediation.planner import (
+        RemediationPlanner,
+    )
+    from finance_sync.reconciliation.remediation.price_history import (
+        HistoricalPriceStrategy,
+    )
+    from finance_sync.reconciliation.remediation.quote import (
+        LatestQuoteStrategy,
+    )
+    from finance_sync.reconciliation.remediation.rate_limit import (
+        QuotaPolicy,
+        RemediationRateLimitCoordinator,
+    )
+    from finance_sync.reconciliation.remediation.trading212 import (
+        Trading212InstrumentMetadataStrategy,
+    )
+    from finance_sync.reconciliation.remediation.transaction_history import (
+        TransactionHistoryStrategy,
     )
 
     results: dict[str, Any] = {}
@@ -903,19 +935,264 @@ async def data_quality_repair_job(container: Container) -> dict[str, Any]:
         tenants = (await session.execute(select(Tenant))).scalars().all()
         for tenant in tenants:
             try:
-                results[str(tenant.id)] = await DataQualityRepairService(
+                planner = RemediationPlanner(
+                    session,
+                    claim_limit=container.settings.remediation_claim_limit,
+                    lease_seconds=max(
+                        container.settings.remediation_lease_seconds,
+                        container.settings.remediation_max_execution_seconds
+                        + 30,
+                    ),
+                )
+                claimed = await planner.claim_due(tenant_id=str(tenant.id))
+                # Make the lease durable before any connector construction or
+                # provider I/O.  A crash after this commit leaves work
+                # recoverable through the persisted lease, rather than
+                # allowing a provider call under an uncommitted claim.
+                if claimed:
+                    await session.commit()
+                quota = RemediationRateLimitCoordinator(
+                    container.redis_client
+                    if container.settings.redis_url is not None
+                    else None
+                )
+                trading212 = Trading212InstrumentMetadataStrategy(
                     session, container.settings
-                ).run(str(tenant.id))
+                )
+                price_history = HistoricalPriceStrategy(
+                    session, container.settings
+                )
+                latest_quote = LatestQuoteStrategy(session, container.settings)
+                tenant_id = str(tenant.id)
+
+                async def _remediation_connector(
+                    item: Any, _tenant_id: str = tenant_id
+                ) -> Any:
+                    credential = await session.get(
+                        Credential, str(item.connection_id)
+                    )
+                    if (
+                        credential is None
+                        or str(credential.tenant_id) != _tenant_id
+                        or credential.provider_key != item.provider_key
+                    ):
+                        message = "remediation connection not found"
+                        raise ValueError(message)
+                    from finance_sync.services.auth import decrypt_credential
+
+                    payload = json.loads(
+                        decrypt_credential(
+                            credential.encrypted_payload,
+                            credential.nonce,
+                            container.settings,
+                        )
+                    )
+                    config = ConnectorConfig(
+                        provider_type=str(item.provider_key),
+                        credentials={
+                            str(key): str(value)
+                            for key, value in payload.items()
+                        },
+                        options=connector_options(credential),
+                        connection_id=str(credential.id),
+                    )
+                    connector = ConnectorRegistry().get_connector(config)
+                    await connector.authenticate()
+                    return connector
+
+                async def _persist_transactions(
+                    item: Any,
+                    account_id: str,
+                    canonical: list[Any],
+                    _tenant_id: str = tenant_id,
+                ) -> int:
+                    from finance_sync.sync.persistence import (
+                        PersistenceContext,
+                        SyncPersistence,
+                    )
+                    from finance_sync.sync.stages.transactions import (
+                        TransactionSyncStage,
+                    )
+
+                    persistence = SyncPersistence(
+                        object(),
+                        context=PersistenceContext(
+                            tenant_id=_tenant_id,
+                            provider_type=str(item.provider_key),
+                            connection_id=str(item.connection_id),
+                        ),
+                    )
+                    result = await TransactionSyncStage(persistence).run(
+                        UnitOfWork(session),
+                        canonical,
+                        account_id=account_id,
+                        provider_type=str(item.provider_key),
+                        connection_id=str(item.connection_id),
+                    )
+                    return result.count
+
+                transaction_history = TransactionHistoryStrategy(
+                    session,
+                    persist=_persist_transactions,
+                    connector_factory=_remediation_connector,
+                    supported_providers=frozenset(
+                        provider
+                        for provider, metadata in ConnectorRegistry()
+                        .list_connectors()
+                        .items()
+                        if any(
+                            isinstance(entry, dict)
+                            and cast("dict[str, Any]", entry).get("key")
+                            == "transaction_history_gap"
+                            for entry in cast(
+                                "list[Any]",
+                                metadata.get("remediation_strategies", []),
+                            )
+                        )
+                    ),
+                )
+                executor = RemediationExecutor(
+                    session,
+                    strategies={
+                        trading212.key: trading212,
+                        price_history.key: price_history,
+                        transaction_history.key: transaction_history,
+                        latest_quote.key: latest_quote,
+                    },
+                    quota=quota,
+                    quota_policies={
+                        trading212.key: QuotaPolicy(
+                            container.settings.remediation_quota_requests,
+                            container.settings.remediation_quota_window_seconds,
+                            trading212.endpoint_family,
+                        ),
+                        price_history.key: QuotaPolicy(
+                            container.settings.remediation_quota_requests,
+                            container.settings.remediation_quota_window_seconds,
+                            price_history.endpoint_family,
+                        ),
+                        transaction_history.key: QuotaPolicy(
+                            container.settings.remediation_quota_requests,
+                            container.settings.remediation_quota_window_seconds,
+                            transaction_history.endpoint_family,
+                        ),
+                        latest_quote.key: QuotaPolicy(
+                            container.settings.remediation_quota_requests,
+                            container.settings.remediation_quota_window_seconds,
+                            latest_quote.endpoint_family,
+                        ),
+                    },
+                    max_verification_attempts=(
+                        container.settings.remediation_max_verification_attempts
+                    ),
+                    max_execution_seconds=(
+                        container.settings.remediation_max_execution_seconds
+                    ),
+                    retry_base_seconds=(
+                        container.settings.remediation_retry_base_seconds
+                    ),
+                    retry_cap_seconds=(
+                        container.settings.remediation_retry_cap_seconds
+                    ),
+                    retry_jitter=container.settings.remediation_retry_jitter,
+                )
+                outcomes: list[str] = []
+                for batch in create_batches(claimed, batch_limit=50):
+                    outcomes.extend(await executor.execute_batch(batch))
+                results[str(tenant.id)] = {
+                    "claimed": len(claimed),
+                    "outcomes": outcomes,
+                }
             except Exception as exc:
                 logger.exception(
                     "data_quality_repair_failed",
                     tenant_id=str(tenant.id),
                     error=type(exc).__name__,
                 )
+                await session.rollback()
                 results[str(tenant.id)] = {"error": type(exc).__name__}
         await session.commit()
-    logger.info("data_quality_repair_complete", tenants=len(results))
+        from sqlalchemy import func
+
+        counts = {
+            str(status): int(count)
+            for status, count in (
+                await session.execute(
+                    select(
+                        DataQualityRemediationItem.status, func.count()
+                    ).group_by(DataQualityRemediationItem.status)
+                )
+            ).all()
+        }
+        data_quality_remediation_backlog_size.clear()
+        for status, count in counts.items():
+            data_quality_remediation_backlog_size.labels(status=status).set(
+                count
+            )
+        pending_by_provider = {
+            str(provider): int(count)
+            for provider, count in (
+                await session.execute(
+                    select(
+                        DataQualityRemediationItem.provider_key,
+                        func.count(),
+                    )
+                    .where(
+                        DataQualityRemediationItem.status.in_(
+                            ("pending", "retry_wait", "deferred")
+                        )
+                    )
+                    .group_by(DataQualityRemediationItem.provider_key)
+                )
+            ).all()
+        }
+        data_quality_remediation_pending_by_provider.clear()
+        for provider, count in pending_by_provider.items():
+            data_quality_remediation_pending_by_provider.labels(
+                provider=provider
+            ).set(count)
+        data_quality_remediation_manual_review_size.set(
+            counts.get("manual_review", 0)
+        )
+        oldest = await session.scalar(
+            select(
+                func.min(DataQualityRemediationItem.first_detected_at)
+            ).where(
+                DataQualityRemediationItem.status.in_(("pending", "retry_wait"))
+            )
+        )
+        data_quality_remediation_oldest_age_seconds.set(
+            max(0, (datetime.now(UTC) - oldest).total_seconds())
+            if oldest is not None
+            else 0
+        )
+    logger.info("data_quality_remediation_complete", tenants=len(results))
     return {"tenants": results}
+
+
+async def data_quality_remediation_cleanup_job(
+    container: Container,
+) -> dict[str, int]:
+    """Retention job for terminal backlog history only."""
+    from finance_sync.reconciliation.remediation.backlog import (
+        BacklogRepository,
+    )
+
+    async with container.session_factory() as session:
+        repository = BacklogRepository(session)
+        removed = await repository.cleanup_terminal(
+            retention_days=container.settings.remediation_retention_days
+        )
+        audit_removed = await repository.cleanup_operator_audit(
+            retention_days=container.settings.remediation_retention_days
+        )
+        await session.commit()
+    logger.info(
+        "data_quality_remediation_cleanup_complete",
+        removed=removed,
+        audit_removed=audit_removed,
+    )
+    return {"removed": removed, "audit_removed": audit_removed}
 
 
 async def nightly_reconciliation_job(container: Container) -> dict[str, Any]:

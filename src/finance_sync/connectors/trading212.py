@@ -122,6 +122,16 @@ class Trading212Connector(Connector):
     display_name = "Trading212"
     sdk_version = "0.1.0"
     supported_resources = frozenset({"accounts", "transactions", "holdings"})
+    remediation_strategies: ClassVar[dict[str, dict[str, object]]] = {
+        "trading212_instrument_metadata": {
+            "endpoint_family": "metadata",
+            "batch_limit": 50,
+        },
+        "transaction_history_gap": {
+            "endpoint_family": "transaction_history",
+            "batch_limit": 1,
+        },
+    }
     # Trading212 is a historical broker API.  New connections should import
     # more than the generic platform lookback so the Wealthfolio account is
     # complete from the first sync.  Pagination and the endpoint limiter keep

@@ -14,7 +14,7 @@ because FastAPI needs runtime type introspection for OpenAPI generation.
 """
 
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
 from fastapi import (
@@ -213,6 +213,7 @@ async def _run_connection_sync(
     cred: Credential,
     *,
     allow_paused: bool = False,
+    full_history: bool = False,
 ) -> SyncRunLink:
     """Run one connection's sync; never raises — failures become entries.
 
@@ -244,6 +245,11 @@ async def _run_connection_sync(
         result = await orchestrator.run_sync(
             provider_type=cred.provider_key,
             config=config,
+            since=(
+                datetime.now(UTC) - timedelta(days=3650)
+                if full_history and cred.provider_key == "trading212"
+                else None
+            ),
             connection_id=str(cred.id),
             selected_accounts=list(cred.selected_accounts or []),
         )
@@ -287,7 +293,10 @@ async def _run_connection_sync(
 
 
 async def _run_connection_sync_in_background(
-    container: Any, tenant_id: str, connection_id: str
+    container: Any,
+    tenant_id: str,
+    connection_id: str,
+    full_history: bool = False,
 ) -> None:
     """Run a queued sync with a fresh request-independent database session."""
     try:
@@ -299,7 +308,13 @@ async def _run_connection_sync_in_background(
                 )
             )
             if cred is not None:
-                await _run_connection_sync(container, session, tenant_id, cred)
+                await _run_connection_sync(
+                    container,
+                    session,
+                    tenant_id,
+                    cred,
+                    full_history=full_history,
+                )
                 await session.commit()
     except Exception:
         # _run_connection_sync records provider failures. This guard prevents
@@ -493,6 +508,7 @@ async def start_sync_connection(
     connection_id: str,
     request: Request,
     background_tasks: BackgroundTasks,
+    full_history: bool = False,
     auth: AuthContext = Depends(require_permission("sync", "write")),
     db: AsyncSession = Depends(get_db),
 ) -> SyncRunLink:
@@ -527,6 +543,7 @@ async def start_sync_connection(
         get_container(request),
         auth.tenant_id,
         connection_id,
+        full_history,
     )
     return SyncRunLink(
         connection_id=connection_id,

@@ -233,6 +233,12 @@ class SaxoInvestorConnector(Connector):
     display_name = "SaxoInvestor Posities (Excel)"
     sdk_version = "0.1.0"
     supported_resources = frozenset({"accounts", "transactions", "holdings"})
+    remediation_strategies = {
+        "transaction_history_gap": {
+            "endpoint_family": "transaction_history",
+            "batch_limit": 1,
+        }
+    }
     ingestion_methods = ("file",)
     import_wizard = {
         "files": [
@@ -653,6 +659,11 @@ class SaxoInvestorConnector(Connector):
             if external_id in seen_external_ids:
                 continue
             seen_external_ids.add(external_id)
+            value_date = (
+                _as_datetime(row[index["Valutadatum"]])
+                if "Valutadatum" in index and row[index["Valutadatum"]]
+                else None
+            )
             fee = (
                 _decimal(
                     row[index["Totale kosten"]],
@@ -671,9 +682,17 @@ class SaxoInvestorConnector(Connector):
                     amount=amount,
                     currency_code=booking_currency,
                     occurred_at=occurred_at,
-                    booked_at=_as_datetime(row[index["Valutadatum"]])
-                    if "Valutadatum" in index and row[index["Valutadatum"]]
-                    else None,
+                    # Saxo uses Valutadatum as the cash value date. For
+                    # dividends and securities-lending income it can be
+                    # earlier than Transactiedatum. Keep that source value
+                    # in metadata, but do not emit an impossible canonical
+                    # booking order because downstream projections require
+                    # booked_at >= occurred_at.
+                    booked_at=(
+                        max(occurred_at, value_date)
+                        if value_date is not None
+                        else None
+                    ),
                     description=description,
                     transaction_type=transaction_type,
                     status="booked",
@@ -699,6 +718,12 @@ class SaxoInvestorConnector(Connector):
                         "source_file": path.name,
                         "booking_id": _clean(booking_id),
                         "transaction_id": _clean(source_id),
+                        "saxo_value_date": (
+                            value_date.isoformat() if value_date else None
+                        ),
+                        "canonical_booking_date_adjusted": bool(
+                            value_date is not None and value_date < occurred_at
+                        ),
                         "account_id": _clean(
                             row[index["Rekening-ID"]]
                             if "Rekening-ID" in index

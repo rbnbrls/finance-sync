@@ -105,6 +105,42 @@ class TestReconciliationHelpers:
             2026, 6, 11, 12, 0, tzinfo=UTC
         )
 
+    def test_distinct_provider_ids_in_descriptions_are_not_duplicate_candidates(
+        self,
+    ) -> None:
+        from finance_sync.duplicate_detection import (
+            has_distinct_transaction_ids_in_descriptions,
+        )
+
+        a = _MockTxn(
+            external_transaction_id="txn_01a02c2b",
+            description="01a02c2b",
+        )
+        b = _MockTxn(
+            external_transaction_id="txn_01a0314f",
+            description="01a0314f",
+        )
+
+        assert has_distinct_transaction_ids_in_descriptions(a, b)
+
+    def test_different_ids_without_matching_descriptions_remain_candidates(
+        self,
+    ) -> None:
+        from finance_sync.duplicate_detection import (
+            has_distinct_transaction_ids_in_descriptions,
+        )
+
+        a = _MockTxn(
+            external_transaction_id="txn_01a02c2b",
+            description="Interest",
+        )
+        b = _MockTxn(
+            external_transaction_id="txn_01a0314f",
+            description="Interest",
+        )
+
+        assert not has_distinct_transaction_ids_in_descriptions(a, b)
+
 
 # ═══════════════════════════════════════════════════════════════════════
 # ReconciliationService unit tests (mocked UoW)
