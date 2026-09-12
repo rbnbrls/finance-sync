@@ -339,8 +339,10 @@ async def test_imports_current_saxo_transaction_export_schema(
     assert len(imported) == 1
     assert imported[0].occurred_at == datetime(2026, 8, 10, tzinfo=UTC)
     assert imported[0].booked_at == imported[0].occurred_at
-    assert imported[0].provider_metadata["saxo_value_date"].startswith(
-        "2026-08-07"
+    assert (
+        imported[0]
+        .provider_metadata["saxo_value_date"]
+        .startswith("2026-08-07")
     )
     assert imported[0].provider_metadata["canonical_booking_date_adjusted"]
     assert imported[0].currency_code == "EUR"

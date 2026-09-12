@@ -87,16 +87,24 @@ class DataHealthService:
         self._redis_configured = redis_configured
         self._now = now or datetime.now(UTC)
 
+    @property
+    def _session_required(self) -> AsyncSession:
+        """Return the database session for database-backed projections."""
+        if self._session is None:
+            message = "database session is required for this projection"
+            raise RuntimeError(message)
+        return self._session
+
     async def get_overview(self) -> DataHealthOverview:
         control = await ControlPlaneService(
-            self._session,
+            cast("AsyncSession", self._session),
             self._tenant_id,
             permissions=self._permissions,
             redis_configured=self._redis_configured,
             now=self._now,
         ).get_overview()
         quality = await DataQualityService(
-            self._session, self._tenant_id, now=self._now
+            cast("AsyncSession", self._session), self._tenant_id, now=self._now
         ).get_overview()
 
         issues = [self._issue(issue) for issue in control.issues]
@@ -203,7 +211,7 @@ class DataHealthService:
         if self._session is None:
             return DataHealthRemediation()
         rows = (
-            await self._session.execute(
+            await self._session_required.execute(
                 select(
                     DataQualityRemediationItem.status,
                     func.count(),
@@ -214,7 +222,7 @@ class DataHealthService:
         ).all()
         by_status = {str(status): int(count) for status, count in rows}
         provider_rows = (
-            await self._session.execute(
+            await self._session_required.execute(
                 select(
                     DataQualityRemediationItem.provider_key,
                     DataQualityRemediationItem.status,
@@ -232,7 +240,7 @@ class DataHealthService:
             by_provider_status.setdefault(str(provider), {})[str(status)] = int(
                 count
             )
-        oldest = await self._session.scalar(
+        oldest = await self._session_required.scalar(
             select(
                 func.min(DataQualityRemediationItem.first_detected_at)
             ).where(
@@ -242,7 +250,7 @@ class DataHealthService:
                 ),
             )
         )
-        deferrals = await self._session.scalar(
+        deferrals = await self._session_required.scalar(
             select(
                 func.coalesce(
                     func.sum(
@@ -263,7 +271,7 @@ class DataHealthService:
     async def _tombstoned_export_issues(self) -> list[DataHealthIssue]:
         """Find tombstoned transactions already inside a delivery scope."""
         rows = (
-            await self._session.execute(
+            await self._session_required.execute(
                 select(
                     Transaction.id,
                     Transaction.account_id,
@@ -347,7 +355,7 @@ class DataHealthService:
         """Find provider accounts that cannot be treated as one identity."""
         rows = list(
             (
-                await self._session.execute(
+                await self._session_required.execute(
                     select(Account).where(
                         Account.tenant_id == self._tenant_id,
                         Account.is_active.is_(True),
@@ -426,7 +434,7 @@ class DataHealthService:
         """Find active accounts detached from their configured connection."""
         accounts = list(
             (
-                await self._session.execute(
+                await self._session_required.execute(
                     select(Account).where(
                         Account.tenant_id == self._tenant_id,
                         Account.is_active.is_(True),
@@ -439,7 +447,7 @@ class DataHealthService:
             return []
         credentials = list(
             (
-                await self._session.execute(
+                await self._session_required.execute(
                     select(Credential).where(
                         Credential.tenant_id == self._tenant_id,
                     )
@@ -512,7 +520,7 @@ class DataHealthService:
         """
         credentials = list(
             (
-                await self._session.execute(
+                await self._session_required.execute(
                     select(Credential).where(
                         Credential.tenant_id == self._tenant_id,
                         Credential.status == "active",
@@ -526,7 +534,7 @@ class DataHealthService:
 
         accounts = list(
             (
-                await self._session.execute(
+                await self._session_required.execute(
                     select(Account).where(
                         Account.tenant_id == self._tenant_id,
                         Account.is_active.is_(True),
@@ -607,7 +615,7 @@ class DataHealthService:
         """
         rows = list(
             (
-                await self._session.execute(
+                await self._session_required.execute(
                     select(Account).where(
                         Account.tenant_id == self._tenant_id,
                         Account.is_active.is_(True),
@@ -720,7 +728,7 @@ class DataHealthService:
     async def _transaction_identity_issues(self) -> list[DataHealthIssue]:
         """Find provider transaction IDs reused across local connections."""
         rows = (
-            await self._session.execute(
+            await self._session_required.execute(
                 select(
                     Transaction.provider_key,
                     Transaction.external_transaction_id,
@@ -773,7 +781,7 @@ class DataHealthService:
     async def _transaction_fingerprint_issues(self) -> list[DataHealthIssue]:
         """Find provider fingerprints reused by multiple transactions."""
         rows = (
-            await self._session.execute(
+            await self._session_required.execute(
                 select(
                     Transaction.provider_key,
                     Transaction.provider_fingerprint,
@@ -833,7 +841,7 @@ class DataHealthService:
             "transaction_date"
         )
         rows = (
-            await self._session.execute(
+            await self._session_required.execute(
                 select(
                     Transaction.provider_key,
                     Transaction.account_id,
@@ -927,7 +935,7 @@ class DataHealthService:
     async def _transaction_relationship_issues(self) -> list[DataHealthIssue]:
         """Find transactions detached from their account/connector scope."""
         rows = (
-            await self._session.execute(
+            await self._session_required.execute(
                 select(
                     Transaction.id,
                     Transaction.provider_key,
@@ -999,7 +1007,7 @@ class DataHealthService:
     async def _sync_integrity_issues(self) -> list[DataHealthIssue]:
         """Detect orphaned cursors and completed runs with partial output."""
         cursor_rows = (
-            await self._session.execute(
+            await self._session_required.execute(
                 select(SyncCursor, Credential)
                 .outerjoin(
                     Credential,
@@ -1059,7 +1067,7 @@ class DataHealthService:
             )
 
         run_rows = (
-            await self._session.execute(
+            await self._session_required.execute(
                 select(SyncRun, Credential)
                 .join(
                     Credential,
@@ -1078,7 +1086,7 @@ class DataHealthService:
         ).all()
         failed_count = SyncRun.report["failed"].as_integer()
         skipped_count = SyncRun.report["skipped"].as_integer()
-        partial_total_result = await self._session.execute(
+        partial_total_result = await self._session_required.execute(
             select(func.count(SyncRun.id))
             .join(
                 Credential,
@@ -1104,7 +1112,7 @@ class DataHealthService:
         partial_total = int(partial_total_result.scalar_one() or 0)
         latest_run_cursors: dict[str, datetime] = {}
         latest_cursor_rows = (
-            await self._session.execute(
+            await self._session_required.execute(
                 select(
                     SyncRun.connection_id,
                     func.max(SyncRun.cursor),
@@ -1325,7 +1333,7 @@ class DataHealthService:
         ``split_ratio`` or ``quantity_multiplier`` (new units / old units).
         """
         transaction_rows = (
-            await self._session.execute(
+            await self._session_required.execute(
                 select(
                     Transaction.id,
                     Transaction.account_id,
@@ -1436,7 +1444,7 @@ class DataHealthService:
             .subquery()
         )
         holding_rows = (
-            await self._session.execute(
+            await self._session_required.execute(
                 select(
                     Holding.account_id,
                     Holding.security_id,
@@ -1572,7 +1580,7 @@ class DataHealthService:
             )
         )
         rows = (
-            await self._session.execute(
+            await self._session_required.execute(
                 select(
                     Security.id,
                     Security.isin,
@@ -1585,7 +1593,7 @@ class DataHealthService:
             )
         ).all()
         listing_rows = (
-            await self._session.execute(
+            await self._session_required.execute(
                 select(
                     SecurityListing.security_id,
                     SecurityListing.mic,
@@ -1793,7 +1801,7 @@ class DataHealthService:
         reachability is a separate opt-in check; a Data health GET must not
         block on an external Wealthfolio request.
         """
-        mapping_result = await self._session.execute(
+        mapping_result = await self._session_required.execute(
             select(ExportTarget).where(
                 ExportTarget.tenant_id == self._tenant_id,
                 ExportTarget.target_type == "wealthfolio",
@@ -1877,7 +1885,7 @@ class DataHealthService:
                 )
             )
 
-        mapping_result = await self._session.execute(
+        mapping_result = await self._session_required.execute(
             select(WealthfolioAccountMapping).where(
                 WealthfolioAccountMapping.tenant_id == self._tenant_id
             )
@@ -1958,7 +1966,7 @@ class DataHealthService:
                 )
             )
 
-        result = await self._session.execute(
+        result = await self._session_required.execute(
             select(ExportRun)
             .where(
                 ExportRun.tenant_id == self._tenant_id,
@@ -2048,13 +2056,13 @@ class DataHealthService:
         """Find impossible or internally contradictory tax-lot quantities."""
         rows: list[TaxLot] = list(
             (
-                await self._session.execute(
+                await self._session_required.execute(
                     select(TaxLot).where(TaxLot.tenant_id == self._tenant_id)
                 )
             ).scalars()
         )
         transaction_rows = (
-            await self._session.execute(
+            await self._session_required.execute(
                 select(
                     Transaction.id,
                     Transaction.account_id,
@@ -2088,7 +2096,7 @@ class DataHealthService:
         account_ids = {
             str(row[0])
             for row in (
-                await self._session.execute(
+                await self._session_required.execute(
                     select(Account.id).where(
                         Account.tenant_id == self._tenant_id
                     )
@@ -2098,7 +2106,7 @@ class DataHealthService:
         security_ids = {
             str(row[0])
             for row in (
-                await self._session.execute(
+                await self._session_required.execute(
                     select(Security.id).where(
                         Security.id.is_not(None),
                     )
@@ -2457,7 +2465,7 @@ class DataHealthService:
         """Compare account cash with the latest provider balance snapshot."""
         account_rows = list(
             (
-                await self._session.execute(
+                await self._session_required.execute(
                     select(Account).where(
                         Account.tenant_id == self._tenant_id,
                         Account.is_active.is_(True),
@@ -2468,7 +2476,7 @@ class DataHealthService:
         )
         balance_rows = list(
             (
-                await self._session.execute(
+                await self._session_required.execute(
                     select(Balance)
                     .where(
                         Balance.tenant_id == self._tenant_id,
@@ -2493,7 +2501,7 @@ class DataHealthService:
                 latest[key] = balance
 
         transaction_rows = (
-            await self._session.execute(
+            await self._session_required.execute(
                 select(
                     Transaction.account_id,
                     Transaction.amount,
@@ -2808,7 +2816,7 @@ class DataHealthService:
         issues: list[DataHealthIssue] = []
 
         quote_rows = (
-            await self._session.execute(
+            await self._session_required.execute(
                 select(Security.name, EnrichmentFreshness.error_message)
                 .join(
                     EnrichmentFreshness,
@@ -2857,7 +2865,7 @@ class DataHealthService:
             )
 
         negative_rows = (
-            await self._session.execute(
+            await self._session_required.execute(
                 select(
                     Account.name,
                     func.date(Holding.observed_at),
@@ -2874,7 +2882,7 @@ class DataHealthService:
             )
         ).all()
         cash_rows = (
-            await self._session.execute(
+            await self._session_required.execute(
                 select(
                     Transaction.id,
                     Transaction.account_id,
@@ -2946,7 +2954,7 @@ class DataHealthService:
             )
 
         valuation_rows = (
-            await self._session.execute(
+            await self._session_required.execute(
                 select(Holding.id, Account.name, Security.name)
                 .add_columns(
                     func.count(Holding.id).over().label("total_count"),
@@ -3015,7 +3023,7 @@ class DataHealthService:
             .subquery()
         )
         cost_rows = (
-            await self._session.execute(
+            await self._session_required.execute(
                 select(Holding.id, Account.name, Security.name)
                 .add_columns(func.count(Holding.id).over().label("total_count"))
                 .join(Account, Account.id == Holding.account_id)
@@ -3080,7 +3088,7 @@ class DataHealthService:
                 )
             )
         unverified_cost_rows = (
-            await self._session.execute(
+            await self._session_required.execute(
                 select(Holding.id, Account.name, Security.name)
                 .add_columns(func.count(Holding.id).over().label("total_count"))
                 .add_columns(
@@ -3145,13 +3153,10 @@ class DataHealthService:
                 for row in unverified_cost_rows
                 if len(row) > 6 and row[6]
             }
-            can_backfill_trading212 = (
-                len(trading212_connections) == 1
-                and all(
-                    str(row[7]).lower() == "trading212"
-                    for row in unverified_cost_rows
-                    if len(row) > 7
-                )
+            can_backfill_trading212 = len(trading212_connections) == 1 and all(
+                str(row[7]).lower() == "trading212"
+                for row in unverified_cost_rows
+                if len(row) > 7
             )
             if basis_pairs:
                 pair_filter = or_(
@@ -3167,7 +3172,7 @@ class DataHealthService:
                     "list[tuple[object, ...]]",
                     list(
                         (
-                            await self._session.execute(
+                            await self._session_required.execute(
                                 select(
                                     Transaction.id,
                                     Transaction.account_id,
@@ -3258,7 +3263,7 @@ class DataHealthService:
         # the Data health page.
         export_rows = (
             (
-                await self._session.execute(
+                await self._session_required.execute(
                     select(ExportRun)
                     .where(ExportRun.tenant_id == self._tenant_id)
                     .order_by(ExportRun.started_at.desc())
@@ -3338,7 +3343,7 @@ class DataHealthService:
             )
 
         account_rows = (
-            await self._session.execute(
+            await self._session_required.execute(
                 select(
                     Account.provider_key,
                     Account.external_account_id,
@@ -3423,12 +3428,12 @@ class DataHealthService:
             ImportRun.tenant_id == self._tenant_id,
             ImportRun.status.in_(import_statuses),
         )
-        import_total_result = await self._session.execute(
+        import_total_result = await self._session_required.execute(
             select(func.count(ImportRun.id)).where(import_scope)
         )
         import_total = int(import_total_result.scalar_one() or 0)
         import_runs = (
-            await self._session.execute(
+            await self._session_required.execute(
                 select(ImportRun)
                 .where(import_scope)
                 .order_by(ImportRun.created_at.desc())
@@ -3469,7 +3474,7 @@ class DataHealthService:
         trade_types = ("purchase", "sale")
 
         incomplete_trades = (
-            await self._session.execute(
+            await self._session_required.execute(
                 select(
                     Transaction.id,
                     Account.name,
@@ -3564,7 +3569,7 @@ class DataHealthService:
             ),
         )
         zero_cost_trades = (
-            await self._session.execute(
+            await self._session_required.execute(
                 select(
                     Transaction.id,
                     Account.name,
@@ -4010,7 +4015,7 @@ class DataHealthService:
             )
 
         negative_accounts = (
-            await self._session.execute(
+            await self._session_required.execute(
                 select(Account.id, Account.name, Account.current_balance)
                 .where(
                     Account.tenant_id == self._tenant_id,
@@ -4050,7 +4055,7 @@ class DataHealthService:
             )
 
         transfer_rows = (
-            await self._session.execute(
+            await self._session_required.execute(
                 select(
                     Transaction.account_id,
                     Account.name,
@@ -4136,7 +4141,7 @@ class DataHealthService:
             )
 
         incomplete_holdings = (
-            await self._session.execute(
+            await self._session_required.execute(
                 select(Holding.id, Account.name, Security.name)
                 .add_columns(func.count(Holding.id).over().label("total_count"))
                 .join(Account, Account.id == Holding.account_id)
@@ -4188,7 +4193,7 @@ class DataHealthService:
             )
 
         incomplete_securities = (
-            await self._session.execute(
+            await self._session_required.execute(
                 select(Security.id, Security.name)
                 .add_columns(
                     func.count(Security.id).over().label("total_count")
@@ -4267,7 +4272,7 @@ class DataHealthService:
     ) -> list[DataHealthIssue]:
         """Create recovery actions for revised provider transactions."""
         rows = (
-            await self._session.execute(
+            await self._session_required.execute(
                 select(Transaction.provider_key, func.count(Transaction.id))
                 .where(
                     Transaction.tenant_id == self._tenant_id,
