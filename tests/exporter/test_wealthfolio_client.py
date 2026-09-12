@@ -15,6 +15,7 @@ from finance_sync.exporter.wealthfolio.client import (
     WealthfolioAuthError,
     WealthfolioClient,
     WealthfolioClientConfig,
+    WealthfolioHealthError,
     resolve_wealthfolio_server_url,
 )
 
@@ -162,6 +163,41 @@ class TestWealthfolioClientAuth:
         assert status["requiresPassword"] is True
         assert status["oidcEnabled"] is False
         mock_get.assert_called_once_with("/api/v1/auth/status")
+
+
+class TestWealthfolioHealth:
+    async def test_health_status_returns_json_without_logging_payload(
+        self, client: WealthfolioClient
+    ) -> None:
+        client._is_authenticated = True
+        response = MagicMock()
+        response.status_code = 200
+        response.is_error = False
+        response.json.return_value = {
+            "issues": [{"code": "MISSING_PRICE", "affectedItems": ["a1"]}]
+        }
+        with patch.object(client._client, "get", return_value=response) as get:
+            assert (await client.get_health_status())["issues"]
+        get.assert_called_once_with("/api/v1/health/status")
+
+    async def test_health_status_normalizes_malformed_body(
+        self, client: WealthfolioClient
+    ) -> None:
+        client._is_authenticated = True
+        response = MagicMock(status_code=200, is_error=False)
+        response.json.side_effect = ValueError("not json")
+        with patch.object(client._client, "get", return_value=response):
+            with pytest.raises(WealthfolioHealthError, match="malformed"):
+                await client.get_health_status()
+
+    async def test_health_status_maps_auth_failure(
+        self, client: WealthfolioClient
+    ) -> None:
+        client._is_authenticated = True
+        response = MagicMock(status_code=401, is_error=True)
+        with patch.object(client._client, "get", return_value=response):
+            with pytest.raises(WealthfolioAuthError):
+                await client.get_health_status()
 
 
 # ═══════════════════════════════════════════════════════════════════════
