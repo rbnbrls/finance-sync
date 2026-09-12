@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from decimal import Decimal
-from typing import Any
+from typing import Any, cast
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
@@ -96,7 +96,11 @@ async def correct_data_quality_transaction(
     if body.split_ratio is not None:
         metadata = dict(transaction.provider_metadata_contract or {})
         fields = metadata.get("fields")
-        canonical_fields = dict(fields) if isinstance(fields, dict) else {}
+        canonical_fields: dict[str, Any] = (
+            dict(cast(dict[str, Any], fields))
+            if isinstance(fields, dict)
+            else {}
+        )
         canonical_fields["split_ratio"] = str(body.split_ratio)
         metadata["schema_version"] = str(metadata.get("schema_version") or "1")
         metadata["fields"] = canonical_fields

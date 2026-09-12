@@ -293,6 +293,9 @@ class RemediationService:
             )
         ).all()
         securities: dict[str, tuple[Any, str, str, str]] = {}
+        provider = "unknown"
+        connection_id = self.tenant_id
+        external_account_id: str | None = None
         for (
             security,
             provider,

@@ -6,7 +6,7 @@ import hashlib
 import json
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 from sqlalchemy import func, select
 
@@ -33,13 +33,14 @@ def repair_capability_is_supported(
 ) -> bool:
     """Evaluate the sanitized A3 target/version compatibility contract."""
     if not isinstance(health_payload, dict) or not isinstance(
-        health_payload.get("issues"), list
+        cast("dict[str, Any]", health_payload).get("issues"), list
     ):
         return False
     if not isinstance(capability_response, dict):
         return False
-    version = capability_response.get("version")
-    capabilities = capability_response.get("capabilities")
+    response = cast("dict[str, Any]", capability_response)
+    version = response.get("version")
+    capabilities = response.get("capabilities")
     if not isinstance(version, str) or not version.strip():
         return False
     if not isinstance(capabilities, dict):
@@ -72,6 +73,7 @@ def prepare_health_poll(
             cursor_state={"reason": "malformed_issues"},
         )
 
+    issues = cast("list[Any]", issues)
     metadata: dict[str, Any] = {
         "issue_limit": max(1, issue_limit),
         "returned_issues": min(len(issues), max(1, issue_limit)),
@@ -80,6 +82,7 @@ def prepare_health_poll(
     has_more = payload.get("hasMore", payload.get("has_more"))
     pagination = payload.get("pagination")
     if isinstance(pagination, dict):
+        pagination = cast("dict[str, Any]", pagination)
         next_cursor = pagination.get(
             "nextCursor", pagination.get("next_cursor", next_cursor)
         )
@@ -289,10 +292,12 @@ def normalize_health_issues(
                 scope=target_id,
             )
         ]
+    raw_issues = cast("list[Any]", raw_issues)
     findings: list[DetectedIssue] = []
     for raw in raw_issues[:MAX_AFFECTED_ITEMS]:
         if not isinstance(raw, dict):
             continue
+        raw = cast("dict[str, Any]", raw)
         kind = _issue_kind(raw)
         severity = _text(raw.get("severity"), limit=16).lower()
         if severity not in {"info", "warning", "error"}:
@@ -302,6 +307,7 @@ def normalize_health_issues(
             affected = [
                 raw.get("assetId") or raw.get("securityId") or "summary"
             ]
+        affected = cast("list[Any]", affected)
         for item in affected[:MAX_AFFECTED_ITEMS]:
             if isinstance(item, dict):
                 entity_id = (

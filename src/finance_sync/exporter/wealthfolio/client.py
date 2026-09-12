@@ -206,7 +206,11 @@ class WealthfolioClient:
         """
         response = await self._client.get(f"{self.API_PREFIX}/auth/status")
         response.raise_for_status()
-        return response.json()
+        payload = response.json()
+        if not isinstance(payload, dict):
+            msg = "authentication status response was malformed"
+            raise TypeError(msg)
+        return cast(dict[str, Any], payload)
 
     async def get_health_status(self) -> dict[str, Any]:
         """Read the bounded, authenticated Wealthfolio health contract.
