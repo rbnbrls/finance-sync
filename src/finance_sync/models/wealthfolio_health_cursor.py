@@ -6,8 +6,8 @@ from datetime import datetime
 from typing import ClassVar
 
 from sqlalchemy import (
-    Boolean,
     JSON,
+    Boolean,
     DateTime,
     ForeignKey,
     Index,

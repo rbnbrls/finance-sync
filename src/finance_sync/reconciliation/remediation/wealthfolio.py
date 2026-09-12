@@ -13,7 +13,9 @@ from finance_sync.reconciliation.remediation.price_history import (
     normalize_window,
 )
 from finance_sync.reconciliation.remediation.quote import LatestQuoteStrategy
-from finance_sync.reconciliation.remediation.verification import VerificationResult
+from finance_sync.reconciliation.remediation.verification import (
+    VerificationResult,
+)
 
 
 class WealthfolioQuoteStrategy:
@@ -27,11 +29,14 @@ class WealthfolioQuoteStrategy:
 
     def supports(self, item: Any) -> bool:
         context = _context(item)
-        return bool(context.get("security_id") and context.get("remote_entity_id"))
+        return bool(
+            context.get("security_id") and context.get("remote_entity_id")
+        )
 
     async def execute(self, item: Any, connector: Any = None) -> None:
         if connector is None:
-            raise ValueError("Wealthfolio quote repair requires a target client")
+            msg = "Wealthfolio quote repair requires a target client"
+            raise ValueError(msg)
         await self.canonical.execute(item)
         context = _context(item)
         row = (
@@ -47,7 +52,8 @@ class WealthfolioQuoteStrategy:
             )
         ).scalar_one_or_none()
         if row is None:
-            raise ValueError("canonical quote was not available")
+            msg = "canonical quote was not available"
+            raise ValueError(msg)
         await connector.upsert_quote(
             str(context["remote_entity_id"]),
             {
@@ -58,12 +64,20 @@ class WealthfolioQuoteStrategy:
             },
         )
 
-    async def verify(self, item: Any, connector: Any = None) -> VerificationResult:
+    async def verify(
+        self, item: Any, connector: Any = None
+    ) -> VerificationResult:
         if connector is None:
-            return VerificationResult(False, "Wealthfolio target client unavailable")
+            return VerificationResult(
+                False, "Wealthfolio target client unavailable"
+            )
         context = _context(item)
-        for row in await connector.get_quote_history(str(context["remote_entity_id"])):
-            if (row.get("source") or row.get("dataSource")) == connector.QUOTE_DATA_SOURCE:
+        for row in await connector.get_quote_history(
+            str(context["remote_entity_id"])
+        ):
+            if (
+                row.get("source") or row.get("dataSource")
+            ) == connector.QUOTE_DATA_SOURCE:
                 return VerificationResult(True, "Wealthfolio quote is present")
         return VerificationResult(False, "Wealthfolio quote was not verified")
 
@@ -93,19 +107,22 @@ class WealthfolioHistoricalPriceStrategy(WealthfolioQuoteStrategy):
 
     async def execute(self, item: Any, connector: Any = None) -> None:
         if connector is None:
-            raise ValueError("Wealthfolio price repair requires a target client")
+            msg = "Wealthfolio price repair requires a target client"
+            raise ValueError(msg)
         context = _context(item)
         start, end = normalize_window(
             context.get("start_date"), context.get("end_date")
         )
         if start is None or end is None or start >= end:
-            raise ValueError("price gap has no valid half-open window")
+            msg = "price gap has no valid half-open window"
+            raise ValueError(msg)
         await self.canonical.execute(item)
         rows = (
             await self.session.execute(
                 select(SecurityPrice).where(
                     SecurityPrice.security_id == str(context["security_id"]),
-                    SecurityPrice.interval == str(context.get("interval", "1d")),
+                    SecurityPrice.interval
+                    == str(context.get("interval", "1d")),
                     SecurityPrice.timestamp >= start,
                     SecurityPrice.timestamp < end,
                     SecurityPrice.price_close.is_not(None),
@@ -123,21 +140,29 @@ class WealthfolioHistoricalPriceStrategy(WealthfolioQuoteStrategy):
                 },
             )
 
-    async def verify(self, item: Any, connector: Any = None) -> VerificationResult:
+    async def verify(
+        self, item: Any, connector: Any = None
+    ) -> VerificationResult:
         """Verify owned remote observations in the same half-open window."""
         if connector is None:
-            return VerificationResult(False, "Wealthfolio target client unavailable")
+            return VerificationResult(
+                False, "Wealthfolio target client unavailable"
+            )
         context = _context(item)
         start, end = normalize_window(
             context.get("start_date"), context.get("end_date")
         )
         if start is None or end is None or start >= end:
-            return VerificationResult(False, "price gap has no valid half-open window")
+            return VerificationResult(
+                False, "price gap has no valid half-open window"
+            )
         count = 0
         for row in await connector.get_quote_history(
             str(context["remote_entity_id"])
         ):
-            if (row.get("source") or row.get("dataSource")) != connector.QUOTE_DATA_SOURCE:
+            if (
+                row.get("source") or row.get("dataSource")
+            ) != connector.QUOTE_DATA_SOURCE:
                 continue
             try:
                 timestamp = datetime.fromisoformat(str(row.get("timestamp")))
@@ -153,10 +178,13 @@ class WealthfolioHistoricalPriceStrategy(WealthfolioQuoteStrategy):
         expected = max(1, int(context.get("minimum_observations", 1)))
         return VerificationResult(
             count >= expected,
-            f"found {count} Wealthfolio price observations; expected {expected}",
+            f"found {count} Wealthfolio price observations; "
+            f"expected {expected}",
         )
 
 
 def _context(item: Any) -> dict[str, Any]:
     value = getattr(item, "context", {})
-    return dict(cast("dict[str, Any]", value)) if isinstance(value, dict) else {}
+    return (
+        dict(cast("dict[str, Any]", value)) if isinstance(value, dict) else {}
+    )

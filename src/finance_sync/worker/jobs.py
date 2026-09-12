@@ -63,21 +63,20 @@ logger = structlog.get_logger("finance_sync.worker.jobs")
 async def wealthfolio_health_sync_job(
     container: Container, tenant_id: str | None = None
 ) -> dict[str, Any]:
-    """Poll active Wealthfolio targets without allowing one target to block others."""
+    """Poll targets without allowing one target to block others."""
     if not container.settings.wealthfolio_health_bridge_enabled:
         return {"enabled": False, "polled": 0, "imported": 0}
     from finance_sync.exporter.wealthfolio.client import (
         WealthfolioClient,
         WealthfolioClientConfig,
     )
-    from finance_sync.services.auth import decrypt_credential
-
     from finance_sync.observability.metrics import (
         wealthfolio_health_imported_issues_total,
-        wealthfolio_health_poll_duration_seconds,
         wealthfolio_health_incomplete_snapshots_total,
+        wealthfolio_health_poll_duration_seconds,
         wealthfolio_health_polls_total,
     )
+    from finance_sync.services.auth import decrypt_credential
 
     started = time.perf_counter()
     polled = 0
@@ -91,19 +90,28 @@ async def wealthfolio_health_sync_job(
                     .where(
                         ExportTarget.target_type == "wealthfolio",
                         ExportTarget.status == TARGET_ACTIVE,
-                        *([ExportTarget.tenant_id == tenant_id] if tenant_id else []),
+                        *(
+                            [ExportTarget.tenant_id == tenant_id]
+                            if tenant_id
+                            else []
+                        ),
                     )
                     .order_by(ExportTarget.tenant_id, ExportTarget.id)
-                    .limit(container.settings.wealthfolio_health_bridge_target_limit)
+                    .limit(
+                        container.settings.wealthfolio_health_bridge_target_limit
+                    )
                 )
             ).scalars()
         )
         for target in targets:
-            bridge = WealthfolioHealthBridge(session, str(target.tenant_id), target)
+            bridge = WealthfolioHealthBridge(
+                session, str(target.tenant_id), target
+            )
             client: WealthfolioClient | None = None
             try:
                 if not target.encrypted_secret or not target.secret_nonce:
-                    raise ValueError("Wealthfolio target secret is unavailable")
+                    msg = "Wealthfolio target secret is unavailable"
+                    raise ValueError(msg)
                 payload = json.loads(
                     decrypt_credential(
                         target.encrypted_secret,
@@ -129,7 +137,9 @@ async def wealthfolio_health_sync_job(
                 )
                 if not poll.complete:
                     wealthfolio_health_incomplete_snapshots_total.labels(
-                        reason=str(poll.cursor_state.get("reason", "incomplete"))
+                        reason=str(
+                            poll.cursor_state.get("reason", "incomplete")
+                        )
                     ).inc()
                 items = await bridge.enqueue_success(
                     poll.payload,
@@ -149,18 +159,38 @@ async def wealthfolio_health_sync_job(
                 wealthfolio_health_imported_issues_total.inc(len(items))
                 wealthfolio_health_polls_total.labels(outcome="success").inc()
                 polled += 1
-                logger.info("wealthfolio_health_poll_completed", tenant_id=str(target.tenant_id), target_id=str(target.id), imported=len(items))
+                logger.info(
+                    "wealthfolio_health_poll_completed",
+                    tenant_id=str(target.tenant_id),
+                    target_id=str(target.id),
+                    imported=len(items),
+                )
             except Exception as exc:
                 failures += 1
                 wealthfolio_health_polls_total.labels(outcome="failure").inc()
-                await bridge.record_failure(category=type(exc).__name__, message="Wealthfolio health poll failed")
-                logger.warning("wealthfolio_health_poll_failed", tenant_id=str(target.tenant_id), target_id=str(target.id), error=type(exc).__name__)
+                await bridge.record_failure(
+                    category=type(exc).__name__,
+                    message="Wealthfolio health poll failed",
+                )
+                logger.warning(
+                    "wealthfolio_health_poll_failed",
+                    tenant_id=str(target.tenant_id),
+                    target_id=str(target.id),
+                    error=type(exc).__name__,
+                )
             finally:
                 if client is not None:
                     await client.close()
         await session.commit()
-    wealthfolio_health_poll_duration_seconds.observe(time.perf_counter() - started)
-    return {"enabled": True, "polled": polled, "imported": imported, "failures": failures}
+    wealthfolio_health_poll_duration_seconds.observe(
+        time.perf_counter() - started
+    )
+    return {
+        "enabled": True,
+        "polled": polled,
+        "imported": imported,
+        "failures": failures,
+    }
 
 
 # ── Retry helper ──────────────────────────────────────────────────────
@@ -1107,12 +1137,15 @@ async def data_quality_remediation_job(container: Container) -> dict[str, Any]:
                             or not target.encrypted_secret
                             or not target.secret_nonce
                         ):
-                            raise ValueError("Wealthfolio target not found")
+                            msg = "Wealthfolio target not found"
+                            raise ValueError(msg)
                         from finance_sync.exporter.wealthfolio.client import (
                             WealthfolioClient,
                             WealthfolioClientConfig,
                         )
-                        from finance_sync.services.auth import decrypt_credential
+                        from finance_sync.services.auth import (
+                            decrypt_credential,
+                        )
 
                         payload = json.loads(
                             decrypt_credential(

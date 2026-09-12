@@ -33,13 +33,17 @@ async def test_asset_only_finding_hydrates_canonical_identifier() -> None:
     security = SimpleNamespace(
         id="canonical-a", isin="IE00TEST", ticker="TEST", figi=None, cusip=None
     )
-    session = SimpleNamespace(execute=AsyncMock(return_value=_Result([security])))
+    session = SimpleNamespace(
+        execute=AsyncMock(return_value=_Result([security]))
+    )
     finding = normalize_health_issues(
         {
             "issues": [
                 {
                     "code": "MISSING_QUOTE",
-                    "affectedItems": [{"assetId": "wf-asset-a", "securityId": "canonical-a"}],
+                    "affectedItems": [
+                        {"assetId": "wf-asset-a", "securityId": "canonical-a"}
+                    ],
                 }
             ]
         },
@@ -65,7 +69,9 @@ async def test_unresolved_or_ambiguous_identity_is_manual_only() -> None:
             "issues": [
                 {
                     "code": "MISSING_QUOTE",
-                    "affectedItems": [{"assetId": "wf-unknown", "ticker": "DUP"}],
+                    "affectedItems": [
+                        {"assetId": "wf-unknown", "ticker": "DUP"}
+                    ],
                 }
             ]
         },
@@ -105,7 +111,9 @@ def test_identifier_types_are_preserved_including_provider_symbol() -> None:
     ]
 
 
-def test_a3_capability_gate_fails_closed_for_missing_or_unsupported_target() -> None:
+def test_a3_capability_gate_fails_closed_for_missing_or_unsupported_target() -> (
+    None
+):
     health = {"issues": []}
     assert not repair_capability_is_supported(health, None)
     assert not repair_capability_is_supported(
@@ -187,8 +195,14 @@ async def test_remote_historical_verification_excludes_end_boundary() -> None:
         QUOTE_DATA_SOURCE="CUSTOM_SCRAPER:finance-sync",
         get_quote_history=AsyncMock(
             return_value=[
-                {"timestamp": "2026-02-01T00:00:00+00:00", "dataSource": "CUSTOM_SCRAPER:finance-sync"},
-                {"timestamp": "2026-01-31T23:59:00+00:00", "dataSource": "CUSTOM_SCRAPER:finance-sync"},
+                {
+                    "timestamp": "2026-02-01T00:00:00+00:00",
+                    "dataSource": "CUSTOM_SCRAPER:finance-sync",
+                },
+                {
+                    "timestamp": "2026-01-31T23:59:00+00:00",
+                    "dataSource": "CUSTOM_SCRAPER:finance-sync",
+                },
             ]
         ),
     )

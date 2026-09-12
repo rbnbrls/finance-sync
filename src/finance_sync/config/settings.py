@@ -947,7 +947,9 @@ class Settings(BaseSettings):
     wealthfolio_health_bridge_enabled: bool = Field(
         default=False,
         validation_alias="WEALTHFOLIO_HEALTH_BRIDGE_ENABLED",
-        description="Poll active Wealthfolio targets for bounded health issues.",
+        description=(
+            "Poll active Wealthfolio targets for bounded health issues."
+        ),
     )
     wealthfolio_health_bridge_interval_minutes: int = Field(
         default=15,

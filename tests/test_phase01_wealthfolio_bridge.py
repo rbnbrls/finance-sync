@@ -24,7 +24,9 @@ from finance_sync.services.wealthfolio_health_bridge import (
     normalize_health_issues,
 )
 
-HEALTH_FIXTURE = Path(__file__).parent / "fixtures" / "wealthfolio_health_status.json"
+HEALTH_FIXTURE = (
+    Path(__file__).parent / "fixtures" / "wealthfolio_health_status.json"
+)
 
 
 def _response(status_code: int, payload: object = None) -> MagicMock:
@@ -55,10 +57,16 @@ async def test_health_poll_retries_transient_http_failures(
             client._client,
             "get",
             new=AsyncMock(
-                side_effect=[_response(transient_status), _response(200, success_payload)]
+                side_effect=[
+                    _response(transient_status),
+                    _response(200, success_payload),
+                ]
             ),
         ) as get,
-        patch("finance_sync.exporter.wealthfolio.client.asyncio.sleep", new=AsyncMock()) as sleep,
+        patch(
+            "finance_sync.exporter.wealthfolio.client.asyncio.sleep",
+            new=AsyncMock(),
+        ) as sleep,
     ):
         assert await client.get_health_status() == success_payload
 
@@ -85,7 +93,10 @@ async def test_health_poll_retries_timeout_then_returns_payload() -> None:
     )
     with (
         patch.object(client._client, "get", new=get),
-        patch("finance_sync.exporter.wealthfolio.client.asyncio.sleep", new=AsyncMock()),
+        patch(
+            "finance_sync.exporter.wealthfolio.client.asyncio.sleep",
+            new=AsyncMock(),
+        ),
     ):
         assert await client.get_health_status() == {"issues": []}
     assert get.await_count == 2
@@ -102,7 +113,9 @@ async def test_health_poll_retries_transient_request_error() -> None:
         )
     )
     client._is_authenticated = True
-    request = httpx.Request("GET", "http://wealthfolio.test/api/v1/health/status")
+    request = httpx.Request(
+        "GET", "http://wealthfolio.test/api/v1/health/status"
+    )
     with (
         patch.object(
             client._client,
@@ -114,7 +127,10 @@ async def test_health_poll_retries_transient_request_error() -> None:
                 ]
             ),
         ) as get,
-        patch("finance_sync.exporter.wealthfolio.client.asyncio.sleep", new=AsyncMock()) as sleep,
+        patch(
+            "finance_sync.exporter.wealthfolio.client.asyncio.sleep",
+            new=AsyncMock(),
+        ) as sleep,
     ):
         assert await client.get_health_status() == {"issues": []}
     assert get.await_count == 2
@@ -136,9 +152,16 @@ async def test_health_poll_exhaustion_is_bounded_and_redacted() -> None:
         patch.object(
             client._client,
             "get",
-            new=AsyncMock(return_value=_response(429, {"password": client._config.password})),
+            new=AsyncMock(
+                return_value=_response(
+                    429, {"password": client._config.password}
+                )
+            ),
         ) as get,
-        patch("finance_sync.exporter.wealthfolio.client.asyncio.sleep", new=AsyncMock()),
+        patch(
+            "finance_sync.exporter.wealthfolio.client.asyncio.sleep",
+            new=AsyncMock(),
+        ),
         pytest.raises(WealthfolioHealthError, match="rate_limit") as exc_info,
     ):
         await client.get_health_status()
@@ -189,7 +212,9 @@ def test_bridge_is_disabled_by_default() -> None:
 
 
 @pytest.mark.asyncio
-async def test_data_health_enabled_flag_is_separate_from_active_target() -> None:
+async def test_data_health_enabled_flag_is_separate_from_active_target() -> (
+    None
+):
     """An active target does not imply that the bridge feature is enabled."""
     cursor = SimpleNamespace(
         complete=False,
@@ -224,7 +249,9 @@ async def test_data_health_enabled_flag_is_separate_from_active_target() -> None
     assert bridge.degraded is True
 
 
-async def test_quote_repair_verification_requires_finance_sync_owned_quote() -> None:
+async def test_quote_repair_verification_requires_finance_sync_owned_quote() -> (
+    None
+):
     """Remote verification rejects a quote from an unrelated data source."""
     strategy = WealthfolioQuoteStrategy(MagicMock(), MagicMock())
     item = SimpleNamespace(context={"remote_entity_id": "wf-asset-a"})

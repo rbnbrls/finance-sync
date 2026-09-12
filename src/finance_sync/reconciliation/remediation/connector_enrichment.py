@@ -61,9 +61,7 @@ class ConnectorSecurityEnrichmentStrategy:
         if security is None:
             message = "security not found"
             raise RuntimeError(message)
-        target = _find_holding(
-            holdings, security, str(context["identifier"])
-        )
+        target = _find_holding(holdings, security, str(context["identifier"]))
         if target is None or target.price is None:
             message = "connector returned no current price"
             raise RuntimeError(message)
@@ -128,9 +126,7 @@ class ConnectorSecurityEnrichmentStrategy:
 def _context(item: Any) -> dict[str, Any]:
     value = getattr(item, "context", {})
     return (
-        dict(cast("dict[str, Any]", value))
-        if isinstance(value, dict)
-        else {}
+        dict(cast("dict[str, Any]", value)) if isinstance(value, dict) else {}
     )
 
 
@@ -163,6 +159,4 @@ def _normalise_symbol(value: str) -> str:
     normalised = str(value).strip().upper()
     if ":" in normalised:
         normalised = normalised.split(":", 1)[0]
-    if normalised.endswith("_EQ"):
-        normalised = normalised[:-3]
-    return normalised
+    return normalised.removesuffix("_EQ")
