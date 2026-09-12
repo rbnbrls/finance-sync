@@ -1,13 +1,14 @@
 ---
 phase: 01-wealthfolio-remediation-bridge
-reviewed: 2026-09-12T15:40:00Z
-depth: standard
-files_reviewed: 17
+reviewed: 2026-09-12T17:19:33Z
+depth: deep
+files_reviewed: 26
 files_reviewed_list:
   - .env.example
   - coolify.yaml
   - docs/wealthfolio-remediation-bridge.md
   - migrations/versions/0071_wealthfolio_health_cursors.py
+  - migrations/versions/0072_backfill_wealthfolio_remediation_target_identity.py
   - src/finance_sync/api/v1/control_plane.py
   - src/finance_sync/config/settings.py
   - src/finance_sync/exporter/wealthfolio/__init__.py
@@ -16,14 +17,24 @@ files_reviewed_list:
   - src/finance_sync/models/wealthfolio_health_cursor.py
   - src/finance_sync/observability/metrics.py
   - src/finance_sync/reconciliation/remediation/executor.py
+  - src/finance_sync/reconciliation/remediation/price_history.py
   - src/finance_sync/reconciliation/remediation/wealthfolio.py
   - src/finance_sync/schemas/data_health.py
   - src/finance_sync/services/data_health.py
   - src/finance_sync/services/wealthfolio_health_bridge.py
   - src/finance_sync/worker/jobs.py
+  - src/finance_sync/worker/scheduler.py
+  - tests/exporter/test_wealthfolio_client.py
+  - tests/fixtures/wealthfolio_health_status.json
+  - tests/integration/test_phase01_legacy_remediation_backfill.py
+  - tests/integration/test_phase01_wealthfolio_lifecycle.py
+  - tests/integration/test_phase01_wealthfolio_migration.py
+  - tests/test_phase01_wealthfolio_bridge.py
+  - tests/test_wealthfolio_health_bridge.py
+  - tests/test_wealthfolio_remediation_contract.py
 findings:
-  critical: 3
-  warning: 4
+  critical: 5
+  warning: 2
   info: 0
   total: 7
 status: issues_found
@@ -31,81 +42,70 @@ status: issues_found
 
 # Phase 01: Code Review Report
 
-**Reviewed:** 2026-09-12T15:40:00Z  
-**Depth:** standard  
-**Files Reviewed:** 17  
+**Reviewed:** 2026-09-12T17:19:33Z  
+**Depth:** deep  
+**Files Reviewed:** 26  
 **Status:** issues_found
 
 ## Summary
 
-The bridge has several correctness failures in issue classification, target isolation, and lifecycle reconciliation. The most serious paths can automatically process a purchase-price finding, merge two Wealthfolio targets into one backlog item, or resolve findings that were merely omitted by the configured response cap. Safe quote/history remediation also cannot reliably derive canonical identities from the normalized health payload.
+The review traced the health response through normalization, durable backlog persistence, target connector construction, remediation execution, and remote verification. Unit tests pass (76 passed), but all four PostgreSQL/Redis integration tests are skipped in this environment, so the persistence and migration contracts remain unverified. The implementation has ship-blocking defects in the target identity schema, pagination/completeness accounting, canonical identity binding, and sensitive payload handling.
 
 ## Critical Issues
 
-### CR-01: Purchase-price findings are routed to automatic quote repair
+### CR-01: Wealthfolio target IDs violate the remediation foreign key
 
 **Classification:** BLOCKER  
-**File:** `src/finance_sync/services/wealthfolio_health_bridge.py:29-39`  
-**Issue:** `_issue_kind()` checks for the substring `price` before checking `purchase`/`cost_basis`. A normal code such as `MISSING_PURCHASE_PRICE` therefore matches the first branch and becomes `wealthfolio_historical_price_gap` (because it also contains `missing_price`), or otherwise `wealthfolio_quote_sync_failure`. `_strategy()` then assigns an automatic repair strategy. This violates the phase contract that missing purchase prices must always become `manual_review`; the repair can mutate/project a quote for a cost-basis issue and mark the wrong finding resolved.
-**Fix:** Match unsafe categories first and use exact normalized codes/categories where possible, for example:
+**File:** `src/finance_sync/services/wealthfolio_health_bridge.py:338-350`; `src/finance_sync/models/remediation.py:72-75`; `migrations/versions/0068_add_data_quality_remediation_backlog.py:77-79`  
+**Issue:** New Wealthfolio findings persist `ExportTarget.id` as `DetectedIssue.connection_id`, and the remediation worker later resolves that value from `export_targets`. However, `data_quality_remediation_items.connection_id` still references `credentials.id` (in both the ORM model and the migration). On PostgreSQL, inserting a normal target UUID therefore fails the FK constraint, so polling cannot enqueue work; migration 0072 also attempts to write target UUIDs into the same credentials FK column. The lifecycle/backfill integration fixtures reproduce this invalid relationship but are skipped, masking the failure.  
+**Fix:** Give target-scoped remediation identity its own strongly typed column/FK (for example `target_id` referencing `export_targets.id`) and use it consistently in deduplication, the connector factory, and reconciliation; or change the schema contract and all existing credential consumers so one column cannot ambiguously reference two tables. Add an executed PostgreSQL migration test that inserts an actual target-backed remediation row and runs 0072.
 
-```python
-if "purchase" in raw or "cost_basis" in raw:
-    return "wealthfolio_missing_purchase_price"
-if "negative" in raw and "valuation" in raw:
-    return "wealthfolio_negative_valuation"
-if "incomplete" in raw and "valuation" in raw:
-    return "wealthfolio_incomplete_valuation"
-if any(token in raw for token in ("quote", "price", "market_data")):
-    ...
-```
-
-### CR-02: Backlog deduplication merges separate Wealthfolio targets
+### CR-02: Recorded pagination cursors are never consumed
 
 **Classification:** BLOCKER  
-**File:** `src/finance_sync/services/wealthfolio_health_bridge.py:145-149` (deduplication contract: `src/finance_sync/reconciliation/remediation/backlog.py:77-89`)  
-**Issue:** Findings carry `target_id` only in `context`, and the bridge leaves `connection_id` and `scope` unset. The shared deduplication key excludes context, so the same tenant, issue type, entity type, and entity ID on two active Wealthfolio targets produce the same key. Registering the second target updates the first target's item context to the second target, and remediation then operates against the wrong destination. This is a tenant-local cross-target isolation failure and also breaks independent lifecycle resolution.
-**Fix:** Include the target identity in the deduplication identity, preferably by setting a stable `scope` or `connection_id` on `DetectedIssue` and retaining the tenant/target check in the connector factory. Add a regression test with two targets in one tenant asserting two backlog rows and two separately routed repairs.
+**File:** `src/finance_sync/services/wealthfolio_health_bridge.py:74-99`; `src/finance_sync/worker/jobs.py:125-138`; `src/finance_sync/exporter/wealthfolio/client.py:211-279`  
+**Issue:** `prepare_health_poll()` records `nextCursor`/`hasMore` and marks the snapshot incomplete, but the client has no cursor argument and the worker performs exactly one request per target. The next cursor is never sent back to Wealthfolio, so a paginated response permanently imports only its first page. This avoids false disappearance resolution but silently leaves later findings untracked and unrepairable on every future poll.  
+**Fix:** Implement a bounded page-drain loop that passes the cursor to the health endpoint, detects repeated cursors, and marks the aggregate incomplete if the configured page/issue budget is exhausted. Persist the cursor only when continuation is required, and reconcile only after all pages have been collected successfully.
 
-### CR-03: The issue cap causes false resolution of omitted findings
+### CR-03: Dropped issue entries are treated as a complete snapshot
 
 **Classification:** BLOCKER  
-**File:** `src/finance_sync/worker/jobs.py:120-123` and `src/finance_sync/services/wealthfolio_health_bridge.py:169-188`  
-**Issue:** The worker truncates the remote `issues` array to `WEALTHFOLIO_HEALTH_BRIDGE_ISSUE_LIMIT`, then passes the truncated payload to `enqueue_success()`. That method treats the supplied list as the complete successful snapshot and resolves every active Wealthfolio item not in it. When Wealthfolio reports more issues than the cap, all omitted items are incorrectly marked `resolved` even though they remain remote problems.
-**Fix:** Preserve a `truncated`/`complete` flag and skip disappearance reconciliation whenever the response was capped; alternatively paginate/fetch the complete issue set before reconciling. Record the cap in cursor/metrics so operators know that lifecycle reconciliation was deferred.
+**File:** `src/finance_sync/services/wealthfolio_health_bridge.py:63-99,245-276,332-350`  
+**Issue:** Completeness is inferred only from `issues` being a list and its top-level length being within `issue_limit`. Normalization silently skips non-dict entries and truncates both the issue list and each issue's `affectedItems` to `MAX_AFFECTED_ITEMS`. A response containing one valid issue plus malformed entries, or one issue with more than 100 affected assets, is therefore passed to `enqueue_success()` as `complete=True`; the active-query loop then resolves previously active items that were merely omitted by normalization.  
+**Fix:** Make normalization return a completeness/truncation result (or validate before reconciliation), mark the snapshot incomplete whenever any issue/affected-item entry is rejected or bounded, and carry that flag into `enqueue_success()`. Do not reconcile disappearance unless every provider entry was represented, or explicitly paginate/batch the affected items.
+
+### CR-04: Explicit remote identifiers are not checked against the resolved security
+
+**Classification:** BLOCKER  
+**File:** `src/finance_sync/services/wealthfolio_health_bridge.py:178-224,227-242`; `src/finance_sync/reconciliation/remediation/quote.py:44-51`  
+**Issue:** When a finding supplies `security_id`, `_find_canonical_security()` verifies only that the local security UUID exists. `_canonical_identifier()` then preferentially trusts the finding's independent `identifier`/`identifier_type` without checking that it belongs to that security. A malformed or compromised Wealthfolio response can pair security A's ID with security B's ticker; the enrichment gateway fetches B while storing the result under A, and the bridge can then push that wrong quote to the remote asset.  
+**Fix:** Treat the database-resolved security as authoritative: use an identifier read from that row (or a listing explicitly linked to it), and only accept a supplied identifier after a matching canonical lookup proves the same security. Reject contradictory `security_id`/identifier pairs and route them to `manual_review`.
+
+### CR-05: Provider diagnostic text is persisted and exposed without secret redaction
+
+**Classification:** BLOCKER  
+**File:** `src/finance_sync/services/wealthfolio_health_bridge.py:289-295`; `src/finance_sync/schemas/remediation.py:22-44`; `src/finance_sync/api/v1/control_plane.py:121-175`  
+**Issue:** The model contract says raw provider responses must not enter `context`, but normalization copies arbitrary Wealthfolio `details`/`message` and `fixAction` text into the persisted JSON context (only truncating to 256/64 characters). The remediation API returns that context to any tenant principal with reconciliation-read permission. If the health endpoint includes a URL, token, account data, or other sensitive diagnostic content, it is stored and disclosed; truncation is not sanitization.  
+**Fix:** Persist only an allowlisted set of typed identifiers and bounded reason codes. Redact credential-shaped values, URLs with query/userinfo, authorization headers, and account/asset payloads before storage, or omit provider text entirely and keep sanitized aggregates. Add a test proving secret-like fields in details/message never appear in the database or API response.
 
 ## Warnings
 
-### WR-01: Normalization does not perform the promised canonical identity resolution
+### WR-01: Malformed historical dates escape before executor error handling
 
 **Classification:** WARNING  
-**File:** `src/finance_sync/services/wealthfolio_health_bridge.py:81-109` and `src/finance_sync/reconciliation/remediation/wealthfolio.py:27-35,78-85`  
-**Issue:** The bridge copies `securityId`, `isin`, and `ticker` into context but never resolves a Wealthfolio asset to a finance-sync `security_id`. The remediation strategies require `security_id`, so common payloads containing only an asset `id` (the shape covered by the added contract test) are immediately routed to `manual_review` rather than repaired. When an ISIN is copied into `identifier`, `identifier_type` is not set, so the canonical strategy defaults to treating that ISIN as a ticker. This makes the advertised safe quote/history path fail or query the wrong provider identity.
-**Fix:** Resolve the remote asset using the canonical security lookup in the bridge before registering a repair finding; store both `security_id` and the correct `identifier_type`. If identity cannot be proven, explicitly keep the item manual-review and expose the reason rather than registering it with an automatic strategy.
+**File:** `src/finance_sync/reconciliation/remediation/price_history.py:163-175`; `src/finance_sync/reconciliation/remediation/wealthfolio.py:79-92`; `src/finance_sync/reconciliation/remediation/executor.py:100-113`  
+**Issue:** `_date()` lets `datetime.fromisoformat()` raise for an arbitrary Wealthfolio date string. The executor calls `strategy.supports(item)` before entering its `try` block, so a malformed historical finding aborts the batch/tenant path instead of transitioning the claimed item to retry or manual review. Because the claim was committed before execution, the row can remain `processing` until lease expiry and repeat indefinitely.  
+**Fix:** Make date parsing return `None` for `TypeError`/`ValueError`, have `supports()` fail closed, and/or move support evaluation inside the executor's guarded transition path so invalid input becomes `manual_review` with a sanitized error category.
 
-### WR-02: Historical repair uses an inclusive end bound while verification is exclusive
-
-**Classification:** WARNING  
-**File:** `src/finance_sync/reconciliation/remediation/wealthfolio.py:92-100` and `src/finance_sync/reconciliation/remediation/price_history.py:124-129`  
-**Issue:** The projection query includes `timestamp <= end`, while the shared verification query requires `timestamp < end`. For a health range whose `endDate` is a date at midnight, observations on the requested end date can be projected but are excluded from verification. The item then retries or eventually becomes `manual_review` despite a successful projection.
-**Fix:** Define one interval convention and use it in both projection and verification. For date-based ranges, normalize `endDate` to the next day and use a half-open `[start, end)` window consistently.
-
-### WR-03: Transient transport failures are not retried
+### WR-02: Authentication failure bookkeeping targets the wrong table for Wealthfolio
 
 **Classification:** WARNING  
-**File:** `src/finance_sync/exporter/wealthfolio/client.py:223-240`  
-**Issue:** The health client retries timeouts and transient HTTP statuses, but immediately raises on every other `httpx.RequestError`. DNS failures, connection resets, and temporary network errors are common transient polling failures and are explicitly within the phase's retry/error-normalization contract. This produces avoidable failed polls and stale cursors instead of bounded retry behavior.
-**Fix:** Apply the same bounded backoff to retryable `RequestError` subclasses (or retry the whole transient transport category), while preserving immediate failure for non-retryable configuration errors and keeping error messages sanitized.
-
-### WR-04: Data Health reports the bridge enabled when configuration disabled it
-
-**Classification:** WARNING  
-**File:** `src/finance_sync/services/data_health.py:252-255`  
-**Issue:** The `enabled` field is computed as `target_count > 0`, not from `Settings.wealthfolio_health_bridge_enabled`. With an active target and the default disabled configuration, the API says the bridge is enabled even though the scheduler/job will immediately skip polling. This gives operators an incorrect rollout status and can lead them to assume health data is current.
-**Fix:** Inject the feature flag into `DataHealthService` (as is done for other operational settings) and return that value; keep target availability as a separate field/status signal.
+**File:** `src/finance_sync/reconciliation/remediation/executor.py:213-221,265-271`; `src/finance_sync/reconciliation/remediation/backlog.py:365-389`  
+**Issue:** The executor invokes `mark_connection_auth_failure()` for every provider authentication error, but that helper updates `Credential` by `connection_id`. Wealthfolio remediation connections are `ExportTarget` IDs by design, so a Wealthfolio auth failure does not mark the target as requiring reauthentication (and can only update an unrelated credential if UUIDs ever coincide). This leaves the target repeatedly retryable with no actionable lifecycle state.  
+**Fix:** Dispatch auth-failure bookkeeping by connection kind: update the Wealthfolio `ExportTarget` health/error fields or add a target-specific reauthentication state, while retaining the existing credential path for credential-backed providers. Ensure the remediation outcome and target health transition are committed together.
 
 ---
 
-_Reviewed: 2026-09-12T15:40:00Z_  
+_Reviewed: 2026-09-12T17:19:33Z_  
 _Reviewer: the agent (gsd-code-reviewer)_  
-_Depth: standard_
+_Depth: deep_
