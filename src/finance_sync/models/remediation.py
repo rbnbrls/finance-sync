@@ -71,7 +71,6 @@ class DataQualityRemediationItem(Base):
     provider_key: Mapped[str] = mapped_column(String(64), nullable=False)
     connection_id: Mapped[str | None] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("credentials.id", ondelete="SET NULL"),
         nullable=True,
     )
     issue_type: Mapped[str] = mapped_column(String(64), nullable=False)
