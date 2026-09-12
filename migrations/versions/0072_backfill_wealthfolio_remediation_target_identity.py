@@ -11,6 +11,13 @@ depends_on = None
 
 
 def upgrade() -> None:
+    # Wealthfolio target ids temporarily occupy the legacy connection_id
+    # column; the credential FK would reject valid export-target ids.
+    op.drop_constraint(
+        "fk_data_quality_remediation_items_connection_id_credentials",
+        "data_quality_remediation_items",
+        type_="foreignkey",
+    )
     # Only the bounded, explicitly persisted target_id is considered.  The
     # legacy exporter endpoint/account fields are deliberately not candidates
     # because they are mutable and can identify the wrong destination.

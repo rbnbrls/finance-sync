@@ -35,11 +35,13 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
 import sqlalchemy as sa
+from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -140,6 +142,41 @@ def redis_url() -> str:
         "Run `make test-integration` (docker compose) or set "
         "TEST_DATABASE_URL / TEST_REDIS_URL — see README 'Integration tests'."
     )
+
+
+# ── Isolated database fixture ────────────────────────────────────────
+
+
+@pytest.fixture
+async def fresh_database_url(database_url: str) -> AsyncGenerator[str, None]:
+    """Create a dedicated database for migration tests."""
+    url = make_url(database_url)
+    db_name = f"finance_sync_fresh_{uuid.uuid4().hex[:8]}"
+    admin_url = url.set(database="postgres")
+    admin_engine = create_async_engine(
+        admin_url.render_as_string(hide_password=False),
+        isolation_level="AUTOCOMMIT",
+    )
+    try:
+        async with admin_engine.connect() as conn:
+            await conn.execute(sa.text(f'CREATE DATABASE "{db_name}"'))
+    finally:
+        await admin_engine.dispose()
+    fresh_url = url.set(database=db_name).render_as_string(hide_password=False)
+    try:
+        yield fresh_url
+    finally:
+        drop_engine = create_async_engine(
+            admin_url.render_as_string(hide_password=False),
+            isolation_level="AUTOCOMMIT",
+        )
+        try:
+            async with drop_engine.connect() as conn:
+                await conn.execute(
+                    sa.text(f'DROP DATABASE IF EXISTS "{db_name}" WITH (FORCE)')
+                )
+        finally:
+            await drop_engine.dispose()
 
 
 # ── Alembic helpers ─────────────────────────────────────────────────
