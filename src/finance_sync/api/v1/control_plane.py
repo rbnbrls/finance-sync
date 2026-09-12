@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import (
     APIRouter,
     Depends,
@@ -98,6 +100,20 @@ async def repair_data_health(
         status_code=status.HTTP_202_ACCEPTED,
         media_type="application/json",
     )
+
+
+@router.post("/wealthfolio/health-sync")
+async def trigger_wealthfolio_health_sync(
+    request: Request,
+    auth: AuthContext = Depends(require_permission("sync", "write")),
+) -> dict[str, Any]:
+    """Run one bounded, tenant-scoped health bridge poll."""
+    from finance_sync.worker.jobs import wealthfolio_health_sync_job
+
+    result = await wealthfolio_health_sync_job(
+        get_container(request), tenant_id=auth.tenant_id
+    )
+    return {"accepted": True, **result}
 
 
 @router.get("/remediation", response_model=RemediationListResponse)

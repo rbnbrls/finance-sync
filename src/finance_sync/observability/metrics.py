@@ -172,6 +172,25 @@ data_quality_remediation_manual_review_size = Gauge(
     "Number of remediation items awaiting manual review",
 )
 
+wealthfolio_health_polls_total = Counter(
+    "wealthfolio_health_polls_total",
+    "Wealthfolio health polls by outcome",
+    labelnames=["outcome"],
+)
+wealthfolio_health_imported_issues_total = Counter(
+    "wealthfolio_health_imported_issues_total",
+    "Wealthfolio health issues imported into remediation",
+)
+wealthfolio_health_repairs_total = Counter(
+    "wealthfolio_health_repairs_total",
+    "Wealthfolio health repair outcomes",
+    labelnames=["outcome"],
+)
+wealthfolio_health_poll_duration_seconds = Histogram(
+    "wealthfolio_health_poll_duration_seconds",
+    "Duration of Wealthfolio health bridge polls",
+)
+
 # Paths to exclude from metrics recording
 _SKIP_PATHS = frozenset(
     {"/metrics", "/health", "/health/ready", "/health/live"}

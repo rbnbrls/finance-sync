@@ -39,6 +39,7 @@ from finance_sync.schemas.data_health import (
     DataHealthRemediation,
     DataHealthSource,
     DataHealthStatus,
+    DataHealthWealthfolioBridge,
 )
 from finance_sync.services.control_plane import ControlPlaneService
 from finance_sync.services.control_plane_actions import action
@@ -201,9 +202,60 @@ class DataHealthService:
                 latest_run_at=quality.latest_run_at,
             ),
             remediation=remediation,
+            wealthfolio_bridge=await self._wealthfolio_bridge_summary(),
             issues=issues,
             as_of=control.as_of,
             generated_at=self._now,
+        )
+
+    async def _wealthfolio_bridge_summary(self) -> DataHealthWealthfolioBridge:
+        if self._session is None:
+            return DataHealthWealthfolioBridge()
+        from finance_sync.models.wealthfolio_health_cursor import WealthfolioHealthCursor
+
+        target_count = int(
+            await self._session_required.scalar(
+                select(func.count()).select_from(ExportTarget).where(
+                    ExportTarget.tenant_id == self._tenant_id,
+                    ExportTarget.target_type == "wealthfolio",
+                    ExportTarget.status == "active",
+                )
+            )
+            or 0
+        )
+        cursor = (
+            await self._session_required.execute(
+                select(WealthfolioHealthCursor)
+                .where(WealthfolioHealthCursor.tenant_id == self._tenant_id)
+                .order_by(WealthfolioHealthCursor.last_successful_poll.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        imported = int(
+            await self._session_required.scalar(
+                select(func.coalesce(func.sum(WealthfolioHealthCursor.issue_count), 0)).where(
+                    WealthfolioHealthCursor.tenant_id == self._tenant_id
+                )
+            )
+            or 0
+        )
+        resolved = int(
+            await self._session_required.scalar(
+                select(func.count()).where(
+                    DataQualityRemediationItem.tenant_id == self._tenant_id,
+                    DataQualityRemediationItem.provider_key == "wealthfolio",
+                    DataQualityRemediationItem.status == "resolved",
+                )
+            )
+            or 0
+        )
+        return DataHealthWealthfolioBridge(
+            enabled=target_count > 0,
+            target_count=target_count,
+            last_successful_poll=cursor.last_successful_poll if cursor else None,
+            imported_issues=imported,
+            resolved_issues=resolved,
+            last_error=cursor.last_error if cursor else None,
         )
 
     async def _remediation_summary(self) -> DataHealthRemediation:

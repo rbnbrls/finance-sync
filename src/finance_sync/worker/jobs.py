@@ -56,7 +56,9 @@ if TYPE_CHECKING:
 logger = structlog.get_logger("finance_sync.worker.jobs")
 
 
-async def wealthfolio_health_sync_job(container: Container) -> dict[str, Any]:
+async def wealthfolio_health_sync_job(
+    container: Container, tenant_id: str | None = None
+) -> dict[str, Any]:
     """Poll active Wealthfolio targets without allowing one target to block others."""
     if not container.settings.wealthfolio_health_bridge_enabled:
         return {"enabled": False, "polled": 0, "imported": 0}
@@ -66,6 +68,13 @@ async def wealthfolio_health_sync_job(container: Container) -> dict[str, Any]:
     )
     from finance_sync.services.auth import decrypt_credential
 
+    from finance_sync.observability.metrics import (
+        wealthfolio_health_imported_issues_total,
+        wealthfolio_health_poll_duration_seconds,
+        wealthfolio_health_polls_total,
+    )
+
+    started = time.perf_counter()
     polled = 0
     imported = 0
     failures = 0
@@ -77,6 +86,7 @@ async def wealthfolio_health_sync_job(container: Container) -> dict[str, Any]:
                     .where(
                         ExportTarget.target_type == "wealthfolio",
                         ExportTarget.status == TARGET_ACTIVE,
+                        *([ExportTarget.tenant_id == tenant_id] if tenant_id else []),
                     )
                     .order_by(ExportTarget.tenant_id, ExportTarget.id)
                     .limit(container.settings.wealthfolio_health_bridge_target_limit)
@@ -112,16 +122,20 @@ async def wealthfolio_health_sync_job(container: Container) -> dict[str, Any]:
                     payload["issues"] = payload["issues"][: container.settings.wealthfolio_health_bridge_issue_limit]
                 items = await bridge.enqueue_success(payload)
                 imported += len(items)
+                wealthfolio_health_imported_issues_total.inc(len(items))
+                wealthfolio_health_polls_total.labels(outcome="success").inc()
                 polled += 1
                 logger.info("wealthfolio_health_poll_completed", tenant_id=str(target.tenant_id), target_id=str(target.id), imported=len(items))
             except Exception as exc:
                 failures += 1
+                wealthfolio_health_polls_total.labels(outcome="failure").inc()
                 await bridge.record_failure(category=type(exc).__name__, message="Wealthfolio health poll failed")
                 logger.warning("wealthfolio_health_poll_failed", tenant_id=str(target.tenant_id), target_id=str(target.id), error=type(exc).__name__)
             finally:
                 if client is not None:
                     await client.close()
         await session.commit()
+    wealthfolio_health_poll_duration_seconds.observe(time.perf_counter() - started)
     return {"enabled": True, "polled": polled, "imported": imported, "failures": failures}
 
 
