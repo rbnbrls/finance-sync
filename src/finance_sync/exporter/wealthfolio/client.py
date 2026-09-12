@@ -235,6 +235,11 @@ class WealthfolioClient:
                     "Wealthfolio health request timed out", category="timeout"
                 ) from exc
             except httpx.RequestError as exc:
+                if attempt + 1 < attempts:
+                    await asyncio.sleep(
+                        self._config.retry_408_base_delay * (2**attempt)
+                    )
+                    continue
                 raise WealthfolioHealthError(
                     "Wealthfolio health request failed", category="transport"
                 ) from exc

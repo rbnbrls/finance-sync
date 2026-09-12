@@ -51,6 +51,7 @@ async def get_control_plane_overview(
         auth.tenant_id,
         permissions=auth.permissions,
         redis_configured=settings.redis_url is not None,
+        wealthfolio_health_bridge_enabled=settings.wealthfolio_health_bridge_enabled,
     ).get_overview()
 
 
@@ -76,6 +77,7 @@ async def get_data_health_overview(
         auth.tenant_id,
         permissions=auth.permissions,
         redis_configured=settings.redis_url is not None,
+        wealthfolio_health_bridge_enabled=settings.wealthfolio_health_bridge_enabled,
     ).get_overview()
 
 

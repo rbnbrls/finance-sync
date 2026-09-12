@@ -107,6 +107,9 @@ class DataHealthWealthfolioBridge(BaseModel):
 
     enabled: bool = False
     target_count: int = 0
+    degraded: bool = False
+    snapshot_complete: bool = False
+    snapshot_truncated: bool = False
     last_successful_poll: datetime | None = None
     imported_issues: int = 0
     resolved_issues: int = 0

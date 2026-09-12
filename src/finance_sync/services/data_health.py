@@ -81,11 +81,13 @@ class DataHealthService:
         permissions: set[str] | None = None,
         redis_configured: bool = False,
         now: datetime | None = None,
+        wealthfolio_health_bridge_enabled: bool = False,
     ) -> None:
         self._session: AsyncSession | None = session
         self._tenant_id = tenant_id
         self._permissions = permissions
         self._redis_configured = redis_configured
+        self._wealthfolio_health_bridge_enabled = wealthfolio_health_bridge_enabled
         self._now = now or datetime.now(UTC)
 
     @property
@@ -250,8 +252,16 @@ class DataHealthService:
             or 0
         )
         return DataHealthWealthfolioBridge(
-            enabled=target_count > 0,
+            enabled=self._wealthfolio_health_bridge_enabled,
             target_count=target_count,
+            degraded=target_count > 0
+            and (
+                cursor is None
+                or bool(cursor.last_error)
+                or not bool(cursor.complete)
+            ),
+            snapshot_complete=bool(cursor.complete) if cursor else False,
+            snapshot_truncated=bool(cursor.truncated) if cursor else False,
             last_successful_poll=cursor.last_successful_poll if cursor else None,
             imported_issues=imported,
             resolved_issues=resolved,

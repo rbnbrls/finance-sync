@@ -19,6 +19,7 @@ from finance_sync.exporter.wealthfolio.client import (
 from finance_sync.reconciliation.remediation.wealthfolio import (
     WealthfolioQuoteStrategy,
 )
+from finance_sync.services.data_health import DataHealthService
 from finance_sync.services.wealthfolio_health_bridge import (
     normalize_health_issues,
 )
@@ -91,6 +92,36 @@ async def test_health_poll_retries_timeout_then_returns_payload() -> None:
     await client.close()
 
 
+async def test_health_poll_retries_transient_request_error() -> None:
+    """Connection resets and DNS failures use the same bounded retry path."""
+    client = WealthfolioClient(
+        WealthfolioClientConfig(
+            base_url="http://wealthfolio.test",
+            password="do-not-leak-this-password",
+            retry_408_base_delay=0,
+        )
+    )
+    client._is_authenticated = True
+    request = httpx.Request("GET", "http://wealthfolio.test/api/v1/health/status")
+    with (
+        patch.object(
+            client._client,
+            "get",
+            new=AsyncMock(
+                side_effect=[
+                    httpx.RequestError("connection reset", request=request),
+                    _response(200, {"issues": []}),
+                ]
+            ),
+        ) as get,
+        patch("finance_sync.exporter.wealthfolio.client.asyncio.sleep", new=AsyncMock()) as sleep,
+    ):
+        assert await client.get_health_status() == {"issues": []}
+    assert get.await_count == 2
+    assert sleep.await_count == 1
+    await client.close()
+
+
 async def test_health_poll_exhaustion_is_bounded_and_redacted() -> None:
     """Exhausted rate limits become a classified error without body leakage."""
     client = WealthfolioClient(
@@ -155,6 +186,42 @@ def test_bridge_is_disabled_by_default() -> None:
     settings = Settings(_env_file=None)
     assert settings.wealthfolio_health_bridge_enabled is False
     assert settings.wealthfolio_health_bridge_interval_minutes == 15
+
+
+@pytest.mark.asyncio
+async def test_data_health_enabled_flag_is_separate_from_active_target() -> None:
+    """An active target does not imply that the bridge feature is enabled."""
+    cursor = SimpleNamespace(
+        complete=False,
+        truncated=True,
+        last_error=None,
+        last_successful_poll=None,
+        issue_count=0,
+    )
+
+    class Result:
+        def scalar_one_or_none(self) -> object:
+            return cursor
+
+    class Session:
+        def __init__(self) -> None:
+            self.scalars = iter([1, 0, 0])
+
+        async def scalar(self, _statement: object) -> int:
+            return next(self.scalars)
+
+        async def execute(self, _statement: object) -> Result:
+            return Result()
+
+    bridge = await DataHealthService(
+        Session(),
+        "tenant-a",
+        wealthfolio_health_bridge_enabled=False,
+    )._wealthfolio_bridge_summary()
+
+    assert bridge.enabled is False
+    assert bridge.target_count == 1
+    assert bridge.degraded is True
 
 
 async def test_quote_repair_verification_requires_finance_sync_owned_quote() -> None:

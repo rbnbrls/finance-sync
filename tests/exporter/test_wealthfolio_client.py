@@ -166,6 +166,37 @@ class TestWealthfolioClientAuth:
 
 
 class TestWealthfolioHealth:
+    async def test_health_status_retries_request_error(
+        self, client: WealthfolioClient
+    ) -> None:
+        """Transient connection failures retry without exposing transport details."""
+        client._is_authenticated = True
+        request = Request("GET", "http://wealthfolio.test/api/v1/health/status")
+        with (
+            patch.object(
+                client._client,
+                "get",
+                new=AsyncMock(
+                    side_effect=[
+                        RequestError("connection reset", request=request),
+                        Response(
+                            200,
+                            json={"issues": []},
+                            request=request,
+                        ),
+                    ]
+                ),
+            ) as get,
+            patch(
+                "finance_sync.exporter.wealthfolio.client.asyncio.sleep",
+                new=AsyncMock(),
+            ) as sleep,
+        ):
+            assert await client.get_health_status() == {"issues": []}
+
+        assert get.await_count == 2
+        sleep.assert_awaited_once()
+
     async def test_health_status_returns_json_without_logging_payload(
         self, client: WealthfolioClient
     ) -> None:
