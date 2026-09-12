@@ -10,6 +10,6 @@ from finance_sync.exporter.wealthfolio.exporter import WealthfolioExporter
 __all__ = [
     "WealthfolioClient",
     "WealthfolioClientConfig",
-    "WealthfolioHealthError",
     "WealthfolioExporter",
+    "WealthfolioHealthError",
 ]
