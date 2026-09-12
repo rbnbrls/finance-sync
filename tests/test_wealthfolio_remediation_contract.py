@@ -183,6 +183,8 @@ async def test_historical_verification_uses_exclusive_end_predicate() -> None:
     statement = session.scalar.await_args.args[0]
     assert "security_prices.timestamp <" in str(statement)
     start, end = normalize_window("2026-01-01", "2026-01-31")
+    assert start is not None
+    assert end is not None
     assert start < end
     assert datetime(2026, 2, 1, tzinfo=UTC) >= end
     assert datetime(2026, 1, 31, 23, 59, tzinfo=UTC) < end
