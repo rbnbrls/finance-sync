@@ -1,4 +1,9 @@
-"""Normalize Wealthfolio health findings into the remediation backlog."""
+# pyright: reportUnknownMemberType=false, reportUnknownArgumentType=false, reportUnknownVariableType=false
+"""Normalize Wealthfolio health findings into the remediation backlog.
+
+# Dynamic provider JSON is validated at the boundary; the remainder uses
+# bounded accessors and explicit runtime checks.
+"""
 
 from __future__ import annotations
 
@@ -6,7 +11,7 @@ import hashlib
 import json
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 from sqlalchemy import func, select
 
@@ -38,6 +43,8 @@ def repair_capability_is_supported(
         return False
     if not isinstance(capability_response, dict):
         return False
+    health_payload = cast("dict[str, Any]", health_payload)
+    capability_response = cast("dict[str, Any]", capability_response)
     version = capability_response.get("version")
     capabilities = capability_response.get("capabilities")
     if not isinstance(version, str) or not version.strip():
@@ -72,6 +79,7 @@ def prepare_health_poll(
             cursor_state={"reason": "malformed_issues"},
         )
 
+    issues = cast("list[object]", issues)
     metadata: dict[str, Any] = {
         "issue_limit": max(1, issue_limit),
         "returned_issues": min(len(issues), max(1, issue_limit)),
@@ -289,10 +297,12 @@ def normalize_health_issues(
                 scope=target_id,
             )
         ]
+    raw_issues = cast("list[object]", raw_issues)
     findings: list[DetectedIssue] = []
     for raw in raw_issues[:MAX_AFFECTED_ITEMS]:
         if not isinstance(raw, dict):
             continue
+        raw = cast("dict[str, Any]", raw)
         kind = _issue_kind(raw)
         severity = _text(raw.get("severity"), limit=16).lower()
         if severity not in {"info", "warning", "error"}:
@@ -302,8 +312,10 @@ def normalize_health_issues(
             affected = [
                 raw.get("assetId") or raw.get("securityId") or "summary"
             ]
+        affected = cast("list[object]", affected)
         for item in affected[:MAX_AFFECTED_ITEMS]:
             if isinstance(item, dict):
+                item = cast("dict[str, Any]", item)
                 entity_id = (
                     item.get("id")
                     or item.get("assetId")

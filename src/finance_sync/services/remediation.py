@@ -368,8 +368,8 @@ class RemediationService:
             issues.append(
                 DetectedIssue(
                     tenant_id=self.tenant_id,
-                    provider_key=provider,
-                    connection_id=connection_id,
+                    provider_key="canonical",
+                    connection_id=None,
                     issue_type="quote_gap",
                     affected_entity_type="security",
                     affected_entity_id=str(security.id),
@@ -380,7 +380,7 @@ class RemediationService:
                         "identifier": identifier,
                         "identifier_type": identifier_type,
                         "max_age_hours": 48,
-                        "provider_account_id": external_account_id,
+                        "provider_account_id": None,
                     },
                 )
             )

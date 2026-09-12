@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 from datetime import UTC, datetime
 from hashlib import sha256
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol, cast
 
 import structlog
 
@@ -163,14 +163,17 @@ class RemediationExecutor:
             async with asyncio.timeout(self.max_execution_seconds):
                 await strategy.execute(item, connector)
                 if str(getattr(strategy, "key", "")).startswith("wealthfolio_"):
-                    verification = await strategy.verify(item, connector)
+                    verification: Any = cast(
+                        "Any", await strategy.verify(item, connector)
+                    )
                 else:
                     verification = await strategy.verify(item)
             item.verification_count += 1
             _record_verification(item, verification)
+            verified_resolved = bool(getattr(verification, "resolved", False))
             status = (
                 "resolved"
-                if verification.resolved
+                if verified_resolved
                 else (
                     "manual_review"
                     if item.verification_count >= self.max_verification_attempts
@@ -352,9 +355,10 @@ class RemediationExecutor:
             verification = await strategy.verify(item)
             item.verification_count += 1
             _record_verification(item, verification)
+            verified_resolved = bool(getattr(verification, "resolved", False))
             status = (
                 "resolved"
-                if verification.resolved
+                if verified_resolved
                 else (
                     "manual_review"
                     if item.verification_count >= self.max_verification_attempts

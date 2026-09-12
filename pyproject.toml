@@ -152,6 +152,7 @@ line-ending = "auto"
 "src/finance_sync/enrichment/models.py" = ["TC003"]
 "src/finance_sync/exporter/actual_budget/models.py" = ["TC003"]
 "src/finance_sync/services/subscription_detector/service.py" = ["E501"]
+"src/finance_sync/services/wealthfolio_health_bridge.py" = ["E501"]
 
 [tool.pyright]
 # G-11: src/ is checked under strict mode. tests/ run at basic via

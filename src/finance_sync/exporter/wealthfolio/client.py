@@ -279,7 +279,7 @@ class WealthfolioClient:
                     msg,
                     category="malformed",
                 )
-            return payload
+            return cast(dict[str, Any], payload)
         msg = "health polling loop must return or raise"
         raise AssertionError(msg)
 
