@@ -39,8 +39,7 @@ class HistoricalPriceStrategy:
                     "end_date",
                 )
             )
-            and str(context.get("interval", "1d"))
-            in {"1d", "1h", "5m", "1m"}
+            and str(context.get("interval", "1d")) in {"1d", "1h", "5m", "1m"}
         )
 
     def __init__(self, session: AsyncSession, settings: Any) -> None:
@@ -123,11 +122,11 @@ class HistoricalPriceStrategy:
         if not security_id or start is None or start >= end:
             return VerificationResult(False, "price gap has no valid scope")
         filters = [
-                SecurityPrice.security_id == security_id,
-                SecurityPrice.interval == interval,
-                SecurityPrice.timestamp >= start,
-                SecurityPrice.timestamp < end,
-                SecurityPrice.price_close.is_not(None),
+            SecurityPrice.security_id == security_id,
+            SecurityPrice.interval == interval,
+            SecurityPrice.timestamp >= start,
+            SecurityPrice.timestamp < end,
+            SecurityPrice.price_close.is_not(None),
         ]
         tenant_id = getattr(item, "tenant_id", None)
         if tenant_id is not None:

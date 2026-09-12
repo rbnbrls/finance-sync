@@ -73,10 +73,10 @@ class LatestQuoteStrategy:
         max_age_hours = max(1, min(int(context.get("max_age_hours", 48)), 168))
         cutoff = datetime.now(UTC) - timedelta(hours=max_age_hours)
         filters = [
-                SecurityPrice.security_id == security_id,
-                SecurityPrice.interval == "1d",
-                SecurityPrice.timestamp >= cutoff,
-                SecurityPrice.price_close.is_not(None),
+            SecurityPrice.security_id == security_id,
+            SecurityPrice.interval == "1d",
+            SecurityPrice.timestamp >= cutoff,
+            SecurityPrice.price_close.is_not(None),
         ]
         tenant_id = getattr(item, "tenant_id", None)
         if tenant_id is not None:

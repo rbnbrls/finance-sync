@@ -14,7 +14,9 @@ from fastapi.templating import Jinja2Templates
 
 _TEMPLATES_DIR = Path(__file__).resolve().parent.parent / "templates"
 templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
-_FAVICON_PATH = Path(__file__).resolve().parent.parent / "static" / "favicon.svg"
+_FAVICON_PATH = (
+    Path(__file__).resolve().parent.parent / "static" / "favicon.svg"
+)
 
 router = APIRouter()
 
