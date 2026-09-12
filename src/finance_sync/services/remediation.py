@@ -362,6 +362,10 @@ class RemediationService:
             .all()
         )
         for security in quote_securities:
+            security_context = securities.get(str(security.id))
+            if security_context is None:
+                continue
+            _, provider, connection_id, external_account_id = security_context
             identifier, identifier_type = quote_identifier(security)
             if not identifier:
                 continue
