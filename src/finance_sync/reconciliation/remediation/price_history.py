@@ -65,7 +65,8 @@ class HistoricalPriceStrategy:
             context.get("start_date"), context.get("end_date")
         )
         if start is None or end is None or start >= end:
-            raise ValueError("price gap has no valid half-open window")
+            msg = "price gap has no valid half-open window"
+            raise ValueError(msg)
         await self.gateway.get_historical_prices(
             security_id=str(context["security_id"]),
             identifier=str(context["identifier"]),
@@ -162,7 +163,9 @@ class HistoricalPriceStrategy:
 
 def _date(value: object) -> datetime | None:
     if isinstance(value, datetime):
-        return value.astimezone(UTC) if value.tzinfo else value.replace(tzinfo=UTC)
+        return (
+            value.astimezone(UTC) if value.tzinfo else value.replace(tzinfo=UTC)
+        )
     if isinstance(value, date):
         return datetime.combine(value, datetime.min.time(), tzinfo=UTC)
     if isinstance(value, str):
@@ -181,7 +184,11 @@ def normalize_window(
     """Normalize one timezone-aware half-open ``[start, end)`` window."""
     start = _date(start_value)
     end = _date(end_value)
-    if isinstance(end_value, str) and "T" not in end_value and " " not in end_value:
+    if (
+        isinstance(end_value, str)
+        and "T" not in end_value
+        and " " not in end_value
+    ):
         end = end + timedelta(days=1) if end is not None else None
     return start, end
 

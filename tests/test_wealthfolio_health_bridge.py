@@ -1,16 +1,19 @@
 """Contract tests for Wealthfolio health issue normalization."""
 
-import pytest
 from types import SimpleNamespace
 
+import pytest
+
+from finance_sync.models.wealthfolio_health_cursor import (
+    WealthfolioHealthCursor,
+)
+from finance_sync.reconciliation.remediation.backlog import deduplication_key
 from finance_sync.services.wealthfolio_health_bridge import (
     WealthfolioHealthBridge,
     health_payload_hash,
     normalize_health_issues,
     prepare_health_poll,
 )
-from finance_sync.models.wealthfolio_health_cursor import WealthfolioHealthCursor
-from finance_sync.reconciliation.remediation.backlog import deduplication_key
 
 
 def test_normalization_is_one_traceable_item_per_affected_asset() -> None:
@@ -29,8 +32,14 @@ def test_normalization_is_one_traceable_item_per_affected_asset() -> None:
         target_id="target-1",
     )
     assert len(issues) == 2
-    assert {issue.affected_entity_id for issue in issues} == {"asset-1", "asset-2"}
-    assert all(issue.issue_type == "wealthfolio_historical_price_gap" for issue in issues)
+    assert {issue.affected_entity_id for issue in issues} == {
+        "asset-1",
+        "asset-2",
+    }
+    assert all(
+        issue.issue_type == "wealthfolio_historical_price_gap"
+        for issue in issues
+    )
     assert all(issue.context["target_id"] == "target-1" for issue in issues)
 
 
@@ -123,14 +132,19 @@ def test_identifier_type_is_preserved_for_isin_and_ticker() -> None:
 
 
 def test_payload_hash_is_order_independent() -> None:
-    assert health_payload_hash({"issues": [], "status": "ok"}) == health_payload_hash(
-        {"status": "ok", "issues": []}
-    )
+    assert health_payload_hash(
+        {"issues": [], "status": "ok"}
+    ) == health_payload_hash({"status": "ok", "issues": []})
 
 
 def test_over_limit_health_snapshot_is_bounded_but_incomplete() -> None:
     result = prepare_health_poll(
-        {"issues": [{"code": "MISSING_PRICE", "affectedItems": [str(i)]} for i in range(3)]},
+        {
+            "issues": [
+                {"code": "MISSING_PRICE", "affectedItems": [str(i)]}
+                for i in range(3)
+            ]
+        },
         issue_limit=2,
     )
 
@@ -193,7 +207,9 @@ async def test_incomplete_success_persists_cursor_and_does_not_reconcile(
         async def register(self, _issue: object) -> object:
             return SimpleNamespace()
 
-        async def transition(self, _tenant: str, item_id: str, **_kwargs: object) -> None:
+        async def transition(
+            self, _tenant: str, item_id: str, **_kwargs: object
+        ) -> None:
             transitions.append(item_id)
 
     active_items = [
@@ -227,7 +243,9 @@ async def test_incomplete_success_persists_cursor_and_does_not_reconcile(
 
 
 @pytest.mark.asyncio
-async def test_failed_poll_persists_error_without_marking_cursor_complete() -> None:
+async def test_failed_poll_persists_error_without_marking_cursor_complete() -> (
+    None
+):
     class Result:
         def scalar_one_or_none(self) -> object:
             return cursor

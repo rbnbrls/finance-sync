@@ -54,7 +54,9 @@ async def test_migration_0072_backfills_unique_and_fails_closed_legacy_rows(
                 "tenant_id": tenant_id,
                 "display_name": name,
                 "configuration": (
-                    "{}" if legacy_id is None else '{"legacy_target_id": "legacy-ambiguous"}'
+                    "{}"
+                    if legacy_id is None
+                    else '{"legacy_target_id": "legacy-ambiguous"}'
                 ),
                 "created_at": now,
                 "updated_at": now,

@@ -217,7 +217,9 @@ class TestWealthfolioHealth:
         client._is_authenticated = True
         response = MagicMock(status_code=200, is_error=False)
         response.json.side_effect = ValueError("not json")
-        with patch.object(client._client, "get", return_value=response):
+        with patch.object(  # noqa: SIM117
+            client._client, "get", return_value=response
+        ):
             with pytest.raises(WealthfolioHealthError, match="malformed"):
                 await client.get_health_status()
 
@@ -226,7 +228,7 @@ class TestWealthfolioHealth:
     ) -> None:
         client._is_authenticated = True
         response = MagicMock(status_code=401, is_error=True)
-        with patch.object(client._client, "get", return_value=response):
+        with patch.object(client._client, "get", return_value=response):  # noqa: SIM117
             with pytest.raises(WealthfolioAuthError):
                 await client.get_health_status()
 

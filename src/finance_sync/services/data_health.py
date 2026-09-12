@@ -87,7 +87,9 @@ class DataHealthService:
         self._tenant_id = tenant_id
         self._permissions = permissions
         self._redis_configured = redis_configured
-        self._wealthfolio_health_bridge_enabled = wealthfolio_health_bridge_enabled
+        self._wealthfolio_health_bridge_enabled = (
+            wealthfolio_health_bridge_enabled
+        )
         self._now = now or datetime.now(UTC)
 
     @property
@@ -213,11 +215,15 @@ class DataHealthService:
     async def _wealthfolio_bridge_summary(self) -> DataHealthWealthfolioBridge:
         if self._session is None:
             return DataHealthWealthfolioBridge()
-        from finance_sync.models.wealthfolio_health_cursor import WealthfolioHealthCursor
+        from finance_sync.models.wealthfolio_health_cursor import (
+            WealthfolioHealthCursor,
+        )
 
         target_count = int(
             await self._session_required.scalar(
-                select(func.count()).select_from(ExportTarget).where(
+                select(func.count())
+                .select_from(ExportTarget)
+                .where(
                     ExportTarget.tenant_id == self._tenant_id,
                     ExportTarget.target_type == "wealthfolio",
                     ExportTarget.status == "active",
@@ -235,9 +241,11 @@ class DataHealthService:
         ).scalar_one_or_none()
         imported = int(
             await self._session_required.scalar(
-                select(func.coalesce(func.sum(WealthfolioHealthCursor.issue_count), 0)).where(
-                    WealthfolioHealthCursor.tenant_id == self._tenant_id
-                )
+                select(
+                    func.coalesce(
+                        func.sum(WealthfolioHealthCursor.issue_count), 0
+                    )
+                ).where(WealthfolioHealthCursor.tenant_id == self._tenant_id)
             )
             or 0
         )
@@ -262,7 +270,9 @@ class DataHealthService:
             ),
             snapshot_complete=bool(cursor.complete) if cursor else False,
             snapshot_truncated=bool(cursor.truncated) if cursor else False,
-            last_successful_poll=cursor.last_successful_poll if cursor else None,
+            last_successful_poll=cursor.last_successful_poll
+            if cursor
+            else None,
             imported_issues=imported,
             resolved_issues=resolved,
             last_error=cursor.last_error if cursor else None,
