@@ -231,57 +231,53 @@ class WealthfolioClient:
                         self._config.retry_408_base_delay * (2**attempt)
                     )
                     continue
-                msg = "Wealthfolio health request timed out"
-                raise WealthfolioHealthError(msg, category="timeout") from exc
+                raise WealthfolioHealthError(
+                    "Wealthfolio health request timed out", category="timeout"
+                ) from exc
             except httpx.RequestError as exc:
                 if attempt + 1 < attempts:
                     await asyncio.sleep(
                         self._config.retry_408_base_delay * (2**attempt)
                     )
                     continue
-                msg = "Wealthfolio health request failed"
-                raise WealthfolioHealthError(msg, category="transport") from exc
+                raise WealthfolioHealthError(
+                    "Wealthfolio health request failed", category="transport"
+                ) from exc
 
             if response.status_code in {401, 403}:
-                msg = "Wealthfolio health authentication failed"
-                raise WealthfolioAuthError(msg)
+                raise WealthfolioAuthError(
+                    "Wealthfolio health authentication failed"
+                )
             if response.status_code in transient_statuses:
                 if attempt + 1 < attempts:
                     await asyncio.sleep(
                         self._config.retry_408_base_delay * (2**attempt)
                     )
                     continue
-                category = (
-                    "rate_limit" if response.status_code == 429 else "server"
-                )
-                msg = f"Wealthfolio health request returned {category} error"
+                category = "rate_limit" if response.status_code == 429 else "server"
                 raise WealthfolioHealthError(
-                    msg,
+                    f"Wealthfolio health request returned {category} error",
                     category=category,
                 )
             if response.is_error:
-                msg = "Wealthfolio health request was rejected"
                 raise WealthfolioHealthError(
-                    msg,
+                    "Wealthfolio health request was rejected",
                     category="http_error",
                 )
             try:
                 payload = response.json()
             except (ValueError, TypeError) as exc:
-                msg = "Wealthfolio health response was malformed"
                 raise WealthfolioHealthError(
-                    msg,
+                    "Wealthfolio health response was malformed",
                     category="malformed",
                 ) from exc
             if not isinstance(payload, dict):
-                msg = "Wealthfolio health response was malformed"
                 raise WealthfolioHealthError(
-                    msg,
+                    "Wealthfolio health response was malformed",
                     category="malformed",
                 )
-            return payload
-        msg = "health polling loop must return or raise"
-        raise AssertionError(msg)
+            return cast("dict[str, Any]", payload)
+        raise AssertionError("health polling loop must return or raise")
 
     async def authenticate(self) -> bool:
         """Authenticate with the Wealthfolio instance.
