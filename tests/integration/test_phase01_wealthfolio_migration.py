@@ -69,7 +69,7 @@ async def test_health_cursor_schema_is_tenant_and_target_scoped(
     constraints = await session.execute(
         sa.text(
             """
-            SELECT conname, contype, pg_get_constraintdef(oid)
+                SELECT conname, contype::text, pg_get_constraintdef(oid)
             FROM pg_constraint
             WHERE conrelid = 'public.wealthfolio_health_cursors'::regclass
             """

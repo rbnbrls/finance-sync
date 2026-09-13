@@ -1,19 +1,30 @@
 # CI reliability and release governance
 
-The repository uses one local fast gate and the same Ruff scope/configuration
-in pre-commit and GitHub Actions:
+The repository provides a local fast gate and a full GitHub-parity gate. Run
+the full gate before pushing a change that must pass all required checks:
 
 ```bash
 uv sync --extra dev
-uv run pre-commit run --all-files
-make ci-fast
+make ci
 ```
 
 `make ci-fast` runs, in order, Ruff format, Ruff lint, Pyright, test
-collection, and the unit suite with the 74% coverage threshold. Collection is
+collection, and the unit suite with the 80% coverage threshold. Collection is
 intentionally before test execution so missing imports or renamed helpers fail
-without starting the expensive suite. Integration and E2E remain separate
-PostgreSQL/Redis-backed checks.
+without starting the expensive suite. `make ci` additionally runs the
+PostgreSQL migration round-trip, real PostgreSQL/Redis integration and E2E
+suites, dependency/policy checks, and the Docker image scan. It starts the
+same PostgreSQL 16 and Redis 7 test services from `docker-compose.test.yml`.
+Required integration and E2E suites fail when JUnit contains a skip, matching
+the GitHub jobs; unavailable Docker or Trivy is a failed prerequisite rather
+than an implicit pass.
+
+For a pull request, run the public API compatibility check separately because
+GitHub compares the PR head with its merge base:
+
+```bash
+BASE_REF=origin/main make openapi-diff
+```
 
 ## Required checks on `main`
 

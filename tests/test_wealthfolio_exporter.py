@@ -1583,7 +1583,10 @@ class TestWealthfolioPushCursor:
         self, exporter: WealthfolioExporter
     ) -> None:
         """A valid multi-currency sweep sends import-ready activities."""
-        acct = _make_mock_account(name="Multi-currency Broker")
+        acct = _make_mock_account(
+            name="Multi-currency Broker",
+            provider_metadata={"supports_multi_currency_cash": True},
+        )
         txns = [
             _make_mock_transaction(account_id=acct.id, currency_code=currency)
             for currency in ("EUR", "USD", "JPY")

@@ -200,7 +200,7 @@ command_line = "-m pytest"
 
 [tool.coverage.report]
 # Keep the local default identical to the enforced CI gate.
-fail_under = 74
+fail_under = 80
 show_missing = true
 skip_covered = false
 skip_empty = true

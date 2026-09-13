@@ -88,7 +88,7 @@ make ci-fast       # all fast CI checks: format, lint, types, tests
 
 Integration and E2E tests use the PostgreSQL/Redis services from
 `docker-compose.test.yml`. The default test command excludes both markers.
-The coverage threshold is 74% (`pyproject.toml`).
+The coverage threshold is 80% (`pyproject.toml`).
 
 Install the pre-commit hooks with `make pre-commit-install`; they use the same
 Ruff version and `src`/`tests` scope as CI. Run `make ci-fast` before pushing.
