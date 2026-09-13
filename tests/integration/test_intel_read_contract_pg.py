@@ -259,7 +259,9 @@ class TestSourceCatalogREST:
         assert resp.status_code == 200, resp.text
         body = resp.json()
         sources = {s["provider"]: s for s in body["sources"]}
-        assert set(sources) == {"sec", "sec_press", "openbb"}
+        # OpenBB is a legacy enrichment adapter, not a registered intelligence
+        # provider when unavailable.
+        assert set(sources) == {"sec", "sec_press"}
 
         # Metadata fields present.
         for source in sources.values():

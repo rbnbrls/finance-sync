@@ -37,9 +37,10 @@ def repair_capability_is_supported(
     health_payload: object, capability_response: object
 ) -> bool:
     """Evaluate the sanitized A3 target/version compatibility contract."""
-    if not isinstance(health_payload, dict) or not isinstance(
-        cast("dict[str, Any]", health_payload).get("issues"), list
-    ):
+    if not isinstance(health_payload, dict):
+        return False
+    health_payload = cast("dict[str, Any]", health_payload)
+    if not isinstance(health_payload.get("issues"), list):
         return False
     if not isinstance(capability_response, dict):
         return False
