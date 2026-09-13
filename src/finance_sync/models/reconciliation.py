@@ -175,6 +175,12 @@ class ReconciliationResult(Base):
     details: Mapped[dict[str, Any] | None] = mapped_column(
         JSONB, nullable=True, comment="Extra context (score, diff, etc.)"
     )
+    remediation_item_id: Mapped[str | None] = mapped_column(
+        ForeignKey("data_quality_remediation_items.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+        comment="Durable remediation backlog item for this finding",
+    )
 
     created_at = created_at_ts()
 

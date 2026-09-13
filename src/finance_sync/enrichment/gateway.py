@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 from uuid import uuid4
 
 if TYPE_CHECKING:
@@ -55,7 +55,9 @@ class EnrichmentGateway:
         self._price_store = price_store
 
         self._http_client: httpx.AsyncClient | None = None
-        self._degraded = settings.openbb_api_key is None
+        # OpenBB is unavailable. Keep this facade for local/cache callers,
+        # but never make remote requests even if a legacy key is configured.
+        self._degraded = True
 
     @property
     def http_client(self) -> httpx.AsyncClient:
@@ -168,7 +170,7 @@ class EnrichmentGateway:
             name=data.get("name", "Unknown"),
             currency_code=data.get("currency", "EUR"),
             confidence="exact",
-            source="openbb",
+            source="local",
         )
 
     # ── Quote ────────────────────────────────────────────────────────────
@@ -237,7 +239,7 @@ class EnrichmentGateway:
             change_pct=_safe_decimal(data.get("changePercent")),
             currency_code=data.get("currency", "EUR"),
             timestamp=datetime.now(UTC),
-            source="openbb",
+            source="local",
         )
 
     async def _store_quote_result(
@@ -344,7 +346,7 @@ class EnrichmentGateway:
                 or data.get("fiftyTwoWeekLow")
                 or data.get("low_52w")
             ),
-            source="openbb",
+            source="local",
             provider_metadata={
                 k: v
                 for k, v in data.items()
@@ -432,7 +434,9 @@ class EnrichmentGateway:
 
         sector_exposures = [
             SectorExposure(
-                sector=s.get("sector") or s.get("name") or s.get("industry"),
+                sector=str(
+                    s.get("sector") or s.get("name") or s.get("industry") or ""
+                ),
                 weight=_safe_decimal(
                     s.get("weight") or s.get("exposure") or s.get("percentage")
                 )
@@ -473,7 +477,7 @@ class EnrichmentGateway:
             dividend_yield=_safe_decimal(
                 data.get("dividendYield") or data.get("dividend_yield")
             ),
-            source="openbb",
+            source="local",
         )
 
     # ── Historical Prices ────────────────────────────────────────────────
@@ -526,12 +530,40 @@ class EnrichmentGateway:
 
         # Cache stale and/or incomplete — refetch from OpenBB.
         if self._degraded:
-            # Source unavailable: serve cache, flagging staleness.
-            return PriceHistoryResult(
-                observations=local,
-                stale=bool(local) and cache_stale,
-                as_of=latest_ts,
-            )
+            # OpenBB is optional.  Use the public Yahoo chart endpoint as a
+            # provider-neutral fallback so an empty local cache can still be
+            # hydrated for exchange-qualified tickers such as BESI:XAMS.
+            try:
+                observations = await self._fetch_yahoo_history(
+                    identifier=identifier,
+                    interval=interval,
+                    start_date=start_date,
+                    end_date=end_date,
+                    limit=limit,
+                )
+                for obs in observations:
+                    obs.security_id = security_id
+                await self._price_store.store_prices(observations)
+                combined = await self._price_store.get_price_history(
+                    security_id=security_id,
+                    interval=interval,
+                    start=start_date,
+                    end=end_date,
+                    limit=limit,
+                )
+                combined_ts = combined[0].timestamp if combined else None
+                return PriceHistoryResult(
+                    observations=combined,
+                    stale=False,
+                    as_of=combined_ts,
+                )
+            except (httpx.HTTPError, ValueError, KeyError, TypeError):
+                # Source unavailable: serve cache, flagging staleness.
+                return PriceHistoryResult(
+                    observations=local,
+                    stale=bool(local) and cache_stale,
+                    as_of=latest_ts,
+                )
 
         try:
             observations = await self._fetch_openbb_history(
@@ -564,12 +596,37 @@ class EnrichmentGateway:
                 as_of=combined_ts,
             )
         except httpx.HTTPError:
-            # Source down: serve the cache, flagging staleness.
-            return PriceHistoryResult(
-                observations=local,
-                stale=bool(local) and cache_stale,
-                as_of=latest_ts,
-            )
+            try:
+                observations = await self._fetch_yahoo_history(
+                    identifier=identifier,
+                    interval=interval,
+                    start_date=start_date,
+                    end_date=end_date,
+                    limit=limit,
+                )
+                for obs in observations:
+                    obs.security_id = security_id
+                await self._price_store.store_prices(observations)
+                combined = await self._price_store.get_price_history(
+                    security_id=security_id,
+                    interval=interval,
+                    start=start_date,
+                    end=end_date,
+                    limit=limit,
+                )
+                combined_ts = combined[0].timestamp if combined else None
+                return PriceHistoryResult(
+                    observations=combined,
+                    stale=False,
+                    as_of=combined_ts,
+                )
+            except (httpx.HTTPError, ValueError, KeyError, TypeError):
+                # Source down: serve the cache, flagging staleness.
+                return PriceHistoryResult(
+                    observations=local,
+                    stale=bool(local) and cache_stale,
+                    as_of=latest_ts,
+                )
 
     async def _fetch_openbb_history(
         self,
@@ -611,13 +668,76 @@ class EnrichmentGateway:
                 price_low=_safe_decimal(item.get("low")),
                 price_close=_safe_decimal(item.get("close")),
                 volume=_safe_decimal(item.get("volume")),
-                source="openbb",
+                source="local",
                 interval=interval,
                 currency_code=item.get("currency", "EUR"),
                 provider_metadata=item.get("provider_metadata"),
             )
             for item in data
         ]
+
+    async def _fetch_yahoo_history(
+        self,
+        identifier: str,
+        interval: str,
+        *,
+        start_date: datetime | None,
+        end_date: datetime | None,
+        limit: int,
+    ) -> list[PriceObservation]:
+        """Fetch daily history from Yahoo's chart endpoint as a fallback."""
+        if interval != "1d":
+            message = "Yahoo fallback supports daily prices only"
+            raise ValueError(message)
+        symbol = _yahoo_symbol(identifier)
+        if symbol is None:
+            message = "Yahoo fallback requires an exchange-qualified ticker"
+            raise ValueError(message)
+
+        end = end_date or datetime.now(UTC)
+        start = start_date or (end - timedelta(days=max(limit * 2, 365)))
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(self._settings.openbb_request_timeout),
+            headers={"User-Agent": "finance-sync/0.7"},
+        ) as client:
+            response = await client.get(
+                f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}",
+                params={
+                    "period1": int(start.timestamp()),
+                    "period2": int((end + timedelta(days=1)).timestamp()),
+                    "interval": "1d",
+                    "events": "history",
+                },
+            )
+        response.raise_for_status()
+        payload = response.json()
+        result = cast(dict[str, Any], payload["chart"]["result"][0])
+        timestamps = cast(list[int], result.get("timestamp") or [])
+        indicators = cast(dict[str, Any], result.get("indicators") or {})
+        quote = cast(dict[str, Any], (indicators.get("quote") or [{}])[0])
+        meta = cast(dict[str, Any], result.get("meta") or {})
+        currency = str(meta.get("currency") or "EUR").upper()
+        observations: list[PriceObservation] = []
+        for index, timestamp in enumerate(timestamps):
+            close = _series_value(quote.get("close"), index)
+            if close is None:
+                continue
+            observations.append(
+                PriceObservation(
+                    security_id="",
+                    timestamp=datetime.fromtimestamp(timestamp, tz=UTC),
+                    price_open=_series_value(quote.get("open"), index),
+                    price_high=_series_value(quote.get("high"), index),
+                    price_low=_series_value(quote.get("low"), index),
+                    price_close=close,
+                    volume=_series_value(quote.get("volume"), index),
+                    source="yahoo",
+                    interval="1d",
+                    currency_code=currency,
+                    venue=symbol.rsplit(".", 1)[-1].upper(),
+                )
+            )
+        return observations[-limit:]
 
     # ── Enrichment Freshness ─────────────────────────────────────────────
 
@@ -674,6 +794,37 @@ def _safe_decimal(value: Any) -> Decimal | None:
         return Decimal(str(value))
     except (ValueError, TypeError, ArithmeticError):
         return None
+
+
+def _series_value(values: Any, index: int) -> Decimal | None:
+    """Read one nullable Yahoo series value as a Decimal."""
+    if not isinstance(values, list):
+        return None
+    values_list = cast(list[Any], values)
+    if index >= len(values_list):
+        return None
+    return _safe_decimal(values_list[index])
+
+
+def _yahoo_symbol(identifier: str) -> str | None:
+    """Map common MIC-qualified tickers to Yahoo symbols."""
+    raw = identifier.strip().upper()
+    if ":" not in raw:
+        return None
+    ticker, mic = raw.rsplit(":", 1)
+    suffixes = {
+        "XAMS": "AS",
+        "XETR": "DE",
+        "XFRA": "F",
+        "XLON": "L",
+        "XNYS": "NY",
+        "XNAS": "OQ",
+        "XSWX": "SW",
+        "XCSE": "CO",
+        "XSTO": "ST",
+    }
+    suffix = suffixes.get(mic)
+    return f"{ticker}.{suffix}" if ticker and suffix else None
 
 
 def _parse_timestamp(raw: str | None) -> datetime:

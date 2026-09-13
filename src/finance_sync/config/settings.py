@@ -303,6 +303,14 @@ class Settings(BaseSettings):
         validation_alias="ACTUAL_BUDGET_BATCH_SIZE",
         description="Max transactions per export batch.",
     )
+    actual_budget_transfer_account_name_overrides: dict[str, str] = Field(
+        default_factory=dict,
+        validation_alias="ACTUAL_BUDGET_TRANSFER_ACCOUNT_NAME_OVERRIDES",
+        description=(
+            "JSON mapping from canonical counterparty account references "
+            "to Actual Budget account names."
+        ),
+    )
 
     # ── Securo exporter ─────────────────────────────────────────────
     exporter_securo_enabled: bool = Field(
@@ -405,6 +413,37 @@ class Settings(BaseSettings):
         validation_alias="WEALTHFOLIO_PASSWORD",
         description="Password for Wealthfolio self-hosted authentication.",
     )
+    wealthfolio_request_timeout: float = Field(
+        default=90.0,
+        ge=30.0,
+        validation_alias="WEALTHFOLIO_REQUEST_TIMEOUT",
+        description=(
+            "HTTP request timeout in seconds for the Wealthfolio push API. "
+            "Defaults above the server-side WF_REQUEST_TIMEOUT_MS cap (30s) "
+            "so a slow holdings recalculation is not cut off by the client; "
+            "raise together with the server cap for very large portfolios."
+        ),
+    )
+    destination_remote_probe_enabled: bool = Field(
+        default=True,
+        validation_alias="DESTINATION_REMOTE_PROBE_ENABLED",
+        description=(
+            "Allow explicit destination-test actions to make bounded remote "
+            "parity probes."
+        ),
+    )
+    destination_probe_rate_limit_max_requests: int = Field(
+        default=10,
+        ge=1,
+        validation_alias="DESTINATION_PROBE_RATE_LIMIT_MAX_REQUESTS",
+        description="Maximum remote destination probes per target/window.",
+    )
+    destination_probe_rate_limit_window_seconds: int = Field(
+        default=60,
+        ge=1,
+        validation_alias="DESTINATION_PROBE_RATE_LIMIT_WINDOW_SECONDS",
+        description="Sliding/fixed destination probe rate-limit window.",
+    )
 
     # ── Firefly III exporter ─────────────────────────────────────────
     exporter_firefly_enabled: bool = Field(
@@ -437,6 +476,20 @@ class Settings(BaseSettings):
     firefly_account_name_overrides: dict[str, str] = Field(
         default_factory=dict,
         validation_alias="FIREFLY_ACCOUNT_NAME_OVERRIDES",
+    )
+    firefly_budget_name_map: dict[str, str] = Field(
+        default_factory=dict,
+        validation_alias="FIREFLY_BUDGET_NAME_MAP",
+        description=(
+            "JSON mapping from canonical categories to Firefly budgets."
+        ),
+    )
+    firefly_bill_name_map: dict[str, str] = Field(
+        default_factory=dict,
+        validation_alias="FIREFLY_BILL_NAME_MAP",
+        description=(
+            "JSON mapping from canonical categories to Firefly bills."
+        ),
     )
 
     # ── Ghostfolio exporter ──────────────────────────────────────────
@@ -673,6 +726,31 @@ class Settings(BaseSettings):
         description="Port for the worker health HTTP server.",
     )
 
+    # ── Autoscaling safety ────────────────────────────────────────
+    # Keep scale-up and scale-down thresholds apart (hysteresis) and
+    # hold a worker count stable during cooldown. Workers with active
+    # leases are drained before they are stopped.
+    autoscaling_scale_up_queue_depth: int = Field(
+        default=50,
+        ge=1,
+        validation_alias="AUTOSCALING_SCALE_UP_QUEUE_DEPTH",
+    )
+    autoscaling_scale_down_queue_depth: int = Field(
+        default=10,
+        ge=0,
+        validation_alias="AUTOSCALING_SCALE_DOWN_QUEUE_DEPTH",
+    )
+    autoscaling_cooldown_seconds: int = Field(
+        default=60,
+        ge=0,
+        validation_alias="AUTOSCALING_COOLDOWN_SECONDS",
+    )
+    autoscaling_drain_timeout_seconds: int = Field(
+        default=300,
+        ge=1,
+        validation_alias="AUTOSCALING_DRAIN_TIMEOUT_SECONDS",
+    )
+
     # ── Worker: bunq sync job ──────────────────────────────────────
     worker_job_bunq_sync_enabled: bool = Field(
         default=True,
@@ -710,6 +788,14 @@ class Settings(BaseSettings):
         default=1,
         ge=1,
         validation_alias="WORKER_JOB_TRADING212_SYNC_INTERVAL_HOURS",
+    )
+    sync_run_stale_after_minutes: int = Field(
+        default=360,
+        ge=30,
+        validation_alias="SYNC_RUN_STALE_AFTER_MINUTES",
+        description=(
+            "Age after which a worker-orphaned running sync is recovered."
+        ),
     )
 
     # ── DEGIRO file imports ────────────────────────────────────────
@@ -780,6 +866,108 @@ class Settings(BaseSettings):
         validation_alias="WORKER_JOB_PRICE_ENRICHMENT_MARKET_CLOSE",
         description="Market close time (EST) for price enrichment "
         "window, e.g. '16:00'.",
+    )
+    worker_job_data_quality_repair_enabled: bool = Field(
+        default=False,
+        validation_alias="WORKER_JOB_DATA_QUALITY_REPAIR_ENABLED",
+        description="Continuously repair verifiable identity and quote issues.",
+    )
+    worker_job_data_quality_repair_interval_minutes: int = Field(
+        default=60,
+        ge=5,
+        validation_alias="WORKER_JOB_DATA_QUALITY_REPAIR_INTERVAL_MINUTES",
+    )
+    remediation_enabled: bool = Field(
+        default=False,
+        validation_alias="REMEDIATION_ENABLED",
+        description="Enable the bounded asynchronous remediation worker.",
+    )
+    remediation_poll_interval_minutes: int = Field(
+        default=60,
+        ge=1,
+        validation_alias="REMEDIATION_POLL_INTERVAL_MINUTES",
+    )
+    remediation_claim_limit: int = Field(
+        default=20, ge=1, le=200, validation_alias="REMEDIATION_CLAIM_LIMIT"
+    )
+    remediation_lease_seconds: int = Field(
+        default=300,
+        ge=30,
+        le=3600,
+        validation_alias="REMEDIATION_LEASE_SECONDS",
+    )
+    remediation_quota_requests: int = Field(
+        default=60,
+        ge=1,
+        le=10000,
+        validation_alias="REMEDIATION_QUOTA_REQUESTS",
+    )
+    remediation_quota_window_seconds: int = Field(
+        default=60,
+        ge=1,
+        le=86400,
+        validation_alias="REMEDIATION_QUOTA_WINDOW_SECONDS",
+    )
+    remediation_retention_days: int = Field(
+        default=365,
+        ge=30,
+        le=3650,
+        validation_alias="REMEDIATION_RETENTION_DAYS",
+    )
+    remediation_max_execution_seconds: int = Field(
+        default=300,
+        ge=1,
+        le=3600,
+        validation_alias="REMEDIATION_MAX_EXECUTION_SECONDS",
+    )
+    remediation_max_verification_attempts: int = Field(
+        default=3,
+        ge=1,
+        le=20,
+        validation_alias="REMEDIATION_MAX_VERIFICATION_ATTEMPTS",
+    )
+    remediation_retry_base_seconds: float = Field(
+        default=30.0,
+        gt=0,
+        le=3600,
+        validation_alias="REMEDIATION_RETRY_BASE_SECONDS",
+    )
+    remediation_retry_cap_seconds: float = Field(
+        default=3600.0,
+        gt=0,
+        le=86400,
+        validation_alias="REMEDIATION_RETRY_CAP_SECONDS",
+    )
+    remediation_retry_jitter: float = Field(
+        default=0.2,
+        ge=0,
+        le=1,
+        validation_alias="REMEDIATION_RETRY_JITTER",
+    )
+    wealthfolio_health_bridge_enabled: bool = Field(
+        default=False,
+        validation_alias="WEALTHFOLIO_HEALTH_BRIDGE_ENABLED",
+        description=(
+            "Poll active Wealthfolio targets for bounded health issues."
+        ),
+    )
+    wealthfolio_health_bridge_interval_minutes: int = Field(
+        default=15,
+        ge=1,
+        le=1440,
+        validation_alias="WEALTHFOLIO_HEALTH_BRIDGE_INTERVAL_MINUTES",
+    )
+    wealthfolio_health_bridge_target_limit: int = Field(
+        default=20,
+        ge=1,
+        le=200,
+        validation_alias="WEALTHFOLIO_HEALTH_BRIDGE_TARGET_LIMIT",
+    )
+    wealthfolio_health_bridge_issue_limit: int = Field(
+        default=100,
+        ge=1,
+        le=1000,
+        validation_alias="WEALTHFOLIO_HEALTH_BRIDGE_ISSUE_LIMIT",
     )
 
     # ── Worker: Nightly reconciliation job ─────────────────────────

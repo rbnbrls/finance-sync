@@ -9,9 +9,10 @@ The harness is environment-driven so the same tests run in CI (GitHub
 Actions service containers) and locally (docker compose or an existing
 PG/Redis on localhost):
 
-* ``TEST_DATABASE_URL`` — asyncpg DSN (default
-  ``postgresql+asyncpg://postgres:postgres@localhost:5432/finance_sync_test``)
-* ``TEST_REDIS_URL`` — redis DSN (default ``redis://localhost:6379/15``)
+* ``TEST_DATABASE_URL`` — asyncpg DSN. The Makefile test stack uses
+  ``postgresql+asyncpg://postgres:postgres@localhost:5433/finance_sync_test``.
+* ``TEST_REDIS_URL`` — redis DSN. The Makefile test stack uses
+  ``redis://localhost:6380/15``.
 
 When the env vars are **not** set the whole suite is skipped with a pointer
 to the README, so a plain ``pytest`` run (unit suite) stays fast and green
@@ -23,8 +24,8 @@ Run locally:
 
 or manually:
 
-    TEST_DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/finance_sync_test \
-    TEST_REDIS_URL=redis://localhost:6379/15 \
+    TEST_DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5433/finance_sync_test \
+    TEST_REDIS_URL=redis://localhost:6380/15 \
     uv run pytest -m integration -v
 """
 # pyright: basic
@@ -34,11 +35,13 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
 import sqlalchemy as sa
+from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -53,9 +56,9 @@ if TYPE_CHECKING:
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
 DEFAULT_DATABASE_URL = (
-    "postgresql+asyncpg://postgres:postgres@localhost:5432/finance_sync_test"
+    "postgresql+asyncpg://postgres:postgres@localhost:5433/finance_sync_test"
 )
-DEFAULT_REDIS_URL = "redis://localhost:6379/15"
+DEFAULT_REDIS_URL = "redis://localhost:6380/15"
 
 
 def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
@@ -165,6 +168,40 @@ def run_alembic(*argv: str, url: str) -> None:
             f"alembic {' '.join(argv)} failed (exit {result.returncode})\n"
             f"stdout: {result.stdout[-2000:]}\nstderr: {result.stderr[-2000:]}"
         )
+
+
+@pytest.fixture(scope="module")
+async def fresh_database_url(
+    database_url: str,
+) -> AsyncGenerator[str, None]:
+    """Create and clean up an isolated database for migration tests."""
+    url = make_url(database_url)
+    db_name = f"finance_sync_migtest_{uuid.uuid4().hex[:8]}"
+    admin_url = url.set(database="postgres")
+    admin_engine = create_async_engine(
+        admin_url.render_as_string(hide_password=False),
+        isolation_level="AUTOCOMMIT",
+    )
+    try:
+        async with admin_engine.connect() as conn:
+            await conn.execute(sa.text(f'CREATE DATABASE "{db_name}"'))
+    finally:
+        await admin_engine.dispose()
+    fresh_url = url.set(database=db_name)
+    try:
+        yield fresh_url.render_as_string(hide_password=False)
+    finally:
+        drop_engine = create_async_engine(
+            admin_url.render_as_string(hide_password=False),
+            isolation_level="AUTOCOMMIT",
+        )
+        try:
+            async with drop_engine.connect() as conn:
+                await conn.execute(
+                    sa.text(f'DROP DATABASE IF EXISTS "{db_name}" WITH (FORCE)')
+                )
+        finally:
+            await drop_engine.dispose()
 
 
 # ── Database fixtures ────────────────────────────────────────────────

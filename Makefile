@@ -1,4 +1,4 @@
-.PHONY: install lint format type test test-cov coverage clean test-integration integration-up integration-down test-e2e e2e-up e2e-down
+.PHONY: install lint format type test test-cov coverage clean test-collect test-integration integration-up integration-down test-e2e e2e-up e2e-down ci-fast
 
 # ── Setup ──────────────────────────────────────────────────────────
 install:                           ## Install all dependencies (prod + dev)
@@ -13,23 +13,24 @@ uv-lock:                           ## Regenerate uv.lock from pyproject.toml
 
 # ── Linting ────────────────────────────────────────────────────────
 lint:                              ## Lint all Python files with Ruff
-	ruff check src tests
+	uv run ruff check src tests
 
 lint-fix:                          ## Lint and auto-fix
-	ruff check --fix src tests
+	uv run ruff check --fix src tests
 
 format:                            ## Format all Python files with Ruff
-	ruff format src tests
+	uv run ruff format src tests
 
 format-check:                      ## Check formatting (CI use)
-	ruff format --check src tests
+	uv run ruff format --check src tests
 
 # ── Type checking ──────────────────────────────────────────────────
-type:                              ## Type-check with Pyright (strict)
-	pyright src tests
+type:                              ## Type-check source and tests with CI's configs
+	uv run pyright -p pyproject.toml src
+	uv run pyright -p pyrightconfig.tests.json tests
 
 type-ci:                           ## Type-check with Pyright in CI mode
-	pyright src tests --verifytypes finance_sync
+	uv run pyright src tests --verifytypes finance_sync
 
 # ── Testing ────────────────────────────────────────────────────────
 test:                              ## Run unit tests with pytest (excludes integration + e2e)
@@ -41,8 +42,14 @@ test-cov:                          ## Run unit tests with coverage report
 test-cov-xml:                      ## Run unit tests with XML coverage (CI)
 	pytest -m "not integration and not e2e" --cov=finance_sync --cov-report=xml
 
+test-collect:                      ## Collect every test without executing it
+	uv run pytest --collect-only -q
+
 test-ci:                           ## CI unit test run (sequential, coverage threshold)
-	APP_ENVIRONMENT=dev DEBUG=false uv run pytest -m "not integration and not e2e" --cov=finance_sync --cov-report=term --cov-report=xml --junitxml=junit.xml
+	APP_ENVIRONMENT=dev DEBUG=false uv run pytest -m "not integration and not e2e" --cov=finance_sync --cov-report=term --cov-report=xml --cov-fail-under=74 --junitxml=junit.xml
+
+ci-fast:                           ## Run the complete fast PR quality gate locally
+	make format-check lint type test-collect test-ci
 
 # ── Integration tests (real PostgreSQL + Redis) ─────────────────────
 # Spins up ephemeral PG+Redis via docker compose and runs the
@@ -57,6 +64,8 @@ integration-down:                  ## Stop ephemeral integration services
 	docker compose -f docker-compose.test.yml down
 
 test-integration:                  ## Run the integration suite (requires Docker)
+	trap 'make integration-down' EXIT; \
+	make integration-up; \
 	DEBUG=false TEST_DATABASE_URL=$(TEST_DATABASE_URL) TEST_REDIS_URL=$(TEST_REDIS_URL) \
 		uv run pytest -m integration -v
 
@@ -71,6 +80,8 @@ e2e-down:                          ## Stop ephemeral e2e services
 	docker compose -f docker-compose.test.yml down
 
 test-e2e:                          ## Run the e2e suite (requires Docker)
+	trap 'make e2e-down' EXIT; \
+	make e2e-up; \
 	DEBUG=false TEST_DATABASE_URL=$(TEST_DATABASE_URL) TEST_REDIS_URL=$(TEST_REDIS_URL) \
 		uv run pytest -m e2e -v
 

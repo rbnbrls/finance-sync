@@ -906,11 +906,7 @@ class TestConfigurableCadence:
         # Unset min_interval falls back to the adapter default (900 s).
         assert sec_press.freshness.min_interval.total_seconds() == 900
 
-        openbb = registry.get("openbb")
-        assert openbb is not None
-        assert openbb.freshness.min_interval.total_seconds() == 300
-        # Unset max_age falls back to the adapter default (21600 s).
-        assert openbb.freshness.max_age.total_seconds() == 21600
+        assert registry.get("openbb") is None
 
     async def test_registry_defaults_when_no_overrides(self) -> None:
         """Without overrides the adapter defaults apply."""

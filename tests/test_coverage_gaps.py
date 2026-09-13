@@ -16,13 +16,19 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from finance_sync.api.deps.auth import AuthContext
+from finance_sync.api.v1 import file_uploads as file_uploads_api
 from finance_sync.api.v1.file_uploads import (
     _csv_mapping,
     _detect,
     _inspect_path,
     _normalise,
+    list_file_upload_runs,
 )
-from finance_sync.api.v1.market_data import _live_quote, _parse_options
+from finance_sync.api.v1.market_data import (
+    _live_quote,
+    _local_quote,
+    _parse_options,
+)
 from finance_sync.api.v1.webhooks import (
     CreateWebhookRequest,
     _get_service,
@@ -93,6 +99,107 @@ def test_upload_detects_manual_json_and_unknown_file(tmp_path: Path) -> None:
     unknown_markers, evidence = _inspect_path(unknown)
     assert _detect(unknown_markers)[0] is None
     assert evidence == []
+
+
+@pytest.mark.asyncio
+async def test_file_upload_history_projects_provider_from_join() -> None:
+    """The shared history endpoint returns the joined provider key."""
+    run = SimpleNamespace(
+        id="run-1",
+        created_at=datetime(2026, 8, 28, tzinfo=UTC),
+        file_names=["positions.xlsx"],
+        created_count=2,
+        updated_count=1,
+        safe_error=None,
+        rows_total=0,
+        skipped_count=0,
+        rejected_count=0,
+        warnings=[],
+        period_start=None,
+        period_end=None,
+        attempt=1,
+        status="completed",
+    )
+    db = MagicMock()
+    db.execute = AsyncMock(
+        return_value=SimpleNamespace(
+            all=MagicMock(
+                return_value=[(run, "saxo_investor", '{"_label":"Mijn Saxo"}')]
+            )
+        )
+    )
+
+    result = await list_file_upload_runs(
+        auth=SimpleNamespace(tenant_id="tenant-1"),
+        db=db,
+    )
+
+    assert [item.model_dump() for item in result] == [
+        {
+            "id": "run-1",
+            "created_at": run.created_at,
+            "file_names": ["positions.xlsx"],
+            "status": "completed",
+            "created_count": 2,
+            "updated_count": 1,
+            "provider_type": "saxo_investor",
+            "profile_name": "Mijn Saxo",
+            "period_start": None,
+            "period_end": None,
+            "rows_total": 0,
+            "skipped_count": 0,
+            "rejected_count": 0,
+            "warnings": [],
+            "error": None,
+            "attempt": 1,
+            "retryable": False,
+        }
+    ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("provider", "target"),
+    [
+        ("degiro_pension", "preview_degiro_import"),
+        ("saxo_investor", "import_saxo_files"),
+        ("csv_import", "import_generic_file"),
+        ("manual_expense", "import_generic_file"),
+    ],
+)
+async def test_file_upload_dispatch_routes_each_provider(
+    monkeypatch: pytest.MonkeyPatch, provider: str, target: str
+) -> None:
+    """The public upload contract delegates to the correct adapter."""
+    adapter = AsyncMock(return_value={"provider": provider})
+    monkeypatch.setattr(file_uploads_api, target, adapter)
+
+    result = await file_uploads_api.dispatch_file_import(
+        request=SimpleNamespace(),
+        provider_type=provider,
+        connection_id="connection-1",
+        files=[],
+        auth=SimpleNamespace(tenant_id="tenant-1"),
+        db=MagicMock(),
+    )
+
+    assert result == {"provider": provider}
+    adapter.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_file_upload_dispatch_rejects_unknown_provider() -> None:
+    with pytest.raises(file_uploads_api.HTTPException) as exc_info:
+        await file_uploads_api.dispatch_file_import(
+            request=SimpleNamespace(),
+            provider_type="unknown",
+            connection_id="connection-1",
+            files=[],
+            auth=SimpleNamespace(tenant_id="tenant-1"),
+            db=MagicMock(),
+        )
+
+    assert exc_info.value.status_code == 422
 
 
 class _AsyncContext:
@@ -544,6 +651,50 @@ async def test_market_data_live_quote_without_connection_raises_404(
     assert error.value.status_code == 404
 
 
+@pytest.mark.asyncio
+async def test_market_data_local_quote_prefers_current_holding(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The custom-provider endpoint must expose the broker snapshot value."""
+    security = SimpleNamespace(
+        id="security-1",
+        ticker="BESI",
+        isin="NL0012866412",
+        currency_code="EUR",
+    )
+    holding = SimpleNamespace(
+        price=Decimal("192.30"),
+        market_value=Decimal("1923.00"),
+        quantity=10,
+        price_currency="EUR",
+        currency_code="EUR",
+        observed_at=datetime(2026, 9, 1, 12, 0, tzinfo=UTC),
+        source="provider_sync",
+    )
+    monkeypatch.setattr(
+        "finance_sync.api.v1.market_data._security",
+        AsyncMock(return_value=security),
+    )
+    db = MagicMock()
+    db.execute = AsyncMock(
+        return_value=SimpleNamespace(
+            scalars=lambda: SimpleNamespace(first=lambda: holding)
+        )
+    )
+
+    result = await _local_quote(db, MagicMock(), _auth(), "BESI:XAMS")
+
+    assert result == {
+        "symbol": "BESI",
+        "isin": "NL0012866412",
+        "price": 192.30,
+        "currency": "EUR",
+        "timestamp": "2026-09-01T12:00:00+00:00",
+        "date": "2026-09-01",
+        "source": "finance-sync:provider_sync",
+    }
+
+
 class _Scheduler:
     def __init__(self, running: bool) -> None:
         self.running = running
@@ -827,6 +978,56 @@ async def test_holdings_stage_persists_resolved_and_tracks_unresolved() -> None:
 
 
 @pytest.mark.asyncio
+async def test_holdings_stage_merges_duplicate_resolved_security_snapshots() -> (
+    None
+):
+    from finance_sync.connectors.models import (
+        CanonicalHoldingData,
+        SecurityReference,
+    )
+
+    writer = MagicMock()
+    writer.resolve_security_reference = AsyncMock(
+        side_effect=[
+            (SimpleNamespace(id="security-1"), None),
+            (SimpleNamespace(id="security-1"), None),
+        ]
+    )
+    writer.persist_holding = AsyncMock()
+    observed = datetime(2026, 1, 1, tzinfo=UTC)
+    holdings = [
+        CanonicalHoldingData(
+            provider_key="trading212",
+            external_account_id="account-1",
+            observed_at=observed,
+            quantity=2,
+            security_reference=SecurityReference(isin="US0000000001"),
+            cost_basis=100,
+            market_value=120,
+        ),
+        CanonicalHoldingData(
+            provider_key="trading212",
+            external_account_id="account-1",
+            observed_at=observed,
+            quantity=3,
+            security_reference=SecurityReference(isin="US0000000002"),
+            cost_basis=150,
+            market_value=180,
+        ),
+    ]
+
+    result = await HoldingsSyncStage(writer).run(
+        MagicMock(), holdings, account_id="account-1", provider_key="trading212"
+    )
+
+    assert result.count == 1
+    merged = writer.persist_holding.await_args.args[1]
+    assert merged.quantity == 5
+    assert merged.cost_basis == 250
+    assert merged.market_value == 300
+
+
+@pytest.mark.asyncio
 async def test_portfolio_read_returns_empty_shapes() -> None:
     first_result = MagicMock()
     first_result.scalars.return_value.all.return_value = []
@@ -961,9 +1162,16 @@ async def test_worker_enrich_prices_selects_identifiers_and_counts_failures(
     )
     monkeypatch.setattr("finance_sync.db.uow.UnitOfWork", lambda _session: uow)
     gateway = SimpleNamespace(
+        get_historical_prices=AsyncMock(
+            side_effect=[
+                SimpleNamespace(observations=[1]),
+                SimpleNamespace(observations=[]),
+                SimpleNamespace(observations=[1, 2]),
+            ]
+        ),
         get_latest_quote=AsyncMock(
             side_effect=[{"price": 1}, None, RuntimeError("provider down")]
-        )
+        ),
     )
     container = SimpleNamespace(
         enrichment_gateway=gateway,
@@ -972,7 +1180,12 @@ async def test_worker_enrich_prices_selects_identifiers_and_counts_failures(
 
     result = await jobs.enrich_prices_job(container)
 
-    assert result == {"enriched": 1, "failed": 2}
+    assert result == {
+        "enriched": 1,
+        "failed": 2,
+        "historical_observations": 3,
+        "historical_failed": 0,
+    }
     assert [
         call.kwargs["identifier_type"]
         for call in gateway.get_latest_quote.await_args_list
@@ -2102,12 +2315,11 @@ async def test_worker_connection_loader_skips_failed_decryption(
         info={"settings": MagicMock()},
         execute=AsyncMock(
             return_value=SimpleNamespace(
-                scalars=lambda: SimpleNamespace(all=lambda: [broken, plain])
+                all=lambda: [(broken, tenant), (plain, tenant)]
             )
         ),
     )
     uow = SimpleNamespace(
-        tenants=SimpleNamespace(list=AsyncMock(return_value=[tenant])),
         session=session,
     )
     monkeypatch.setattr(
@@ -2139,13 +2351,10 @@ async def test_worker_connection_loader_decrypts_credentials(
     session = SimpleNamespace(
         info={"settings": MagicMock()},
         execute=AsyncMock(
-            return_value=SimpleNamespace(
-                scalars=lambda: SimpleNamespace(all=lambda: [credential])
-            )
+            return_value=SimpleNamespace(all=lambda: [(credential, tenant)])
         ),
     )
     uow = SimpleNamespace(
-        tenants=SimpleNamespace(list=AsyncMock(return_value=[tenant])),
         session=session,
     )
     monkeypatch.setattr(
@@ -2523,6 +2732,41 @@ async def test_transaction_persistence_updates_and_normalises_unknown_values(
 
 
 @pytest.mark.asyncio
+async def test_transaction_persistence_preserves_corporate_action_type(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from finance_sync.connectors.models import CanonicalTransactionData
+    from finance_sync.sync import persistence
+    from finance_sync.sync.persistence import TransactionPersistence
+
+    transaction = CanonicalTransactionData(
+        provider_key="trading212",
+        external_transaction_id="split-1",
+        external_account_id="account-1",
+        amount=Decimal(0),
+        occurred_at=datetime.now(UTC),
+        transaction_type="corporate_action",
+        status="booked",
+    )
+    session = SimpleNamespace(add=MagicMock(), flush=AsyncMock())
+    uow = SimpleNamespace(
+        session=session,
+        transactions=SimpleNamespace(
+            get_by_external_id=AsyncMock(return_value=None)
+        ),
+    )
+    created = AsyncMock()
+    monkeypatch.setattr(persistence, "outbox_entity_created", created)
+
+    result = await TransactionPersistence("tenant-1").persist_transaction(
+        uow, transaction, "account-1", security_id="security-1"
+    )
+
+    assert result.transaction_type.value == "corporate_action"
+    created.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_webhook_active_query_scopes_by_tenant() -> None:
     webhook = SimpleNamespace(id="wh-1")
 
@@ -2676,8 +2920,10 @@ def test_degiro_import_helpers_cover_invalid_names_and_options(
     assert staged.is_dir()
     assert staged.stat().st_mode & 0o777 == 0o700
 
-    with pytest.raises(ImportValidationError, match="formaat"):
-        _safe_name("export.txt", 1)
+    assert _safe_name("export.txt", 1)[1] == ".txt"
+    assert _safe_name("expenses.json", 1)[1] == ".json"
+    with pytest.raises(ImportValidationError, match="ondersteund"):
+        _safe_name("export.pdf", 1)
     with pytest.raises(ImportValidationError, match="ongeldig pad"):
         _safe_name("../export.csv", 1)
 
@@ -2804,6 +3050,9 @@ async def test_degiro_execute_run_completes_and_cleans_staged_files(
     assert completed.skipped_count == 2
     assert completed.account_id == "account-1"
     assert not path.exists()
+    assert orchestrator.run_sync.await_args.kwargs["connection_id"] == (
+        "connection-1"
+    )
 
 
 @pytest.mark.asyncio
@@ -3661,6 +3910,54 @@ async def test_security_resolution_honours_mapping_and_figi_fallback() -> None:
     )
     assert result is candidate
     assert unresolved is None
+
+
+@pytest.mark.asyncio
+async def test_security_resolution_enriches_existing_provider_mapping() -> None:
+    from finance_sync.connectors.models import SecurityReference
+    from finance_sync.sync.persistence import SecurityPersistence
+
+    resolved = SimpleNamespace(
+        id="security-resolved",
+        ticker="AVGO_US_EQ",
+        name="AVGO_US_EQ",
+        isin=None,
+        figi=None,
+        currency_code="EUR",
+    )
+    uow = SimpleNamespace(
+        unresolved_securities=SimpleNamespace(
+            list=AsyncMock(
+                return_value=[
+                    SimpleNamespace(resolved_security_id="security-resolved")
+                ]
+            )
+        ),
+        securities=SimpleNamespace(get=AsyncMock(return_value=resolved)),
+    )
+
+    result, unresolved = await SecurityPersistence(
+        "tenant-1"
+    ).resolve_security_reference(
+        uow,
+        "trading212",
+        SecurityReference(
+            external_id="AVGO_US_EQ",
+            ticker="AVGO",
+            name="Broadcom Inc.",
+            isin="US11135F1012",
+            currency_code="USD",
+        ),
+    )
+
+    assert result is resolved
+    assert unresolved is None
+    assert resolved.name == "Broadcom Inc."
+    assert resolved.ticker == "AVGO"
+    # A manual/provider mapping is authoritative; a ticker mapping must not
+    # fill an ISIN that could belong to a different canonical security.
+    assert resolved.isin is None
+    assert resolved.currency_code == "USD"
 
 
 @pytest.mark.asyncio

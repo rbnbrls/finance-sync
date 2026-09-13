@@ -17,7 +17,7 @@ source and generated OpenAPI document before planning work.
 | Enrichment | Price/FX/security enrichment, OpenBB integration and freshness metadata. |
 | Intelligence | SEC EDGAR, SEC press releases and optional OpenBB source adapters, with review queue and holding-relevance feeds. |
 | Operations | API/worker health endpoints, structured logs, optional GlitchTip/Sentry, systemd health monitor and release/migration runbooks. |
-| Quality gates | Ruff, Pyright, pytest, coverage threshold 73%, OpenAPI diff, migration checks and container security checks in CI. |
+| Quality gates | Ruff, Pyright, pytest, coverage threshold 74%, OpenAPI diff, migration checks and container security checks in CI. |
 
 ## Known boundaries
 

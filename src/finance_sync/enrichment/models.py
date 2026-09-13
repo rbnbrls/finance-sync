@@ -27,7 +27,7 @@ class ResolvedSecurity(BaseModel):
         description="Resolution confidence: exact/ticker_only/inferred/manual",
     )
     source: str = Field(
-        default="openbb",
+        default="local",
         description="Data source that resolved the security",
     )
     provider_metadata: dict[str, Any] | None = Field(
@@ -61,7 +61,7 @@ class QuoteResult(BaseModel):
     )
     currency_code: str = Field(default="EUR", description="ISO-4217")
     timestamp: datetime = Field(description="When the quote was observed")
-    source: str = Field(default="openbb")
+    source: str = Field(default="local")
     stale: bool = Field(
         default=False,
         description=(
@@ -123,9 +123,10 @@ class PriceObservation(BaseModel):
     price_low: Decimal | None = Field(default=None)
     price_close: Decimal | None = Field(default=None)
     volume: Decimal | None = Field(default=None)
-    source: str = Field(default="openbb")
+    source: str = Field(default="local")
     interval: str = Field(default="1d")
     currency_code: str = Field(default="EUR")
+    venue: str | None = Field(default=None)
     provider_metadata: dict[str, Any] | None = Field(default=None)
 
 
@@ -142,7 +143,7 @@ class FxRateObservation(BaseModel):
     timestamp: datetime = Field(
         description="When the rate observation was recorded"
     )
-    source: str = Field(default="openbb", description="Data source identifier")
+    source: str = Field(default="local", description="Data source identifier")
 
     def inverse(self) -> FxRateObservation:
         """Return the inverse rate observation (quote → base)."""
@@ -258,7 +259,7 @@ class FundamentalObservationData(BaseModel):
     )
     high_52w: Decimal | None = Field(default=None, description="52-week high")
     low_52w: Decimal | None = Field(default=None, description="52-week low")
-    source: str = Field(default="openbb", description="Data source")
+    source: str = Field(default="local", description="Data source")
 
     provider_metadata: dict[str, Any] | None = Field(default=None)
 
@@ -311,7 +312,7 @@ class SecurityMetadataObservationData(BaseModel):
         default=None,
         description="Human-readable label (e.g. ETF name, sector title)",
     )
-    source: str = Field(default="openbb", description="Data source")
+    source: str = Field(default="local", description="Data source")
 
 
 # ── ETF Composition ─────────────────────────────────────────────────────
@@ -375,7 +376,7 @@ class ETFComposition(BaseModel):
     dividend_yield: Decimal | None = Field(
         default=None, description="Dividend yield"
     )
-    source: str = Field(default="openbb")
+    source: str = Field(default="local")
 
 
 # Rebuild models to resolve forward references caused by

@@ -28,6 +28,7 @@ from finance_sync.models.datamart import (
     DataMartGrant,
 )
 from finance_sync.models.detected_subscription import DetectedSubscription
+from finance_sync.models.duplicate_review import DuplicateReview
 from finance_sync.models.enrichment_freshness import EnrichmentFreshness
 from finance_sync.models.enums import (
     AccountType,
@@ -48,6 +49,7 @@ from finance_sync.models.enums import (
     SubscriptionConfidence,
     SubscriptionStatus,
     SyncRunStatus,
+    TransactionLifecycleEventType,
     TransactionStatus,
     TransactionType,
     UserRole,
@@ -69,6 +71,7 @@ from finance_sync.models.holding_relevance import (
     RelevanceNotificationPreference,
 )
 from finance_sync.models.import_run import ImportRun
+from finance_sync.models.market_data_exception import MarketDataException
 from finance_sync.models.market_intelligence_item import (
     MarketIntelligenceItem,
 )
@@ -88,6 +91,7 @@ from finance_sync.models.reconciliation import (
     ReconciliationRun,
 )
 from finance_sync.models.refresh_token import RefreshToken
+from finance_sync.models.remediation import DataQualityRemediationItem
 from finance_sync.models.resolution_audit_log import ResolutionAuditLog
 from finance_sync.models.scheduled_payment import ScheduledPayment
 from finance_sync.models.security import Security
@@ -96,14 +100,34 @@ from finance_sync.models.security_metadata_observation import (
     SecurityMetadataObservation,
 )
 from finance_sync.models.security_price import SecurityPrice
+from finance_sync.models.spending import (
+    MerchantIdentity,
+    TransactionAnnotation,
+    TransactionSourceReference,
+    TransactionSplit,
+)
+from finance_sync.models.spending_config import (
+    CategoryMapping,
+    DestinationObjectReference,
+    TransactionOverride,
+)
+from finance_sync.models.spending_config import (
+    MerchantMapping as StoredMerchantMapping,
+)
+from finance_sync.models.spending_policy import SpendingPrivacyPolicy
+from finance_sync.models.spending_rule import SpendingRule
 from finance_sync.models.sync_cursor import SyncCursor
 from finance_sync.models.sync_run import SyncRun
 from finance_sync.models.sync_schedule import SyncSchedule
 from finance_sync.models.tax_lot import TaxLot
 from finance_sync.models.tenant import Tenant
 from finance_sync.models.transaction import Transaction
+from finance_sync.models.transaction_event import TransactionLifecycleEvent
 from finance_sync.models.unresolved_security import UnresolvedSecurity
 from finance_sync.models.user import User
+from finance_sync.models.wealthfolio_health_cursor import (
+    WealthfolioHealthCursor,
+)
 from finance_sync.models.webhook import Webhook, WebhookDeliveryLog
 
 # ── Lazy exporter model registration ─────────────────────────────────
@@ -180,6 +204,7 @@ __all__ = [
     "BalanceSource",
     "CardAuthorizationType",
     "CardTransaction",
+    "CategoryMapping",
     "ConnectionAuditLog",
     "ConnectorProvider",
     "ConnectorRelease",
@@ -189,8 +214,11 @@ __all__ = [
     "DataMart",
     "DataMartConsumer",
     "DataMartGrant",
+    "DataQualityRemediationItem",
+    "DestinationObjectReference",
     "DetectedSubscription",
     "DetectionMethod",
+    "DuplicateReview",
     "EnrichmentFreshness",
     "ExportTarget",
     "FundamentalObservation",
@@ -199,10 +227,12 @@ __all__ = [
     "HoldingRelevanceItem",
     "HoldingSource",
     "ImportRun",
+    "MarketDataException",
     "MarketIntelligenceItem",
     "MarketIntelligenceProviderState",
     "MarketIntelligenceReviewQueue",
     "MarketIntelligenceRun",
+    "MerchantIdentity",
     "OutboxMessage",
     "OutboxMessageStatus",
     "ReconciliationResult",
@@ -226,6 +256,9 @@ __all__ = [
     "SecurityMetadataObservation",
     "SecurityPrice",
     "SecurityType",
+    "SpendingPrivacyPolicy",
+    "SpendingRule",
+    "StoredMerchantMapping",
     "SubscriptionConfidence",
     "SubscriptionStatus",
     "SyncCursor",
@@ -238,12 +271,19 @@ __all__ = [
     "TenantAwareMixin",
     "TimestampMixin",
     "Transaction",
+    "TransactionAnnotation",
+    "TransactionLifecycleEvent",
+    "TransactionLifecycleEventType",
+    "TransactionOverride",
+    "TransactionSourceReference",
+    "TransactionSplit",
     "TransactionStatus",
     "TransactionType",
     "UnresolvedSecurity",
     "User",
     "UserRole",
     "WashSaleAdjustmentType",
+    "WealthfolioHealthCursor",
     "Webhook",
     "WebhookDeliveryLog",
     "WebhookDeliveryStatus",

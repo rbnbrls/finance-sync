@@ -28,6 +28,15 @@ router = APIRouter(
 )
 
 
+def _reject_removed_provider(provider_key: str) -> None:
+    """Prevent credentials from being configured for removed providers."""
+    if provider_key.lower() == "openbb":
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Market-intelligence provider 'openbb' is unavailable",
+        )
+
+
 class IntelCredentialStatusResponse(BaseModel):
     """Whether an intel provider has credentials configured."""
 
@@ -86,6 +95,7 @@ async def get_intel_credential_status(
     Never returns the stored secret values — only the key names and a
     sanitised last error.
     """
+    _reject_removed_provider(provider_key)
     container = get_container(request)
     session = container.session_factory()
     try:
@@ -114,6 +124,7 @@ async def set_intel_credential(
     updates merge with existing keys; empty values are ignored.  The
     response never contains the secret values.
     """
+    _reject_removed_provider(provider_key)
     container = get_container(request)
     session = container.session_factory()
     try:
@@ -146,6 +157,7 @@ async def delete_intel_credential(
     ),
 ) -> dict[str, Any]:
     """Delete stored credentials for an intel provider."""
+    _reject_removed_provider(provider_key)
     container = get_container(request)
     session = container.session_factory()
     try:

@@ -7,10 +7,12 @@ Uses sandbox mode to test the connector without network calls.
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
+import httpx
 import pytest
 
 from finance_sync.connectors.models import (
@@ -201,6 +203,103 @@ class TestPlaidLikeConnectorContract:
         txns = await plaid_connector.fetch_transactions(since=since, limit=1)
         assert isinstance(txns, list)
         assert len(txns) <= 1
+
+    async def test_production_fetch_uses_bounded_plaid_date_range(self) -> None:
+        """Production remediation fetches Plaid transactions by date range."""
+        from finance_sync.connectors.plaid_like import PlaidLikeConnector
+
+        requests: list[httpx.Request] = []
+
+        async def handler(request: httpx.Request) -> httpx.Response:
+            requests.append(request)
+            if request.url.path == "/item/get":
+                return httpx.Response(200, json={"item": {"item_id": "item-1"}})
+            return httpx.Response(
+                200,
+                json={
+                    "transactions": [
+                        {
+                            "transaction_id": "txn-1",
+                            "account_id": "acct-1",
+                            "amount": -12.5,
+                            "iso_currency_code": "EUR",
+                            "date": "2026-01-15",
+                            "name": "Coffee",
+                            "merchant_name": "Coffee Bar",
+                            "pending": False,
+                        }
+                    ],
+                    "total_transactions": 1,
+                },
+            )
+
+        client = httpx.AsyncClient(
+            base_url="https://plaid.test",
+            transport=httpx.MockTransport(handler),
+        )
+        connector = PlaidLikeConnector(
+            ConnectorConfig(
+                provider_type="plaid_like",
+                credentials={
+                    "client_id": "client",
+                    "secret": "secret",
+                    "access_token": "access-production",
+                },
+                options={
+                    "environment": "production",
+                    "base_url": "https://plaid.test",
+                },
+            ),
+            http_client=client,
+        )
+
+        await connector.authenticate()
+        transactions = await connector.fetch_transactions(
+            datetime(2026, 1, 1, tzinfo=UTC), account_id="acct-1", limit=1
+        )
+        await client.aclose()
+
+        assert [request.url.path for request in requests] == [
+            "/item/get",
+            "/transactions/get",
+        ]
+        payload = json.loads(requests[1].content)
+        assert payload["start_date"] == "2026-01-01"
+        assert payload["account_id"] == "acct-1"
+        assert payload["count"] == 1
+        assert transactions[0].description == "Coffee Bar"
+
+    async def test_production_rate_limit_is_typed(self) -> None:
+        """Plaid 429 responses become retryable connector errors."""
+        from finance_sync.connectors.exceptions import RateLimitError
+        from finance_sync.connectors.plaid_like import PlaidLikeConnector
+
+        async def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(429, headers={"Retry-After": "7"})
+
+        client = httpx.AsyncClient(
+            base_url="https://plaid.test",
+            transport=httpx.MockTransport(handler),
+        )
+        connector = PlaidLikeConnector(
+            ConnectorConfig(
+                provider_type="plaid_like",
+                credentials={
+                    "client_id": "client",
+                    "secret": "secret",
+                    "access_token": "access-production",
+                },
+                options={
+                    "environment": "production",
+                    "base_url": "https://plaid.test",
+                },
+            ),
+            http_client=client,
+        )
+
+        with pytest.raises(RateLimitError):
+            await connector.authenticate()
+        await client.aclose()
 
     # ── Transform ──────────────────────────────────────────────────────
 

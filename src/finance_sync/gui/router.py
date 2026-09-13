@@ -9,13 +9,33 @@ from __future__ import annotations
 from pathlib import Path
 
 from fastapi import APIRouter, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.templating import Jinja2Templates
 
 _TEMPLATES_DIR = Path(__file__).resolve().parent.parent / "templates"
 templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
+_FAVICON_PATH = (
+    Path(__file__).resolve().parent.parent / "static" / "favicon.svg"
+)
 
 router = APIRouter()
+
+
+@router.get(
+    "/favicon.ico",
+    include_in_schema=False,
+)
+@router.get(
+    "/apple-touch-icon.png",
+    include_in_schema=False,
+)
+@router.get(
+    "/apple-touch-icon-precomposed.png",
+    include_in_schema=False,
+)
+async def gui_favicon() -> FileResponse:
+    """Serve the app icon for browsers and installed mobile shortcuts."""
+    return FileResponse(_FAVICON_PATH, media_type="image/svg+xml")
 
 
 @router.get("/", response_class=HTMLResponse, include_in_schema=False)

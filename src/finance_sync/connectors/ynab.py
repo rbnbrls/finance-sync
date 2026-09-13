@@ -79,6 +79,12 @@ class YnabConnector(Connector):
 
     display_name = "YNAB"
     sdk_version = "0.1.0"
+    remediation_strategies = {
+        "transaction_history_gap": {
+            "endpoint_family": "transaction_history",
+            "batch_limit": 1,
+        }
+    }
 
     rate_limit_policy = RateLimitPolicy(
         max_requests=200,

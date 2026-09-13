@@ -124,7 +124,8 @@ class FxService:
         self._uow = uow
 
         self._http_client: httpx.AsyncClient | None = None
-        self._degraded = settings.openbb_api_key is None
+        # OpenBB is unavailable; use local cache/fallbacks only.
+        self._degraded = True
 
         # In-memory cache: { (base_currency, quote_currency): _CacheEntry }
         self._memory_cache: dict[tuple[str, str], _CacheEntry] = {}

@@ -59,9 +59,6 @@ without touching code:
 | `INTEL_SEC_FRESHNESS_MIN_INTERVAL_SECONDS` | SEC EDGAR min interval | 3600 (1 h) |
 | `INTEL_SEC_PRESS_FRESHNESS_MAX_AGE_SECONDS` | SEC press max-age | 21600 (6 h) |
 | `INTEL_SEC_PRESS_FRESHNESS_MIN_INTERVAL_SECONDS` | SEC press min interval | 900 (15 min) |
-| `INTEL_OPENBB_FRESHNESS_MAX_AGE_SECONDS` | OpenBB max-age | 21600 (6 h) |
-| `INTEL_OPENBB_FRESHNESS_MIN_INTERVAL_SECONDS` | OpenBB min interval | 900 (15 min) |
-
 Unset values fall back to the adapter's declared default.  The effective
 values are recorded on every run (state + run registry).
 
@@ -115,20 +112,12 @@ than the provider's freshness `max_age` are soft-flagged stale.
 | Coverage | US SEC announcements only; not company-specific news (no ticker/security scoping) |
 | Disable / delete | Set `INTEL_SEC_PRESS_ENABLED=false` and restart the worker; delete stored rows with `DELETE FROM market_intelligence_items WHERE provider='sec_press'` (per tenant).  Full runbook: [Operations](#operations) |
 
-### OpenBB Platform (`openbb`)
+### Removed providers
 
-| Field | Value |
-|---|---|
-| Source | OpenBB Platform REST API (same endpoint family as the enrichment gateway) |
-| Data | `news` (headlines + snippets), optional `earnings` estimates |
-| Licence | OpenBB terms of service apply; finance-sync stores only headlines, short snippets and structured facts — never full articles |
-| API key | Optional: `OPENBB_API_KEY`.  Without it the provider is degraded and every capability reports `unavailable` |
-| Rate limit | `OPENBB_RATE_LIMIT_RPS` (default 10), honours `Retry-After` on 429 |
-| Freshness | max-age 6 h, min interval 15 min |
-| Config | `OPENBB_API_KEY` (env).  No key = provider registered but disabled |
-| Storage | Headline, snippet ≤ 500 chars, structured facts, canonical URL |
-| Coverage | Depends on the configured OpenBB backend and key entitlements |
-| Disable / delete | Remove `OPENBB_API_KEY` (provider reports unavailable); or delete rows `WHERE provider='openbb'`.  Full runbook: [Operations](#operations) |
+OpenBB is not an available provider and is no longer registered, advertised,
+scheduled, or callable through the credential API. Legacy adapter/settings
+names remain importable only for backwards-compatible migrations; enrichment
+uses local/cache data instead.
 
 ### Future providers (user-subscription sources)
 
@@ -277,7 +266,6 @@ deleted by a deactivation).
 |---|---|---|
 | SEC EDGAR | `INTEL_SEC_ENABLED=false` | Provider unregistered at next startup; no new rows; existing rows stay readable |
 | SEC Press Releases | `INTEL_SEC_PRESS_ENABLED=false` | Same as above |
-| OpenBB | remove `OPENBB_API_KEY` (or `DELETE /api/v1/market-intelligence/credentials/openbb`) | Provider reports `unavailable` for every capability; no new rows |
 
 Procedure (per source):
 
