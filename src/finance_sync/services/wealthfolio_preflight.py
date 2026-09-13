@@ -695,8 +695,12 @@ def validate_activity_semantics(txn: Any) -> list[PreflightFinding]:
             )
         )
 
+    # A generic corporate action is not necessarily a quantity event. Saxo
+    # uses that type for cash dividends and reinvested/choice dividends too.
+    # Only explicit split/adjustment activities require a ratio; otherwise a
+    # valid dividend is incorrectly reported as invalid activity semantics.
     if (
-        txn_type in {"split", "adjustment", "corporate_action"}
+        txn_type in {"split", "adjustment"}
         and quantity_event_ratio(
             getattr(txn, "provider_metadata_contract", None)
         )

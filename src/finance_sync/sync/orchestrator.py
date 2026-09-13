@@ -422,6 +422,24 @@ class SyncOrchestrator(CardsSyncMixin):
                 **pipeline_kwargs,
             )
 
+        # Tax lots are a derived projection of the complete transaction
+        # stream. Rebuild them after every successful broker sync so imports
+        # with a holdings snapshot and a subsequently fetched trade history
+        # cannot leave data-health with stale or missing lot capacity.
+        if result.status == SyncRunStatus.COMPLETED:
+            from finance_sync.services.tax_lot_service import (
+                compute_all_tax_lots,
+            )
+
+            try:
+                async with self._session_factory() as lot_session:
+                    await compute_all_tax_lots(lot_session, self._tenant_id)
+                    await lot_session.commit()
+            except Exception as exc:
+                # Tax lots are a derived projection; a failure must not turn
+                # an otherwise successful provider sync into a failed import.
+                log.warning("tax_lot_rebuild_failed", error=str(exc)[:500])
+
         if isinstance(connector, StatefulConnector):
             await self._persist_connector_state(
                 provider_type, connector, connection_id=connection_id
@@ -612,9 +630,17 @@ class SyncOrchestrator(CardsSyncMixin):
             tenant_id=self._tenant_id,
         )
 
+        # Connector imports use datetime.min as an unbounded fetch cursor.
+        # It is not a meaningful reconciliation window: passing it through
+        # creates a false historical gap from year 1. Let reconciliation use
+        # its documented 90-day default unless the caller supplied a real
+        # analysis boundary.
+        reconciliation_date_from = (
+            None if date_from is not None and date_from.year <= 1 else date_from
+        )
         run = await svc.reconcile(
             account_ids=account_ids,
-            date_from=date_from,
+            date_from=reconciliation_date_from,
             date_to=date_to,
         )
 

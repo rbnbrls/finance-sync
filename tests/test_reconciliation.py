@@ -141,6 +141,14 @@ class TestReconciliationHelpers:
 
         assert not has_distinct_transaction_ids_in_descriptions(a, b)
 
+    def test_ideal_reservation_and_settlement_are_not_duplicates(self) -> None:
+        from finance_sync.duplicate_detection import is_cash_reservation_pair
+
+        a = _MockTxn(description="Reservation iDEAL")
+        b = _MockTxn(description="iDEAL Deposit")
+
+        assert is_cash_reservation_pair(a, b)
+
 
 # ═══════════════════════════════════════════════════════════════════════
 # ReconciliationService unit tests (mocked UoW)

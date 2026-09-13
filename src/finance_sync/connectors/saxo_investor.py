@@ -120,6 +120,18 @@ def _transaction_type(action: str, transaction_type: str) -> str:
         return "sale"
     if re.search(r"\bkoop\b", normalized):
         return "purchase"
+    # Saxo labels deposits and withdrawals as Geldoverboeking. Handle the
+    # concrete action before the generic overboeking/interest fallback so
+    # cash-flow reconciliation receives the correct semantic type.
+    if "storting" in normalized:
+        return "deposit"
+    if "opname" in normalized:
+        return "withdrawal"
+    if any(
+        marker in normalized
+        for marker in ("stock split", "aandelensplitsing", "split ratio")
+    ):
+        return "split"
     if "corporate action" in normalized or "corporate actie" in normalized:
         return "corporate_action"
     if "dividend" in normalized:
@@ -172,8 +184,12 @@ def _trade_details(text: str) -> tuple[Decimal | None, Decimal | None]:
     )
     if match is None:
         return None, None
+    quantity = _decimal(match.group(1), field="Handelsaantal", required=False)
+    # Saxo sometimes includes the cash-flow sign in a sell description
+    # (for example ``Verkoop -107 @ 18.10 USD``).  Canonical trade quantity
+    # is always a positive magnitude; the transaction type carries direction.
     return (
-        _decimal(match.group(1), field="Handelsaantal", required=False),
+        abs(quantity) if quantity is not None else None,
         _decimal(match.group(2), field="Handelskoers", required=False),
     )
 
@@ -258,6 +274,7 @@ class SaxoInvestorConnector(Connector):
         self._rows: list[dict[str, Any]] = []
         self._transactions: list[RawTransaction] = []
         self._skipped_transaction_rows: int = 0
+        self._duplicate_transaction_rows: int = 0
         self._account: RawAccount | None = None
         self._export_roles: set[str] = set()
 
@@ -376,6 +393,7 @@ class SaxoInvestorConnector(Connector):
         self._transactions = []
         self._position_path = None
         self._skipped_transaction_rows = 0
+        self._duplicate_transaction_rows = 0
         self._export_roles = set()
         for path in self._paths:
             sheets = self._read_workbook(path)
@@ -397,8 +415,11 @@ class SaxoInvestorConnector(Connector):
         # worksheet line is deliberately not part of it.
         unique_transactions: dict[str, RawTransaction] = {}
         for transaction in self._transactions:
-            unique_transactions.setdefault(
-                transaction.external_transaction_id, transaction
+            if transaction.external_transaction_id in unique_transactions:
+                self._duplicate_transaction_rows += 1
+                continue
+            unique_transactions[transaction.external_transaction_id] = (
+                transaction
             )
         self._transactions = list(unique_transactions.values())
         if not self._rows and not self._transactions:
@@ -469,6 +490,7 @@ class SaxoInvestorConnector(Connector):
                 },
                 "net_asset_value": str(nav) if nav is not None else None,
                 "skipped_transaction_rows": self._skipped_transaction_rows,
+                "duplicate_transaction_rows": self._duplicate_transaction_rows,
             },
         )
 
@@ -675,6 +697,23 @@ class SaxoInvestorConnector(Connector):
             ) or Decimal(0)
             transaction_type = _transaction_type(action, native_type)
             corporate_action_ratio = _corporate_action_ratio(action)
+            corporate_action_metadata = None
+            if transaction_type == "corporate_action":
+                fields: dict[str, str] = {
+                    "event": "corporate_action",
+                    "action": action or description,
+                    "quantity_evidence": (
+                        "explicit_ratio"
+                        if corporate_action_ratio is not None
+                        else "provider_description_only"
+                    ),
+                }
+                if corporate_action_ratio is not None:
+                    fields["split_ratio"] = str(corporate_action_ratio)
+                corporate_action_metadata = ProviderMetadata(
+                    source_object_type="transaction_export",
+                    fields=fields,
+                )
             result.append(
                 RawTransaction(
                     external_transaction_id=external_id,
@@ -732,14 +771,7 @@ class SaxoInvestorConnector(Connector):
                             else ""
                         ),
                     },
-                    provider_metadata_contract=(
-                        ProviderMetadata(
-                            source_object_type="transaction_export",
-                            fields={"split_ratio": str(corporate_action_ratio)},
-                        )
-                        if corporate_action_ratio is not None
-                        else None
-                    ),
+                    provider_metadata_contract=(corporate_action_metadata),
                 )
             )
         return result

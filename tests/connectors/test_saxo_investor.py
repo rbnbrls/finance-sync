@@ -263,6 +263,8 @@ async def test_imports_saxo_transactions_and_combines_both_exports(
     assert imported[0].unit_price == Decimal("1.91")
     assert imported[0].security_reference.isin == "US75574V1016"
     assert imported[0].fee_amount == Decimal("4.92")
+    assert imported[1].transaction_type == "sale"
+    assert imported[1].quantity == 107
     assert len(await connector.fetch_holdings()) == 2
 
 
@@ -395,6 +397,10 @@ async def test_accepts_zero_booking_amount(tmp_path: Path) -> None:
     assert len(imported) == 1
     assert imported[0].amount == 0
     assert imported[0].transaction_type == "corporate_action"
+    assert imported[0].provider_metadata_contract is not None
+    assert imported[0].provider_metadata_contract.fields["event"] == (
+        "corporate_action"
+    )
 
 
 @pytest.mark.asyncio

@@ -665,7 +665,16 @@ class ControlPlaneService:
             if getattr(row, "status", None) != "unavailable_accepted"
         ]
         total_count = max(total_count - len(accepted_ids), 0)
-        cutoff = self._now - self._freshness_limit
+        # Public equity markets are closed over the weekend.  A Friday close
+        # is still the current market price on Saturday/Sunday and must not
+        # become a false stale-data warning merely because the 24-hour cache
+        # TTL elapsed.
+        freshness_limit = (
+            max(self._freshness_limit, timedelta(hours=72))
+            if self._now.weekday() >= 5
+            else self._freshness_limit
+        )
+        cutoff = self._now - freshness_limit
         fresh = sum(
             1
             for row in active_rows

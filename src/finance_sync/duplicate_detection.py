@@ -29,6 +29,25 @@ def has_distinct_transaction_ids_in_descriptions(
     )
 
 
+def is_cash_reservation_pair(
+    transaction_a: object, transaction_b: object
+) -> bool:
+    """Return whether two broker rows are a reservation/settlement pair.
+
+    DEGIRO exports an iDEAL funding event twice: once as a reservation and
+    once as the settled deposit. They are separate ledger rows, not duplicate
+    imports, even when amount and date are close.
+    """
+    descriptions = {
+        _normalise_text(getattr(transaction_a, "description", None)),
+        _normalise_text(getattr(transaction_b, "description", None)),
+    }
+    return any("reservation" in value for value in descriptions) and any(
+        "ideal deposit" in value or "ideaal deposit" in value
+        for value in descriptions
+    )
+
+
 def _normalise_text(value: object) -> str:
     return str(value or "").strip().lower()
 

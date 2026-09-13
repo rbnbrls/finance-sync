@@ -782,7 +782,7 @@ async def test_portfolio_quantity_health_reports_unmodeled_corporate_action() ->
                     "tx-2",
                     "account-1",
                     "security-1",
-                    "corporate_action",
+                    "split",
                     None,
                     0,
                     "2026-08-02",
@@ -805,6 +805,45 @@ async def test_portfolio_quantity_health_reports_unmodeled_corporate_action() ->
 
 
 @pytest.mark.asyncio
+async def test_portfolio_quantity_health_does_not_duplicate_unmodeled_corporate_action() -> (
+    None
+):
+    session = _Session(
+        _Result(
+            rows=[
+                (
+                    "tx-buy",
+                    "account-1",
+                    "security-1",
+                    "purchase",
+                    400,
+                    -2242,
+                    "2024-12-23",
+                    None,
+                ),
+                (
+                    "tx-reinvested-dividend",
+                    "account-1",
+                    "security-1",
+                    "corporate_action",
+                    None,
+                    3.26,
+                    "2025-07-07",
+                    {"event": "corporate_action"},
+                ),
+            ]
+        ),
+        _Result(rows=[("account-1", "security-1", 428, "2026-09-01")]),
+    )
+
+    issues = await DataHealthService(
+        cast("AsyncSession", session), "tenant-a"
+    )._portfolio_quantity_issues()
+
+    assert issues == []
+
+
+@pytest.mark.asyncio
 async def test_portfolio_quantity_health_does_not_infer_split_from_zero_basis() -> (
     None
 ):
@@ -816,7 +855,7 @@ async def test_portfolio_quantity_health_does_not_infer_split_from_zero_basis() 
                     "tx-3",
                     "account-1",
                     "security-1",
-                    "corporate_action",
+                    "split",
                     None,
                     0,
                     "2026-08-02",
@@ -1569,6 +1608,35 @@ async def test_cash_reconciliation_health_surfaces_missing_snapshot_as_evidence_
 
 
 @pytest.mark.asyncio
+async def test_cash_reconciliation_health_accepts_available_snapshot() -> None:
+    account = SimpleNamespace(
+        id="account-1",
+        current_balance=1000,
+        available_balance=100,
+        currency_code="EUR",
+    )
+    balance = SimpleNamespace(
+        id="balance-1",
+        account_id="account-1",
+        balance_kind="available",
+        amount=100,
+        currency_code="EUR",
+        observed_at=datetime(2026, 9, 1, tzinfo=UTC),
+    )
+    session = _Session(
+        _Result(scalars=[account]),
+        _Result(scalars=[balance]),
+        _Result(rows=[]),
+    )
+
+    issues = await DataHealthService(
+        cast("AsyncSession", session), "tenant-a"
+    )._cash_reconciliation_issues()
+
+    assert issues == []
+
+
+@pytest.mark.asyncio
 async def test_cash_reconciliation_health_reconciles_transaction_flow() -> None:
     account = SimpleNamespace(
         id="account-1",
@@ -2154,7 +2222,7 @@ async def test_canonical_projection_validates_quantity_events_with_metadata() ->
     now = datetime(2026, 8, 25, 10, 0, tzinfo=UTC)
     canonical = SimpleNamespace(
         id="tx-split-chain",
-        transaction_type="corporate_action",
+        transaction_type="split",
         amount=0,
         currency_code="EUR",
         external_transaction_id="split-chain-1",
@@ -2171,7 +2239,7 @@ async def test_canonical_projection_validates_quantity_events_with_metadata() ->
         "Broker",
         "Stock split",
         now,
-        "corporate_action",
+        "split",
         None,
         None,
         0,
@@ -2214,7 +2282,6 @@ async def test_wealthfolio_preflight_exposes_destination_quality_issues() -> (
     session = _Session(
         _Result(rows=[("ACME", "quote rejected")]),
         _Result(rows=[("Broker", datetime(2026, 8, 25).date(), -10)]),
-        _Result(rows=[]),
         _Result(rows=[("holding-1", "Broker", "ACME", 4)]),
         _Result(rows=[("holding-2", "Broker", "VWCE", 6)]),
         _Result(rows=[]),
@@ -2241,9 +2308,27 @@ async def test_wealthfolio_preflight_exposes_destination_quality_issues() -> (
 
 
 @pytest.mark.asyncio
-async def test_wealthfolio_preflight_flags_unverified_cost_basis() -> None:
+async def test_wealthfolio_preflight_does_not_treat_negative_cash_as_valuation() -> (
+    None
+):
     session = _Session(
         _Result(rows=[]),
+        _Result(rows=[]),
+        _Result(rows=[]),
+        _Result(rows=[]),
+        _Result(rows=[]),
+    )
+
+    issues = await DataHealthService(
+        cast("AsyncSession", session), "tenant-a"
+    )._wealthfolio_preflight_issues()
+
+    assert not any(issue.category == "negative_valuation" for issue in issues)
+
+
+@pytest.mark.asyncio
+async def test_wealthfolio_preflight_flags_unverified_cost_basis() -> None:
+    session = _Session(
         _Result(rows=[]),
         _Result(rows=[]),
         _Result(rows=[]),

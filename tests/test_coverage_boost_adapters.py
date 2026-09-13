@@ -868,6 +868,95 @@ async def test_trading212_quote_and_identity_refresh_happy_paths(
 
 
 @pytest.mark.asyncio
+async def test_refresh_quotes_uses_market_gateway_for_non_portfolio_security(
+    monkeypatch,
+) -> None:
+    from datetime import UTC, datetime
+
+    from finance_sync.api.v1 import enrichment as module
+    from finance_sync.models.credential import Credential
+
+    class Result:
+        def __init__(self, values):
+            self.values = values
+
+        def scalars(self):
+            return self
+
+        def all(self):
+            return self.values
+
+        def __iter__(self):
+            return iter(self.values)
+
+    security = SimpleNamespace(
+        id="security-1",
+        isin="US0000000001",
+        ticker="US:LEGACY",
+        name="Legacy",
+        currency_code="USD",
+    )
+    credential = Credential(
+        id="cred-1",
+        tenant_id="tenant-1",
+        provider_key="trading212",
+        status="active",
+        encrypted_payload=b"secret",
+        nonce=b"nonce",
+        description="{}",
+    )
+    connector = SimpleNamespace(
+        authenticate=AsyncMock(),
+        fetch_portfolio=AsyncMock(return_value=[]),
+        fetch_instruments=AsyncMock(return_value=[]),
+        close=AsyncMock(),
+    )
+    quote = SimpleNamespace(
+        stale=False,
+        timestamp=datetime.now(UTC),
+        source="yahoo",
+    )
+    gateway = SimpleNamespace(
+        get_historical_prices=AsyncMock(
+            return_value=SimpleNamespace(observations=[quote])
+        ),
+        get_latest_quote=AsyncMock(return_value=quote),
+    )
+    monkeypatch.setattr(module, "decrypt_credential", lambda *args: "{}")
+    monkeypatch.setattr(
+        module.ConnectorRegistry,
+        "get_connector",
+        lambda self, config: connector,
+    )
+    monkeypatch.setattr(module, "EnrichmentGateway", lambda **kwargs: gateway)
+    monkeypatch.setattr(
+        module, "quote_identifier", lambda value: (value.isin, "isin")
+    )
+
+    session = SimpleNamespace(
+        execute=AsyncMock(
+            side_effect=[Result([]), Result([security]), Result([credential])]
+        ),
+        scalar=AsyncMock(return_value=None),
+        add=MagicMock(),
+        flush=AsyncMock(),
+    )
+    auth = SimpleNamespace(tenant_id="tenant-1")
+    settings = SimpleNamespace(wealthfolio_request_timeout=5)
+
+    result = await module.refresh_quotes(auth, session, settings)
+
+    assert result == {
+        "status": "completed",
+        "updated": 1,
+        "unmatched": 0,
+        "providers": ["market-data", "trading212"],
+    }
+    gateway.get_latest_quote.assert_awaited_once()
+    connector.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_data_quality_repair_repairs_provider_identity(
     monkeypatch,
 ) -> None:

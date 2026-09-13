@@ -395,6 +395,19 @@ def test_quantity_event_without_ratio_is_insufficient_evidence():
     assert findings[0].severity == "warning"
 
 
+def test_corporate_action_without_ratio_is_valid_cash_event():
+    row = SimpleNamespace(
+        id="dividend-1",
+        transaction_type="corporate_action",
+        amount=12.22,
+        currency_code="EUR",
+        description="Dividend",
+        provider_metadata_contract={"event": "corporate_action"},
+    )
+
+    assert validate_activity_semantics(row) == []
+
+
 def test_zero_cost_trade_is_a_shared_semantic_warning():
     row = SimpleNamespace(
         id="trade-1",

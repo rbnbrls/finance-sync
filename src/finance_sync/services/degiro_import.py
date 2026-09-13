@@ -224,7 +224,11 @@ async def stage_uploads(
     try:
         for index, upload in enumerate(files, start=1):
             display, suffix = _safe_name(upload.filename, index)
-            destination = directory / f"{index:02d}-{uuid4().hex}{suffix}"
+            # Keep the sanitized client filename in the staged path. Some
+            # provider formats encode snapshot metadata in that filename
+            # (SaxoInvestor uses Posities_DD-mon-YYYY...). The UUID keeps the
+            # path collision-safe while preserving the non-sensitive name.
+            destination = directory / f"{index:02d}-{uuid4().hex}-{display}"
             digest = hashlib.sha256()
             size = 0
             with destination.open("xb") as output:

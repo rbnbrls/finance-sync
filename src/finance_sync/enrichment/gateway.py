@@ -689,9 +689,9 @@ class EnrichmentGateway:
         if interval != "1d":
             message = "Yahoo fallback supports daily prices only"
             raise ValueError(message)
-        symbol = _yahoo_symbol(identifier)
+        symbol = await _resolve_yahoo_symbol(identifier)
         if symbol is None:
-            message = "Yahoo fallback requires an exchange-qualified ticker"
+            message = "Yahoo fallback could not resolve the security identifier"
             raise ValueError(message)
 
         end = end_date or datetime.now(UTC)
@@ -825,6 +825,63 @@ def _yahoo_symbol(identifier: str) -> str | None:
     }
     suffix = suffixes.get(mic)
     return f"{ticker}.{suffix}" if ticker and suffix else None
+
+
+async def _resolve_yahoo_symbol(identifier: str) -> str | None:
+    """Resolve a canonical identifier to a Yahoo symbol.
+
+    Imported securities do not always have an exchange-qualified ticker.  In
+    particular, Saxo/DEGIRO exports often contain only an ISIN, while fund
+    tickers may use a vendor-specific suffix.  Yahoo's read-only search API
+    provides the identifier bridge without inventing a quote when no match is
+    available.
+    """
+    direct = _yahoo_symbol(identifier)
+    if direct is not None:
+        return direct
+    value = identifier.strip().upper()
+    if not value:
+        return None
+    # Keep bare tickers on the deterministic local path.  Searching those
+    # values can select the wrong listing (and makes cache-fallback tests and
+    # offline operation depend on a network call); ISINs and vendor-suffixed
+    # fund identifiers are the cases that need the bridge.
+    if ":" not in value and "." not in value and not _looks_like_isin(value):
+        return None
+    try:
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(8.0),
+            headers={"User-Agent": "finance-sync/0.7"},
+        ) as client:
+            response = await client.get(
+                "https://query1.finance.yahoo.com/v1/finance/search",
+                params={"q": value, "quotesCount": 10, "newsCount": 0},
+            )
+            response.raise_for_status()
+            payload = cast(dict[str, Any], response.json())
+    except (httpx.HTTPError, ValueError, TypeError):
+        return None
+
+    quotes = payload.get("quotes") or []
+    if not isinstance(quotes, list):
+        return None
+    for quote in quotes:
+        if not isinstance(quote, dict):
+            continue
+        symbol = str(quote.get("symbol") or "").strip()
+        quote_type = str(quote.get("quoteType") or "").upper()
+        if symbol and quote_type in {"EQUITY", "ETF", "MUTUALFUND", "INDEX"}:
+            return symbol
+    return None
+
+
+def _looks_like_isin(value: str) -> bool:
+    """Return whether a value has the canonical 12-character ISIN shape."""
+    return (
+        len(value) == 12
+        and value[:2].isalpha()
+        and all(character.isalnum() for character in value)
+    )
 
 
 def _parse_timestamp(raw: str | None) -> datetime:

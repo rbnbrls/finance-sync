@@ -929,6 +929,8 @@
         .degiro-wizard-file-title { font-weight:650; font-size:.9rem; }
         .degiro-wizard-file-detail { color:var(--text-muted); font-size:.76rem; margin-top:3px; }
         .degiro-wizard-file-name { color:var(--green); font-size:.78rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:280px; }
+        .degiro-wizard-file-name.is-missing { color:var(--text-muted); }
+        .degiro-wizard-file-name.is-selected { font-weight:600; }
         .degiro-wizard-actions { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-top:22px; }
         .degiro-wizard-actions-right { display:flex; gap:8px; }
         .degiro-wizard-summary { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin:16px 0; }
@@ -1038,6 +1040,19 @@
         .sync-activity-item { display:flex; align-items:center; gap:10px; padding:11px 14px; border:1px solid color-mix(in srgb, var(--accent) 45%, var(--border)); border-radius:10px; background:color-mix(in srgb, var(--accent) 7%, var(--surface)); color:var(--text); font-size:.82rem; }
         .sync-activity-item .spinner { flex:0 0 auto; }
         .sync-activity-item small { color:var(--text-muted); margin-left:auto; }
+        .activity-hero { display:grid; grid-template-columns:minmax(0, 1.4fr) minmax(260px, .6fr); gap:16px; margin:20px 0 24px; }
+        .activity-hero-copy { padding:22px; border:1px solid color-mix(in srgb, var(--accent) 35%, var(--border)); border-radius:14px; background:linear-gradient(135deg, color-mix(in srgb, var(--accent) 12%, var(--surface)), var(--surface)); }
+        .activity-hero-copy h2 { margin:0 0 8px; font-size:1.08rem; }
+        .activity-hero-copy p { margin:0; color:var(--text-muted); line-height:1.55; font-size:.86rem; }
+        .activity-hero-actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:16px; }
+        .activity-summary { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:10px; }
+        .activity-summary-stat { padding:16px; border:1px solid var(--border); border-radius:12px; background:var(--surface-2); }
+        .activity-summary-stat strong { display:block; font-size:1.5rem; margin-bottom:4px; }
+        .activity-summary-stat span { color:var(--text-muted); font-size:.76rem; }
+        .activity-section-heading { display:flex; justify-content:space-between; align-items:end; gap:12px; margin:0 0 10px; }
+        .activity-section-heading h2 { margin:0; font-size:1.05rem; }
+        .activity-section-heading p { margin:0; color:var(--text-muted); font-size:.8rem; }
+        @media (max-width:760px) { .activity-hero { grid-template-columns:1fr; } .activity-section-heading { align-items:flex-start; flex-direction:column; } }
         @media (max-width: 760px) { .control-status, .issue-card { flex-direction:column; align-items:stretch; } .quality-grid { grid-template-columns:repeat(2, minmax(0, 1fr)); } }
         @media (max-width: 760px) { .overview-grid { grid-template-columns:1fr; } .overview-runs { grid-column:auto; } .run-summary { grid-template-columns:repeat(2,1fr); } .overview-header { align-items:flex-start; flex-direction:column; gap:8px; } }
         @media (max-width: 420px) { .run-summary { grid-template-columns:1fr 1fr; gap:8px; } .run-stat { padding:11px; } .overview-value { font-size:1.85rem; } }
@@ -1200,11 +1215,19 @@
             <div id="exporter-runs" style="margin-top: 24px;"></div>
         </div>
         <div id="section-sync" class="hidden" role="region" aria-labelledby="sync-title">
-            <h1 class="page-title" id="sync-title">Activiteit</h1>
-            <p class="page-subtitle">Bekijk imports, exports en lopende taken. Automatische planning beheer je bij de bron of bestemming.</p>
+            <div class="overview-header">
+                <div><div class="overview-kicker">Automatische synchronisaties</div><h1 class="page-title" id="sync-title">Activiteit</h1><p class="page-subtitle" style="margin-bottom:0;">Plan en volg alleen koppelingen die zelfstandig gegevens ophalen of exporteren.</p></div>
+                <div class="activity-hero-actions"><button type="button" class="btn btn-primary btn-sm" onclick="switchSection('connectors')"><span class="mdi mdi-plus"></span> Automatische bron</button><button type="button" class="btn btn-secondary btn-sm" onclick="switchSection('exporters')"><span class="mdi mdi-export-variant"></span> Bestemming</button></div>
+            </div>
+            <div class="activity-hero">
+                <div class="activity-hero-copy"><h2>Jouw geplande datastroom</h2><p>Automatische koppelingen draaien volgens een schema. Handmatige bestanduploads vind je bij <button type="button" class="btn-link" onclick="switchSection('uploads')">Importeren</button> en worden hier niet getoond.</p><div id="sync-automation-links" class="activity-hero-actions" aria-live="polite"></div></div>
+                <div id="sync-automation-summary" class="activity-summary" aria-live="polite"><div class="activity-summary-stat"><strong>—</strong><span>Automatische koppelingen</span></div><div class="activity-summary-stat"><strong>—</strong><span>Actieve schema’s</span></div></div>
+            </div>
             <div id="sync-page-activity" class="sync-activity" aria-live="polite"></div>
+            <div class="activity-section-heading"><div><h2>Planning</h2><p>Beheer wanneer automatische koppelingen uitvoeren.</p></div></div>
             <div id="sync-schedules" aria-live="polite" aria-busy="true"></div>
-            <div id="sync-run-history" style="margin-top: 24px;"></div>
+            <div class="activity-section-heading" style="margin-top:28px;"><div><h2>Uitvoeringsgeschiedenis</h2><p>Recente runs van automatische bronnen.</p></div></div>
+            <div id="sync-run-history"></div>
         </div>
         <div id="section-holding-news" class="hidden" role="region" aria-labelledby="holding-news-title">
             <h1 class="page-title" id="holding-news-title">Holdingnieuws &amp; events</h1>
@@ -3158,7 +3181,7 @@
         function renderSaxoUploadFields() {
             return saxoWizardFiles.map(report => {
                 const file = fileUploadState.files.find(item => item._saxoKind === report.kind);
-                return `<div class="degiro-wizard-file ${file ? 'is-uploaded' : ''}" id="saxo-${report.kind}-file"><div class="degiro-wizard-file-main"><span class="file-number">${report.number}</span><div><div class="degiro-wizard-file-title"><span class="mdi ${report.kind === 'positions' ? 'mdi-chart-donut' : 'mdi-swap-horizontal'}" aria-hidden="true"></span> ${report.title}</div><div class="degiro-wizard-file-detail">${report.detail}</div><div class="degiro-wizard-file-name" id="saxo-${report.kind}-file-name">${file ? `<span class="mdi mdi-check-circle-outline"></span> ${escapeHtml(file.name)}` : 'Nog niet geselecteerd'}</div></div></div><label class="btn ${file ? 'btn-success' : 'btn-secondary'} btn-sm" for="saxo-${report.kind}-input">${file ? 'Vervangen' : 'Bestand kiezen'}</label><input id="saxo-${report.kind}-input" class="visually-hidden" type="file" accept=".xlsx" onchange="setSaxoImportFlowFile('${report.kind}', this)"></div>`;
+                return `<div class="degiro-wizard-file ${file ? 'is-uploaded' : ''}" id="saxo-${report.kind}-file"><div class="degiro-wizard-file-main"><span class="file-number">${report.number}</span><div><div class="degiro-wizard-file-title"><span class="mdi ${report.kind === 'positions' ? 'mdi-chart-donut' : 'mdi-swap-horizontal'}" aria-hidden="true"></span> ${report.title}</div><div class="degiro-wizard-file-detail">${report.detail}</div><div class="degiro-wizard-file-name ${file ? 'is-selected' : 'is-missing'}" id="saxo-${report.kind}-file-name" aria-live="polite"${file ? ` title="${escapeHtml(file.name)}"` : ''}>${file ? `<span class="mdi mdi-check-circle-outline" aria-hidden="true"></span> ${escapeHtml(file.name)}` : 'Nog niet geselecteerd'}</div></div></div><label class="btn ${file ? 'btn-success' : 'btn-secondary'} btn-sm" for="saxo-${report.kind}-input" id="saxo-${report.kind}-choose">${file ? 'Vervangen' : 'Bestand kiezen'}</label><input id="saxo-${report.kind}-input" class="visually-hidden" type="file" accept=".xlsx" onchange="setSaxoImportFlowFile('${report.kind}', this)"></div>`;
             }).join('');
         }
         function setSaxoImportFlowFile(kind, input) {
@@ -3167,6 +3190,21 @@
             fileUploadState.files = fileUploadState.files.filter(existing => existing._saxoKind !== kind);
             Object.defineProperty(file, '_saxoKind', { value: kind, enumerable: false });
             fileUploadState.files.push(file);
+            const name = document.getElementById(`saxo-${kind}-file-name`);
+            const card = document.getElementById(`saxo-${kind}-file`);
+            const choose = document.getElementById(`saxo-${kind}-choose`);
+            if (name) {
+                name.classList.remove('is-missing');
+                name.classList.add('is-selected');
+                name.title = file.name;
+                name.innerHTML = `<span class="mdi mdi-check-circle-outline" aria-hidden="true"></span> ${escapeHtml(file.name)}`;
+            }
+            if (card) card.classList.add('is-uploaded');
+            if (choose) {
+                choose.classList.remove('btn-secondary');
+                choose.classList.add('btn-success');
+                choose.textContent = 'Vervangen';
+            }
             updateImportFlowSelection();
         }
         function setImportFlowFile(kind, input) {
@@ -3831,7 +3869,7 @@
         let activeSyncPoller = null;
 
         function renderActiveSyncJobs() {
-            const jobs = [...activeSyncJobs.values()];
+            const jobs = [...activeSyncJobs.values()].filter(job => isAutomatedProvider(job.provider));
             const html = jobs.length ? jobs.map(job => `<div class="sync-activity-item"><span class="spinner" aria-hidden="true"></span><strong>${escapeHtml(job.provider || 'Connector')}</strong><span>${job.current_stage ? escapeHtml(syncStageLabel(job.current_stage)) : (job.status === 'queued' ? 'Sync wordt gestart…' : 'Sync is bezig…')}</span>${job.last_activity_at ? `<small>Laatste activiteit: ${escapeHtml(fmtDate(job.last_activity_at))}</small>` : '<small>Automatisch vernieuwen</small>'}<button type="button" class="btn btn-sm" onclick="openSyncRunDetail('${escapeHtml(job.runId || '')}')">Details</button></div>`).join('') : '';
             ['overview-sync-activity', 'sync-page-activity'].forEach(id => {
                 const el = document.getElementById(id);
@@ -3841,6 +3879,7 @@
 
         async function refreshActiveSyncJobs() {
             try {
+                await loadSyncMetadata();
                 const data = await api('GET', '/sync-runs?status=running&limit=100');
                 const running = data.items || [];
                 const runningConnections = new Set(running.map(run => String(run.connection_id || run.connector)));
@@ -4315,6 +4354,7 @@
 
         let syncSchedules = [];
         let syncRunHistory = [];
+        let syncMetadataLoaded = false;
         let scheduleTab = 'ingestion';
         // Run-history view state: filters + pagination, mirroring the
         // /sync-runs API query contract (connector/status/limit/offset).
@@ -4330,17 +4370,61 @@
         };
         function syncStageLabel(stage) { return SYNC_STAGE_LABELS[stage] || String(stage || 'Bezig').replaceAll('_', ' '); }
 
+        function isAutomatedProvider(provider) {
+            const catalogEntry = (connectorCatalog || []).find(c => c.name === provider);
+            if (catalogEntry) return (catalogEntry.ingestion_methods || ['api']).includes('api');
+            return !['csv_import', 'degiro_pension', 'saxo_investor', 'manual_expense'].includes(provider);
+        }
+
+        function isAutomatedSchedule(schedule) {
+            if (schedule.scope === 'export') return true;
+            const config = (configs || []).find(c => String(c.id || c.connection_id) === String(schedule.target_id));
+            return isAutomatedProvider(config?.provider_type);
+        }
+
+        async function loadSyncMetadata() {
+            if (syncMetadataLoaded) return;
+            try {
+                const [catalog, saved] = await Promise.all([
+                    api('GET', '/connectors'),
+                    api('GET', '/connectors/configs'),
+                ]);
+                connectorCatalog = catalog || connectorCatalog;
+                configs = saved || configs;
+                syncMetadataLoaded = true;
+            } catch (e) {
+                // The explicit fallback list in isAutomatedProvider still
+                // prevents known file-only providers from leaking into this view.
+                console.warn('Could not load sync metadata:', e);
+            }
+        }
+
+        function renderSyncAutomationSummary() {
+            const summary = document.getElementById('sync-automation-summary');
+            const links = document.getElementById('sync-automation-links');
+            if (!summary) return;
+            const automatedConfigs = (configs || []).filter(c => isAutomatedProvider(c.provider_type));
+            const activeSchedules = syncSchedules.filter(s => s.enabled).length;
+            summary.innerHTML = `<div class="activity-summary-stat"><strong>${automatedConfigs.length}</strong><span>Automatische koppelingen</span></div><div class="activity-summary-stat"><strong>${activeSchedules}</strong><span>Actieve schema’s</span></div>`;
+            if (links) {
+                links.innerHTML = automatedConfigs.length
+                    ? `<span class="field-hint"><span class="mdi mdi-check-circle-outline"></span> ${automatedConfigs.map(c => escapeHtml(c.description || c.provider_type)).join(' · ')}</span>`
+                    : '<span class="field-hint">Nog geen automatische koppelingen ingesteld.</span>';
+            }
+        }
+
         async function loadSyncRuns() {
             const container = document.getElementById('sync-schedules');
             if (container) container.setAttribute('aria-busy', 'true');
             const historyContainer = document.getElementById('sync-run-history');
             try {
+                await loadSyncMetadata();
                 const [schedules, history] = await Promise.allSettled([
                     api('GET', '/sync-schedules?limit=500'),
                     api('GET', syncRunQueryString()),
                 ]);
-                syncSchedules = (schedules.status === 'fulfilled' && schedules.value && schedules.value.items) || [];
-                syncRunHistory = (history.status === 'fulfilled' && history.value && history.value.items) || [];
+                syncSchedules = ((schedules.status === 'fulfilled' && schedules.value && schedules.value.items) || []).filter(isAutomatedSchedule);
+                syncRunHistory = ((history.status === 'fulfilled' && history.value && history.value.items) || []).filter(r => isAutomatedProvider(r.connector));
                 if (history.status === 'fulfilled' && history.value) {
                     syncRunState.total = history.value.total ?? syncRunState.total;
                     syncRunHistory._statusCounts = history.value.status_counts || [];
@@ -4351,6 +4435,7 @@
                 }
                 renderSyncSchedules();
                 renderSyncRunHistory();
+                renderSyncAutomationSummary();
                 if (history.status === 'rejected') {
                     const notice = document.createElement('div');
                     notice.innerHTML = `<div class="alert alert-error inline-error" role="alert"><div class="inline-error-msg"><strong>Runhistorie</strong> kon niet worden geladen. <button class="btn btn-sm" onclick="loadSyncRuns()">Opnieuw</button></div></div>`;
