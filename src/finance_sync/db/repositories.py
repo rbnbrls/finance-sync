@@ -15,6 +15,7 @@ from sqlalchemy import delete, select
 from finance_sync.db.repository import Repository
 from finance_sync.duplicate_detection import (
     has_distinct_transaction_ids_in_descriptions,
+    is_cash_reservation_pair,
 )
 from finance_sync.models import (
     Account,
@@ -304,7 +305,8 @@ class TransactionRepository(Repository[Transaction]):
         """Find pairs of transactions that may be duplicates within an account.
 
         A candidate pair is two transactions in the same account with
-        identical amounts and close occurrence dates (within
+        identical amounts/currencies for the same account and security (or
+        both cash-only), with close occurrence dates (within
         *threshold_hours*) but different external IDs or provider keys.
 
         When *provider_keys* is set, only transactions from those
@@ -349,10 +351,21 @@ class TransactionRepository(Repository[Transaction]):
             account_ids=account_ids,
         )
 
-        # Group by (account_id, amount) — same amount + same account
-        groups: dict[tuple[str, str], list[Transaction]] = defaultdict(list)
+        # Group by the fields that identify the economic event. Amount alone
+        # is not enough: two different securities can legitimately generate
+        # the same cash amount on the same day (for example two securities-
+        # lending payments of EUR 0.04). Keep security_id in the key so the
+        # reconciliation layer does not report those as duplicates.
+        groups: dict[tuple[str, str, str, str], list[Transaction]] = (
+            defaultdict(list)
+        )
         for t in all_txns:
-            key = (str(t.account_id), str(t.amount))
+            key = (
+                str(t.account_id),
+                str(t.amount),
+                str(t.currency_code or "").upper(),
+                str(t.security_id or "cash"),
+            )
             groups[key].append(t)
 
         pairs: list[tuple[Transaction, Transaction]] = []
@@ -377,6 +390,8 @@ class TransactionRepository(Repository[Transaction]):
                     # together. If each description carries its own distinct
                     # transaction ID, these are separate provider events.
                     if has_distinct_transaction_ids_in_descriptions(a, b):
+                        continue
+                    if is_cash_reservation_pair(a, b):
                         continue
                     # Check time proximity
                     t_a = a.occurred_at

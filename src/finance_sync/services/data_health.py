@@ -1440,6 +1440,7 @@ class DataHealthService:
         expected: dict[tuple[str, str], Decimal] = {}
         last_activity_at: dict[tuple[str, str], object] = {}
         unmodeled_events: list[tuple[str, str]] = []
+        unmodeled_event_keys: set[tuple[str, str]] = set()
         for row in transaction_rows:
             (
                 transaction_id,
@@ -1457,7 +1458,18 @@ class DataHealthService:
             # reconciliation evidence.
             last_activity_at[key] = occurred_at
             transaction_type = str(transaction_type)
-            if transaction_type in {"split", "adjustment", "corporate_action"}:
+            # Generic Saxo corporate actions include dividends and other cash
+            # events. Their quantity effect is not consistently present in
+            # the export, so they must not create a hard mismatch or a bulk
+            # quantity-evidence warning.
+            if transaction_type == "corporate_action":
+                # Saxo may still use this generic type for reinvested or
+                # choice dividends that change the final holding quantity.
+                # The export does not provide the awarded units, so suppress
+                # a false hard mismatch without inventing a quantity.
+                unmodeled_event_keys.add(key)
+                continue
+            if transaction_type in {"split", "adjustment"}:
                 activity_findings = validate_activity_semantics(
                     SimpleNamespace(
                         id=transaction_id,
@@ -1477,6 +1489,7 @@ class DataHealthService:
                     unmodeled_events.append(
                         (str(transaction_id), transaction_type)
                     )
+                    unmodeled_event_keys.add(key)
                     continue
                 expected[key] = expected.get(key, Decimal(0)) * ratio
                 continue
@@ -1580,6 +1593,13 @@ class DataHealthService:
         for account_id, security_id, actual, observed_at in holding_rows:
             key = (str(account_id), str(security_id))
             if key not in expected:
+                continue
+            # A Saxo corporate action can change the position quantity while
+            # its export only provides the cash event and description, not
+            # the resulting number of units.  The separate evidence finding
+            # explains that limitation; do not also report the resulting
+            # difference as a contradictory hard mismatch.
+            if key in unmodeled_event_keys:
                 continue
             expected_quantity = expected[key]
             actual_quantity = _finite_decimal(actual)
@@ -2552,13 +2572,19 @@ class DataHealthService:
                     select(Balance)
                     .where(
                         Balance.tenant_id == self._tenant_id,
-                        Balance.balance_kind.in_(("current", "cash", "booked")),
+                        # Provider connectors use ``available`` for a cash
+                        # snapshot when the provider exposes available cash
+                        # rather than a generic current balance.  It is still a
+                        # valid point-in-time cash balance for reconciliation.
+                        Balance.balance_kind.in_(
+                            ("current", "cash", "available", "booked")
+                        ),
                     )
                     .order_by(Balance.observed_at.desc())
                 )
             ).scalars()
         )
-        priority = {"current": 0, "cash": 1, "booked": 2}
+        priority = {"current": 0, "cash": 1, "available": 2, "booked": 3}
         latest: dict[tuple[str, str], Balance] = {}
         for balance in balance_rows:
             key = (str(balance.account_id), str(balance.currency_code).upper())
@@ -2630,7 +2656,18 @@ class DataHealthService:
                     )
                 )
                 continue
-            account_value = Decimal(str(account.current_balance))
+            # ``available``/``cash`` snapshots describe cash only. Investment
+            # accounts such as DEGIRO expose total portfolio value as
+            # current_balance, so compare those snapshots with the matching
+            # available cash field instead of NAV.
+            snapshot_balance_kinds = {"available", "cash"}
+            account_balance = (
+                getattr(account, "available_balance", None)
+                if str(balance.balance_kind) in snapshot_balance_kinds
+                and getattr(account, "available_balance", None) is not None
+                else account.current_balance
+            )
+            account_value = Decimal(str(account_balance))
             snapshot_value = Decimal(str(balance.amount))
             difference = snapshot_value - account_value
             if abs(difference) > tolerance:
@@ -2953,42 +2990,12 @@ class DataHealthService:
                 .order_by(func.date(Holding.observed_at))
             )
         ).all()
-        cash_rows = (
-            await self._session_required.execute(
-                select(
-                    Transaction.id,
-                    Transaction.account_id,
-                    Account.name,
-                    Transaction.amount,
-                    Transaction.occurred_at,
-                    Transaction.transaction_type,
-                )
-                .join(Account, Account.id == Transaction.account_id)
-                .where(Transaction.tenant_id == self._tenant_id)
-                .order_by(Transaction.account_id, Transaction.occurred_at)
-            )
-        ).all()
-        running_cash: dict[str, Decimal] = {}
-        negative_cash: list[tuple[str, str, object, Decimal]] = []
-        for (
-            _transaction_id,
-            account_id,
-            name,
-            amount,
-            occurred_at,
-            _transaction_type,
-        ) in cash_rows:
-            balance = running_cash.get(str(account_id), Decimal(0))
-            amount_value = _finite_decimal(amount)
-            if amount_value is None:
-                continue
-            balance += amount_value
-            running_cash[str(account_id)] = balance
-            if balance < 0:
-                negative_cash.append(
-                    (str(account_id), str(name), occurred_at, balance)
-                )
-        negative_history = [*negative_rows, *negative_cash]
+        # Cash movements are deliberately excluded here.  A running cash
+        # total cannot represent portfolio valuation: it starts without an
+        # opening balance, mixes currencies, and same-day deposits may be
+        # ordered after purchases.  Such intermediate cash values caused
+        # false negative-valuation findings (for example on Saxo imports).
+        negative_history = negative_rows
         if negative_history:
             issues.append(
                 DataHealthIssue(

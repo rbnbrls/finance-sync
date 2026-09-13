@@ -27,6 +27,7 @@ from finance_sync.connectors.models import (
     ConnectorConfig,
     ProviderMetadata,
     RawAccount,
+    RawCashBalance,
     RawHolding,
     RawTransaction,
     SecurityReference,
@@ -301,6 +302,18 @@ class DegiroPensionConnector(Connector):
                 currency_code="EUR",
                 current_balance=balance,
                 available_balance=self._cash_total,
+                cash_balances=(
+                    [
+                        RawCashBalance(
+                            amount=self._cash_total,
+                            currency_code="EUR",
+                            balance_kind="available",
+                            observed_at=self._snapshot_at,
+                        )
+                    ]
+                    if self._snapshot_at is not None
+                    else []
+                ),
                 net_asset_value=(
                     balance - self._cash_total if balance is not None else None
                 ),

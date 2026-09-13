@@ -425,6 +425,9 @@ class TestWorkerScheduler:
 
         settings = Settings(  # type: ignore[call-arg]
             database_url=None,  # No DB — use in-memory job store
+            redis_url=None,
+            wealthfolio_health_bridge_enabled=False,
+            remediation_enabled=False,
             worker_job_bunq_sync_enabled=False,
             worker_job_bunq_cards_enabled=False,
             worker_job_trading212_sync_enabled=False,
@@ -786,6 +789,7 @@ class TestExportWealthfolioJob:
 
         settings = Settings(  # type: ignore[call-arg]
             database_url=None,
+            redis_url=None,
             worker_job_export_enabled=enabled,
             worker_job_export_interval_minutes=5,
             wealthfolio_server_url=server_url,

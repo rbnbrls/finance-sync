@@ -27,6 +27,7 @@ from sqlalchemy import select
 
 from finance_sync.duplicate_detection import (
     has_distinct_transaction_ids_in_descriptions,
+    is_cash_reservation_pair,
 )
 from finance_sync.models import ReconciliationResult, ReconciliationRun
 from finance_sync.models.enums import (
@@ -247,6 +248,8 @@ class ReconciliationService:
                 # candidate from another implementation cannot become a
                 # misleading Potential duplicate finding.
                 if has_distinct_transaction_ids_in_descriptions(tx_a, tx_b):
+                    continue
+                if is_cash_reservation_pair(tx_a, tx_b):
                     continue
                 # Derive a simple confidence score
                 same_provider = tx_a.provider_key == tx_b.provider_key
@@ -655,6 +658,32 @@ class ReconciliationService:
                         "limit": 500,
                     }
             finding_id = finding.id
+            # A provider starting after the global analysis boundary is a
+            # coverage note, not evidence of a missing transaction.  It has
+            # no safe provider-side repair window; keep it in the audit trail
+            # under a terminal coverage strategy instead of queueing I/O.
+            if (
+                finding.kind == ReconciliationResultKind.MISSING_TRANSACTION
+                and str(finding.severity).lower().endswith("info")
+                and isinstance(finding.details, dict)
+                and "gap_days" in finding.details
+            ):
+                strategy = "coverage_boundary"
+                connection_id = None
+            # ``details`` contains volatile timestamps for coverage findings.
+            # Using it as the backlog scope created a new remediation item on
+            # every reconciliation run for the same account/provider gap.
+            # Keep the scope stable so one finding can be rechecked instead of
+            # growing an unbounded queue.
+            issue_scope = (
+                f"account:{account_id}:provider:{finding.provider_key}"
+                if finding.kind == ReconciliationResultKind.MISSING_TRANSACTION
+                else (
+                    str(finding.details)
+                    if isinstance(finding.details, dict)
+                    else ":".join(entity_ids) or account_id or finding_id
+                )
+            )
             entity_id = ":".join(entity_ids) or account_id or finding_id
             issues.append(
                 DetectedIssue(
@@ -675,9 +704,7 @@ class ReconciliationService:
                     remediation_strategy=strategy,
                     connection_id=connection_id,
                     context=context,
-                    scope=str(finding.details)
-                    if isinstance(finding.details, dict)
-                    else entity_id,
+                    scope=issue_scope,
                     detected_at=datetime.now(UTC),
                 )
             )

@@ -19,7 +19,10 @@ from finance_sync.connectors.trading212 import (
     _normalise_instrument,
     _price_scale,
 )
+from finance_sync.db.uow import UnitOfWork
 from finance_sync.dependencies import get_db, get_settings
+from finance_sync.enrichment.gateway import EnrichmentGateway
+from finance_sync.enrichment.identifiers import quote_identifier
 from finance_sync.enrichment.models import (
     EnrichmentStatusSummary,
     PriceObservation,
@@ -31,6 +34,7 @@ from finance_sync.models.holding import Holding
 from finance_sync.models.market_data_exception import MarketDataException
 from finance_sync.models.security import Security
 from finance_sync.models.security_listing import SecurityListing
+from finance_sync.models.security_price import SecurityPrice
 from finance_sync.models.unresolved_security import UnresolvedSecurity
 from finance_sync.services.auth import decrypt_credential
 
@@ -291,6 +295,19 @@ def _ticker_variants(value: object) -> set[str]:
     return {raw, raw.rsplit(":", 1)[-1]}
 
 
+def _quote_is_usable(quote: object) -> bool:
+    """Accept a weekend market close within the extended freshness window."""
+    if quote is None:
+        return False
+    if not getattr(quote, "stale", True):
+        return True
+    timestamp = getattr(quote, "timestamp", None)
+    if not isinstance(timestamp, datetime):
+        return False
+    now = datetime.now(UTC)
+    return now.weekday() >= 5 and now - timestamp <= timedelta(hours=72)
+
+
 @router.post("/enrichment/refresh-quotes")
 async def refresh_quotes(
     auth: AuthContext = Depends(require_permission("enrichment", "write")),
@@ -511,6 +528,138 @@ async def refresh_quotes(
             close = getattr(connector, "close", None)
             if close is not None:
                 await close()
+
+    # Trading212 is the preferred live source, but it cannot quote securities
+    # that are not in its portfolio (for example legacy Saxo/DEGIRO holdings).
+    # Complete the same repair through the configured market-data gateway so
+    # this action is tenant-wide instead of silently reporting every
+    # non-Trading212 security as unmatched.
+    unmatched = [
+        security
+        for security in securities
+        if str(security.id) not in matched_ids
+    ]
+    if unmatched:
+        gateway = EnrichmentGateway(
+            settings=settings,
+            uow=UnitOfWork(session),
+            price_store=PriceStore(session, settings),
+        )
+        for security in unmatched:
+            identifier, identifier_type = quote_identifier(security)
+            if not identifier:
+                continue
+            quote = None
+            identifiers = [(identifier, identifier_type)]
+            if ":" in identifier:
+                bare_ticker = identifier.rsplit(":", 1)[-1].strip()
+                if bare_ticker:
+                    identifiers.append((bare_ticker, "ticker"))
+            isin = str(security.isin or "").strip()
+            if isin and isin.upper() != identifier.upper():
+                identifiers.append((isin, "isin"))
+            for candidate, candidate_type in identifiers:
+                try:
+                    history = await gateway.get_historical_prices(
+                        security_id=str(security.id),
+                        identifier=candidate,
+                        identifier_type=candidate_type,
+                        interval="1d",
+                        limit=365,
+                    )
+                    if history.observations:
+                        matched_ids.add(str(security.id))
+                    quote = await gateway.get_latest_quote(
+                        security_id=str(security.id),
+                        identifier=candidate,
+                        identifier_type=candidate_type,
+                    )
+                    if _quote_is_usable(quote):
+                        matched_ids.add(str(security.id))
+                        updated += 1
+                        providers.append("market-data")
+                        break
+                except Exception:
+                    # One unmapped/delisted identifier must not abort the
+                    # complete refresh; try the stable ISIN before giving up.
+                    continue
+
+            # A successful market-data lookup must advance the canonical
+            # freshness record as well as the price cache.  Without this,
+            # newly fetched Yahoo/OpenBB prices were immediately reported as
+            # stale because only the cache had been updated.
+            if _quote_is_usable(quote):
+                freshness = await session.scalar(
+                    select(EnrichmentFreshness).where(
+                        EnrichmentFreshness.security_id == security.id
+                    )
+                )
+                if freshness is None:
+                    freshness = EnrichmentFreshness(security_id=security.id)
+                    session.add(freshness)
+                freshness.last_quote_fetch = quote.timestamp
+                freshness.data_source = quote.source or "market-data"
+                freshness.status = "resolved"
+                freshness.error_message = None
+
+            # Keep a provider-reported holding price as an explicit local
+            # valuation quote when no public market source can resolve the
+            # instrument (funds, delisted assets and ISIN-only listings are
+            # common examples).  It is not labelled as market data, but it
+            # is sufficient evidence for current portfolio valuation.
+            if _quote_is_usable(quote):
+                continue
+            holding_snapshot = await session.scalar(
+                select(Holding)
+                .where(
+                    Holding.tenant_id == auth.tenant_id,
+                    Holding.security_id == security.id,
+                )
+                .order_by(Holding.observed_at.desc())
+                .limit(1)
+            )
+            if (
+                holding_snapshot is not None
+                and holding_snapshot.price is not None
+            ):
+                existing = await session.scalar(
+                    select(SecurityPrice).where(
+                        SecurityPrice.security_id == security.id,
+                        SecurityPrice.timestamp == holding_snapshot.observed_at,
+                        SecurityPrice.source == "holding_snapshot",
+                        SecurityPrice.interval == "1d",
+                    )
+                )
+                if existing is None:
+                    session.add(
+                        SecurityPrice(
+                            security_id=security.id,
+                            timestamp=holding_snapshot.observed_at,
+                            price_open=holding_snapshot.price,
+                            price_high=holding_snapshot.price,
+                            price_low=holding_snapshot.price,
+                            price_close=holding_snapshot.price,
+                            source="holding_snapshot",
+                            interval="1d",
+                            currency_code=(
+                                holding_snapshot.price_currency
+                                or holding_snapshot.currency_code
+                            ),
+                        )
+                    )
+                freshness = await session.scalar(
+                    select(EnrichmentFreshness).where(
+                        EnrichmentFreshness.security_id == security.id
+                    )
+                )
+                if freshness is None:
+                    freshness = EnrichmentFreshness(security_id=security.id)
+                    session.add(freshness)
+                freshness.last_quote_fetch = holding_snapshot.observed_at
+                freshness.data_source = "holding_snapshot"
+                freshness.status = "resolved"
+                freshness.error_message = None
+                matched_ids.add(str(security.id))
     await session.flush()
     return {
         "status": "completed" if updated else "partial",

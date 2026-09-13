@@ -47,6 +47,7 @@ from finance_sync.connectors.exceptions import (
 from finance_sync.connectors.models import (
     ProviderMetadata,
     RawAccount,
+    RawCashBalance,
     RawHolding,
     RawTransaction,
     SecurityReference,
@@ -510,6 +511,18 @@ class Trading212Connector(Connector):
                 currency_code=self._account_currency,
                 current_balance=cash_data.get("free"),
                 available_balance=cash_data.get("free"),
+                cash_balances=(
+                    [
+                        RawCashBalance(
+                            amount=Decimal(str(cash_data["free"])),
+                            currency_code=self._account_currency,
+                            balance_kind="available",
+                            observed_at=datetime.now(UTC),
+                        )
+                    ]
+                    if cash_data.get("free") is not None
+                    else []
+                ),
                 iso_currency_code=None,
                 provider_metadata={
                     "invested": cash_data.get("invested"),
@@ -609,7 +622,66 @@ class Trading212Connector(Connector):
             api_key, since, limit, to=to
         )
 
-        all_txns: list[RawTransaction] = list(order_txns) + list(cash_txns)
+        # Some Trading212 accounts expose the current portfolio and average
+        # cost, but return an empty order-history collection.  Persisting only
+        # the portfolio leaves Wealthfolio without a canonical acquisition
+        # basis (and therefore without tax lots).  In that provider-defined
+        # case, create one explicitly marked opening transaction per live
+        # holding.  This is an opening-balance assertion, not an invented
+        # historical trade: the provider snapshot remains the evidence and
+        # the metadata makes the provenance/audit distinction explicit.
+        opening_txns: list[RawTransaction] = []
+        if not order_txns and (to is None or to >= datetime.now(UTC)):
+            for holding in await self.fetch_holdings(
+                account_id=self._account_id
+            ):
+                if holding.quantity <= 0 or holding.cost_basis is None:
+                    continue
+                unit_price = holding.cost_basis / holding.quantity
+                initial_fill = (
+                    holding.provider_metadata.get("initial_fill_date")
+                    if holding.provider_metadata
+                    else None
+                )
+                occurred_at = (
+                    _parse_t212_datetime(initial_fill)
+                    if initial_fill
+                    else holding.observed_at
+                ) or holding.observed_at
+                ticker = holding.security_reference.ticker or (
+                    holding.security_reference.external_id or "holding"
+                )
+                safe_ticker = str(ticker).replace("/", "_")
+                opening_txns.append(
+                    RawTransaction(
+                        external_transaction_id=f"opening_{safe_ticker}",
+                        external_account_id=holding.external_account_id,
+                        amount=-holding.cost_basis,
+                        currency_code=holding.currency_code,
+                        occurred_at=occurred_at,
+                        booked_at=occurred_at,
+                        description=(
+                            f"Opening position {holding.quantity} x {ticker}"
+                        ),
+                        transaction_type="purchase",
+                        status="booked",
+                        quantity=holding.quantity,
+                        unit_price=unit_price,
+                        security_reference=holding.security_reference,
+                        provider_metadata={
+                            "source_object_type": "portfolio_snapshot",
+                            "opening_balance": True,
+                            "basis_source": "trading212_average_price",
+                            "snapshot_observed_at": (
+                                holding.observed_at.isoformat()
+                            ),
+                        },
+                    )
+                )
+
+        all_txns: list[RawTransaction] = (
+            list(order_txns) + opening_txns + list(cash_txns)
+        )
         await self.fetch_instruments()
         all_txns = [self._enrich_transaction_security(txn) for txn in all_txns]
         # Deduplicate by provider external id (orders are prefixed

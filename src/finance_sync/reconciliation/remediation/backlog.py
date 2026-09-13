@@ -145,7 +145,11 @@ class BacklogRepository:
             "affected_entity_id": issue.affected_entity_id,
             "severity": issue.severity,
             "priority": issue.priority,
-            "status": "pending",
+            "status": (
+                "ignored"
+                if issue.remediation_strategy == "coverage_boundary"
+                else "pending"
+            ),
             "first_detected_at": now,
             "last_seen_at": now,
             "next_attempt_at": now,
@@ -157,6 +161,13 @@ class BacklogRepository:
                 "generation": key != deduplication_key(issue),
             },
         }
+        if issue.remediation_strategy == "coverage_boundary":
+            values["last_error"] = (
+                "Provider coverage starts after the analysis window; "
+                "no missing transaction is proven."
+            )
+            values["last_error_category"] = "coverage_boundary"
+            values["resolved_at"] = now
         stmt = insert(DataQualityRemediationItem).values(**values)
         stmt = stmt.on_conflict_do_update(
             constraint="uq_dq_remediation_tenant_dedup",
@@ -167,6 +178,10 @@ class BacklogRepository:
                 "remediation_strategy": stmt.excluded.remediation_strategy,
                 "batch_key": stmt.excluded.batch_key,
                 "context": stmt.excluded.context,
+                "status": stmt.excluded.status,
+                "last_error": stmt.excluded.last_error,
+                "last_error_category": stmt.excluded.last_error_category,
+                "resolved_at": stmt.excluded.resolved_at,
             },
         ).returning(DataQualityRemediationItem)
         result = await self.session.execute(stmt)
