@@ -4,14 +4,17 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from dataclasses import dataclass, field, replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
 from sqlalchemy import func, select
 
 from finance_sync.models import (
+    Account,
     ExportTarget,
+    Holding,
     Security,
     SecurityListing,
     WealthfolioHealthCursor,
@@ -40,6 +43,11 @@ def repair_capability_is_supported(
     if not isinstance(capability_response, dict):
         return False
     capability_response = cast("dict[str, Any]", capability_response)
+    # Current Wealthfolio health responses omit version/capability metadata.
+    # The worker supplies this opt-in marker only after an authenticated read
+    # of the supported assets contract; arbitrary health JSON stays fail-safe.
+    if capability_response.get("client_contract_verified") is True:
+        return True
     version = capability_response.get("version")
     capabilities = capability_response.get("capabilities")
     if not isinstance(version, str) or not version.strip():
@@ -120,10 +128,24 @@ def _text(value: object, *, limit: int = MAX_CONTEXT_TEXT) -> str:
 
 
 def _issue_kind(issue: dict[str, Any]) -> str:
+    fix_action = issue.get("fixAction", issue.get("fix_action"))
+    fix_action_id = (
+        fix_action.get("id", "") if isinstance(fix_action, dict) else fix_action
+    )
     raw = " ".join(
         _text(issue.get(key)).lower()
-        for key in ("code", "category", "type", "fixAction")
+        for key in (
+            "code",
+            "category",
+            "type",
+            "title",
+            "description",
+            "details",
+        )
     )
+    raw = f"{raw} {_text(fix_action_id).lower()}"
+    if any(token in raw for token in ("fx", "exchange rate", "exchange_rate")):
+        return "wealthfolio_fx_sync"
     # Unsafe financial findings must win over generic ``price`` wording in
     # codes such as MISSING_PURCHASE_PRICE.  They have no safe automatic
     # repair primitive and therefore remain manual-review-only.
@@ -131,8 +153,17 @@ def _issue_kind(issue: dict[str, Any]) -> str:
         return "wealthfolio_missing_purchase_price"
     if "negative" in raw and "valuation" in raw:
         return "wealthfolio_negative_valuation"
+    # A valuation gap is historical coverage, not merely the latest quote.
+    # Handle it before the generic ``sync_prices`` action so the workflow can
+    # request the missing date window from the price-history strategy.
     if "incomplete" in raw and "valuation" in raw:
         return "wealthfolio_incomplete_valuation"
+    # Current Wealthfolio versions report missing valuation values as a
+    # ``sync_prices`` action rather than using the older price-gap codes.
+    # This is safe to repair because finance-sync can fetch and verify market
+    # data; it must not fabricate a valuation or cost basis.
+    if "sync_prices" in raw or "quote_sync" in raw:
+        return "wealthfolio_quote_sync_failure"
     if any(token in raw for token in ("transaction", "transfer")):
         return "wealthfolio_transaction_or_transfer_issue"
     if any(token in raw for token in ("quote", "price", "market_data")):
@@ -147,6 +178,12 @@ def _strategy(kind: str) -> str:
         return "wealthfolio_quote"
     if kind == "wealthfolio_historical_price_gap":
         return "wealthfolio_price_history"
+    if kind == "wealthfolio_incomplete_valuation":
+        return "wealthfolio_price_history"
+    if kind == "wealthfolio_fx_sync":
+        return "wealthfolio_fx"
+    if kind == "wealthfolio_missing_purchase_price":
+        return "wealthfolio_cost_basis"
     return "unsupported"
 
 
@@ -164,6 +201,7 @@ async def resolve_canonical_health_issues(
         if finding.remediation_strategy not in {
             "wealthfolio_quote",
             "wealthfolio_price_history",
+            "wealthfolio_cost_basis",
         }:
             resolved.append(finding)
             continue
@@ -194,6 +232,36 @@ async def resolve_canonical_health_issues(
             identifier_type=identifier_type,
             identity_resolution="canonical",
         )
+        if finding.remediation_strategy == "wealthfolio_cost_basis":
+            account_rows = list(
+                (
+                    await session.execute(
+                        select(Account.id, Account.connection_id)
+                        .join(Holding, Holding.account_id == Account.id)
+                        .where(
+                            Account.tenant_id == finding.tenant_id,
+                            Account.provider_key == "trading212",
+                            Holding.tenant_id == finding.tenant_id,
+                            Holding.security_id == security.id,
+                            Holding.quantity != 0,
+                        )
+                        .distinct()
+                    )
+                ).all()
+            )
+            if len(account_rows) == 1:
+                context.update(
+                    account_id=str(account_rows[0][0]),
+                    connection_id=(
+                        str(account_rows[0][1]) if account_rows[0][1] else None
+                    ),
+                    provider_account_id=str(account_rows[0][0]),
+                )
+            else:
+                context["manual_review"] = True
+                context["cost_basis_resolution"] = (
+                    "no_unique_trading212_account"
+                )
         resolved.append(replace(finding, context=context))
     return resolved
 
@@ -311,15 +379,17 @@ def normalize_health_issues(
             ]
         affected = cast("list[Any]", affected)
         for item in affected[:MAX_AFFECTED_ITEMS]:
+            item_data: dict[str, Any] = (
+                cast("dict[str, Any]", item) if isinstance(item, dict) else {}
+            )
             if isinstance(item, dict):
-                item = cast("Any", item)
                 entity_id = (
-                    item.get("id")
-                    or item.get("assetId")
-                    or item.get("asset_id")
-                    or item.get("symbol")
+                    item_data.get("id")
+                    or item_data.get("assetId")
+                    or item_data.get("asset_id")
+                    or item_data.get("symbol")
                 )
-                entity_type = item.get("type") or "wealthfolio_asset"
+                entity_type = item_data.get("type") or "wealthfolio_asset"
             else:
                 entity_id = item
                 entity_type = "wealthfolio_asset"
@@ -328,11 +398,19 @@ def normalize_health_issues(
                 "target_id": target_id,
                 "remote_entity_id": entity_id,
                 "code": _text(raw.get("code"), limit=64),
-                "fix_action": _text(raw.get("fixAction"), limit=64),
+                "fix_action": _text(
+                    (raw.get("fixAction", raw.get("fix_action")) or {}).get(
+                        "id", ""
+                    )
+                    if isinstance(
+                        raw.get("fixAction", raw.get("fix_action")), dict
+                    )
+                    else raw.get("fixAction", raw.get("fix_action")),
+                    limit=64,
+                ),
                 "details": _text(raw.get("details") or raw.get("message")),
             }
             if isinstance(item, dict):
-                item_data: Any = cast("Any", item)
                 for source_key in ("securityId", "security_id"):
                     if item_data.get(source_key) is not None:
                         context["security_id"] = _text(
@@ -358,33 +436,65 @@ def normalize_health_issues(
                 elif item_data.get("cusip") is not None:
                     context["identifier"] = _text(item_data["cusip"], limit=64)
                     context["identifier_type"] = "cusip"
-                elif (
-                    item_data.get(
-                        "providerSymbol", item_data.get("provider_symbol")
+                elif any(
+                    item_data.get(key) is not None
+                    for key in (
+                        "providerSymbol",
+                        "provider_symbol",
+                        "symbol",
+                        "displayCode",
+                        "instrumentSymbol",
                     )
-                    is not None
                 ):
-                    context["identifier"] = _text(
-                        item_data.get(
-                            "providerSymbol", item_data.get("provider_symbol")
-                        ),
-                        limit=64,
-                    )
-                    context["identifier_type"] = "provider_symbol"
-                elif item_data.get("symbol") is not None:
-                    context["identifier"] = _text(item_data["symbol"], limit=64)
-                    context["identifier_type"] = "ticker"
-                for source_key, context_key in (
-                    ("startDate", "start_date"),
-                    ("endDate", "end_date"),
-                ):
-                    if item_data.get(source_key) is not None:
-                        context[context_key] = _text(
-                            item_data[source_key], limit=64
+                    symbol = next(
+                        item_data[key]
+                        for key in (
+                            "providerSymbol",
+                            "provider_symbol",
+                            "symbol",
+                            "displayCode",
+                            "instrumentSymbol",
                         )
+                        if item_data.get(key) is not None
+                    )
+                    context["identifier"] = _text(symbol, limit=64)
+                    context["identifier_type"] = "provider_symbol"
+                if (
+                    kind == "wealthfolio_incomplete_valuation"
+                    and "start_date" not in context
+                ):
+                    dates = re.findall(
+                        r"\b\d{4}-\d{2}-\d{2}\b",
+                        str(raw.get("details") or ""),
+                    )
+                    if dates:
+                        context["start_date"] = min(dates)
+                        context["end_date"] = (
+                            (
+                                datetime.fromisoformat(max(dates))
+                                + timedelta(days=1)
+                            )
+                            .date()
+                            .isoformat()
+                        )
+            if kind == "wealthfolio_fx_sync" and ":" in entity_id:
+                from_currency, to_currency = entity_id.split(":", 1)
+                context.update(
+                    from_currency=from_currency.upper(),
+                    to_currency=to_currency.upper(),
+                )
+            for source_key, context_key in (
+                ("startDate", "start_date"),
+                ("endDate", "end_date"),
+            ):
+                if item_data.get(source_key) is not None:
+                    context[context_key] = _text(
+                        item_data[source_key], limit=64
+                    )
             if kind not in {
                 "wealthfolio_quote_sync_failure",
                 "wealthfolio_historical_price_gap",
+                "wealthfolio_fx_sync",
             }:
                 context["manual_review"] = True
             findings.append(

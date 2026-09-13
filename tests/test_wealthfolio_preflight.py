@@ -54,7 +54,7 @@ def _holding(**changes):
     return SimpleNamespace(**values)
 
 
-def test_incomplete_valuation_is_quarantined_and_cost_basis_is_warning():
+def test_incomplete_valuation_is_quarantined_and_cost_basis_is_blocking():
     result = validate_holdings(
         [
             _holding(id="bad", market_value=None, price=None),
@@ -66,7 +66,7 @@ def test_incomplete_valuation_is_quarantined_and_cost_basis_is_warning():
     assert [item.id for item in result.exportable_holdings] == ["cost"]
     assert {(item.category, item.severity) for item in result.findings} == {
         ("incomplete_valuation", "error"),
-        ("incomplete_cost_basis", "warning"),
+        ("incomplete_cost_basis", "error"),
     }
 
 
@@ -421,6 +421,42 @@ def test_missing_wealthfolio_assets_match_by_isin_then_ticker():
     )
 
     assert missing_wealthfolio_assets(canonical, remote) == ("security-ticker",)
+
+
+def test_missing_wealthfolio_assets_matches_display_code_and_instrument_symbol():
+    canonical = [
+        SimpleNamespace(
+            id="security-isin", isin="NL0012969182", ticker="ADYEN"
+        ),
+        SimpleNamespace(id="security-ticker", isin=None, ticker="VWCE"),
+    ]
+    remote = (
+        {
+            "displayCode": "NL0012969182",
+            "instrumentSymbol": "NL0012969182",
+            "isin": None,
+            "symbol": None,
+        },
+        {"instrumentSymbol": "VWCE"},
+    )
+
+    assert missing_wealthfolio_assets(canonical, remote) == ()
+
+
+def test_missing_wealthfolio_assets_matches_provider_override_symbol():
+    canonical = [
+        SimpleNamespace(id="security-1", isin=None, ticker="BESI:XAMS")
+    ]
+    remote = (
+        {
+            "displayCode": "BESI",
+            "providerConfig": {
+                "overrides": {"FINANCE_SYNC": {"symbol": "BESI:XAMS"}}
+            },
+        },
+    )
+
+    assert missing_wealthfolio_assets(canonical, remote) == ()
 
 
 @pytest.mark.asyncio

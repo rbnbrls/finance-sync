@@ -1366,7 +1366,17 @@ class WealthfolioClient:
         )
         response: httpx.Response | None = None
         for attempt in range(1, attempts + 1):
-            response = await self._client.post(url, json=json)
+            try:
+                response = await self._client.post(url, json=json)
+            except httpx.ReadTimeout:
+                # A snapshot recalculation can outlive the client's read
+                # timeout. Wealthfolio continues processing the request, so
+                # retry the same idempotent projection after the backoff.
+                if attempt == attempts:
+                    raise
+                delay = self._config.retry_408_base_delay * (2 ** (attempt - 1))
+                await asyncio.sleep(delay)
+                continue
             if response.status_code != 408 or attempt == attempts:
                 return response
             delay = self._config.retry_408_base_delay * (2 ** (attempt - 1))

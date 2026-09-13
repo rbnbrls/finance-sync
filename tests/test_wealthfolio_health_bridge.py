@@ -43,6 +43,27 @@ def test_normalization_is_one_traceable_item_per_affected_asset() -> None:
     assert all(issue.context["target_id"] == "target-1" for issue in issues)
 
 
+def test_current_wealthfolio_sync_prices_action_is_auto_repairable() -> None:
+    finding = normalize_health_issues(
+        {
+            "issues": [
+                {
+                    "code": "data_incomplete_valuation_value",
+                    "title": "Incomplete valuation",
+                    "fixAction": {"id": "sync_prices", "label": "Sync Prices"},
+                    "affectedItems": [{"id": "asset-1", "symbol": "ABC"}],
+                }
+            ]
+        },
+        tenant_id="tenant-1",
+        target_id="target-1",
+    )[0]
+
+    assert finding.issue_type == "wealthfolio_incomplete_valuation"
+    assert finding.remediation_strategy == "wealthfolio_price_history"
+    assert finding.context["fix_action"] == "sync_prices"
+
+
 def test_target_identity_is_part_of_backlog_identity() -> None:
     payload = {
         "issues": [
@@ -106,7 +127,11 @@ def test_unsafe_categories_precede_generic_price_and_are_manual_only(
     )[0]
 
     assert finding.issue_type == expected_kind
-    assert finding.remediation_strategy == "unsupported"
+    expected_strategy = {
+        "MISSING_PURCHASE_PRICE": "wealthfolio_cost_basis",
+        "INCOMPLETE_VALUATION": "wealthfolio_price_history",
+    }.get(code, "unsupported")
+    assert finding.remediation_strategy == expected_strategy
     assert finding.context["manual_review"] is True
 
 

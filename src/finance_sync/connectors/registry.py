@@ -171,6 +171,7 @@ class ConnectorRegistry:
             "plugin_version": getattr(connector, "plugin_version", "0.1.0"),
             "sdk_version": getattr(connector, "sdk_version", "0.1.0"),
             "supported_resources": supported_resources,
+            "metadata_capabilities": cls._metadata_capabilities(connector),
             "rate_limit_policy": rate_limit,
             "has_rate_limit_policy": rate_limit is not None,
             "remediation_strategies": cls._remediation_metadata(connector),
@@ -209,6 +210,20 @@ class ConnectorRegistry:
             result["metadata_incomplete"] = True
         result.update(safe)
         return result
+
+    @staticmethod
+    def _metadata_capabilities(connector: type[Connector]) -> list[str]:
+        """Return only validated, secret-free metadata capability names."""
+        raw = getattr(connector, "metadata_capabilities", ())
+        if not isinstance(raw, (list, tuple, set, frozenset)):
+            return []
+        return sorted(
+            {
+                item.strip()
+                for item in raw
+                if isinstance(item, str) and item.strip()
+            }
+        )
 
     @staticmethod
     def _remediation_metadata(

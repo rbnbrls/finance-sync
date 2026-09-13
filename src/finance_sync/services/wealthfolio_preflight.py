@@ -67,17 +67,104 @@ class WealthfolioDestinationProbe:
     )
 
 
+def validate_dataset_completeness(
+    holdings: list[Any],
+    securities: Iterable[Any],
+    price_security_ids: set[str],
+    listing_security_ids: set[str],
+    fx_pairs: set[tuple[str, str]],
+    *,
+    base_currency: str,
+) -> list[PreflightFinding]:
+    """Validate the canonical data contract required by Wealthfolio.
+
+    Only securities that are currently held are checked. Missing price
+    coverage is blocking because sending that holding downstream creates
+    incomplete Wealthfolio valuation rows.
+    """
+    findings: list[PreflightFinding] = []
+    security_by_id = {str(getattr(item, "id", "")): item for item in securities}
+    held_security_ids = {
+        str(getattr(item, "security_id", ""))
+        for item in holdings
+        if getattr(item, "security_id", None)
+        and _decimal(getattr(item, "quantity", None)) not in {None, Decimal(0)}
+    }
+    for security_id in sorted(held_security_ids):
+        if security_id not in security_by_id:
+            continue
+        if not security_id:
+            continue
+        if security_id not in listing_security_ids:
+            findings.append(
+                PreflightFinding(
+                    category="missing_security_listing",
+                    severity="error",
+                    record_id=security_id,
+                    message=(
+                        "security has no exchange listing or provider alias"
+                    ),
+                )
+            )
+        if security_id not in price_security_ids:
+            findings.append(
+                PreflightFinding(
+                    category="missing_price_history",
+                    severity="error",
+                    record_id=security_id,
+                    message="security has no canonical price observation",
+                )
+            )
+    base = base_currency.upper()
+    for holding in holdings:
+        currency = str(getattr(holding, "currency_code", "") or "").upper()
+        if (
+            currency
+            and currency != base
+            and (currency, base) not in fx_pairs
+            and (base, currency) not in fx_pairs
+        ):
+            findings.append(
+                PreflightFinding(
+                    category="missing_fx_history",
+                    severity="error",
+                    record_id=str(getattr(holding, "id", "unknown")),
+                    message=f"missing FX history for {currency}/{base}",
+                )
+            )
+    return findings
+
+
 def missing_wealthfolio_assets(
     canonical_assets: list[Any],
     remote_assets: tuple[dict[str, Any], ...],
 ) -> tuple[str, ...]:
     """Return canonical security IDs absent from the remote asset catalog."""
-    remote_keys = {
-        str(value).strip().upper()
-        for asset in remote_assets
-        for value in (asset.get("isin"), asset.get("symbol"))
-        if value
-    }
+    # Wealthfolio versions use different fields for the same identity.  In
+    # particular, locally-created/manual assets commonly expose the ISIN as
+    # ``displayCode`` and ``instrumentSymbol`` while leaving ``isin`` and
+    # ``symbol`` empty.  Provider overrides are also a valid stable identity
+    # for exchange-qualified instruments.
+    remote_keys: set[str] = set()
+    for asset in remote_assets:
+        values = [
+            asset.get("isin"),
+            asset.get("symbol"),
+            asset.get("displayCode"),
+            asset.get("instrumentSymbol"),
+        ]
+        provider_config = asset.get("providerConfig")
+        if isinstance(provider_config, dict):
+            overrides = provider_config.get("overrides")
+            if isinstance(overrides, dict):
+                values.extend(
+                    override.get("symbol")
+                    for override in overrides.values()
+                    if isinstance(override, dict)
+                )
+        remote_keys.update(
+            str(value).strip().upper() for value in values if value
+        )
     missing: list[str] = []
     for asset in canonical_assets:
         identity = (
@@ -183,9 +270,9 @@ def validate_holdings(holdings: list[Any]) -> WealthfolioPreflightResult:
             result.findings.append(
                 PreflightFinding(
                     category="incomplete_cost_basis",
-                    severity="warning",
+                    severity="error",
                     record_id=record_id,
-                    message="non-zero holding has no cost basis",
+                    message="non-zero holding must have a cost basis",
                 )
             )
 
@@ -422,7 +509,14 @@ def validate_activity_semantics(txn: Any) -> list[PreflightFinding]:
             )
         )
 
-    if txn_type in {"purchase", "sale"}:
+    quantity = _decimal(getattr(txn, "quantity", None))
+    investment_transfer = (
+        txn_type == "transfer"
+        and getattr(txn, "security_id", None) is not None
+        and quantity is not None
+        and quantity > 0
+    )
+    if txn_type in {"purchase", "sale"} or investment_transfer:
         missing_trade_fields: list[str] = []
         if getattr(txn, "quantity", None) is None:
             missing_trade_fields.append("quantity")
@@ -441,7 +535,6 @@ def validate_activity_semantics(txn: Any) -> list[PreflightFinding]:
                     ),
                 )
             )
-        quantity = _decimal(getattr(txn, "quantity", None))
         if getattr(txn, "quantity", None) is not None and (
             quantity is None or quantity <= 0
         ):

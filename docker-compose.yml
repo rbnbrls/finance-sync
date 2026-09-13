@@ -115,6 +115,10 @@ services:
       GITHUB_REPO: ${GITHUB_REPO:-rbnbrls/finance-sync}
       DEGIRO_IMPORT_STAGING_DIRECTORY: /tmp/finance-sync/import-staging
       WORKER_JOB_DATA_QUALITY_REPAIR_ENABLED: ${WORKER_JOB_DATA_QUALITY_REPAIR_ENABLED:-true}
+      WEALTHFOLIO_HEALTH_BRIDGE_ENABLED: ${WEALTHFOLIO_HEALTH_BRIDGE_ENABLED:-false}
+      WEALTHFOLIO_HEALTH_BRIDGE_INTERVAL_MINUTES: ${WEALTHFOLIO_HEALTH_BRIDGE_INTERVAL_MINUTES:-15}
+      REMEDIATION_ENABLED: ${REMEDIATION_ENABLED:-false}
+      REMEDIATION_POLL_INTERVAL_MINUTES: ${REMEDIATION_POLL_INTERVAL_MINUTES:-60}
     volumes:
       - encryption_keys:/app/keys  # Mount for encryption key files if needed
       - degiro_import_staging:/var/lib/finance-sync/import-staging

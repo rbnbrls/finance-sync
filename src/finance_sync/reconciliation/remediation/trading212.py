@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any, cast
 
 from sqlalchemy import select
@@ -11,6 +12,7 @@ from finance_sync.connectors.models import ConnectorConfig
 from finance_sync.connectors.registry import ConnectorRegistry
 from finance_sync.models.credential import Credential
 from finance_sync.models.security import Security
+from finance_sync.models.transaction import Transaction
 from finance_sync.models.unresolved_security import UnresolvedSecurity
 from finance_sync.reconciliation.remediation.verification import (
     VerificationResult,
@@ -105,6 +107,7 @@ class Trading212InstrumentMetadataStrategy:
             if security is not None:
                 row.resolved_security_id = str(security.id)
                 row.resolution_method = "auto_isin"
+                await self._link_transactions(row, security)
         await self.session.flush()
 
     async def verify(self, item: Any) -> VerificationResult:
@@ -209,9 +212,32 @@ class Trading212InstrumentMetadataStrategy:
                 if security is not None:
                     row.resolved_security_id = str(security.id)
                     row.resolution_method = "auto_isin"
+                    await self._link_transactions(row, security)
             outcomes[str(item.id)] = "success"
         await self.session.flush()
         return outcomes
+
+    async def _link_transactions(
+        self, row: UnresolvedSecurity, security: Security
+    ) -> None:
+        """Attach retained Trading212 activities to the resolved security."""
+        ticker = str(row.raw_ticker or row.external_security_id or "").upper()
+        if not ticker:
+            return
+        result = await self.session.execute(
+            select(Transaction).where(
+                Transaction.tenant_id == getattr(row, "tenant_id", None),
+                Transaction.provider_key == "trading212",
+                Transaction.security_id.is_(None),
+                Transaction.provider_metadata["ticker"].as_string() == ticker,
+            )
+        )
+        scalar_rows = result.scalars()
+        transactions = (
+            list(scalar_rows.all()) if hasattr(scalar_rows, "all") else []
+        )
+        for transaction in transactions:
+            transaction.security_id = security.id
 
     async def _credential(
         self, item: Any, row: UnresolvedSecurity
@@ -225,3 +251,93 @@ class Trading212InstrumentMetadataStrategy:
         if connection_id is not None:
             stmt = stmt.where(Credential.id == connection_id)
         return (await self.session.execute(stmt)).scalars().first()
+
+
+class Trading212CostBasisStrategy:
+    """Backfill acquisition activities for Wealthfolio cost-basis issues.
+
+    Wealthfolio reports the symptom at holding level, while Trading212 owns
+    the authoritative filled price.  One bounded history fetch repairs all
+    affected holdings for the account and persists through the normal sync
+    boundary; no price is inferred from market data.
+    """
+
+    key = "wealthfolio_cost_basis"
+    endpoint_family = "trading212_transaction_history"
+    quota_cost = 1
+
+    def __init__(
+        self, session: AsyncSession, *, persist: Any, settings: Any
+    ) -> None:
+        self.session = session
+        self.persist = persist
+        self.settings = settings
+        self._processed: set[str] = set()
+
+    def supports(self, item: Any) -> bool:
+        context = _context(item)
+        return (
+            str(item.provider_key).lower() == "wealthfolio"
+            and bool(context.get("account_id"))
+            and not context.get("manual_review")
+        )
+
+    async def execute(self, item: Any, connector: Any = None) -> None:
+        if connector is None:
+            message = "Trading212 cost-basis repair requires a connector"
+            raise RuntimeError(message)
+        context = _context(item)
+        connection_key = str(
+            context.get("connection_id") or context["account_id"]
+        )
+        if connection_key in self._processed:
+            return
+        until = datetime.now(UTC)
+        since = until - timedelta(days=3650)
+        raw = await connector.fetch_transactions(
+            since=since,
+            account_id=str(
+                context.get("provider_account_id") or context["account_id"]
+            ),
+            limit=None,
+        )
+        canonical = connector.transform_transactions(raw)
+        await self.persist(item, str(context["account_id"]), canonical)
+        self._processed.add(connection_key)
+
+    async def verify(
+        self, item: Any, _connector: Any = None
+    ) -> VerificationResult:
+        context = _context(item)
+        security_id = context.get("security_id")
+        account_id = context.get("account_id")
+        if not security_id or not account_id:
+            return VerificationResult(
+                False, "cost basis has no canonical account scope"
+            )
+        count = await self.session.scalar(
+            select(Transaction.id)
+            .where(
+                Transaction.tenant_id == item.tenant_id,
+                Transaction.account_id == str(account_id),
+                Transaction.security_id == str(security_id),
+                Transaction.transaction_type.in_(("purchase", "transfer")),
+                Transaction.quantity > 0,
+                Transaction.unit_price.is_not(None),
+                Transaction.unit_price > 0,
+            )
+            .limit(1)
+        )
+        return VerificationResult(
+            count is not None,
+            "Trading212 acquisition price is present"
+            if count is not None
+            else "Trading212 acquisition price remains missing",
+        )
+
+
+def _context(item: Any) -> dict[str, Any]:
+    value = getattr(item, "context", {})
+    return (
+        dict(cast("dict[str, Any]", value)) if isinstance(value, dict) else {}
+    )

@@ -18,6 +18,7 @@ from finance_sync.connectors.registry import ConnectorRegistry
 from finance_sync.models.credential import Credential
 from finance_sync.models.holding import Holding
 from finance_sync.models.security import Security
+from finance_sync.models.security_price import SecurityPrice
 from finance_sync.models.unresolved_security import UnresolvedSecurity
 
 if TYPE_CHECKING:
@@ -203,6 +204,12 @@ class DataQualityRepairService:
             if not identifier:
                 skipped += 1
                 continue
+            holding_snapshot = await self._session.scalar(
+                select(Holding)
+                .where(Holding.security_id == security.id)
+                .order_by(Holding.observed_at.desc())
+                .limit(1)
+            )
             try:
                 history = await gateway.get_historical_prices(
                     security_id=str(security.id),
@@ -225,6 +232,43 @@ class DataQualityRepairService:
                 failed += quote is None
             except Exception:
                 failed += 1
+
+            # A broker position snapshot is an authoritative valuation even
+            # when a public quote provider cannot resolve a delisted, ADR or
+            # provider-specific symbol.  Preserve it as a local quote so
+            # downstream valuation remains possible; it is explicitly marked
+            # as a holding snapshot and is never presented as market data.
+            if (
+                holding_snapshot is not None
+                and holding_snapshot.price is not None
+            ):
+                existing = await self._session.scalar(
+                    select(SecurityPrice).where(
+                        SecurityPrice.security_id == security.id,
+                        SecurityPrice.timestamp == holding_snapshot.observed_at,
+                        SecurityPrice.source == "holding_snapshot",
+                        SecurityPrice.interval == "1d",
+                    )
+                )
+                if existing is None:
+                    self._session.add(
+                        SecurityPrice(
+                            security_id=security.id,
+                            timestamp=holding_snapshot.observed_at,
+                            price_open=holding_snapshot.price,
+                            price_high=holding_snapshot.price,
+                            price_low=holding_snapshot.price,
+                            price_close=holding_snapshot.price,
+                            source="holding_snapshot",
+                            interval="1d",
+                            currency_code=(
+                                holding_snapshot.price_currency
+                                or holding_snapshot.currency_code
+                            ),
+                        )
+                    )
+                    historical_observations += 1
+        await self._session.flush()
         return {
             "updated": updated,
             "failed": failed,

@@ -130,6 +130,9 @@ def test_a3_capability_gate_fails_closed_for_missing_or_unsupported_target() -> 
             "capabilities": {"quote_history_read": True, "quote_upsert": True},
         },
     )
+    assert repair_capability_is_supported(
+        health, {"client_contract_verified": True}
+    )
 
 
 def test_date_only_end_is_next_day_and_datetime_end_is_not_shifted() -> None:

@@ -123,7 +123,8 @@ async def wealthfolio_health_sync_job(
                     WealthfolioClientConfig(
                         base_url=str(
                             payload.get("base_url")
-                            or target.configuration.get("base_url", "")
+                            or target.configuration.get("base_url")
+                            or target.configuration.get("server_url", "")
                         ),
                         password=str(payload.get("password", "")),
                         request_timeout=container.settings.wealthfolio_request_timeout,
@@ -131,6 +132,10 @@ async def wealthfolio_health_sync_job(
                 )
                 await client.authenticate()
                 payload = await client.get_health_status()
+                # Current Wealthfolio releases omit version/capability fields
+                # from /health/status. Verify the authenticated API contract
+                # with a read before enabling quote/history repairs.
+                await client.get_assets()
                 poll = prepare_health_poll(
                     payload,
                     issue_limit=container.settings.wealthfolio_health_bridge_issue_limit,
@@ -152,6 +157,7 @@ async def wealthfolio_health_sync_job(
                             "version": poll.payload.get("version")
                             or poll.payload.get("serverVersion"),
                             "capabilities": poll.payload.get("capabilities"),
+                            "client_contract_verified": True,
                         },
                     ),
                 )
@@ -182,6 +188,19 @@ async def wealthfolio_health_sync_job(
                 if client is not None:
                     await client.close()
         await session.commit()
+    remediation: dict[str, Any] | None = None
+    # Health polling is the intake phase of the DATAKWALITEITSWORKFLOW.  Run
+    # the bounded executor immediately after importing the issues so a user
+    # does not have to wait for the separate hourly remediation tick.
+    if bool(
+        getattr(container.settings, "remediation_enabled", False)
+        or getattr(
+            container.settings,
+            "worker_job_data_quality_repair_enabled",
+            False,
+        )
+    ):
+        remediation = await data_quality_remediation_job(container)
     wealthfolio_health_poll_duration_seconds.observe(
         time.perf_counter() - started
     )
@@ -190,6 +209,7 @@ async def wealthfolio_health_sync_job(
         "polled": polled,
         "imported": imported,
         "failures": failures,
+        "remediation": remediation,
     }
 
 
@@ -1050,6 +1070,7 @@ async def data_quality_remediation_job(container: Container) -> dict[str, Any]:
     )
     from finance_sync.reconciliation.remediation.executor import (
         RemediationExecutor,
+        RemediationStrategy,
     )
     from finance_sync.reconciliation.remediation.planner import (
         RemediationPlanner,
@@ -1065,12 +1086,14 @@ async def data_quality_remediation_job(container: Container) -> dict[str, Any]:
         RemediationRateLimitCoordinator,
     )
     from finance_sync.reconciliation.remediation.trading212 import (
+        Trading212CostBasisStrategy,
         Trading212InstrumentMetadataStrategy,
     )
     from finance_sync.reconciliation.remediation.transaction_history import (
         TransactionHistoryStrategy,
     )
     from finance_sync.reconciliation.remediation.wealthfolio import (
+        WealthfolioFxStrategy,
         WealthfolioHistoricalPriceStrategy,
         WealthfolioQuoteStrategy,
     )
@@ -1079,6 +1102,7 @@ async def data_quality_remediation_job(container: Container) -> dict[str, Any]:
     async with container.session_factory() as session:
         tenants = (await session.execute(select(Tenant))).scalars().all()
         for tenant in tenants:
+            tenant_id = str(tenant.id)
             try:
                 planner = RemediationPlanner(
                     session,
@@ -1117,16 +1141,65 @@ async def data_quality_remediation_job(container: Container) -> dict[str, Any]:
                 wealthfolio_history = WealthfolioHistoricalPriceStrategy(
                     session, container.settings
                 )
-                tenant_id = str(tenant.id)
+                wealthfolio_fx = WealthfolioFxStrategy(
+                    session, container.settings
+                )
+                wealthfolio_clients: dict[str, Any] = {}
 
                 async def _remediation_connector(
-                    item: Any, _tenant_id: str = tenant_id
+                    item: Any,
+                    _tenant_id: str = tenant_id,
+                    _clients: dict[str, Any] = wealthfolio_clients,
                 ) -> Any:
+                    if (
+                        str(item.remediation_strategy)
+                        == "wealthfolio_cost_basis"
+                    ):
+                        context = getattr(item, "context", {}) or {}
+                        connection_id = context.get("connection_id")
+                        credential = await session.get(
+                            Credential, str(connection_id)
+                        )
+                        if (
+                            credential is None
+                            or credential.provider_key != "trading212"
+                        ):
+                            message = "Trading212 connection not found"
+                            raise ValueError(message)
+                        from finance_sync.services.auth import (
+                            decrypt_credential,
+                        )
+
+                        payload = json.loads(
+                            decrypt_credential(
+                                credential.encrypted_payload,
+                                credential.nonce,
+                                container.settings,
+                            )
+                        )
+                        config = ConnectorConfig(
+                            provider_type="trading212",
+                            credentials={
+                                str(k): str(v) for k, v in payload.items()
+                            },
+                            options=connector_options(credential),
+                            connection_id=str(credential.id),
+                        )
+                        cache_key = f"trading212:{credential.id}"
+                        if cache_key in _clients:
+                            return _clients[cache_key]
+                        connector = ConnectorRegistry().get_connector(config)
+                        await connector.authenticate()
+                        _clients[cache_key] = connector
+                        return connector
                     if str(item.provider_key) == "wealthfolio":
                         target = (
                             await session.execute(
                                 select(ExportTarget).where(
-                                    ExportTarget.id == str(item.connection_id),
+                                    ExportTarget.id
+                                    == str(
+                                        item.target_id or item.connection_id
+                                    ),
                                     ExportTarget.tenant_id == _tenant_id,
                                     ExportTarget.target_type == "wealthfolio",
                                 )
@@ -1147,6 +1220,11 @@ async def data_quality_remediation_job(container: Container) -> dict[str, Any]:
                             decrypt_credential,
                         )
 
+                        target_key = str(target.id)
+                        existing_client = _clients.get(target_key)
+                        if existing_client is not None:
+                            return existing_client
+
                         payload = json.loads(
                             decrypt_credential(
                                 target.encrypted_secret,
@@ -1158,13 +1236,17 @@ async def data_quality_remediation_job(container: Container) -> dict[str, Any]:
                             WealthfolioClientConfig(
                                 base_url=str(
                                     payload.get("base_url")
-                                    or target.configuration.get("base_url", "")
+                                    or target.configuration.get("base_url")
+                                    or target.configuration.get(
+                                        "server_url", ""
+                                    )
                                 ),
                                 password=str(payload.get("password", "")),
                                 request_timeout=container.settings.wealthfolio_request_timeout,
                             )
                         )
                         await client.authenticate()
+                        _clients[target_key] = client
                         return client
                     credential = await session.get(
                         Credential, str(item.connection_id)
@@ -1216,16 +1298,46 @@ async def data_quality_remediation_job(container: Container) -> dict[str, Any]:
                         object(),
                         context=PersistenceContext(
                             tenant_id=_tenant_id,
-                            provider_type=str(item.provider_key),
-                            connection_id=str(item.connection_id),
+                            provider_type=(
+                                "trading212"
+                                if str(item.remediation_strategy)
+                                == "wealthfolio_cost_basis"
+                                else str(item.provider_key)
+                            ),
+                            connection_id=str(
+                                (
+                                    (getattr(item, "context", {}) or {}).get(
+                                        "connection_id"
+                                    )
+                                    or item.connection_id
+                                )
+                                if str(item.remediation_strategy)
+                                == "wealthfolio_cost_basis"
+                                else item.connection_id
+                            ),
                         ),
                     )
                     result = await TransactionSyncStage(persistence).run(
                         UnitOfWork(session),
                         canonical,
                         account_id=account_id,
-                        provider_type=str(item.provider_key),
-                        connection_id=str(item.connection_id),
+                        provider_type=(
+                            "trading212"
+                            if str(item.remediation_strategy)
+                            == "wealthfolio_cost_basis"
+                            else str(item.provider_key)
+                        ),
+                        connection_id=str(
+                            (
+                                (getattr(item, "context", {}) or {}).get(
+                                    "connection_id"
+                                )
+                                or item.connection_id
+                            )
+                            if str(item.remediation_strategy)
+                            == "wealthfolio_cost_basis"
+                            else item.connection_id
+                        ),
                     )
                     return result.count
 
@@ -1249,17 +1361,27 @@ async def data_quality_remediation_job(container: Container) -> dict[str, Any]:
                         )
                     ),
                 )
+                cost_basis = Trading212CostBasisStrategy(
+                    session,
+                    persist=_persist_transactions,
+                    settings=container.settings,
+                )
                 executor = RemediationExecutor(
                     session,
-                    strategies={
-                        trading212.key: trading212,
-                        price_history.key: price_history,
-                        transaction_history.key: transaction_history,
-                        latest_quote.key: latest_quote,
-                        connector_enrichment.key: connector_enrichment,
-                        wealthfolio_quote.key: wealthfolio_quote,
-                        wealthfolio_history.key: wealthfolio_history,
-                    },
+                    strategies=cast(
+                        "dict[str, RemediationStrategy]",
+                        {
+                            trading212.key: trading212,
+                            price_history.key: price_history,
+                            transaction_history.key: transaction_history,
+                            latest_quote.key: latest_quote,
+                            connector_enrichment.key: connector_enrichment,
+                            wealthfolio_quote.key: wealthfolio_quote,
+                            wealthfolio_history.key: wealthfolio_history,
+                            wealthfolio_fx.key: wealthfolio_fx,
+                            cost_basis.key: cost_basis,
+                        },
+                    ),
                     quota=quota,
                     quota_policies={
                         trading212.key: QuotaPolicy(
@@ -1297,6 +1419,16 @@ async def data_quality_remediation_job(container: Container) -> dict[str, Any]:
                             container.settings.remediation_quota_window_seconds,
                             wealthfolio_history.endpoint_family,
                         ),
+                        wealthfolio_fx.key: QuotaPolicy(
+                            container.settings.remediation_quota_requests,
+                            container.settings.remediation_quota_window_seconds,
+                            wealthfolio_fx.endpoint_family,
+                        ),
+                        cost_basis.key: QuotaPolicy(
+                            container.settings.remediation_quota_requests,
+                            container.settings.remediation_quota_window_seconds,
+                            cost_basis.endpoint_family,
+                        ),
                     },
                     max_verification_attempts=(
                         container.settings.remediation_max_verification_attempts
@@ -1316,18 +1448,22 @@ async def data_quality_remediation_job(container: Container) -> dict[str, Any]:
                 outcomes: list[str] = []
                 for batch in create_batches(claimed, batch_limit=50):
                     outcomes.extend(await executor.execute_batch(batch))
-                results[str(tenant.id)] = {
+                for client in wealthfolio_clients.values():
+                    await client.close()
+                results[tenant_id] = {
                     "claimed": len(claimed),
                     "outcomes": outcomes,
                 }
             except Exception as exc:
                 logger.exception(
                     "data_quality_repair_failed",
-                    tenant_id=str(tenant.id),
+                    tenant_id=tenant_id,
                     error=type(exc).__name__,
                 )
                 await session.rollback()
-                results[str(tenant.id)] = {"error": type(exc).__name__}
+                for client in locals().get("wealthfolio_clients", {}).values():
+                    await client.close()
+                results[tenant_id] = {"error": type(exc).__name__}
         await session.commit()
         from sqlalchemy import func
 

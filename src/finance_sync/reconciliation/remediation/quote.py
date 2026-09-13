@@ -44,11 +44,13 @@ class LatestQuoteStrategy:
     async def execute(self, item: Any, connector: Any = None) -> None:
         del connector
         context = _context(item)
-        await self.gateway.get_latest_quote(
+        quote = await self.gateway.get_latest_quote(
             security_id=str(context["security_id"]),
             identifier=str(context["identifier"]),
             identifier_type=str(context.get("identifier_type", "ticker")),
         )
+        if quote is None:
+            await self._persist_holding_snapshot(str(context["security_id"]))
 
     async def execute_batch(
         self, items: list[Any], connector: Any = None
@@ -58,12 +60,49 @@ class LatestQuoteStrategy:
         if not items:
             return {}
         first = _context(items[0])
-        await self.gateway.get_latest_quote(
+        quote = await self.gateway.get_latest_quote(
             security_id=str(first["security_id"]),
             identifier=str(first["identifier"]),
             identifier_type=str(first.get("identifier_type", "ticker")),
         )
+        if quote is None:
+            await self._persist_holding_snapshot(str(first["security_id"]))
         return {str(item.id): "success" for item in items}
+
+    async def _persist_holding_snapshot(self, security_id: str) -> None:
+        """Use a broker-reported position price when providers cannot quote."""
+        holding = await self.session.scalar(
+            select(Holding)
+            .where(Holding.security_id == security_id)
+            .order_by(Holding.observed_at.desc())
+            .limit(1)
+        )
+        if holding is None or holding.price is None:
+            return
+        exists_row = await self.session.scalar(
+            select(SecurityPrice).where(
+                SecurityPrice.security_id == security_id,
+                SecurityPrice.timestamp == holding.observed_at,
+                SecurityPrice.source == "holding_snapshot",
+                SecurityPrice.interval == "1d",
+            )
+        )
+        if exists_row is None:
+            self.session.add(
+                SecurityPrice(
+                    security_id=security_id,
+                    timestamp=holding.observed_at,
+                    price_open=holding.price,
+                    price_high=holding.price,
+                    price_low=holding.price,
+                    price_close=holding.price,
+                    source="holding_snapshot",
+                    interval="1d",
+                    currency_code=holding.price_currency
+                    or holding.currency_code,
+                )
+            )
+            await self.session.flush()
 
     async def verify(self, item: Any) -> VerificationResult:
         context = _context(item)
