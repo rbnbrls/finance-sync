@@ -191,6 +191,17 @@ def test_build_key_issue_body():
     assert "<!-- key-rotation-monitor:2026-08-28 -->" in body
 
 
+def test_build_key_issue_body_accepts_zulu_timestamp():
+    """Build a deterministic marker from a UTC timestamp using Z notation."""
+    body = build_key_issue_body(
+        "2026-08-28T23:30:00Z",
+        {"hours_to_expiry": 720.0},
+        [],
+    )
+
+    assert "<!-- key-rotation-monitor:2026-08-28 -->" in body
+
+
 def test_should_block_promotion_error():
     """Test that promotion is blocked when key provider has error."""
     key_info = {
