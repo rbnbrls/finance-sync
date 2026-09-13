@@ -95,7 +95,7 @@ async def test_migration_0072_backfills_unique_and_fails_closed_legacy_rows(
 
     result = await session.execute(
         sa.text(
-            "SELECT connection_id, status, last_error_category, context->>'reason' "
+            "SELECT target_id, status, last_error_category, context->>'reason' "
             "FROM data_quality_remediation_items ORDER BY created_at, id"
         )
     )

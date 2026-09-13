@@ -398,7 +398,7 @@ def normalize_health_issues(
                     priority=10 if severity == "error" else 0,
                     remediation_strategy=_strategy(kind),
                     context=context,
-                    connection_id=target_id,
+                    target_id=target_id,
                     scope=target_id,
                 )
             )
