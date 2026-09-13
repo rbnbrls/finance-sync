@@ -381,6 +381,34 @@ class TestTransactionMapper:
         )
         assert activity["quoteCcy"] == row["currency"] == "EUR"
 
+    @pytest.mark.parametrize("currency", ["USD", "JPY"])
+    def test_api_activity_preserves_quote_ccy_for_each_currency(
+        self, currency: str
+    ) -> None:
+        txn = _make_mock_transaction(currency_code=currency)
+        row = map_transaction_to_wf_row(txn)
+
+        activity = _wf_row_to_api_activity(
+            row, account_id="00000000-0000-0000-0000-000000000000"
+        )
+
+        assert activity["quoteCcy"] == currency
+
+    def test_api_activity_does_not_invent_quote_ccy_for_malformed_row(
+        self,
+    ) -> None:
+        activity = _wf_row_to_api_activity(
+            {
+                "activityType": WF_ACTIVITY_DEPOSIT,
+                "date": "2025-06-15",
+                "symbol": "",
+                "amount": "10.00",
+            },
+            account_id="00000000-0000-0000-0000-000000000000",
+        )
+
+        assert "quoteCcy" not in activity
+
     def test_map_holding_with_security(self) -> None:
         sec = _make_mock_security()
         holding = _make_mock_holding(security_id=sec.id)
@@ -1280,6 +1308,42 @@ class TestWealthfolioPushCursor:
         complete_kwargs = complete_mock.await_args.kwargs
         assert complete_kwargs["status"] == "failed"
         assert "1 account(s) failed to push" in complete_kwargs["error_message"]
+
+    @pytest.mark.asyncio
+    async def test_push_delivery_sweep_sends_quote_ccy_for_valid_batch(
+        self, exporter: WealthfolioExporter
+    ) -> None:
+        """A valid multi-currency sweep sends import-ready activities."""
+        acct = _make_mock_account(name="Multi-currency Broker")
+        txns = [
+            _make_mock_transaction(account_id=acct.id, currency_code=currency)
+            for currency in ("EUR", "USD", "JPY")
+        ]
+
+        with patch.object(
+            exporter, "_get_wealthfolio_delivery", return_value=None
+        ):
+            wf_client, _fetch_mock, _complete_mock = self._patch_push_deps(
+                exporter,
+                accounts=[acct],
+                txns_by_account={acct.id: txns},
+            )
+            wf_client.push_activities.return_value = {
+                "imported": len(txns),
+                "skipped": 0,
+                "failed": 0,
+            }
+
+            result = await exporter.push_to_wealthfolio(wf_client)
+
+        activities = wf_client.push_activities.await_args.args[0]
+        assert [activity["quoteCcy"] for activity in activities] == [
+            "EUR",
+            "USD",
+            "JPY",
+        ]
+        assert result["imported"] == 3
+        assert result["failed"] == 0
 
     @pytest.mark.asyncio
     async def test_update_delivery_stores_string_transaction_id(
