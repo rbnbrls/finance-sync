@@ -81,18 +81,15 @@ async def _seed_rows(session):
         security_type="stock",
         currency_code="USD",
     )
-    session.add_all(
-        [
-            Tenant(
-                id=tenant_id,
-                slug=f"wf-lifecycle-{tenant_id[:8]}",
-                name="Wealthfolio lifecycle",
-            ),
-            target_a,
-            target_b,
-            security,
-        ]
+    session.add(
+        Tenant(
+            id=tenant_id,
+            slug=f"wf-lifecycle-{tenant_id[:8]}",
+            name="Wealthfolio lifecycle",
+        )
     )
+    await session.flush()
+    session.add_all([target_a, target_b, security])
     await session.flush()
     session.add(
         SecurityPrice(
@@ -122,16 +119,12 @@ def _payload(security_id: str, remote_asset_id: str) -> dict[str, object]:
     }
 
 
-async def _fresh_item(
-    session, tenant_id: str, connection_id: str | None = None
-):
+async def _fresh_item(session, tenant_id: str, target_id: str | None = None):
     query = select(DataQualityRemediationItem).where(
         DataQualityRemediationItem.tenant_id == tenant_id
     )
-    if connection_id:
-        query = query.where(
-            DataQualityRemediationItem.connection_id == connection_id
-        )
+    if target_id:
+        query = query.where(DataQualityRemediationItem.target_id == target_id)
     return (await session.execute(query)).scalars().all()
 
 
@@ -158,7 +151,7 @@ async def test_persisted_wealthfolio_poll_to_resolution_lifecycle(
     async with session_factory() as session:
         rows = await _fresh_item(session, tenant_id)
         assert len(rows) == 1
-        assert str(rows[0].connection_id) == str(target_a.id)
+        assert str(rows[0].target_id) == str(target_a.id)
         await WealthfolioHealthBridge(
             session, tenant_id, target_a
         ).enqueue_success(
@@ -223,15 +216,15 @@ async def test_persisted_wealthfolio_poll_to_resolution_lifecycle(
     async with session_factory() as session:
         rows = await _fresh_item(session, tenant_id)
         assert len(rows) == 2
-        assert {str(row.connection_id) for row in rows} == {
+        assert {str(row.target_id) for row in rows} == {
             str(target_a.id),
             str(target_b.id),
         }
         item_a = next(
-            row for row in rows if str(row.connection_id) == str(target_a.id)
+            row for row in rows if str(row.target_id) == str(target_a.id)
         )
         item_b = next(
-            row for row in rows if str(row.connection_id) == str(target_b.id)
+            row for row in rows if str(row.target_id) == str(target_b.id)
         )
         assert item_a.status == "retry_wait"
         assert item_b.status == "pending"
@@ -262,17 +255,13 @@ async def test_persisted_wealthfolio_poll_to_resolution_lifecycle(
         rows = await _fresh_item(session, tenant_id)
         assert (
             next(
-                row
-                for row in rows
-                if str(row.connection_id) == str(target_a.id)
+                row for row in rows if str(row.target_id) == str(target_a.id)
             ).status
             == "resolved"
         )
         assert (
             next(
-                row
-                for row in rows
-                if str(row.connection_id) == str(target_b.id)
+                row for row in rows if str(row.target_id) == str(target_b.id)
             ).status
             == "pending"
         )
