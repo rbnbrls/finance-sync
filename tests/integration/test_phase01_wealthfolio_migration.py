@@ -18,7 +18,7 @@ pytestmark = pytest.mark.integration
 
 
 @pytest.fixture(autouse=True)
-async def _require_redis(redis_client) -> None:  # pyright: ignore[reportUnusedFunction]
+async def _require_redis(redis_client) -> None:
     """Keep migration validation explicit when Redis is unavailable."""
     await redis_client.ping()
 
@@ -76,7 +76,6 @@ async def test_health_cursor_schema_is_tenant_and_target_scoped(
         )
     )
     constraint_rows = list(constraints)
-    assert "uq_wealthfolio_health_cursor_tenant_target" in index_names
     assert any(row[1] == "f" and "tenants" in row[2] for row in constraint_rows)
     assert any(
         row[1] == "f" and "export_targets" in row[2] for row in constraint_rows

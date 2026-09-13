@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import sqlalchemy as sa
@@ -68,7 +68,7 @@ async def test_migration_0072_backfills_unique_and_fails_closed_legacy_rows(
         (uuid4(), "legacy-ambiguous", "pending"),
         (uuid4(), "not-found", "pending"),
     )
-    for item_id, target_id, status in rows:
+    for index, (item_id, target_id, status) in enumerate(rows):
         await session.execute(
             sa.text(
                 "INSERT INTO data_quality_remediation_items "
@@ -85,7 +85,7 @@ async def test_migration_0072_backfills_unique_and_fails_closed_legacy_rows(
                 "tenant_id": tenant_id,
                 "entity_id": str(item_id),
                 "status": status,
-                "now": now,
+                "now": now + timedelta(seconds=index),
                 "deduplication_key": str(item_id),
                 "context": '{"target_id": "' + target_id + '"}',
             },
@@ -95,7 +95,7 @@ async def test_migration_0072_backfills_unique_and_fails_closed_legacy_rows(
 
     result = await session.execute(
         sa.text(
-            "SELECT connection_id, status, last_error_category, context->>'reason' "
+            "SELECT target_id, status, last_error_category, context->>'reason' "
             "FROM data_quality_remediation_items ORDER BY created_at, id"
         )
     )
