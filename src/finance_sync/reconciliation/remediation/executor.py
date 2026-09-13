@@ -287,6 +287,25 @@ class RemediationExecutor:
             return [await self.execute(item) for item in batch.items]
         batch_method = getattr(strategy, "execute_batch", None)
         if batch_method is None:
+            # Wealthfolio clients are authenticated HTTP sessions. Reuse one
+            # session for a batch so a queue containing many assets does not
+            # trigger the target's login rate limiter.
+            if (
+                str(getattr(strategy, "key", "")).startswith("wealthfolio_")
+                and self.connector_factory is not None
+            ):
+                connector = await self.connector_factory(first)
+                try:
+                    return [
+                        await self.execute(item, connector=connector)
+                        for item in batch.items
+                    ]
+                finally:
+                    close = getattr(connector, "close", None)
+                    if callable(close):
+                        result = close()
+                        if asyncio.iscoroutine(result):
+                            await result
             return [await self.execute(item) for item in batch.items]
         policy = self.quota_policies.get(first.remediation_strategy)
         if self.quota is None or policy is None:

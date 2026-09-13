@@ -389,6 +389,7 @@ class CanonicalHoldingData(BaseModel):
     price: Decimal | None = None
     price_currency: str | None = Field(default=None, max_length=3)
     source: str = Field(default="provider_sync")
+    provider_metadata: dict[str, Any] | None = None
 
 
 class RawScheduledPayment(BaseModel):

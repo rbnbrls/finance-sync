@@ -90,6 +90,9 @@ class Connector(ABC):
     #: Optional capability -> availability contract.
     capabilities: ClassVar[dict[str, str]] = {}
 
+    #: Secret-free metadata that this connector can provide during sync.
+    metadata_capabilities: ClassVar[tuple[str, ...]] = ()
+
     #: Optional safe remediation declarations consumed by the backlog worker.
     #: Values are metadata only; credentials and callables never live here.
     remediation_strategies: ClassVar[dict[str, dict[str, object]]] = {}
@@ -309,6 +312,7 @@ class Connector(ABC):
                 currency_code=r.currency_code,
                 price=r.price,
                 price_currency=r.price_currency,
+                provider_metadata=r.provider_metadata,
             )
             for r in raw
         ]

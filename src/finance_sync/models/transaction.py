@@ -94,6 +94,11 @@ class Transaction(TimestampMixin, Base):
     fx_rate: Mapped[Decimal | None] = mapped_column(
         Numeric(18, 8), nullable=True, comment="FX rate used for conversion"
     )
+    provider_metadata: Mapped[dict[str, Any] | None] = mapped_column(
+        _JSON,
+        nullable=True,
+        comment="Provider facts retained for audit and deterministic repair",
+    )
 
     quantity: Mapped[Decimal | None] = mapped_column(
         Numeric(24, 8),

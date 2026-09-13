@@ -8,7 +8,7 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from httpx import Request, RequestError, Response
+from httpx import ReadTimeout, Request, RequestError, Response
 
 from finance_sync.exporter.wealthfolio.client import (
     WealthfolioAPIError,
@@ -602,6 +602,38 @@ class TestWealthfolioClient408Retry:
         # 3 POSTs: 408 -> backoff -> 200 (snapshot), then 200 (re-save).
         assert p.await_count == 3
         sleep.assert_awaited_once()
+        assert result == {"ok": True}
+
+    async def test_save_manual_holdings_retries_read_timeout_then_succeeds(
+        self, client: WealthfolioClient
+    ) -> None:
+        """A slow local recalculation may time out before retrying."""
+        client._is_authenticated = True
+        response = MagicMock(status_code=200)
+        response.json.return_value = {"ok": True}
+        response_again = MagicMock(status_code=200)
+        response_again.json.return_value = {"ok": True}
+        with (
+            patch.object(
+                client._client,
+                "post",
+                side_effect=[
+                    ReadTimeout("snapshot still running"),
+                    response,
+                    response_again,
+                ],
+            ) as post,
+            patch.object(client, "get_assets", return_value=[]),
+            patch.object(client, "get_quote_history", return_value=[]),
+            patch("asyncio.sleep", new_callable=lambda: AsyncMock()),
+        ):
+            result = await client.save_manual_holdings(
+                [{"symbol": "AAPL", "quantity": 10, "unitPrice": 100}],
+                "acct-1",
+                snapshot_date="2026-08-29",
+            )
+
+        assert post.await_count == 3
         assert result == {"ok": True}
 
     async def test_save_manual_holdings_preserves_average_cost(

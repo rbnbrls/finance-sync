@@ -291,6 +291,7 @@ class ConnectorCatalogInfo(BaseModel):
     plugin_version: str
     sdk_version: str
     supported_resources: list[str]
+    metadata_capabilities: list[str] = Field(default_factory=list)
     spending_capabilities: dict[str, dict[str, object]] = Field(
         default_factory=dict
     )
@@ -1126,6 +1127,9 @@ async def list_connector_catalog(
                 plugin_version=str(meta.get("plugin_version", "0.1.0")),
                 sdk_version=str(meta.get("sdk_version", "0.1.0")),
                 supported_resources=list(meta.get("supported_resources", [])),
+                metadata_capabilities=list(
+                    meta.get("metadata_capabilities", [])
+                ),
                 spending_capabilities=cast(
                     dict[str, dict[str, object]],
                     meta.get("spending_capabilities", {}),

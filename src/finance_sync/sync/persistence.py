@@ -15,7 +15,7 @@ from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from typing import TYPE_CHECKING, Any, Protocol
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 
 from finance_sync.models.account import Account
 from finance_sync.models.balance import Balance
@@ -33,6 +33,10 @@ from finance_sync.models.enums import (
 from finance_sync.models.holding import Holding
 from finance_sync.models.scheduled_payment import ScheduledPayment
 from finance_sync.models.security import Security
+from finance_sync.models.security_listing import SecurityListing
+from finance_sync.models.security_metadata_observation import (
+    SecurityMetadataObservation,
+)
 from finance_sync.models.spending import (
     TransactionAnnotation,
     TransactionSourceReference,
@@ -86,6 +90,7 @@ def _transaction_extension_values(transaction: Any) -> dict[str, Any]:
     """Return optional spending fields without breaking old connectors."""
     values: dict[str, Any] = {}
     for field in (
+        "provider_metadata",
         "provider_metadata_contract",
         "merchant_name",
         "merchant_id",
@@ -745,6 +750,7 @@ class TransactionPersistence:
             connection_id=connection_id,
         )
         fields = (
+            "provider_metadata",
             "amount",
             "currency_code",
             "occurred_at",
@@ -962,6 +968,7 @@ class HoldingPersistence:
             raise ValueError(msg)
 
         rows: list[dict[str, Any]] = []
+        metadata_observations_added = False
         for index, holding in enumerate(holdings):
             try:
                 source = HoldingSource(holding.source)
@@ -1044,6 +1051,39 @@ class HoldingPersistence:
                 result,
                 [str(row["id"]) for row in rows],
             )
+        # Every provider sync is also an enrichment pass. Keep the raw
+        # provider identity and instrument fields as timestamped observations
+        # so downstream taxonomy resolution can see provenance and freshness.
+        for index, holding in enumerate(holdings):
+            metadata = dict(holding.provider_metadata or {})
+            reference = holding.security_reference
+            if not metadata:
+                continue
+            for key, value in {
+                "isin": reference.isin,
+                "figi": reference.figi,
+                "ticker": reference.ticker,
+                "name": reference.name,
+                "venue": reference.venue,
+                "currency_code": reference.currency_code,
+                "security_type": reference.security_type,
+            }.items():
+                if value not in (None, ""):
+                    metadata.setdefault(key, value)
+            if metadata and index < len(security_ids):
+                uow.session.add(
+                    SecurityMetadataObservation(
+                        security_id=security_ids[index],
+                        metadata_type="instrument_identity",
+                        timestamp=holding.observed_at,
+                        metadata_json=metadata,
+                        label=reference.name or reference.ticker,
+                        source=f"connector:{holding.provider_key}",
+                    )
+                )
+                metadata_observations_added = True
+        if metadata_observations_added:
+            await uow.session.flush()
         # Count semantics match the per-row path (processed rows, not
         # changed rows — see persist_transactions_batch).
         return len(holdings)
@@ -1421,6 +1461,36 @@ class SecurityPersistence:
             candidates = await uow.securities.list(
                 Security.figi == reference.figi.upper()
             )
+        # Broker order feeds often only contain a provider ticker (for
+        # example ``LRCX_US_EQ`` or ``TKWY``), while the holding feed stores
+        # the same instrument as an exchange-qualified ticker
+        # (``LRCX_US_EQ`` or ``TKWY:XAMS``).  Treat that as a deterministic
+        # alias when it identifies exactly one canonical security.  Without
+        # this fallback, every trade becomes an unlinked cash activity and
+        # Wealthfolio cannot calculate cost basis or realised P/L.
+        if (
+            not candidates
+            and reference.ticker
+            and (
+                reference.external_id is None
+                or reference.external_id.upper() == reference.ticker.upper()
+            )
+        ):
+            ticker = reference.ticker.upper().strip()
+            candidates = await uow.securities.list(
+                or_(
+                    Security.ticker == ticker,
+                    Security.ticker.like(f"{ticker}:%"),
+                )
+            )
+            if reference.currency_code:
+                currency_matches = [
+                    item
+                    for item in candidates
+                    if item.currency_code == reference.currency_code.upper()
+                ]
+                if currency_matches:
+                    candidates = currency_matches
         if (
             not candidates
             and reference.ticker
@@ -1452,6 +1522,7 @@ class SecurityPersistence:
                         else "auto_ticker"
                     ),
                 )
+            await self._upsert_listing(uow, candidates[0], reference)
             return candidates[0], None
         if len(candidates) > 1:
             return None, await self._queue_unresolved_security(
@@ -1510,11 +1581,62 @@ class SecurityPersistence:
                         else "provider_instrument"
                     ),
                 )
+            await self._upsert_listing(uow, security, reference)
             return security, None
 
         return None, await self._queue_unresolved_security(
             uow, provider_key, reference
         )
+
+    @staticmethod
+    async def _upsert_listing(
+        uow: UnitOfWork, security: Security, reference: SecurityReference
+    ) -> None:
+        """Persist a venue listing whenever the provider supplies one.
+
+        Listings are deliberately additive: they enrich the canonical
+        instrument master without replacing the curated security ticker.
+        Qualified tickers are accepted as a useful last-resort venue hint.
+        """
+        raw_venue = str(reference.venue or "").strip().upper()
+        raw_ticker = str(reference.ticker or "").strip().upper()
+        listing_ticker = raw_ticker
+        if ":" in raw_ticker:
+            ticker_part, venue_part = raw_ticker.rsplit(":", 1)
+            listing_ticker = ticker_part or raw_ticker
+            raw_venue = raw_venue or venue_part
+        if len(raw_venue) != 4 or not listing_ticker:
+            return
+        currency = (
+            str(
+                reference.currency_code
+                or getattr(security, "currency_code", "")
+            )
+            .strip()
+            .upper()
+        )
+        if len(currency) != 3:
+            return
+        existing = await uow.session.scalar(
+            select(SecurityListing).where(
+                SecurityListing.security_id == security.id,
+                SecurityListing.mic == raw_venue,
+                SecurityListing.currency_code == currency,
+            )
+        )
+        if existing is None:
+            uow.session.add(
+                SecurityListing(
+                    security_id=security.id,
+                    mic=raw_venue,
+                    ticker=listing_ticker,
+                    currency_code=currency,
+                    is_primary_listing=True,
+                )
+            )
+        else:
+            existing.ticker = listing_ticker
+            existing.is_primary_listing = True
 
     @staticmethod
     def _enrich_existing_security(

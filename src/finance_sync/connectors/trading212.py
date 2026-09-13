@@ -122,6 +122,12 @@ class Trading212Connector(Connector):
     display_name = "Trading212"
     sdk_version = "0.1.0"
     supported_resources = frozenset({"accounts", "transactions", "holdings"})
+    metadata_capabilities = (
+        "instrument_identity",
+        "listing_identity",
+        "holding_cost_basis",
+        "live_quote",
+    )
     remediation_strategies: ClassVar[dict[str, dict[str, object]]] = {
         "trading212_instrument_metadata": {
             "endpoint_family": "metadata",

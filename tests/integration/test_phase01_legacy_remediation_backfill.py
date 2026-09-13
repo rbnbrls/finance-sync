@@ -114,3 +114,6 @@ async def test_migration_0072_backfills_unique_and_fails_closed_legacy_rows(
         "target_identity_unresolved",
         "legacy_target_identity_unresolved",
     )
+    # This test intentionally rewinds the shared integration database to
+    # exercise 0072. Restore the current head for tests that follow it.
+    run_alembic("upgrade", "head", url=database_url)

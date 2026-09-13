@@ -9,6 +9,7 @@ import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from tests.integration.conftest import run_alembic
+from tests.integration.test_migrations import _alembic_head_revision
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -97,7 +98,9 @@ async def test_phase01_cursor_migrations_reach_head_idempotently(
                     sa.text("SELECT version_num FROM alembic_version")
                 )
             ).scalar_one()
-            assert revision == "0072"
+            # The migration chain may advance when the canonical model gains
+            # a persisted field; this test verifies the current single head.
+            assert revision == _alembic_head_revision()
             cursor_count = (
                 await conn.execute(
                     sa.text(

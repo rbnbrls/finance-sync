@@ -67,7 +67,7 @@ class HistoricalPriceStrategy:
         if start is None or end is None or start >= end:
             msg = "price gap has no valid half-open window"
             raise ValueError(msg)
-        await self.gateway.get_historical_prices(
+        history = await self.gateway.get_historical_prices(
             security_id=str(context["security_id"]),
             identifier=str(context["identifier"]),
             identifier_type=str(context.get("identifier_type", "ticker")),
@@ -76,6 +76,8 @@ class HistoricalPriceStrategy:
             end_date=end,
             limit=min(int(context.get("limit", 365)), 1000),
         )
+        if not history.observations:
+            await self._persist_holding_snapshot(str(context["security_id"]))
 
     async def execute_batch(
         self, items: list[Any], connector: Any = None
@@ -124,6 +126,41 @@ class HistoricalPriceStrategy:
             else:
                 outcomes[str(item.id)] = "success"
         return outcomes
+
+    async def _persist_holding_snapshot(self, security_id: str) -> None:
+        """Keep a verified broker valuation when no public history exists."""
+        holding = await self.session.scalar(
+            select(Holding)
+            .where(Holding.security_id == security_id)
+            .order_by(Holding.observed_at.desc())
+            .limit(1)
+        )
+        if holding is None or holding.price is None:
+            return
+        existing = await self.session.scalar(
+            select(SecurityPrice).where(
+                SecurityPrice.security_id == security_id,
+                SecurityPrice.timestamp == holding.observed_at,
+                SecurityPrice.source == "holding_snapshot",
+                SecurityPrice.interval == "1d",
+            )
+        )
+        if existing is None:
+            self.session.add(
+                SecurityPrice(
+                    security_id=security_id,
+                    timestamp=holding.observed_at,
+                    price_open=holding.price,
+                    price_high=holding.price,
+                    price_low=holding.price,
+                    price_close=holding.price,
+                    source="holding_snapshot",
+                    interval="1d",
+                    currency_code=holding.price_currency
+                    or holding.currency_code,
+                )
+            )
+            await self.session.flush()
 
     async def verify(self, item: Any) -> VerificationResult:
         context = _context(item)

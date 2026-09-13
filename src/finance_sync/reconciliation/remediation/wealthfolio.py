@@ -16,6 +16,7 @@ from finance_sync.reconciliation.remediation.quote import LatestQuoteStrategy
 from finance_sync.reconciliation.remediation.verification import (
     VerificationResult,
 )
+from finance_sync.services.fx_service import FxService
 
 
 class WealthfolioQuoteStrategy:
@@ -57,9 +58,21 @@ class WealthfolioQuoteStrategy:
         await connector.upsert_quote(
             str(context["remote_entity_id"]),
             {
+                "id": (
+                    f"{context['remote_entity_id']}_"
+                    f"{row.timestamp.timestamp()}_FINANCE_SYNC"
+                ),
+                "createdAt": datetime.now(UTC).isoformat(),
+                "source": connector.QUOTE_DATA_SOURCE,
+                "assetId": str(context["remote_entity_id"]),
                 "timestamp": row.timestamp.astimezone(UTC).isoformat(),
+                "open": float(row.price_close),
+                "high": float(row.price_close),
+                "low": float(row.price_close),
+                "volume": 0,
                 "close": float(row.price_close),
-                "price": float(row.price_close),
+                "adjclose": float(row.price_close),
+                "currency": str(context.get("currency") or "EUR"),
                 "dataSource": connector.QUOTE_DATA_SOURCE,
             },
         )
@@ -133,9 +146,21 @@ class WealthfolioHistoricalPriceStrategy(WealthfolioQuoteStrategy):
             await connector.upsert_quote(
                 str(context["remote_entity_id"]),
                 {
+                    "id": (
+                        f"{context['remote_entity_id']}_"
+                        f"{row.timestamp.timestamp()}_FINANCE_SYNC"
+                    ),
+                    "createdAt": datetime.now(UTC).isoformat(),
+                    "source": connector.QUOTE_DATA_SOURCE,
+                    "assetId": str(context["remote_entity_id"]),
                     "timestamp": row.timestamp.astimezone(UTC).isoformat(),
+                    "open": float(row.price_close),
+                    "high": float(row.price_close),
+                    "low": float(row.price_close),
+                    "volume": 0,
                     "close": float(row.price_close),
-                    "price": float(row.price_close),
+                    "adjclose": float(row.price_close),
+                    "currency": str(context.get("currency") or "EUR"),
                     "dataSource": connector.QUOTE_DATA_SOURCE,
                 },
             )
@@ -180,6 +205,52 @@ class WealthfolioHistoricalPriceStrategy(WealthfolioQuoteStrategy):
             count >= expected,
             f"found {count} Wealthfolio price observations; "
             f"expected {expected}",
+        )
+
+
+class WealthfolioFxStrategy:
+    """Refresh a Wealthfolio FX pair from finance-sync's canonical service."""
+
+    key = "wealthfolio_fx"
+    endpoint_family = "wealthfolio_fx"
+    quota_cost = 1
+
+    def __init__(self, session: Any, settings: Any) -> None:
+        from finance_sync.db.uow import UnitOfWork
+
+        self.session = session
+        self.fx = FxService(settings, UnitOfWork(session))
+
+    def supports(self, item: Any) -> bool:
+        context = _context(item)
+        return bool(context.get("from_currency") and context.get("to_currency"))
+
+    async def execute(self, item: Any, connector: Any = None) -> None:
+        if connector is None:
+            message = "Wealthfolio FX repair requires a target client"
+            raise ValueError(message)
+        context = _context(item)
+        observation = await self.fx.get_rate(
+            str(context["from_currency"]), str(context["to_currency"])
+        )
+        if observation is None:
+            message = "canonical FX rate was not available"
+            raise ValueError(message)
+        await connector.add_exchange_rate(
+            from_currency=observation.base_currency,
+            to_currency=observation.quote_currency,
+            rate=str(observation.rate),
+            source="FINANCE_SYNC",
+        )
+
+    async def verify(
+        self, _item: Any, connector: Any = None
+    ) -> VerificationResult:
+        return VerificationResult(
+            connector is not None,
+            "Wealthfolio FX rate was submitted"
+            if connector is not None
+            else "Wealthfolio target client unavailable",
         )
 
 

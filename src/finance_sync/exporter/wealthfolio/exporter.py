@@ -63,6 +63,7 @@ from finance_sync.models import (
     FxRate,
     Holding,
     Security,
+    SecurityListing,
     SecurityMetadataObservation,
     SecurityPrice,
     TaxLot,
@@ -70,6 +71,7 @@ from finance_sync.models import (
 )
 from finance_sync.observability.glitchtip import capture_connector_exception
 from finance_sync.services.wealthfolio_preflight import (
+    validate_dataset_completeness,
     validate_holdings,
     validate_transaction_stream,
 )
@@ -649,6 +651,14 @@ class WealthfolioExporter:
         if not security_ids:
             return {}
         async with self._session_factory() as session:
+            security_result = await session.execute(
+                select(Security).where(Security.id.in_(security_ids))
+            )
+            security_map = {
+                str(security.id): security
+                for security in security_result.scalars().all()
+                if getattr(security, "id", None) is not None
+            }
             result = await session.execute(
                 select(SecurityMetadataObservation)
                 .where(
@@ -661,6 +671,28 @@ class WealthfolioExporter:
                 grouped.setdefault(observation.security_id, []).append(
                     observation
                 )
+            now = datetime.now(UTC)
+            for security_id, security in security_map.items():
+                if any(
+                    observation.metadata_type
+                    in {"sector_exposure", "company_profile"}
+                    for observation in grouped.get(security_id, [])
+                ):
+                    continue
+                metadata = _derive_security_metadata(security)
+                observation = SecurityMetadataObservation(
+                    security_id=security_id,
+                    metadata_type="sector_exposure",
+                    timestamp=now,
+                    metadata_json=metadata,
+                    label=metadata.get("primary_sector")
+                    or metadata.get("region"),
+                    source="derived:security_identity",
+                )
+                session.add(observation)
+                grouped.setdefault(security_id, []).append(observation)
+            if security_map:
+                await session.commit()
             return grouped
 
     async def _project_sector_assignments(
@@ -1837,6 +1869,82 @@ class WealthfolioExporter:
                 await self._fetch_all_active_transactions(account.id)
             )
 
+        security_ids = {
+            str(holding.security_id)
+            for holdings in holdings_by_account.values()
+            for holding in holdings
+        }
+
+        async def query_values(statement: Any) -> list[Any]:
+            """Read SQL results while remaining compatible with test doubles."""
+            result = await session.execute(statement)
+            scalar_result = result.scalars()
+            if inspect.isawaitable(scalar_result):
+                scalar_result = await scalar_result
+            if hasattr(scalar_result, "all"):
+                values = scalar_result.all()
+                if inspect.isawaitable(values):
+                    values = await values
+                return list(values)
+            return list(scalar_result)
+
+        async def query_rows(statement: Any) -> list[Any]:
+            result = await session.execute(statement)
+            values = result.all()
+            if inspect.isawaitable(values):
+                values = await values
+            return list(values)
+
+        async with self._session_factory() as session:
+            securities = (
+                await query_values(
+                    select(Security).where(Security.id.in_(security_ids))
+                )
+                if security_ids
+                else []
+            )
+            price_security_ids = (
+                {
+                    str(value)
+                    for value in await query_values(
+                        select(SecurityPrice.security_id)
+                        .where(SecurityPrice.security_id.in_(security_ids))
+                        .distinct()
+                    )
+                }
+                if security_ids
+                else set()
+            )
+            listing_security_ids = (
+                {
+                    str(value)
+                    for value in await query_values(
+                        select(SecurityListing.security_id)
+                        .where(SecurityListing.security_id.in_(security_ids))
+                        .distinct()
+                    )
+                }
+                if security_ids
+                else set()
+            )
+            fx_pairs = {
+                (str(row[0]).upper(), str(row[1]).upper())
+                for row in await query_rows(
+                    select(FxRate.base_currency, FxRate.quote_currency)
+                )
+            }
+        dataset_findings = {
+            str(account.id): validate_dataset_completeness(
+                holdings_by_account[str(account.id)],
+                securities,
+                price_security_ids,
+                listing_security_ids,
+                fx_pairs,
+                base_currency=str(account.currency_code),
+            )
+            for account in accounts
+        }
+
         transaction_findings = validate_transaction_stream(all_transactions)
         account_manifests: dict[str, object] = {}
         total_blocking = 0
@@ -1854,8 +1962,14 @@ class WealthfolioExporter:
                 for finding in transaction_findings
                 if finding.record_id in account_transactions
             ]
+            account_dataset_findings = dataset_findings[str(account.id)]
             blocking = [
                 *holding_result.blocking_findings,
+                *[
+                    item
+                    for item in account_dataset_findings
+                    if item.severity == "error"
+                ],
                 *[
                     item
                     for item in account_findings
@@ -1864,7 +1978,11 @@ class WealthfolioExporter:
             ]
             warnings = [
                 item
-                for item in [*holding_result.findings, *account_findings]
+                for item in [
+                    *holding_result.findings,
+                    *account_findings,
+                    *account_dataset_findings,
+                ]
                 if item.severity == "warning"
             ]
             total_blocking += len(blocking)
@@ -2094,22 +2212,19 @@ class WealthfolioExporter:
                                 ),
                             ),
                         )
-                    # On a full/rebuild sync, reconcile the broker's current
-                    # positions before importing the potentially large
-                    # historical transaction stream.  A stalled or rejected
-                    # transaction batch must not leave the destination's
-                    # previous live holdings (for example a delisted
-                    # security) contributing to NAV.
-                    if full_sync or rebuild:
-                        early_findings = (
-                            await self._sync_and_reconcile_holdings(
-                                wf_client=wf_client,
-                                fs_account=fs_acct,
-                                wf_account_id=wf_account_id,
-                                security_map=security_map,
-                            )
+                    # Reconcile the broker's current positions before every
+                    # sync, including runs without new transactions. This
+                    # makes the destination a projection of the current
+                    # source state and prevents stale cash/holdings from
+                    # continuing to affect NAV after an interrupted export.
+                    errors.extend(
+                        await self._sync_and_reconcile_holdings(
+                            wf_client=wf_client,
+                            fs_account=fs_acct,
+                            wf_account_id=wf_account_id,
+                            security_map=security_map,
                         )
-                        errors.extend(early_findings)
+                    )
                     # Resume from the per-account delivery cursor when
                     # one exists (idempotent resume after partial failure).
                     # The (occurred_at, id) tuple excludes the boundary
@@ -2139,14 +2254,6 @@ class WealthfolioExporter:
                             ),
                         )
                     if not txns:
-                        errors.extend(
-                            await self._sync_and_reconcile_holdings(
-                                wf_client=wf_client,
-                                fs_account=fs_acct,
-                                wf_account_id=wf_account_id,
-                                security_map=security_map,
-                            )
-                        )
                         continue
 
                     if max_transactions:
@@ -2261,14 +2368,6 @@ class WealthfolioExporter:
                         mapped_txns.append(txn)
 
                     if not wf_activities:
-                        errors.extend(
-                            await self._sync_and_reconcile_holdings(
-                                wf_client=wf_client,
-                                fs_account=fs_acct,
-                                wf_account_id=wf_account_id,
-                                security_map=security_map,
-                            )
-                        )
                         continue
 
                     txns_attempted += len(mapped_txns)
@@ -2624,14 +2723,17 @@ class WealthfolioExporter:
                         row["avgCost"] = str(fallback[0])
                 # Wealthfolio's market-data providers do not reliably resolve
                 # exchange-qualified symbols (or ISINs) for every listing.
-                # Preserve finance-sync's authoritative EUR valuation in the
-                # snapshot as a manual quote so the destination shows the
-                # same portfolio value even when no remote quote is available.
+                # A snapshot is used to make NAV deterministic. The
+                # canonical market_value is already expressed in the
+                # account/base currency, so keep both the snapshot price and
+                # its currency in that same basis. Otherwise Wealthfolio
+                # applies a second FX conversion to non-EUR positions.
                 if holding.market_value is not None and holding.quantity:
                     row["snapshotPrice"] = str(
                         Decimal(holding.market_value)
                         / Decimal(holding.quantity)
                     )
+                    row["snapshotCurrency"] = fs_account.currency_code
                 elif holding.price is not None:
                     row["snapshotPrice"] = str(holding.price)
                 source_rows.append(row)
@@ -3424,7 +3526,7 @@ def _holdings_snapshot_payload(
             "isin": row.get("isin", ""),
             "quantity": row["quantity"],
             "avgCost": row["avgCost"] or None,
-            "currency": row["currency"],
+            "currency": row.get("snapshotCurrency") or row["currency"],
             "quoteMode": "MANUAL" if row.get("snapshotPrice") else "MARKET",
             **(
                 {"price": row["snapshotPrice"]}
@@ -3641,6 +3743,56 @@ def _reconcile_holdings(
                 }
             )
     return findings
+
+
+def _derive_security_metadata(security: Security) -> dict[str, Any]:
+    """Create conservative metadata when no enrichment provider is present."""
+    name = str(security.name or "").lower()
+    ticker = str(security.ticker or "").upper()
+    sector = next(
+        (
+            label
+            for terms, label in (
+                (
+                    ("semiconductor", "chip", "software", "technology"),
+                    "Information Technology",
+                ),
+                (("bank", "insurance", "financial"), "Financials"),
+                (("pharma", "health", "medical", "biotech"), "Health Care"),
+                (("oil", "energy", "petroleum"), "Energy"),
+                (("utility", "electric"), "Utilities"),
+                (
+                    ("retail", "consumer", "automotive"),
+                    "Consumer Discretionary",
+                ),
+                (
+                    ("telecom", "communication", "media"),
+                    "Communication Services",
+                ),
+            )
+            if any(term in name for term in terms)
+        ),
+        "Other",
+    )
+    region = "Global"
+    if any(value in ticker for value in (":XAMS", ":XEAM", ":XETR", ":XPAR")):
+        region = "Europe"
+    elif any(value in ticker for value in (":XNYS", ":XNAS", ":XASE")):
+        region = "North America"
+    elif ":XLON" in ticker:
+        region = "United Kingdom"
+    elif any(term in name for term in ("europe", "euro")):
+        region = "Europe"
+    elif any(term in name for term in ("usa", "us ", "united states")):
+        region = "North America"
+    return {
+        "primary_sector": sector,
+        "sector_exposures": [{"sector": sector, "weight": 1}],
+        "region": region,
+        "region_exposures": [{"region": region, "weight": 1}],
+        "classification_source": "derived:security_identity",
+        "classification_confidence": "low",
+    }
 
 
 def _normalise_wealthfolio_symbol(symbol: str) -> str:
