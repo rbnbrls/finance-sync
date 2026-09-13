@@ -70,6 +70,7 @@ class DetectedIssue:
     remediation_strategy: str = "unsupported"
     context: dict[str, Any] = field(default_factory=lambda: dict[str, Any]())
     connection_id: str | None = None
+    target_id: str | None = None
     scope: str | None = None
     detected_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
@@ -82,6 +83,7 @@ def deduplication_key(issue: DetectedIssue) -> str:
             "dq:v1",
             f"tenant={_stable(issue.tenant_id).strip().lower()}",
             f"connection={_stable(issue.connection_id).strip().lower() or '-'}",
+            f"target={_stable(issue.target_id).strip().lower() or '-'}",
             f"provider={issue.provider_key.strip().lower()}",
             f"type={issue.issue_type.strip().lower()}",
             f"entity={issue.affected_entity_type.strip().lower()}:{_stable(issue.affected_entity_id)}",
@@ -137,6 +139,7 @@ class BacklogRepository:
             "tenant_id": issue.tenant_id,
             "provider_key": issue.provider_key.strip().lower(),
             "connection_id": issue.connection_id,
+            "target_id": issue.target_id,
             "issue_type": issue.issue_type,
             "affected_entity_type": issue.affected_entity_type,
             "affected_entity_id": issue.affected_entity_id,

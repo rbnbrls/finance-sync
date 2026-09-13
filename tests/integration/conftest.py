@@ -144,41 +144,6 @@ def redis_url() -> str:
     )
 
 
-# ── Isolated database fixture ────────────────────────────────────────
-
-
-@pytest.fixture
-async def fresh_database_url(database_url: str) -> AsyncGenerator[str, None]:
-    """Create a dedicated database for migration tests."""
-    url = make_url(database_url)
-    db_name = f"finance_sync_fresh_{uuid.uuid4().hex[:8]}"
-    admin_url = url.set(database="postgres")
-    admin_engine = create_async_engine(
-        admin_url.render_as_string(hide_password=False),
-        isolation_level="AUTOCOMMIT",
-    )
-    try:
-        async with admin_engine.connect() as conn:
-            await conn.execute(sa.text(f'CREATE DATABASE "{db_name}"'))
-    finally:
-        await admin_engine.dispose()
-    fresh_url = url.set(database=db_name).render_as_string(hide_password=False)
-    try:
-        yield fresh_url
-    finally:
-        drop_engine = create_async_engine(
-            admin_url.render_as_string(hide_password=False),
-            isolation_level="AUTOCOMMIT",
-        )
-        try:
-            async with drop_engine.connect() as conn:
-                await conn.execute(
-                    sa.text(f'DROP DATABASE IF EXISTS "{db_name}" WITH (FORCE)')
-                )
-        finally:
-            await drop_engine.dispose()
-
-
 # ── Alembic helpers ─────────────────────────────────────────────────
 
 
@@ -203,6 +168,40 @@ def run_alembic(*argv: str, url: str) -> None:
             f"alembic {' '.join(argv)} failed (exit {result.returncode})\n"
             f"stdout: {result.stdout[-2000:]}\nstderr: {result.stderr[-2000:]}"
         )
+
+
+@pytest.fixture(scope="module")
+async def fresh_database_url(
+    database_url: str,
+) -> AsyncGenerator[str, None]:
+    """Create and clean up an isolated database for migration tests."""
+    url = make_url(database_url)
+    db_name = f"finance_sync_migtest_{uuid.uuid4().hex[:8]}"
+    admin_url = url.set(database="postgres")
+    admin_engine = create_async_engine(
+        admin_url.render_as_string(hide_password=False),
+        isolation_level="AUTOCOMMIT",
+    )
+    try:
+        async with admin_engine.connect() as conn:
+            await conn.execute(sa.text(f'CREATE DATABASE "{db_name}"'))
+    finally:
+        await admin_engine.dispose()
+    fresh_url = url.set(database=db_name)
+    try:
+        yield fresh_url.render_as_string(hide_password=False)
+    finally:
+        drop_engine = create_async_engine(
+            admin_url.render_as_string(hide_password=False),
+            isolation_level="AUTOCOMMIT",
+        )
+        try:
+            async with drop_engine.connect() as conn:
+                await conn.execute(
+                    sa.text(f'DROP DATABASE IF EXISTS "{db_name}" WITH (FORCE)')
+                )
+        finally:
+            await drop_engine.dispose()
 
 
 # ── Database fixtures ────────────────────────────────────────────────

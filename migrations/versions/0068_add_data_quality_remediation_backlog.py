@@ -21,6 +21,7 @@ def upgrade() -> None:
         sa.Column(
             "connection_id", postgresql.UUID(as_uuid=True), nullable=True
         ),
+        sa.Column("target_id", postgresql.UUID(as_uuid=True), nullable=True),
         sa.Column("issue_type", sa.String(64), nullable=False),
         sa.Column("affected_entity_type", sa.String(64), nullable=False),
         sa.Column("affected_entity_id", sa.String(256), nullable=False),
@@ -76,6 +77,9 @@ def upgrade() -> None:
         ),
         sa.ForeignKeyConstraint(
             ["connection_id"], ["credentials.id"], ondelete="SET NULL"
+        ),
+        sa.ForeignKeyConstraint(
+            ["target_id"], ["export_targets.id"], ondelete="SET NULL"
         ),
         sa.UniqueConstraint(
             "tenant_id",

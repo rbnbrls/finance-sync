@@ -60,9 +60,9 @@ def test_target_identity_is_part_of_backlog_identity() -> None:
         payload, tenant_id="tenant-1", target_id="target-b"
     )[0]
 
-    assert target_a.connection_id == "target-a"
+    assert target_a.target_id == "target-a"
     assert target_a.scope == "target-a"
-    assert target_b.connection_id == "target-b"
+    assert target_b.target_id == "target-b"
     assert target_a.context["target_id"] == "target-a"
     assert target_b.context["target_id"] == "target-b"
     assert deduplication_key(target_a) != deduplication_key(target_b)
