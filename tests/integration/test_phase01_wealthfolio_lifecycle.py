@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from uuid import uuid4
@@ -228,6 +228,7 @@ async def test_persisted_wealthfolio_poll_to_resolution_lifecycle(
         )
         assert item_a.status == "retry_wait"
         assert item_b.status == "pending"
+        item_b.next_attempt_at = datetime.now(UTC) + timedelta(minutes=1)
         claimed = await RemediationExecutor(session).backlog.claim(
             tenant_id=tenant_id, limit=1, lease_seconds=60
         )
