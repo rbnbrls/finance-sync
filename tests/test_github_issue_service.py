@@ -338,6 +338,36 @@ class TestCreateIssue:
         assert result.success is False
         assert "network" in (result.error or "").lower()
 
+    async def test_api_error_does_not_expose_response_body(self) -> None:
+        """GitHub's response body must not be returned to users or logs."""
+        secret_response_data = "submitted private feedback and token-like data"
+
+        async def handler(_: httpx.Request) -> httpx.Response:
+            return httpx.Response(500, text=secret_response_data)
+
+        service = _make_service(handler)
+        result = await service.create_issue(
+            owner="rbnbrls", repo="finance-sync", title="T", body="B"
+        )
+
+        assert result.success is False
+        assert secret_response_data not in (result.error or "")
+        assert "GitHub API error (500)" in (result.error or "")
+
+    async def test_invalid_success_response_is_handled(self) -> None:
+        """A successful HTTP status without issue fields is still a failure."""
+
+        async def handler(_: httpx.Request) -> httpx.Response:
+            return httpx.Response(201, text="not-json")
+
+        service = _make_service(handler)
+        result = await service.create_issue(
+            owner="rbnbrls", repo="finance-sync", title="T", body="B"
+        )
+
+        assert result.success is False
+        assert result.error == "GitHub returned an invalid response."
+
 
 class TestCheckGithubIssueAccess:
     """Tests for ``check_github_issue_access`` (feedback health probe)."""

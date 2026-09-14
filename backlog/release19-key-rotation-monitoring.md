@@ -1,6 +1,6 @@
 ---
 title: "Monitor encryptiesleutelversies en rotatieverval"
-status: done
+status: todo
 priority: 25
 ---
 
