@@ -229,7 +229,9 @@ def test_activity_parity_counts_detect_missing_and_stale_records() -> None:
     ) == (2, 1, 2)
 
 
-def test_activity_parity_counts_reads_source_id_from_wealthfolio_comment() -> None:
+def test_activity_parity_counts_reads_source_id_from_wealthfolio_comment() -> (
+    None
+):
     assert _activity_parity_counts(
         [("comment-id", None)],
         [{"comment": "Imported by finance-sync | ID: comment-id"}],

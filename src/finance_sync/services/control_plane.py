@@ -838,8 +838,7 @@ class ControlPlaneService:
             # stop reporting the old failure as actionable; otherwise a
             # repaired destination remains permanently degraded.
             failed_count = int(
-                latest_export is not None
-                and latest_export.status == "failed"
+                latest_export is not None and latest_export.status == "failed"
             )
             destination_rows.append(
                 ControlPlaneDestination(

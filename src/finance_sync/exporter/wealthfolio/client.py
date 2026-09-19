@@ -358,9 +358,8 @@ class WealthfolioClient:
         response.raise_for_status()
         payload = response.json()
         if not isinstance(payload, dict):
-            raise WealthfolioAPIError(
-                "Wealthfolio spending settings response was malformed"
-            )
+            message = "Wealthfolio spending settings response was malformed"
+            raise WealthfolioAPIError(message)
         return cast(dict[str, Any], payload)
 
     async def update_spending_settings(
@@ -375,9 +374,8 @@ class WealthfolioClient:
         response.raise_for_status()
         payload = response.json()
         if not isinstance(payload, dict):
-            raise WealthfolioAPIError(
-                "Wealthfolio spending settings response was malformed"
-            )
+            message = "Wealthfolio spending settings response was malformed"
+            raise WealthfolioAPIError(message)
         return cast(dict[str, Any], payload)
 
     async def ensure_spending_accounts(
@@ -397,7 +395,9 @@ class WealthfolioClient:
             for account_id in settings.get("accountIds", [])
             if account_id
         }
-        desired = sorted(selected | {str(account_id) for account_id in account_ids})
+        desired = sorted(
+            selected | {str(account_id) for account_id in account_ids}
+        )
         enabled = bool(settings.get("enabled", False))
         if enabled and desired == sorted(selected):
             return settings

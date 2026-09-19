@@ -647,9 +647,7 @@ def _resolve_activity_type(txn: FsTransaction) -> str:
     # spending view even though the activities were imported successfully.
     if txn.transaction_type == "other":
         return (
-            WF_ACTIVITY_DEPOSIT
-            if txn.amount >= 0
-            else WF_ACTIVITY_WITHDRAWAL
+            WF_ACTIVITY_DEPOSIT if txn.amount >= 0 else WF_ACTIVITY_WITHDRAWAL
         )
 
     # Transfers: positive = IN, negative = OUT

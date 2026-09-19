@@ -70,9 +70,8 @@ class BunqApiMockTransport(httpx.MockTransport):
 
         path = request.url.path
 
-        if (
-            request.method == "GET"
-            and path.endswith("/additional-transaction-information-category")
+        if request.method == "GET" and path.endswith(
+            "/additional-transaction-information-category"
         ):
             return httpx.Response(
                 200,

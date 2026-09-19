@@ -62,12 +62,16 @@ async def list_bunq_other_transactions(
             Transaction.classification_override.is_(None),
             Transaction.tombstoned_at.is_(None),
         )
-        .order_by(func.abs(Transaction.amount).desc(), Transaction.occurred_at.desc())
+        .order_by(
+            func.abs(Transaction.amount).desc(), Transaction.occurred_at.desc()
+        )
         .limit(limit * 10)
     )
     rows = result.all()
     fallback_map = await account_category_fallbacks(
-        db, auth.tenant_id, [str(transaction.account_id) for transaction, _ in rows]
+        db,
+        auth.tenant_id,
+        [str(transaction.account_id) for transaction, _ in rows],
     )
     items = []
     for transaction, account_name in rows:
@@ -114,7 +118,10 @@ async def classify_bunq_other_transaction(
     )
     transaction = result.scalar_one_or_none()
     if transaction is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transaction not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Transaction not found",
+        )
 
     source_revision = transaction.revision
     transaction.classification_override = category

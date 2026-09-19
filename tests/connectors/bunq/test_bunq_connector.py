@@ -78,6 +78,7 @@ def test_payment_prefers_explicit_bunq_category_over_mcc() -> None:
     assert transaction.cashflow_suggestion.source == "bunq_category"
     assert transaction.provider_metadata["bunq_category_raw"] == "Personal Care"
 
+
 if TYPE_CHECKING:
     from tests.connectors.bunq.conftest import BunqApiMockTransport
 
@@ -166,8 +167,12 @@ class TestBunqConnectorContract:
         assert joint.account_type == "joint"
         assert joint.provider_metadata["bunq_type"] == "MonetaryAccountJoint"
 
-        account_urls = [str(call["url"]) for call in bunq_mock_transport.call_log]
-        assert any("/user/54321/monetary-account-joint" in url for url in account_urls)
+        account_urls = [
+            str(call["url"]) for call in bunq_mock_transport.call_log
+        ]
+        assert any(
+            "/user/54321/monetary-account-joint" in url for url in account_urls
+        )
 
     async def test_fetch_categories_persists_account_catalog(
         self, bunq_connector: BunqConnector
@@ -240,8 +245,9 @@ class TestBunqConnectorContract:
             and "/schedule-payment" not in str(call["url"])
         ]
         assert payment_urls
-        assert "/v1/user/54321/monetary-account/1000001/payment" in (
-            payment_urls[0]
+        assert (
+            "/v1/user/54321/monetary-account/1000001/payment"
+            in (payment_urls[0])
         )
 
     async def test_fetch_transactions_with_limit(

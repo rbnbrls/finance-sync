@@ -141,7 +141,9 @@ def test_easy_budgeting_allocate_without_counterparty_is_transfer() -> None:
     assert result[0].provider_metadata["internal_transfer_pair_key"]
 
 
-def test_bunq_generic_automatic_budget_top_up_without_counterparty_is_transfer() -> None:
+def test_bunq_generic_automatic_budget_top_up_without_counterparty_is_transfer() -> (
+    None
+):
     account = _account("outbox", "Outbox", "NL00BUNQ000000000001")
     top_up = _transaction(
         external_id="generic-top-up",

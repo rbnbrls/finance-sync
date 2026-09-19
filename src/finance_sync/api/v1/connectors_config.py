@@ -345,9 +345,7 @@ class ConnectorConfigResponse(BaseModel):
     )
     account_category_fallbacks: dict[str, str] = Field(
         default_factory=dict,
-        description=(
-            "Fallback transaction category per provider account ID"
-        ),
+        description=("Fallback transaction category per provider account ID"),
     )
     last_attempt_at: datetime | None = Field(
         default=None,
@@ -598,7 +596,8 @@ def _credential_response(row: Credential) -> ConnectorConfigResponse:
     is_configured = (
         bool(row.encrypted_payload)
         or row.last_success_at is not None
-        or row.provider_key in (_NON_SECRET_PROVIDERS | _MARKET_DATA_NO_SECRET_KEYS)
+        or row.provider_key
+        in (_NON_SECRET_PROVIDERS | _MARKET_DATA_NO_SECRET_KEYS)
     )
     label = row.description
     with contextlib.suppress(json.JSONDecodeError, TypeError):
@@ -1477,7 +1476,10 @@ async def update_connector_config(
         # but must survive edits to the connection's other options.
         with contextlib.suppress(json.JSONDecodeError, TypeError):
             existing = json.loads(cred.description or "{}")
-            if isinstance(existing, dict) and "account_category_fallbacks" in existing:
+            if (
+                isinstance(existing, dict)
+                and "account_category_fallbacks" in existing
+            ):
                 merged_options["account_category_fallbacks"] = existing[
                     "account_category_fallbacks"
                 ]
@@ -2008,7 +2010,11 @@ async def set_connection_accounts(
             parsed = json.loads(cred.description or "{}")
             if isinstance(parsed, dict):
                 existing_options = cast(dict[str, Any], parsed)
-        if not existing_options and cred.description and not cred.description.lstrip().startswith("{"):
+        if (
+            not existing_options
+            and cred.description
+            and not cred.description.lstrip().startswith("{")
+        ):
             existing_options["_label"] = cred.description
         normalized_fallbacks = {
             str(account_id): str(category).strip()[:256]
@@ -2016,7 +2022,9 @@ async def set_connection_accounts(
             if str(category).strip() in TRANSACTION_CATEGORY_VALUES
         }
         if normalized_fallbacks:
-            existing_options["account_category_fallbacks"] = normalized_fallbacks
+            existing_options["account_category_fallbacks"] = (
+                normalized_fallbacks
+            )
         else:
             existing_options.pop("account_category_fallbacks", None)
         cred.description = json.dumps(existing_options, separators=(",", ":"))
