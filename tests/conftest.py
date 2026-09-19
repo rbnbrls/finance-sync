@@ -45,6 +45,12 @@ def sample_raw_account() -> RawAccount:
 
 
 @pytest.fixture
+def fixed_utc_now() -> datetime:
+    """Stable UTC clock for tests that assert relative date calculations."""
+    return datetime(2026, 9, 9, 12, 0, tzinfo=UTC)
+
+
+@pytest.fixture
 def sample_raw_transaction() -> RawTransaction:
     """Return a typical raw transaction fixture."""
     return RawTransaction(

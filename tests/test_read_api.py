@@ -119,6 +119,9 @@ class TestOpenAPIRegistration:
         assert "/api/v1/accounts" in paths
         assert paths["/api/v1/accounts"]["get"]["tags"] == ["accounts"]
         assert "/api/v1/accounts/{account_id}" in paths
+        assert paths["/api/v1/accounts/{account_id}"]["delete"]["tags"] == [
+            "accounts"
+        ]
         assert "/api/v1/accounts/{account_id}/transactions" in paths
         assert "/api/v1/accounts/{account_id}/balances" in paths
 

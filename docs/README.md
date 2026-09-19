@@ -13,6 +13,8 @@ schema are authoritative when a document conflicts with an implementation.
 - [Connectors](connectors-overview.md), [connector development](connector-development.md)
   and [plugin development](plugin-development.md).
 - [Destinations](destinations.md) and the individual exporter integrations.
+- [Control-plane contract](CONTROL_PLANE_CONTRACT.md): tenant isolation,
+  statuses, timestamps and recovery-action rules.
 - [MCP server](mcp-server.md), the single canonical MCP guide.
 
 ## Integrations and features
@@ -28,6 +30,10 @@ Operational runbooks cover releases, retention, audit trails, key rotation,
 capacity, autoscaling, disaster recovery, provider contracts and monitoring.
 They describe procedures, not roadmap commitments; verify environment-specific
 values before executing them.
+
+The [Wealthfolio live delivery runbook](wealthfolio-live-runbook.md) covers
+Coolify worker deployment, connector configuration, controlled acceptance,
+idempotent retry, and rollback.
 
 ## Historical material
 

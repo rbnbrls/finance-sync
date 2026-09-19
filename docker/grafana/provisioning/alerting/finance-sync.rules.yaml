@@ -57,6 +57,92 @@ groups:
             dashboard for the failing connector.
           runbook_url: "https://github.com/rbnbrls/finance-sync/blob/main/docs/observability.md"
 
+      - uid: finance-sync-remediation-failure-rate
+        title: Data-quality remediation failures are sustained
+        condition: B
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            relativeTimeRange: {from: 900, to: 0}
+            model:
+              refId: A
+              expr: increase(data_quality_remediation_failures_total[15m]) > 5
+              instant: true
+              range: false
+          - refId: B
+            datasourceUid: __expr__
+            relativeTimeRange: {from: 900, to: 0}
+            model:
+              refId: B
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: gt, params: [0]}
+                  operator: {type: and}
+        for: 15m
+        labels: {severity: critical, team: finance}
+        annotations:
+          summary: "Remediation failures are sustained"
+          description: "Inspect provider errors, credentials and manual-review pressure."
+          runbook_url: "https://github.com/rbnbrls/finance-sync/blob/main/docs/observability.md"
+
+      # ── Data-quality remediation backlog ──────────────────────────
+      - uid: finance-sync-remediation-oldest-pending
+        title: Data-quality remediation backlog is aging
+        condition: B
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            relativeTimeRange: {from: 900, to: 0}
+            model:
+              refId: A
+              expr: data_quality_remediation_oldest_age_seconds > 86400
+              instant: true
+              range: false
+          - refId: B
+            datasourceUid: __expr__
+            relativeTimeRange: {from: 900, to: 0}
+            model:
+              refId: B
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: gt, params: [0]}
+                  operator: {type: and}
+        for: 30m
+        labels: {severity: warning, team: finance}
+        annotations:
+          summary: "Data-quality remediation has items older than 24h"
+          description: "Inspect the remediation backlog and provider quota health."
+
+      - uid: finance-sync-remediation-manual-review
+        title: Data-quality remediation needs manual review
+        condition: B
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            relativeTimeRange: {from: 900, to: 0}
+            model:
+              refId: A
+              expr: data_quality_remediation_manual_review_size > 0
+              instant: true
+              range: false
+          - refId: B
+            datasourceUid: __expr__
+            relativeTimeRange: {from: 900, to: 0}
+            model:
+              refId: B
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: gt, params: [0]}
+                  operator: {type: and}
+        for: 15m
+        labels: {severity: warning, team: finance}
+        annotations:
+          summary: "Data-quality remediation items require manual review"
+          description: "Review unsupported or repeatedly failing remediation items."
+
       # ── Stale enrichment (>24h) ────────────────────────────────────
       - uid: finance-sync-stale-enrichment
         title: Enrichment data is stale (>24h)

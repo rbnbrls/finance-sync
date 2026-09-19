@@ -29,6 +29,21 @@ from tests.connectors.fixtures.bunq_api_fixtures import (
     SESSION_SERVER_RESPONSE,
 )
 
+JOINT_ACCOUNTS_RESPONSE = {
+    "Response": [
+        {
+            "MonetaryAccountJoint": {
+                "id": 1000004,
+                "description": "Shared Household",
+                "balance": {"value": "125.50", "currency": "EUR"},
+                "alias": [{"type": "IBAN", "value": "NL00BUNQ0000000004"}],
+                "status": "ACTIVE",
+            }
+        }
+    ],
+    "Pagination": {},
+}
+
 
 class BunqApiMockTransport(httpx.MockTransport):
     """Mock transport that returns canned bunq API responses.
@@ -54,6 +69,34 @@ class BunqApiMockTransport(httpx.MockTransport):
         )
 
         path = request.url.path
+
+        if (
+            request.method == "GET"
+            and path.endswith("/additional-transaction-information-category")
+        ):
+            return httpx.Response(
+                200,
+                json={
+                    "Response": [
+                        {
+                            "AdditionalTransactionInformationCategory": {
+                                "category": "Groceries",
+                                "type": "SYSTEM",
+                                "status": "ACTIVE",
+                                "order": 1,
+                            }
+                        },
+                        {
+                            "AdditionalTransactionInformationCategory": {
+                                "category": "Personal Care",
+                                "type": "SYSTEM",
+                                "status": "ACTIVE",
+                                "order": 2,
+                            }
+                        },
+                    ]
+                },
+            )
 
         # POST /v1/session-server
         if request.method == "POST" and path == "/v1/session-server":
@@ -88,6 +131,8 @@ class BunqApiMockTransport(httpx.MockTransport):
 
         # GET /v1/user/<id>/monetary-account
         if request.method == "GET" and "monetary-account" in path:
+            if "monetary-account-joint" in path:
+                return httpx.Response(200, json=JOINT_ACCOUNTS_RESPONSE)
             # Check if it's a paginated request
             if "newer_id" in str(request.url):
                 return self._handle_paginated_accounts(str(request.url))

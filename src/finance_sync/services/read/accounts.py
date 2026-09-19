@@ -9,6 +9,10 @@ from sqlalchemy import func, select
 from finance_sync.models.account import Account
 from finance_sync.models.transaction import Transaction
 from finance_sync.services.read.pagination import expression, sort_field
+from finance_sync.services.read.transaction_category import (
+    account_category_fallbacks,
+    transaction_category,
+)
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -44,21 +48,28 @@ class AccountReadService:
 
         return AccountSummary(
             id=str(account.id),
+            connection_id=(
+                str(account.connection_id) if account.connection_id else None
+            ),
             name=account.name,
             account_type=str(account.account_type),
             account_subtype=account.account_subtype,
             currency_code=account.currency_code,
             current_balance=account.current_balance,
             available_balance=account.available_balance,
+            net_asset_value=account.net_asset_value,
             provider_key=account.provider_key,
             is_active=account.is_active,
             owner_user_id=account.owner_user_id,
             created_at=account.created_at,
             updated_at=account.updated_at,
+            capabilities=account.capabilities,
         )
 
     @staticmethod
-    def _transaction_response(transaction: Transaction) -> Any:
+    def _transaction_response(
+        transaction: Transaction, account_fallback: str | None = None
+    ) -> Any:
         from finance_sync.services.read_api import TransactionResponse
 
         return TransactionResponse(
@@ -76,9 +87,36 @@ class AccountReadService:
             description=transaction.description,
             transaction_type=transaction.transaction_type,
             status=str(transaction.status),
+            tombstoned_at=transaction.tombstoned_at,
             provider_key=transaction.provider_key,
             created_at=transaction.created_at,
             updated_at=transaction.updated_at,
+            provider_metadata_contract=transaction.provider_metadata_contract,
+            merchant_name=transaction.merchant_name,
+            merchant_id=transaction.merchant_id,
+            merchant_city=transaction.merchant_city,
+            merchant_country=transaction.merchant_country,
+            counterparty_name=transaction.counterparty_name,
+            counterparty_account_reference=transaction.counterparty_account_reference,
+            merchant_category_code=transaction.merchant_category_code,
+            category=transaction_category(transaction, account_fallback),
+            original_type=transaction.original_type,
+            original_status=transaction.original_status,
+            authorization_status=transaction.authorization_status,
+            settlement_status=transaction.settlement_status,
+            source_record_hash=transaction.source_record_hash,
+            cashflow_bucket=transaction.cashflow_bucket,
+            cashflow_suggestion=transaction.cashflow_suggestion,
+            classification_source=transaction.classification_source,
+            classification_override=transaction.classification_override,
+            gross_amount=transaction.gross_amount,
+            gross_currency_code=transaction.gross_currency_code,
+            net_amount=transaction.net_amount,
+            net_currency_code=transaction.net_currency_code,
+            tax_amount=transaction.tax_amount,
+            tax_currency_code=transaction.tax_currency_code,
+            refund_amount=transaction.refund_amount,
+            refund_currency_code=transaction.refund_currency_code,
         )
 
     async def list_accounts(
@@ -190,8 +228,16 @@ class AccountReadService:
             .limit(limit)
         )
         rows = result.scalars().all()
+        fallback_map = await account_category_fallbacks(
+            self._session, tenant_id, [str(account_id)]
+        )
         return TransactionListResponse(
-            items=[self._transaction_response(tx) for tx in rows],
+            items=[
+                self._transaction_response(
+                    tx, fallback_map.get(str(tx.account_id))
+                )
+                for tx in rows
+            ],
             total=total_result.scalar() or 0,
             limit=limit,
             offset=offset,

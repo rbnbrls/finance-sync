@@ -20,6 +20,7 @@ TARGET_WEALTHFOLIO = "wealthfolio"
 TARGET_ACTUAL_BUDGET = "actual-budget"
 TARGET_JUPYTER = "jupyter"
 TARGET_FIREFLY = "firefly"
+TARGET_YNAB = "ynab"
 TARGET_GHOSTFOLIO = "ghostfolio"
 TARGET_INVESTBRAIN = "investbrain"
 TARGET_SECURO = "securo"
@@ -28,6 +29,7 @@ TARGET_TYPES = {
     TARGET_ACTUAL_BUDGET,
     TARGET_JUPYTER,
     TARGET_FIREFLY,
+    TARGET_YNAB,
     TARGET_GHOSTFOLIO,
     TARGET_INVESTBRAIN,
     TARGET_SECURO,
@@ -99,6 +101,11 @@ class ExportTarget(Base):
         String(16), nullable=True
     )
     last_health_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    last_parity_summary: Mapped[dict[str, Any] | None] = mapped_column(
+        JSONB,
+        nullable=True,
+        comment="Sanitized aggregate downstream parity counts only",
+    )
     last_checked_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True)
     )

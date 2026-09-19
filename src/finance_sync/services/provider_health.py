@@ -167,8 +167,10 @@ class ProviderHealthService:
             getattr(credential, "credential_status", None) or "unknown"
         )
         expired = expires_at is not None and expires_at <= datetime.now(UTC)
-        configured = bool(credential.encrypted_payload) or (
-            credential.provider_key
+        configured = (
+            bool(credential.encrypted_payload)
+            or credential.last_success_at is not None
+            or credential.provider_key
             in {
                 "csv_import",
                 "degiro_pension",
@@ -182,7 +184,7 @@ class ProviderHealthService:
             status = "reauth_required"
         elif credential.last_error:
             status = "error"
-        elif credential.last_test_status == "success":
+        elif credential.last_test_status in {"success", "passed"}:
             status = "connected"
         elif configured:
             status = "configured"
@@ -302,8 +304,11 @@ class ProviderHealthService:
             return "paused", "resume_connection"
         if compatibility_status == "incompatible":
             return "incompatible", "upgrade_connector"
-        if compatibility_status == "unavailable":
-            return "unavailable", "review_connector"
+        # A stored connection proves that the connector is installed.  A
+        # missing lifecycle entry is therefore a release-metadata problem,
+        # not proof that the provider itself is unavailable.  Keep the
+        # detailed compatibility reason in the response, but let real
+        # connection and processing health determine the headline status.
         if compatibility_status in {"attention_required", "deprecated"}:
             return "attention_required", "review_connector"
         if connection.status == "reauth_required":

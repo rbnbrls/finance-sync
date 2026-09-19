@@ -63,6 +63,9 @@ stable (file-provisioned) and appear in the UI at
 | `finance-sync-app-down` | `up{job="finance-sync-app"}` | `== 0` for 2m | critical | webhook + email |
 | `finance-sync-dr-rpo-breach` | `dr_sla_last_usable_backup_age_seconds` | `> 900` (15m) for 15m | critical | webhook + email |
 | `finance-sync-dr-rto-breach` | `dr_sla_replay_lag_seconds` | `> 1800` (30m) for 15m | critical | webhook + email |
+| `finance-sync-remediation-oldest-pending` | oldest remediation age | `> 24h` for 30m | warning | webhook + email |
+| `finance-sync-remediation-manual-review` | manual-review backlog | `> 0` for 15m | warning | webhook + email |
+| `finance-sync-remediation-failure-rate` | remediation failures | `> 5/15m` for 15m | critical | webhook + email |
 
 Each dashboard panel that can trip an alert carries a "View alert" link
 to the corresponding rule.
@@ -151,6 +154,22 @@ docker compose restart grafana
 
 ## 6. Metric reference
 
+Data-quality remediation metrics are emitted by the worker. They intentionally
+avoid tenant, account, credential and financial-value labels:
+
+- `data_quality_remediation_backlog_size{status}`
+- `data_quality_remediation_pending_by_provider{provider}`
+- `data_quality_remediation_oldest_age_seconds`
+- `data_quality_remediation_manual_review_size`
+- `data_quality_remediation_attempts_total{provider,strategy}`
+- `data_quality_remediation_throughput_total{provider,strategy,outcome}`
+- `data_quality_remediation_deferred_rate_limit_total{provider,endpoint_family}`
+- `data_quality_remediation_batches_created_total`
+- `data_quality_remediation_batch_items_total`
+- `data_quality_remediation_average_items_per_batch`
+- `data_quality_remediation_failures_total{provider,strategy,category}`
+- `data_quality_remediation_api_calls_saved_total`
+
 | Metric | Type | Labels | Emitted by |
 |--------|------|--------|------------|
 | `sync_runs_total` | counter | `provider`, `status` | orchestrator (`run_sync`, cards pipeline) |
@@ -185,3 +204,30 @@ All of these are served from the **app** (`app:8000/metrics`) or the
 - **Dashboard shows "No data" for outbox/sync panels** — those metrics
   only appear after the first sync run / outbox poll.  Give the stack
   a few minutes.
+
+## 8. Trading212 failures: GlitchTip → GitHub
+
+The Trading212 sync orchestrator captures every API and processing exception
+before returning a failed `SyncResult`. The persisted `SyncRun` remains failed
+(and does not advance its cursor), while GlitchTip receives these tags:
+
+- `connector=trading212`;
+- `sync_operation` (`authenticate`, `fetch_accounts`, `fetch_transactions`, or
+  `fetch_holdings`);
+- stable hashed `connection_id`, `sync_run_id`, and provider `account_id`.
+
+The existing `scrub_event` hook removes credentials, request payloads, user
+information, and financial values. Correlation identifiers are intentionally
+hashed: use the matching hash in the connection/sync-run logs rather than
+putting account data in a GitHub issue.
+
+When the GlitchTip alert webhook is configured, the existing
+`glitchtip-github-bridge` deduplicates the event and creates an issue in the
+finance-sync repository. Trace a failure by opening the GitHub issue, copying
+the GlitchTip event link and `sync_operation`, then searching application logs
+for the `sync_run_id`/connection correlation tag. Confirm the corresponding
+`SyncRun` has `status=failed`, `error_category`, and no cursor advancement.
+
+Never use a real credential or financial payload to test this path; use a
+synthetic provider failure and close the resulting test issue after verifying
+the bridge.

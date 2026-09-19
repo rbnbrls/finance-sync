@@ -7,7 +7,8 @@ Mapping rules
 -------------
 * Amount signs:  finance-sync uses positive = inflow, negative = outflow.
   actualpy / Actual Budget uses the same convention, so the sign is kept
-  as-is but converted to cents (integer) via ``decimal_to_cents``.
+  as-is. The actualpy adapter accepts major currency units and converts
+  them to Actual's integer-cent storage internally.
 * ``imported_id`` is derived from the canonical
   ``external_transaction_id`` so that Actual Budget's dedup logic
   can recognise re-exports of the same transaction.
@@ -36,6 +37,7 @@ def map_transaction(
     *,
     ab_account_name: str,
     fallback_payee: str = "Imported transaction",
+    category_name: str | None = None,
 ) -> dict[str, Any]:
     """Convert a canonical *txn* into an actualpy-compatible dict.
 
@@ -58,9 +60,9 @@ def map_transaction(
     payee = _build_payee(txn, fallback_payee)
     notes = _build_notes(txn)
     imported_id = _build_imported_id(txn)
-    amount = _cents(txn.amount)
+    amount = _amount(txn.amount)
 
-    return {
+    result: dict[str, Any] = {
         "date": occurred,
         "account": ab_account_name,
         "payee": payee,
@@ -70,6 +72,19 @@ def map_transaction(
         "cleared": txn.status == "booked",
         "imported_payee": _build_imported_payee(txn),
     }
+    if category_name and txn.transaction_type != "transfer":
+        result["category"] = category_name
+    split_values = list(getattr(txn, "splits", None) or [])
+    if split_values:
+        result["splits"] = [
+            {
+                "amount": _amount(split.amount),
+                "category": _split_category(split),
+                "notes": getattr(split, "destination", None),
+            }
+            for split in split_values
+        ]
+    return result
 
 
 def map_transaction_to_csv_row(txn: FsTransaction) -> dict[str, str | None]:
@@ -99,6 +114,8 @@ def _build_payee(
     fallback: str,
 ) -> str:
     """Derive a payee name from the transaction."""
+    if getattr(txn, "merchant_name", None):
+        return str(txn.merchant_name)
     if txn.description:
         return txn.description
 
@@ -127,6 +144,10 @@ def _build_notes(txn: FsTransaction) -> str | None:
 
     if txn.description:
         parts.append(txn.description)
+    if getattr(txn, "merchant_category_code", None):
+        parts.append(f"MCC: {txn.merchant_category_code}")
+    if getattr(txn, "original_type", None):
+        parts.append(f"Provider type: {txn.original_type}")
 
     # FX conversion info
     if txn.amount_in_base is not None and txn.base_currency_code:
@@ -169,14 +190,23 @@ def _build_imported_payee(txn: FsTransaction) -> str | None:
     return txn.description
 
 
-def _cents(amount: Decimal) -> int:
-    """Convert a Decimal amount to integer cents (Actual's internal format).
+def _amount(amount: Decimal) -> Decimal:
+    """Return a major-unit amount for actualpy.
 
-    Actual Budget stores amounts as integers representing the
-    value * 100 (for most currencies).  This conversion handles that.
+    actualpy's public query helpers call ``decimal_to_cents`` themselves.
+    Passing integer cents here would therefore multiply every amount by
+    another factor of 100 before it is stored by Actual Budget.
     """
-    cents = amount * 100
-    return int(cents.quantize(Decimal(1)))
+    return Decimal(str(amount)).quantize(Decimal("0.01"))
+
+
+def _split_category(split: Any) -> str | None:
+    suggestion = getattr(split, "category_suggestion", None)
+    if isinstance(suggestion, dict):
+        value = suggestion.get("value") or suggestion.get("category")
+    else:
+        value = getattr(suggestion, "value", suggestion)
+    return str(value) if value else None
 
 
 def _as_date(dt: datetime) -> date:

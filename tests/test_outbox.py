@@ -52,6 +52,7 @@ class TestOutboxMessage(TestBase):
     )
     published_at: Mapped[datetime | None] = mapped_column(nullable=True)
     error_message: Mapped[str | None] = mapped_column(nullable=True)
+    claimed_at: Mapped[datetime | None] = mapped_column(nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         default=lambda: datetime.now(UTC), nullable=False
     )
@@ -274,6 +275,51 @@ class TestOutboxPublisherFetch:
 
         messages = await publisher._fetch_pending()
         assert messages == []
+
+    async def test_fetch_pending_claims_rows_until_dispatch_finishes(
+        self, session_factory
+    ) -> None:
+        """A second publisher cannot claim an active message."""
+        from finance_sync.sync.outbox_publisher import OutboxPublisher
+
+        msg = _make_pending_message("test.event")
+        async with session_factory() as s:
+            s.add(msg)
+            await s.commit()
+
+        first = OutboxPublisher(session_factory)
+        claimed = await first._fetch_pending()
+        assert len(claimed) == 1
+        assert claimed[0].status == OutboxMessageStatus.PROCESSING
+        assert claimed[0].claimed_at is not None
+
+        second = OutboxPublisher(session_factory)
+        assert await second._fetch_pending() == []
+
+    async def test_fetch_pending_reclaims_stale_claim(
+        self, session_factory
+    ) -> None:
+        """A crashed publisher's old claim is recoverable."""
+        from datetime import timedelta
+
+        from finance_sync.sync.outbox_publisher import (
+            CLAIM_TIMEOUT,
+            OutboxPublisher,
+        )
+
+        msg = _make_pending_message("test.event")
+        msg.status = OutboxMessageStatus.PROCESSING
+        msg.claimed_at = (
+            datetime.now(UTC) - CLAIM_TIMEOUT - timedelta(seconds=1)
+        )
+        async with session_factory() as s:
+            s.add(msg)
+            await s.commit()
+
+        claimed = await OutboxPublisher(session_factory)._fetch_pending()
+        assert len(claimed) == 1
+        assert claimed[0].status == OutboxMessageStatus.PROCESSING
+        assert claimed[0].claimed_at is not None
 
 
 class TestOutboxPublisherDispatch:

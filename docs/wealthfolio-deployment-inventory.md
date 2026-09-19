@@ -26,7 +26,7 @@ Health: both `/health/live` return HTTP 200.
 - **No worker container exists for either app.** `docker ps -a` on the Coolify
   host (LXC 100) shows exactly one container per finance-sync app (the
   API/uvicorn service). The `worker` service defined in the repo's
-  `docker-compose.coolify.yml` (`python -m finance_sync.worker`, health port
+  `docker-compose.yml` (`python -m finance_sync.worker`, health port
   9090) is **not deployed**.
 - Coolify generated a single-service compose for each app (container label
   `com.docker.compose.service` = the app container itself).
@@ -91,7 +91,7 @@ Two independent blockers:
 
 1. **Deploy the worker service** — the biggest gap. Env vars alone will not
    start the scheduler. Options: (a) make Coolify deploy the `worker` service
-   from `docker-compose.coolify.yml` (currently only the app service is
+   from `docker-compose.yml` (currently only the app service is
    deployed), or (b) create a second Coolify app running
    `python -m finance_sync.worker`. Without this, `export_wealthfolio` can
    never be active.

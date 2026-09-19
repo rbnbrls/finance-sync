@@ -181,7 +181,6 @@ class IntelSourceCatalogService:
 PROVIDER_CONFIG_FLAGS: dict[str, list[str]] = {
     "sec": ["INTEL_SEC_ENABLED"],
     "sec_press": ["INTEL_SEC_PRESS_ENABLED"],
-    "openbb": ["OPENBB_API_KEY", "OPENBB_BASE_URL", "OPENBB_RATE_LIMIT_RPS"],
 }
 
 

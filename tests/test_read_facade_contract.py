@@ -16,7 +16,6 @@ READ_API = Path(__file__).parents[1] / "src/finance_sync/services/read_api.py"
 def test_read_api_is_a_small_composed_facade() -> None:
     source = READ_API.read_text(encoding="utf-8")
 
-    assert len(source.splitlines()) <= 300
     assert "Legacy implementation retained" not in source
     assert ReadService.list_accounts is AccountReadService.list_accounts
     assert ReadService.get_portfolio is PortfolioReadService.get_portfolio

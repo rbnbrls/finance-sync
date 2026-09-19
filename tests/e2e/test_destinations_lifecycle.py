@@ -64,6 +64,15 @@ class StubWealthfolioClient:
     async def authenticate(self) -> None:
         return None
 
+    async def get_accounts(self) -> list[dict[str, str]]:
+        return []
+
+    async def get_assets(self) -> list[dict[str, str]]:
+        return []
+
+    async def get_all_activities(self, account_id: str) -> list[dict[str, str]]:
+        return []
+
 
 class StubWealthfolioExporter:
     """Stand-in for WealthfolioExporter — reports a successful push."""
@@ -225,6 +234,7 @@ class TestEmptyInstallNoDestinationsRequired:
             "actual-budget",
             "jupyter",
             "firefly",
+            "ynab",
             "ghostfolio",
             "investbrain",
             "securo",

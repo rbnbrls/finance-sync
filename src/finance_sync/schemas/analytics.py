@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -19,6 +20,10 @@ class AnalyticsSection(BaseModel):
     freshness: str = "unknown"
     coverage: CoverageInfo = Field(default_factory=CoverageInfo)
     caveats: list[str] = Field(default_factory=list)
+    details: list[dict[str, Any]] = Field(
+        default_factory=lambda: list[dict[str, Any]](),
+        description="Optional detail rows; populated only when requested.",
+    )
 
 
 class AIAnalyticsSection(BaseModel):
@@ -26,8 +31,15 @@ class AIAnalyticsSection(BaseModel):
 
     enabled: bool = False
     configured: bool = False
+    as_of: datetime | None = None
     freshness: str = "unknown"
+    coverage: CoverageInfo = Field(default_factory=CoverageInfo)
     caveats: list[str] = Field(default_factory=list)
+    summary: str | None = Field(
+        default=None,
+        description="Generated text when AI was explicitly requested.",
+    )
+    generated_at: datetime | None = None
 
 
 class AnalyticsOverview(BaseModel):

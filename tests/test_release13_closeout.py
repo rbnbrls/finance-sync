@@ -14,8 +14,10 @@ def test_pyright_baseline_and_ci_type_gates_are_ratcheted() -> None:
     )
     workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
     assert budget["max_warnings"] <= 60
-    assert "uv run pyright -p pyproject.toml src" in workflow
-    assert "uv run pyright -p pyrightconfig.tests.json tests" in workflow
+    assert "run: make type" in workflow
+    makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+    assert "uv run pyright -p pyproject.toml src" in makefile
+    assert "uv run pyright -p pyrightconfig.tests.json tests" in makefile
     assert "check_pyright_budget.py" in workflow
 
 

@@ -33,7 +33,7 @@ class FxRateCreate(BaseModel):
         description="When the rate observation was recorded",
     )
     source: str = Field(
-        default="openbb",
+        default="local",
         description="Data source identifier (e.g. 'openbb', 'ecb', 'manual')",
     )
 

@@ -48,6 +48,21 @@ async def _init_database(container: Container) -> None:
                 await conn.execute(
                     text("CREATE EXTENSION IF NOT EXISTS pgcrypto")
                 )
+                # App and worker start together in staging.  Serialize the
+                # synthetic seed transaction so both processes cannot pass
+                # the marker check and race on the unique security indexes.
+                # Keep lightweight test doubles and alternate SQLAlchemy
+                # engines compatible; real engines expose ``dialect.name``.
+                dialect_name = getattr(
+                    getattr(container.engine, "dialect", None), "name", None
+                )
+                if dialect_name == "postgresql":
+                    await conn.execute(
+                        text(
+                            "SELECT pg_advisory_xact_lock("
+                            "hashtext('finance-sync:non-production-seed'))"
+                        )
+                    )
                 # ── Seed default tenant and admin user (idempotent) ────
                 from datetime import UTC, datetime
 
@@ -241,12 +256,13 @@ async def _init_database(container: Container) -> None:
 
 
 async def _bootstrap_legacy_export_targets(container: Container) -> None:
-    """Migrate legacy global exporter settings into one stored target.
+    """Explicitly migrate legacy global exporter settings into targets.
 
-    This is deliberately a runtime bootstrap rather than an Alembic data
-    migration: environment variables exist only in the deployment, not in the
-    database.  It is idempotent and never creates a second target of a type
-    once the owner has configured one in the destinations wizard.
+    This helper is intentionally *not* called from normal application
+    startup. It exists only for an explicit operator-run migration: legacy
+    environment variables exist only in the deployment, not in the database.
+    It is idempotent and never creates a second target of a type once the
+    owner has configured one in the destinations wizard.
     """
     from sqlalchemy import select
 
@@ -362,7 +378,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     # -- Ensure database is migrated and seed default data --------------
     if settings.database_url is not None:
         await _init_database(container)
-        await _bootstrap_legacy_export_targets(container)
+        # Downstream exporters are strictly opt-in.  Legacy environment
+        # settings must not silently create an active destination or a
+        # recurring export schedule during application startup.  The legacy
+        # helper remains available for an explicit, operator-run migration.
 
     async with container.dispose():
         yield  # app runs here

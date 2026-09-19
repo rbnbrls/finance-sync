@@ -1,0 +1,37 @@
+{
+  "issues": [
+    {
+      "code": "MISSING_HISTORICAL_PRICE",
+      "severity": "error",
+      "fixAction": "SYNC_PRICE_HISTORY",
+      "affectedItems": [
+        {
+          "assetId": "wf-asset-a",
+          "securityId": "canonical-a",
+          "startDate": "2026-01-01",
+          "endDate": "2026-01-31"
+        },
+        {
+          "assetId": "wf-asset-b",
+          "securityId": "canonical-b",
+          "startDate": "2026-02-01",
+          "endDate": "2026-02-28"
+        }
+      ],
+      "details": "bounded historical gap"
+    },
+    {
+      "code": "MISSING_PURCHASE_PRICE",
+      "severity": "warning",
+      "affectedItems": [{"assetId": "wf-asset-c"}],
+      "details": "purchase price is unavailable"
+    },
+    {
+      "code": "FUTURE_WEALTHFOLIO_CHECK",
+      "severity": "info",
+      "affectedItems": [{"assetId": "wf-asset-d"}],
+      "details": "unknown category must not auto-repair"
+    }
+  ],
+  "unknownTopLevelField": {"must": "be tolerated"}
+}

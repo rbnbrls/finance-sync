@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from sqlalchemy import func, select
 
@@ -54,6 +54,7 @@ class AnalyticsOverviewService:
         date_from: datetime | None = None,
         date_to: datetime | None = None,
         benchmark_security_id: str | None = None,
+        include_details: bool = False,
     ) -> AnalyticsOverview:
         """Return portfolio, performance and cashflow in one typed response."""
         portfolio = await self._read.get_portfolio(tenant_id)
@@ -79,6 +80,14 @@ class AnalyticsOverviewService:
             tenant_id,
             MarketIntelligenceItem,
             MarketIntelligenceItem.fetched_at,
+        )
+        subscription_details = (
+            await self._subscription_details(tenant_id)
+            if include_details
+            else []
+        )
+        market_details = (
+            await self._market_details(tenant_id) if include_details else []
         )
 
         subscription_freshness = freshness_for(
@@ -119,6 +128,13 @@ class AnalyticsOverviewService:
             accounts=len(portfolio.accounts),
             items=cashflow.transaction_count,
         )
+        aggregate_meta = build_meta(
+            as_of=as_of,
+            now=self._now,
+            freshness=freshness,
+            coverage=coverage,
+            caveats=list(dict.fromkeys(caveats)),
+        )
         return AnalyticsOverview(
             portfolio=portfolio,
             performance=performance,
@@ -134,6 +150,7 @@ class AnalyticsOverviewService:
                     and self._scope.account_ids is not None
                     else []
                 ),
+                details=subscription_details,
             ),
             market_intelligence=AnalyticsSection(
                 items=market_count,
@@ -141,11 +158,14 @@ class AnalyticsOverviewService:
                 freshness=market_freshness,
                 coverage=CoverageInfo(items=market_count),
                 caveats=[],
+                details=market_details,
             ),
             ai_summary=AIAnalyticsSection(
                 enabled=self._ai_enabled,
                 configured=self._ai_configured,
-                freshness="unknown",
+                as_of=aggregate_meta.as_of,
+                freshness=aggregate_meta.freshness,
+                coverage=aggregate_meta.coverage or CoverageInfo(),
                 caveats=(
                     []
                     if self._ai_enabled and self._ai_configured
@@ -155,15 +175,74 @@ class AnalyticsOverviewService:
                     ]
                 ),
             ),
-            meta=build_meta(
-                as_of=as_of,
-                now=self._now,
-                freshness=freshness,
-                coverage=coverage,
-                caveats=list(dict.fromkeys(caveats)),
-            ),
+            meta=aggregate_meta,
             generated_at=self._now,
         )
+
+    async def _subscription_details(
+        self, tenant_id: str
+    ) -> list[dict[str, Any]]:
+        """Return bounded, scope-safe subscription detail rows."""
+        predicates = [DetectedSubscription.tenant_id == tenant_id]
+        if self._scope is not None and self._scope.account_ids is not None:
+            predicates.append(
+                DetectedSubscription.account_id.in_(self._scope.account_ids)
+            )
+        rows = (
+            await self._session.execute(
+                select(DetectedSubscription)
+                .where(*predicates)
+                .order_by(DetectedSubscription.last_detected_at.desc())
+                .limit(100)
+            )
+        ).scalars()
+        return [
+            {
+                "id": str(row.id),
+                "merchant_name": row.merchant_name,
+                "amount": str(row.amount),
+                "currency_code": row.currency_code,
+                "frequency_days": row.frequency_days,
+                "frequency_label": row.frequency_label,
+                "confidence": str(row.confidence),
+                "status": str(row.status),
+                "account_id": str(row.account_id) if row.account_id else None,
+                "provider_key": row.provider_key,
+                "category": row.category,
+                "first_detected_at": row.first_detected_at,
+                "last_detected_at": row.last_detected_at,
+                "occurrence_count": row.occurrence_count,
+            }
+            for row in rows
+        ]
+
+    async def _market_details(self, tenant_id: str) -> list[dict[str, Any]]:
+        """Return bounded provenance/detail rows without licensed body text."""
+        rows = (
+            await self._session.execute(
+                select(MarketIntelligenceItem)
+                .where(MarketIntelligenceItem.tenant_id == tenant_id)
+                .order_by(MarketIntelligenceItem.published_at.desc())
+                .limit(100)
+            )
+        ).scalars()
+        return [
+            {
+                "id": str(row.id),
+                "provider": row.provider,
+                "source_id": row.source_id,
+                "canonical_url": row.canonical_url,
+                "kind": row.kind,
+                "published_at": row.published_at,
+                "fetched_at": row.fetched_at,
+                "license_class": row.license_class,
+                "headline": row.headline,
+                "summary": row.summary,
+                "facts": row.facts,
+                "is_stale": row.is_stale,
+            }
+            for row in rows
+        ]
 
     async def _section_stats(
         self,

@@ -6,10 +6,75 @@ records inside a UnitOfWork transaction.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+import inspect
+from collections.abc import Mapping
+from datetime import UTC, datetime, timedelta
+from typing import Any, cast
+
+from sqlalchemy import select, update
+from sqlalchemy.exc import OperationalError
 
 from finance_sync.models import SyncRun
 from finance_sync.models.enums import SyncRunStatus
+
+
+class SyncAlreadyRunningError(RuntimeError):
+    """Raised when a connection already owns an active sync run."""
+
+
+class SyncCancelledError(RuntimeError):
+    """Raised when a user cancelled a run at a safe pipeline checkpoint."""
+
+
+async def update_sync_run_progress(
+    session_factory: object,
+    run_id: str,
+    *,
+    stage: str,
+    account_id: str | None = None,
+) -> None:
+    """Persist a small, tenant-safe heartbeat in an independent transaction."""
+    from datetime import UTC, datetime
+
+    factory = cast(Any, session_factory)
+    session_context = factory()
+    if inspect.isawaitable(session_context):
+        session_context = await session_context
+    async with session_context as session:
+        try:
+            await session.execute(
+                update(SyncRun)
+                .where(
+                    SyncRun.id == run_id,
+                    SyncRun.status == SyncRunStatus.RUNNING,
+                )
+                .values(
+                    current_stage=stage,
+                    current_account_id=account_id,
+                    last_activity_at=datetime.now(UTC),
+                )
+            )
+            await session.commit()
+        except OperationalError:
+            # Heartbeats use an independent transaction.  SQLite can briefly
+            # reject that write while the pipeline transaction is active; a
+            # telemetry failure must not turn a successful sync into a failure.
+            await session.rollback()
+
+
+async def ensure_sync_run_active(session_factory: object, run_id: str) -> None:
+    """Abort the pipeline if the operator has requested cancellation."""
+    factory = cast(Any, session_factory)
+    session_context = factory()
+    if inspect.isawaitable(session_context):
+        session_context = await session_context
+    async with session_context as session:
+        status = await session.scalar(
+            select(SyncRun.status).where(SyncRun.id == run_id)
+        )
+    if str(status) == SyncRunStatus.CANCELLED:
+        message = "Sync gestopt door gebruiker"
+        raise SyncCancelledError(message)
 
 
 async def start_sync_run(
@@ -20,14 +85,28 @@ async def start_sync_run(
 ) -> SyncRun:
     """Create a new ``SyncRun`` record with status ``running``.
 
-    The record is added to the session but not flushed — it commits
-    atomically with the enclosing transaction.
+    The record is flushed before returning so database-generated/default
+    values, especially the UUID primary key, are available to the pipeline
+    immediately.  The enclosing transaction still controls the commit.
 
     When *connection_id* is provided (multi-connection syncs) the run is
     scoped to that connection so per-connection runs stay traceable.
 
     Returns the created ``SyncRun`` instance.
     """
+    if connection_id is not None:
+        active = await uow.session.scalar(  # type: ignore[union-attr]
+            select(SyncRun.id)
+            .where(
+                SyncRun.connection_id == connection_id,
+                SyncRun.status == SyncRunStatus.RUNNING,
+            )
+            .limit(1)
+        )
+        if active is not None:
+            message = f"Connection already has sync run {active} in progress"
+            raise SyncAlreadyRunningError(message)
+
     run = SyncRun(
         connector=connector,
         connection_id=connection_id,
@@ -36,7 +115,45 @@ async def start_sync_run(
     )
     # uow.session.add() — the caller provides a UoW with an active session
     uow.session.add(run)  # type: ignore[union-attr]
+    # ``SyncRun.id`` uses a Python-side ``uuid4`` default.  SQLAlchemy only
+    # applies that default during flush; progress heartbeats are persisted in
+    # separate transactions and therefore need the real UUID now.  Without
+    # this flush, the first heartbeat sends the literal ``None`` to
+    # PostgreSQL's UUID bind parameter and the entire sync fails before the
+    # connector is called.
+    await uow.session.flush()  # type: ignore[union-attr]
     return run
+
+
+async def recover_stale_sync_runs(
+    session: object,
+    *,
+    connection_id: str,
+    stale_after_minutes: int,
+) -> int:
+    """Close runs left behind by a crashed/restarted worker.
+
+    Only runs older than the explicit safety window are recovered; a normal
+    long-running provider sync is therefore not interrupted.
+    """
+    cutoff = datetime.now(UTC) - timedelta(minutes=stale_after_minutes)
+    result = await session.execute(  # type: ignore[union-attr]
+        update(SyncRun)
+        .where(
+            SyncRun.connection_id == connection_id,
+            SyncRun.status == SyncRunStatus.RUNNING,
+            SyncRun.started_at < cutoff,
+        )
+        .values(
+            status=SyncRunStatus.FAILED,
+            completed_at=datetime.now(UTC),
+            error_message=(
+                "Run automatisch beëindigd: worker was niet meer actief"
+            ),
+            error_category="stale_run",
+        )
+    )
+    return int(cast(int, getattr(cast(Any, result), "rowcount", 0)) or 0)
 
 
 async def complete_sync_run(
@@ -52,6 +169,7 @@ async def complete_sync_run(
     rate_limit_attempts: int = 0,
     rate_limit_scope: str | None = None,
     last_http_status: int | None = None,
+    report: Mapping[str, object] | None = None,
 ) -> SyncRun:
     """Mark a ``SyncRun`` as completed / failed.
 
@@ -64,6 +182,10 @@ async def complete_sync_run(
     """
     run.status = status
     run.completed_at = datetime.now(UTC)
+    run.current_stage = (
+        "completed" if status == SyncRunStatus.COMPLETED else "failed"
+    )
+    run.last_activity_at = run.completed_at
     if items_processed is not None:
         run.items_processed = items_processed
     if error_message is not None:
@@ -80,5 +202,7 @@ async def complete_sync_run(
         run.rate_limit_scope = rate_limit_scope
     if last_http_status is not None:
         run.last_http_status = last_http_status
+    if report is not None:
+        run.report = dict(report)
     await uow.session.flush()  # type: ignore[union-attr]
     return run

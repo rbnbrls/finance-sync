@@ -8,7 +8,6 @@ errors gracefully as structured ``GitHubIssueResult`` objects.
 
 from __future__ import annotations
 
-from contextlib import suppress
 from dataclasses import dataclass
 from typing import Any
 
@@ -85,10 +84,6 @@ def _classify_error(
         A ``GitHubError`` subclass instance with a descriptive message.
     """
     status_code = response.status_code
-    body: str | None = None
-    with suppress(Exception):
-        body = response.text
-
     rate_limit_remaining = response.headers.get("X-RateLimit-Remaining")
     is_rate_limit = status_code == 429 or (
         status_code == 403 and rate_limit_remaining == "0"
@@ -96,39 +91,34 @@ def _classify_error(
 
     if is_rate_limit:
         reset_epoch = response.headers.get("X-RateLimit-Reset", "unknown")
-        msg = (
-            f"GitHub API rate limit exceeded. "
-            f"Resets at timestamp: {reset_epoch}. "
-            f"Body: {body or 'N/A'}"
-        )
+        msg = "GitHub API rate limit exceeded."
+        if reset_epoch != "unknown":
+            msg += " Please try again later."
         return GitHubRateLimitError(msg, status_code=status_code)
 
     if status_code in (401, 403):
         msg = (
             f"GitHub authentication failed ({status_code}). "
-            f"Check that GITHUB_TOKEN is valid and has the 'public_repo' "
-            f"or 'repo' scope. Body: {body or 'N/A'}"
+            "Check that GITHUB_TOKEN is valid and has the required "
+            "repository access."
         )
         return GitHubAuthError(msg, status_code=status_code)
 
     if status_code == 404:
         msg = (
             f"GitHub repository not found ({status_code}). "
-            f"Check that the repository exists and is accessible "
-            f"with the configured token. Body: {body or 'N/A'}"
+            "Check that the repository exists and is accessible with "
+            "the configured token."
         )
         return GitHubNotFoundError(msg, status_code=status_code)
 
     if status_code == 422:
         errors = _extract_validation_errors(response)
-        msg = (
-            f"GitHub request validation failed ({status_code}): "
-            f"{errors}. Body: {body or 'N/A'}"
-        )
+        msg = f"GitHub request validation failed ({status_code}): {errors}."
         return GitHubValidationError(msg, status_code=status_code)
 
     # Fallback: 5xx or anything else
-    msg = f"GitHub API error ({status_code}). Body: {body or 'N/A'}"
+    msg = f"GitHub API error ({status_code})."
     return GitHubServerError(msg, status_code=status_code)
 
 
@@ -234,6 +224,41 @@ class GitHubIssueService:
         async with httpx.AsyncClient(timeout=self.DEFAULT_TIMEOUT) as client:
             return await self._do_post(client, url, headers, payload)
 
+    async def find_open_issue_by_marker(
+        self, *, owner: str, repo: str, marker: str
+    ) -> dict[str, Any] | None:
+        """Find an open issue containing an exact incident marker."""
+        url = f"{self.BASE_URL}/search/issues"
+        headers = {
+            "Authorization": f"Bearer {self._token}",
+            "Accept": "application/vnd.github+json",
+            "User-Agent": self.USER_AGENT,
+        }
+        params = {"q": f'repo:{owner}/{repo} is:issue is:open "{marker}"'}
+        try:
+            if self._http_client is not None:
+                response = await self._http_client.get(
+                    url, headers=headers, params=params
+                )
+            else:
+                async with httpx.AsyncClient(
+                    timeout=self.DEFAULT_TIMEOUT
+                ) as client:
+                    response = await client.get(
+                        url, headers=headers, params=params
+                    )
+            if response.is_error:
+                logger.warning(
+                    "github_issue_search_failed",
+                    status_code=response.status_code,
+                )
+                return None
+            items = response.json().get("items", [])
+            return items[0] if items else None
+        except (httpx.TimeoutException, httpx.RequestError) as exc:
+            logger.warning("github_issue_search_request_error", error=str(exc))
+            return None
+
     @staticmethod
     async def _do_post(
         client: httpx.AsyncClient,
@@ -257,7 +282,10 @@ class GitHubIssueService:
             )
             return GitHubIssueResult(
                 success=False,
-                error=f"Network error contacting GitHub API: {exc}",
+                error=(
+                    "Network error contacting GitHub API. "
+                    "Please try again later."
+                ),
                 status_code=None,
             )
 
@@ -275,9 +303,33 @@ class GitHubIssueService:
                 status_code=response.status_code,
             )
 
-        data = response.json()
+        try:
+            data = response.json()
+        except (ValueError, TypeError):
+            logger.warning(
+                "github_issue_invalid_response",
+                url=url,
+                status_code=response.status_code,
+            )
+            return GitHubIssueResult(
+                success=False,
+                error="GitHub returned an invalid response.",
+                status_code=response.status_code,
+            )
         issue_url = data.get("html_url")
         issue_number = data.get("number")
+
+        if not isinstance(issue_url, str) or not isinstance(issue_number, int):
+            logger.warning(
+                "github_issue_missing_response_fields",
+                url=url,
+                status_code=response.status_code,
+            )
+            return GitHubIssueResult(
+                success=False,
+                error="GitHub returned an incomplete issue response.",
+                status_code=response.status_code,
+            )
 
         logger.info(
             "github_issue_created",
@@ -353,7 +405,9 @@ async def check_github_issue_access(
         )
         return {
             "status": "error",
-            "detail": f"Network error contacting GitHub API: {exc}",
+            "detail": (
+                "Network error contacting GitHub API. Please try again later."
+            ),
         }
 
     if response.status_code == 200:

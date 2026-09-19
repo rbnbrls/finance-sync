@@ -13,7 +13,9 @@ Wealthfolio Connect, SnapTrade or any other non-configured third party:
 
 from __future__ import annotations
 
+import json
 from collections.abc import Awaitable, Callable
+from typing import Any
 
 import httpx
 import pytest
@@ -66,6 +68,11 @@ async def _fake_wealthfolio_handler(request: httpx.Request) -> httpx.Response:
                 }
             ],
         )
+    if path == "/api/v1/assets" and request.method == "GET":
+        return httpx.Response(200, json=[])
+    if path == "/api/v1/assets" and request.method == "POST":
+        payload: dict[str, Any] = json.loads(request.content)
+        return httpx.Response(201, json={**payload, "id": "wf-asset-1"})
     if path == "/api/v1/activities/import/check":
         return httpx.Response(200, json={"valid": True, "issues": []})
     if path == "/api/v1/activities/import":

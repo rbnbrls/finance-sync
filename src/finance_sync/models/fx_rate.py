@@ -62,7 +62,7 @@ class FxRate(TimestampMixin, Base):
     source: Mapped[str] = mapped_column(
         String(64),
         nullable=False,
-        default="openbb",
+        default="local",
         comment="Data source identifier (e.g. 'openbb', 'ecb', 'manual')",
     )
 

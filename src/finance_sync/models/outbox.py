@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import DateTime, String, Text
+from sqlalchemy import DateTime, Index, String, Text, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -17,6 +17,14 @@ class OutboxMessage(Base):
     """A message in the transactional outbox."""
 
     __tablename__ = "outbox_messages"
+    __table_args__ = (
+        Index(
+            "ix_outbox_messages_status_created",
+            "status",
+            "created_at",
+            postgresql_where=text("status IN ('pending', 'processing')"),
+        ),
+    )
 
     id: Mapped[str] = pk_uuid()
 
@@ -52,7 +60,12 @@ class OutboxMessage(Base):
         String(16),
         default=OutboxMessageStatus.PENDING,
         nullable=False,
-        comment="'pending', 'sent', 'failed'",
+        comment="'pending', 'processing', 'sent', 'failed'",
+    )
+    claimed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        comment="When a publisher claimed this message for delivery",
     )
     published_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True

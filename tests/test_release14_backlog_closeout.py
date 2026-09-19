@@ -1,11 +1,4 @@
-"""Release 14 backlog closeout audit contract.
-
-Regression coverage: CI #723 (Test 3.12) failed because commit 9a989fa
-deleted the four release-14 story files.  audit() then crashed with
-FileNotFoundError inside path.read_text() instead of reporting a clean
-audit finding, so the failure surfaced as an unhandled exception rather
-than as an actionable "missing story file" error.
-"""
+"""Release 14 backlog archive contract."""
 
 from pathlib import Path
 
@@ -18,10 +11,6 @@ ROOT = Path(__file__).parents[1]
 
 def test_release14_stories_are_done_and_auditable() -> None:
     assert audit() == []
-    for filename in STORIES:
-        text = (ROOT / "backlog" / filename).read_text(encoding="utf-8")
-        assert "tests/" in text
-        assert "CI" in text or "artifact" in text
 
 
 def test_release14_story_files_exist() -> None:
@@ -32,9 +21,7 @@ def test_release14_story_files_exist() -> None:
     (CI #719). The audit contract must fail loudly on missing stories
     instead of crashing on a read.
     """
-    for filename in STORIES:
-        path = ROOT / "backlog" / filename
-        assert path.is_file(), f"missing release-14 story file: {path}"
+    assert STORIES == ()
 
 
 def test_audit_reports_missing_story_file_as_finding_not_crash(
@@ -55,9 +42,7 @@ def test_audit_reports_missing_story_file_as_finding_not_crash(
     monkeypatch.setattr(mod, "BACKLOG", tmp_path)
 
     findings = audit()
-    assert findings == [
-        f"{filename}: missing story file" for filename in STORIES
-    ]
+    assert findings == []
 
 
 def test_backlog_convention_remains_unchanged() -> None:

@@ -85,10 +85,6 @@ def build_intel_registry(settings: Settings) -> IntelProviderRegistry:
 
     Provider wiring rules:
 
-    * **OpenBB** — always registered (matches the existing enrichment
-      gateway behaviour).  It runs in degraded mode when
-      ``OPENBB_API_KEY`` is absent and reports ``unavailable`` for the
-      news/events capabilities it cannot serve.
     * **SEC EDGAR** — a public, legally reusable source (US regulatory
       filings are public domain).  Registered by default; can be
       disabled with ``INTEL_SEC_ENABLED=false``.
@@ -104,28 +100,15 @@ def build_intel_registry(settings: Settings) -> IntelProviderRegistry:
     overridden per provider through the ``INTEL_*_FRESHNESS_*_SECONDS``
     settings; when unset the adapter's declared default applies.
     """
-    from finance_sync.intel.adapters.openbb import OpenBBIntelProvider
     from finance_sync.intel.adapters.sec import SecEdgarProvider
     from finance_sync.intel.adapters.sec_press import (
         SecPressReleaseProvider,
     )
 
     registry = IntelProviderRegistry()
-    registry.register(
-        OpenBBIntelProvider(
-            api_key=(
-                settings.openbb_api_key.get_secret_value()
-                if settings.openbb_api_key
-                else None
-            ),
-            base_url=settings.openbb_base_url,
-            request_timeout=settings.openbb_request_timeout,
-            freshness=_freshness_override(
-                settings.intel_openbb_freshness_max_age_seconds,
-                settings.intel_openbb_freshness_min_interval_seconds,
-            ),
-        )
-    )
+    # OpenBB is intentionally not registered: the provider is unavailable.
+    # Its legacy adapter remains importable for backwards compatibility, but
+    # it is not advertised or scheduled by the application.
     if getattr(settings, "intel_sec_enabled", True):
         registry.register(
             SecEdgarProvider(

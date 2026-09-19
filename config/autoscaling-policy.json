@@ -8,6 +8,14 @@
     "queue_depth_hard": 500,
     "database_connections_max": 40
   },
+  "scaling": {
+    "minimum_workers": 2,
+    "maximum_workers": 4,
+    "scale_up_queue_depth": 50,
+    "scale_down_queue_depth": 10,
+    "cooldown_seconds": 60,
+    "drain_timeout_seconds": 300
+  },
   "backpressure": {
     "queue_soft": "scale_worker_up_and_slow_new_syncs",
     "queue_hard": "reject_new_syncs_with_retry_after",

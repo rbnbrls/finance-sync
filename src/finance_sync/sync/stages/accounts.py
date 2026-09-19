@@ -44,8 +44,9 @@ class AccountSyncStage:
         *,
         selected_accounts: list[str] | None = None,
         connection_id: str | None = None,
+        persist: bool = True,
     ) -> AccountStageResult:
-        """Execute the account stage inside the caller's UnitOfWork."""
+        """Fetch accounts and optionally persist them in the caller's UoW."""
         raw_accounts = await connector._rate_limited_fetch_accounts()  # type: ignore[attr-defined]
         accounts = connector.transform_accounts(raw_accounts)
         selected = set(selected_accounts) if selected_accounts else None
@@ -55,10 +56,11 @@ class AccountSyncStage:
                 for account in accounts
                 if account.external_account_id in selected
             ]
-        for account in accounts:
-            await self._writer.persist_account(
-                uow, account, connection_id=connection_id
-            )
+        if persist:
+            for account in accounts:
+                await self._writer.persist_account(
+                    uow, account, connection_id=connection_id
+                )
         resources = cast(
             "frozenset[str]",
             getattr(type(connector), "supported_resources", frozenset[str]()),

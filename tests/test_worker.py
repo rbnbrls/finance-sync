@@ -361,12 +361,7 @@ class TestWorkerSettings:
     def test_export_job_default_off_without_push_target(
         self, monkeypatch
     ) -> None:
-        """WORKER_JOB_EXPORT_ENABLED unset → default follows the push env.
-
-        Exact default: enabled only when WEALTHFOLIO_SERVER_URL and
-        WEALTHFOLIO_PASSWORD are both set.  Here neither is set, so the
-        sweep defaults to disabled.
-        """
+        """WORKER_JOB_EXPORT_ENABLED unset → legacy sweep stays disabled."""
         from finance_sync.config.settings import Settings
 
         monkeypatch.delenv("WORKER_JOB_EXPORT_ENABLED", raising=False)
@@ -377,10 +372,10 @@ class TestWorkerSettings:
         assert settings.worker_job_export_enabled is False
         assert settings.worker_job_export_interval_minutes == 5
 
-    def test_export_job_default_on_when_push_target_configured(
+    def test_export_job_default_off_when_push_target_configured(
         self, monkeypatch
     ) -> None:
-        """Both gating env vars set → sweep defaults to enabled."""
+        """Legacy credentials do not implicitly activate the sweep."""
         from finance_sync.config.settings import Settings
 
         monkeypatch.delenv("WORKER_JOB_EXPORT_ENABLED", raising=False)
@@ -388,7 +383,7 @@ class TestWorkerSettings:
         monkeypatch.setenv("WEALTHFOLIO_PASSWORD", "s3cret")
 
         settings = Settings()  # type: ignore[call-arg]
-        assert settings.worker_job_export_enabled is True
+        assert settings.worker_job_export_enabled is False
 
     def test_export_job_explicit_flag_wins(self, monkeypatch) -> None:
         """Explicit WORKER_JOB_EXPORT_ENABLED overrides the derived default."""
@@ -425,6 +420,9 @@ class TestWorkerScheduler:
 
         settings = Settings(  # type: ignore[call-arg]
             database_url=None,  # No DB — use in-memory job store
+            redis_url=None,
+            wealthfolio_health_bridge_enabled=False,
+            remediation_enabled=False,
             worker_job_bunq_sync_enabled=False,
             worker_job_bunq_cards_enabled=False,
             worker_job_trading212_sync_enabled=False,
@@ -786,6 +784,7 @@ class TestExportWealthfolioJob:
 
         settings = Settings(  # type: ignore[call-arg]
             database_url=None,
+            redis_url=None,
             worker_job_export_enabled=enabled,
             worker_job_export_interval_minutes=5,
             wealthfolio_server_url=server_url,

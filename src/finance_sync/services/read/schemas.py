@@ -20,17 +20,21 @@ E = Decimal
 
 class AccountSummary(BaseModel):
     id: str
+    connection_id: str | None = None
     name: str
     account_type: str
     account_subtype: str | None = None
     currency_code: str
+    venue: str | None = None
     current_balance: E | None = None
     available_balance: E | None = None
+    net_asset_value: E | None = None
     provider_key: str
     is_active: bool
     owner_user_id: str | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
+    capabilities: dict[str, bool] | None = None
 
 
 class AccountDetailResponse(BaseModel):
@@ -52,8 +56,35 @@ class TransactionResponse(BaseModel):
     transaction_type: TransactionType
     status: str
     provider_key: str
+    tombstoned_at: datetime | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
+    provider_metadata_contract: dict[str, object] | None = None
+    merchant_name: str | None = None
+    merchant_id: str | None = None
+    merchant_city: str | None = None
+    merchant_country: str | None = None
+    counterparty_name: str | None = None
+    counterparty_account_reference: str | None = None
+    merchant_category_code: str | None = None
+    category: str = "other"
+    original_type: str | None = None
+    original_status: str | None = None
+    authorization_status: str | None = None
+    settlement_status: str | None = None
+    source_record_hash: str | None = None
+    cashflow_bucket: str | None = None
+    cashflow_suggestion: dict[str, object] | None = None
+    classification_source: str | None = None
+    classification_override: str | None = None
+    gross_amount: E | None = None
+    gross_currency_code: str | None = None
+    net_amount: E | None = None
+    net_currency_code: str | None = None
+    tax_amount: E | None = None
+    tax_currency_code: str | None = None
+    refund_amount: E | None = None
+    refund_currency_code: str | None = None
 
 
 class TransactionListResponse(BaseModel):
@@ -81,6 +112,24 @@ class TopLevelTransactionListResponse(BaseModel):
             "(docs/API.md ``meta`` contract)"
         ),
     )
+
+
+class CounterpartyExpenseSummary(BaseModel):
+    """Aggregated outgoing spend for one counterparty and currency."""
+
+    counterparty: str
+    currency_code: str
+    total_spent: E
+    transaction_count: int
+
+
+class CounterpartyExpenseListResponse(BaseModel):
+    """Ranked counterparty spend for the viewer overview."""
+
+    items: list[CounterpartyExpenseSummary]
+    totals_by_currency: dict[str, E]
+    transaction_count: int
+    meta: CollectionMeta = Field(default_factory=CollectionMeta)
 
 
 class DividendListResponse(BaseModel):
@@ -155,6 +204,15 @@ class CardTransactionResponse(BaseModel):
     status: str
     created_at: datetime | None = None
     updated_at: datetime | None = None
+    provider_metadata_contract: dict[str, object] | None = None
+    merchant_id: str | None = None
+    merchant_category_code: str | None = None
+    original_status: str | None = None
+    authorization_status: str | None = None
+    settlement_status: str | None = None
+    source_record_hash: str | None = None
+    refund_amount: E | None = None
+    refund_currency_code: str | None = None
 
 
 class CardTransactionListResponse(BaseModel):
@@ -248,6 +306,7 @@ class TopLevelPriceListResponse(BaseModel):
 class HoldingBreakdown(BaseModel):
     security_id: str
     ticker: str | None = None
+    isin: str | None = None
     security_name: str
     security_type: str
     quantity: E
@@ -284,6 +343,7 @@ class HoldingItemResponse(BaseModel):
     account_name: str | None = None
     security_id: str
     ticker: str | None = None
+    isin: str | None = None
     security_name: str
     security_type: str
     quantity: E
@@ -406,9 +466,13 @@ class CashflowHistoryResponse(BaseModel):
 class SyncRunResponse(BaseModel):
     id: str
     connector: str
+    connection_id: str | None = None
     status: str
     started_at: datetime
     completed_at: datetime | None = None
+    current_stage: str | None = None
+    current_account_id: str | None = None
+    last_activity_at: datetime | None = None
     #: Watermark the run advanced the sync cursor to on success
     #: (NULL for failed runs); see the ``sync_cursor`` table for the
     #: per-resource resume positions.

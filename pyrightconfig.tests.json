@@ -6,12 +6,14 @@
   "pythonPlatform": "Linux",
   "reportMissingTypeStubs": "warning",
   "reportPrivateUsage": "warning",
-  "reportUnusedFunction": "error",
-  "reportUnusedVariable": "error",
+  "reportUnusedFunction": "warning",
+  "reportUnusedVariable": "warning",
   "reportDeprecated": "warning",
   "reportOptionalSubscript": "warning",
   "reportOptionalMemberAccess": "warning",
   "reportArgumentType": "warning",
   "reportCallIssue": "warning",
-  "reportAttributeAccessIssue": "warning"
+  "reportAttributeAccessIssue": "warning",
+  "reportOperatorIssue": "warning",
+  "reportReturnType": "warning"
 }

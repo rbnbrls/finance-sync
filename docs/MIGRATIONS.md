@@ -9,7 +9,7 @@ migration job before the API and worker start.
 The migration chain is linear and currently ends at:
 
 ```text
-0040_add_recovery_metadata -> 0041_add_connection_test_metadata (head)
+0066_sync_run_progress_and_cancellation -> 0067_security_price_interval_uniqueness -> 0068_add_data_quality_remediation_backlog -> 0069_link_reconciliation_to_remediation (head)
 ```
 
 The complete chain is in `migrations/versions/`. Always inspect Alembic's

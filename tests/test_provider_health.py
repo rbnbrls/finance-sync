@@ -144,6 +144,29 @@ async def test_fresh_successful_processing_is_healthy(contracts) -> None:
 
 
 @pytest.mark.asyncio
+async def test_missing_lifecycle_metadata_does_not_mark_working_provider_unavailable(
+    monkeypatch,
+) -> None:
+    """Lifecycle metadata must not override real connection/data health."""
+    monkeypatch.setattr(
+        "finance_sync.services.provider_health.load_json",
+        lambda path: {"connectors": []},
+    )
+    monkeypatch.setattr(
+        "finance_sync.services.provider_health.default_contract_paths",
+        lambda: ("lifecycle", "matrix"),
+    )
+    now = datetime(2026, 8, 26, 10, tzinfo=UTC)
+    result = await _service(
+        _Session(_Result([_credential()]), _Result([_run()])), now
+    ).get_overview()
+
+    overview = result[0]
+    assert overview.compatibility.status == "unavailable"
+    assert overview.overall_status == "healthy"
+
+
+@pytest.mark.asyncio
 async def test_failed_latest_run_is_error_but_history_is_preserved(
     contracts,
 ) -> None:

@@ -9,8 +9,7 @@ database snapshots):
    cross-period reconciliation).
 
 2. **detect_duplicates** — examine a single data set for transactions
-   that appear more than once, either by exact external ID match or
-   by heuristic amount + date proximity.
+   that share the same broker ID, amount and occurrence date.
 
 Every function returns structured result types carrying enough
 context (transaction references, amounts, descriptions, confidence)
@@ -179,8 +178,7 @@ class DuplicateTransaction:
     """Second transaction in the duplicate pair."""
 
     match_reason: str
-    "Why these were flagged: "
-    "``'exact_external_id'``, ``'amount_and_date'``."
+    "Why this was flagged: ``'exact_external_id'``."
 
     confidence: float = 0.5
     """Confidence score between 0.0 and 1.0."""
@@ -303,22 +301,16 @@ def detect_duplicates(
 ) -> list[DuplicateTransaction]:
     """Find duplicate transactions within a single data set.
 
-    Detects two kinds of duplicates:
-
-    1. **Exact** — two or more transactions sharing the same
-       ``external_transaction_id`` (always flagged).
-    2. **Heuristic** — transactions whose amounts match exactly AND
-       whose occurrence timestamps fall within *threshold_hours* of each
-       other (potential duplicates from re-ingestion or near-simultaneous
-       bookings).
+    A duplicate requires all three identity signals to match:
+    the broker's external transaction ID, the amount and the occurrence
+    calendar date. Amount-only or nearby-date matches are not sufficient.
 
     Args:
         transactions:  List of canonical transactions to examine.
         connector:
             Connector label for log context.
         threshold_hours:
-            Max hours between two transactions' occurrence dates to
-            consider them heuristic-close duplicates (default 48).
+            Safety bound for timestamps on the same date (default 48).
 
     Returns:
         A list of ``DuplicateTransaction`` findings, each describing a
@@ -333,12 +325,14 @@ def detect_duplicates(
     findings: list[DuplicateTransaction] = []
     seen_pairs: set[tuple[int, int]] = set()
 
-    # ── Phase 1: Exact duplicates (same external_transaction_id) ────
+    # ── Exact duplicates (same broker ID + amount + date) ───────────
     by_ext_id: dict[str, list[CanonicalTransactionData]] = {}
     for txn in transactions:
         by_ext_id.setdefault(txn.external_transaction_id, []).append(txn)
 
     for ext_id, group in by_ext_id.items():
+        if not ext_id:
+            continue
         if len(group) < 2:
             continue
         log.debug("exact_duplicate_found", external_id=ext_id, count=len(group))
@@ -348,76 +342,35 @@ def detect_duplicates(
                 pair_key = (id(group[i]), id(group[j]))
                 if pair_key in seen_pairs:
                     continue
+                a = group[i]
+                b = group[j]
+                if (a.amount or Decimal(0)) != (b.amount or Decimal(0)):
+                    continue
+                if a.occurred_at.date() != b.occurred_at.date():
+                    continue
                 seen_pairs.add(pair_key)
-                diff = abs(group[i].occurred_at - group[j].occurred_at)
+                diff = abs(a.occurred_at - b.occurred_at)
+                if diff > timedelta(hours=threshold_hours):
+                    continue
                 findings.append(
                     DuplicateTransaction(
-                        transaction_a=group[i],
-                        transaction_b=group[j],
+                        transaction_a=a,
+                        transaction_b=b,
                         match_reason="exact_external_id",
                         confidence=1.0,
                         diff_hours=diff.total_seconds() / 3600,
                         amount_diff=abs(
-                            (group[i].amount or Decimal(0))
-                            - (group[j].amount or Decimal(0))
+                            (a.amount or Decimal(0))
+                            - (b.amount or Decimal(0))
                         ),
-                        same_description=_same_desc(group[i], group[j]),
-                        same_provider=group[i].provider_key
-                        == group[j].provider_key,
+                        same_description=_same_desc(a, b),
+                        same_provider=a.provider_key == b.provider_key,
                     )
                 )
-
-    # ── Phase 2: Heuristic duplicates (amount + date proximity) ────
-    threshold_td = timedelta(hours=threshold_hours)
-    for i in range(len(transactions)):
-        for j in range(i + 1, len(transactions)):
-            a = transactions[i]
-            b = transactions[j]
-
-            # Skip if already flagged as exact duplicate
-            pair_key = (id(a), id(b))
-            if pair_key in seen_pairs:
-                continue
-
-            # Same external ID is already checked in Phase 1 — skip here
-            if a.external_transaction_id == b.external_transaction_id:
-                continue
-
-            # Amount must match exactly for heuristic detection
-            if (a.amount or Decimal(0)) != (b.amount or Decimal(0)):
-                continue
-
-            # Date proximity check
-            time_diff = abs(a.occurred_at - b.occurred_at)
-            if time_diff > threshold_td:
-                continue
-
-            seen_pairs.add(pair_key)
-
-            # Compute confidence
-            same_prov = a.provider_key == b.provider_key
-            same_desc = _same_desc(a, b)
-            confidence = _heuristic_confidence(same_prov, same_desc)
-
-            findings.append(
-                DuplicateTransaction(
-                    transaction_a=a,
-                    transaction_b=b,
-                    match_reason="amount_and_date",
-                    confidence=confidence,
-                    diff_hours=time_diff.total_seconds() / 3600,
-                    amount_diff=Decimal(0),
-                    same_description=same_desc,
-                    same_provider=same_prov,
-                )
-            )
 
     log.info(
         "detect_duplicates_complete",
         exact=sum(1 for f in findings if f.match_reason == "exact_external_id"),
-        heuristic=sum(
-            1 for f in findings if f.match_reason == "amount_and_date"
-        ),
         total=len(findings),
     )
 

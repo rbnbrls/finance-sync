@@ -63,6 +63,7 @@ class PriceStore:
                 source=obs.source,
                 interval=obs.interval,
                 currency_code=obs.currency_code,
+                venue=obs.venue,
             )
             self._session.add(price)
             inserted += 1
@@ -226,6 +227,7 @@ class PriceStore:
             source=row.source,
             interval=row.interval,
             currency_code=row.currency_code,
+            venue=row.venue,
         )
 
 

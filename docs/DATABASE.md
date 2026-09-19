@@ -10,6 +10,18 @@ and stores actor, provider, connection, timestamp, result and reason code.
 Credentials remain encrypted; audit and telemetry exclude secrets, tokens,
 financial payloads and full provider error text.
 
+## Remediation backlog
+
+`data_quality_remediation_items` is the durable, tenant-scoped work queue.
+`(tenant_id, deduplication_key)` is unique; due work is claimed with
+`FOR UPDATE SKIP LOCKED`, a UUID claim token and an expiring lease. Context is
+redacted/ bounded operational metadata only. Resolved and ignored rows are
+retained for the configured retention period; active and manual-review rows
+are never removed by cleanup.
+`reconciliation_results.remediation_item_id` is a nullable indexed foreign key
+to the backlog item created for that finding, with `SET NULL` deletion semantics
+so reconciliation history remains readable after backlog retention cleanup.
+
 ## Core tables
 
 | Table | Purpose and key constraints |

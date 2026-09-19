@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="finance-sync">
+  <rect width="64" height="64" rx="14" fill="#6c63ff"/>
+  <path d="M17 17h30v8H26v7h17v8H26v8h-9V17Z" fill="#fff"/>
+  <circle cx="47" cy="47" r="6" fill="#34d399"/>
+</svg>

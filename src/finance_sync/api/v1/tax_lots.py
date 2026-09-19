@@ -79,6 +79,9 @@ class ComputeResult(BaseModel):
     lots_created: int = 0
     lots_closed: int = 0
     wash_sale_adjustments: int = 0
+    quantity_events_processed: int = 0
+    quantity_lots_adjusted: int = 0
+    quantity_events_skipped: int = 0
     total_realized_pl: Decimal | None = None
 
 
@@ -163,12 +166,6 @@ async def recompute_tax_lots(
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     """Recompute all tax lots from scratch for this tenant."""
-    # Clear existing tax lots for tenant
-    repo = TaxLotRepository(db)
-    existing = await repo.list(TaxLot.tenant_id == auth.tenant_id)  # type: ignore[attr-defined]
-    for lot in existing:
-        await repo.delete(lot)
-
     stats = await compute_all_tax_lots(db, tenant_id=auth.tenant_id)
     return {
         "status": "completed",

@@ -27,6 +27,7 @@ class SecurityPrice(TimestampMixin, Base):
             "security_id",
             "timestamp",
             "source",
+            "interval",
             name="uq_security_prices_ts_source",
         ),
     )
@@ -85,6 +86,10 @@ class SecurityPrice(TimestampMixin, Base):
         default="EUR",
         nullable=False,
         comment="ISO-4217 currency code",
+    )
+
+    venue: Mapped[str | None] = mapped_column(
+        String(4), nullable=True, comment="ISO 10383 market identifier code"
     )
 
     def __repr__(self) -> str:

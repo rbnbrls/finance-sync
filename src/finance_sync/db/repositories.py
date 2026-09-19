@@ -8,15 +8,19 @@ to the corresponding SQLAlchemy model.
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import cast
+from typing import Any, cast
+
+from sqlalchemy import delete, select
 
 from finance_sync.db.repository import Repository
+from finance_sync.duplicate_detection import is_cash_reservation_pair
 from finance_sync.models import (
     Account,
     ActualBudgetAccountMapping,
     Balance,
     CardTransaction,
     ConnectionAuditLog,
+    DataQualityRemediationItem,
     DetectedSubscription,
     EnrichmentFreshness,
     ExportRun,
@@ -52,6 +56,10 @@ from finance_sync.models import (
     Webhook,
     WebhookDeliveryLog,
 )
+
+
+class DataQualityRemediationRepository(Repository[DataQualityRemediationItem]):
+    model_class = DataQualityRemediationItem
 
 
 class TenantRepository(Repository[Tenant]):
@@ -110,6 +118,29 @@ class EnrichmentFreshnessRepository(Repository[EnrichmentFreshness]):
 class TransactionRepository(Repository[Transaction]):
     model_class = Transaction
 
+    #: Mutable columns refreshed on conflict (matches the per-row
+    #: persistence path's ``fields`` tuple).  ``account_id`` is
+    #: deliberately excluded: the conflict target never changes and the
+    #: per-row path never mutates it either.
+    _UPDATABLE_COLUMNS: tuple[str, ...] = (
+        "security_id",
+        "amount",
+        "currency_code",
+        "amount_in_base",
+        "base_currency_code",
+        "fx_rate",
+        "occurred_at",
+        "booked_at",
+        "transaction_type",
+        "description",
+        "quantity",
+        "unit_price",
+        "fee_amount",
+        "fee_currency_code",
+        "status",
+        "provider_fingerprint",
+    )
+
     async def get_by_external_id(
         self,
         tenant_id: str,
@@ -135,6 +166,129 @@ class TransactionRepository(Repository[Transaction]):
         results = await self.list(*filters, limit=1)
         return results[0] if results else None
 
+    async def upsert(
+        self,
+        tenant_id: str,
+        provider_key: str,
+        external_transaction_id: str,
+        *,
+        account_id: str,
+        connection_id: str | None = None,
+        values: dict[str, object] | None = None,
+        **fields: object,
+    ) -> Transaction:
+        """Insert or update a single transaction atomically.
+
+        Executes one ``INSERT ... ON CONFLICT (tenant_id, provider_key,
+        connection_id, external_transaction_id) DO UPDATE ... RETURNING``
+        statement against the caller's transaction.  The conflict target
+        is the ``uq_transactions_provider`` unique constraint (rebuilt as
+        ``NULLS NOT DISTINCT`` by migration 0046), so rows whose
+        ``connection_id`` is NULL still deduplicate.
+
+        *fields* (or the equivalent ``values`` mapping) are the fetched
+        column values; every updatable column is overwritten with the
+        latest value on conflict.  NULL incoming values are treated as
+        "not reported": ``COALESCE`` keeps the existing column value, so
+        a provider that stops reporting an optional field (e.g. a
+        security reference that no longer resolves) never nulls out a
+        previously-set value — the same semantics as the per-row
+        persistence path.
+
+        The ``DO UPDATE`` clause is gated by ``IS DISTINCT FROM`` change
+        detection, so re-upserting identical data is a no-op: the row is
+        neither updated nor returned, ``revision`` is not bumped, and no
+        outbox ``*.updated`` event is emitted.  ``revision`` increments
+        only on a real change; ``updated_at`` is refreshed by the
+        statement itself (the ORM ``onupdate`` event does not fire for
+        Core-level ``ON CONFLICT DO UPDATE``).
+
+        The method never commits or rolls back: it participates in the
+        caller's transaction (the per-account UnitOfWork) and only
+        flushes the session, matching :meth:`Repository.add` / update.
+
+        Returns the upserted entity populated with database defaults
+        (``RETURNING`` carries every column).
+        """
+        from uuid import uuid4
+
+        from sqlalchemy import func, or_
+        from sqlalchemy.dialects.postgresql import insert
+
+        if values is None:
+            values = fields
+        row = {
+            "id": uuid4(),
+            "tenant_id": tenant_id,
+            "provider_key": provider_key,
+            "connection_id": connection_id,
+            "external_transaction_id": external_transaction_id,
+            "account_id": account_id,
+            "revision": 1,
+            **values,
+        }
+
+        stmt = insert(Transaction).values(**row)
+        excluded = stmt.excluded
+        set_: dict[str, Any] = {}
+        where: list[Any] = []
+        for column in self._UPDATABLE_COLUMNS:
+            # COALESCE(excluded.col, transactions.col) keeps the existing
+            # value when the incoming row carries NULL; the WHERE gate
+            # then fires exactly when the incoming value is non-NULL and
+            # differs, so a NULL incoming value never counts as a change.
+            incoming = func.coalesce(
+                getattr(excluded, column), getattr(Transaction, column)
+            )
+            set_[column] = incoming
+            where.append(
+                incoming.is_distinct_from(getattr(Transaction, column))
+            )
+        # revision is a side-effect counter: bump it only when a mutable
+        # column actually changed (the WHERE gate above), never because
+        # the VALUES row happens to carry a different value.
+        set_["revision"] = Transaction.revision + 1
+        set_["updated_at"] = func.now()
+        stmt = stmt.on_conflict_do_update(
+            index_elements=[
+                "tenant_id",
+                "provider_key",
+                "connection_id",
+                "external_transaction_id",
+            ],
+            set_=set_,
+            # OR-gate: update when ANY mutable column differs.  An
+            # AND-gate would require every column to differ — NULL
+            # incoming values (coalesce → existing) would make their
+            # clause ``existing IS DISTINCT FROM existing`` = false and
+            # the whole gate would never fire.
+            where=where[0] if len(where) == 1 else or_(*where),
+        )
+        result = await self._session.execute(stmt.returning(Transaction))
+        entity = result.scalar_one_or_none()
+        if entity is not None:
+            # ``RETURNING`` returns the ORM entity directly, already
+            # bound to the session; flush makes it visible to the rest
+            # of the transaction.  Refresh is unnecessary — RETURNING
+            # carries every column.
+            await self._session.flush()
+        else:
+            # No conflict and no change: the row already exists with
+            # identical values.  Re-load it so callers get an entity.
+            entity = await self.get_by_external_id(
+                tenant_id=tenant_id,
+                provider_key=provider_key,
+                external_transaction_id=external_transaction_id,
+                connection_id=connection_id,
+            )
+            if entity is None:  # pragma: no cover - defensive
+                msg = (
+                    "upsert returned no row and reload found nothing "
+                    f"for {provider_key}/{external_transaction_id}"
+                )
+                raise RuntimeError(msg)
+        return entity
+
     async def find_duplicate_candidates(
         self,
         tenant_id: str,
@@ -147,15 +301,22 @@ class TransactionRepository(Repository[Transaction]):
     ) -> list[tuple[Transaction, Transaction]]:
         """Find pairs of transactions that may be duplicates within an account.
 
-        A candidate pair is two transactions in the same account with
-        identical amounts and close occurrence dates (within
-        *threshold_hours*) but different external IDs or provider keys.
+        A candidate pair is two transactions in the same account with the
+        same amount/currency/security, the same occurrence date and the same
+        broker transaction ID.  Amount alone is deliberately insufficient:
+        recurring payments and multiple broker events can legitimately share
+        an amount.  Rows without a date or broker transaction ID are not
+        heuristic duplicate candidates.
 
         When *provider_keys* is set, only transactions from those
         providers are considered.
 
-        Returns a list of (tx_a, tx_b) tuples, ordered by descending
-        amount magnitude so the most suspicious pairs come first.
+        ``threshold_hours`` remains a safety bound for timestamps on the same
+        calendar date; it keeps the existing API contract while the date and
+        broker-ID checks provide the identity requirements.
+
+        Returns a list of (tx_a, tx_b) tuples, ordered by descending amount
+        magnitude so the most suspicious pairs come first.
         """
         from collections import defaultdict
 
@@ -193,10 +354,24 @@ class TransactionRepository(Repository[Transaction]):
             account_ids=account_ids,
         )
 
-        # Group by (account_id, amount) — same amount + same account
-        groups: dict[tuple[str, str], list[Transaction]] = defaultdict(list)
+        # Group by the complete heuristic identity. Amount alone (or amount
+        # plus a nearby timestamp) is not enough: recurring payments and
+        # multiple broker events can legitimately share an amount. The broker
+        # transaction ID is the provider's stable identity for this check.
+        groups: dict[tuple[str, str, str, str, str, str], list[Transaction]] = (
+            defaultdict(list)
+        )
         for t in all_txns:
-            key = (str(t.account_id), str(t.amount))
+            if t.occurred_at is None or not t.external_transaction_id:
+                continue
+            key = (
+                str(t.account_id),
+                str(t.amount),
+                str(t.currency_code or "").upper(),
+                str(t.security_id or "cash"),
+                t.occurred_at.date().isoformat(),
+                str(t.external_transaction_id),
+            )
             groups[key].append(t)
 
         pairs: list[tuple[Transaction, Transaction]] = []
@@ -210,12 +385,18 @@ class TransactionRepository(Repository[Transaction]):
             for i in range(len(group)):
                 for j in range(i + 1, len(group)):
                     a, b = group[i], group[j]
-                    # Skip if same provider key AND same external ID
-                    if (
-                        a.provider_key == b.provider_key
-                        and a.external_transaction_id
-                        == b.external_transaction_id
-                    ):
+                    # The grouping already requires matching broker IDs and
+                    # dates. Keep these guards for defensive callers and to
+                    # make the identity rule explicit at pair level.
+                    if not a.external_transaction_id or not b.external_transaction_id:
+                        continue
+                    if a.external_transaction_id != b.external_transaction_id:
+                        continue
+                    if a.occurred_at is None or b.occurred_at is None:
+                        continue
+                    if a.occurred_at.date() != b.occurred_at.date():
+                        continue
+                    if is_cash_reservation_pair(a, b):
                         continue
                     # Check time proximity
                     t_a = a.occurred_at
@@ -236,8 +417,6 @@ class TransactionRepository(Repository[Transaction]):
         account_id: str,
     ) -> list[str]:
         """Return distinct provider_keys with transactions for this account."""
-        from sqlalchemy import select
-
         stmt = (
             select(Transaction.provider_key)  # type: ignore[attr-defined]
             .where(
@@ -330,6 +509,69 @@ class CardTransactionRepository(Repository[CardTransaction]):
 class HoldingRepository(Repository[Holding]):
     model_class = Holding
 
+    async def upsert(
+        self,
+        tenant_id: str,
+        account_id: str,
+        security_id: str,
+        observed_at: datetime,
+        source: str,
+        *,
+        values: dict[str, object] | None = None,
+        **fields: object,
+    ) -> Holding:
+        """Insert or update one holding snapshot in the caller's transaction.
+
+        The snapshot identity is enforced by ``uq_holdings_snapshot``.  All
+        fetched holding attributes are refreshed on conflict, while the
+        method deliberately leaves commit/rollback responsibility to the
+        owning unit of work.
+        """
+        from uuid import uuid4
+
+        from sqlalchemy import func
+        from sqlalchemy.dialects.postgresql import insert
+
+        if values is None:
+            values = fields
+        row = {
+            "id": uuid4(),
+            "tenant_id": tenant_id,
+            "account_id": account_id,
+            "security_id": security_id,
+            "observed_at": observed_at,
+            "source": source,
+            **values,
+        }
+
+        stmt = insert(Holding).values(**row)
+        excluded = stmt.excluded
+        mutable_columns = (
+            "quantity",
+            "cost_basis",
+            "cost_basis_currency",
+            "market_value",
+            "currency_code",
+            "price",
+            "price_currency",
+        )
+        set_ = {column: getattr(excluded, column) for column in mutable_columns}
+        set_["updated_at"] = func.now()
+        stmt = stmt.on_conflict_do_update(
+            index_elements=[
+                "tenant_id",
+                "account_id",
+                "security_id",
+                "observed_at",
+                "source",
+            ],
+            set_=set_,
+        )
+        result = await self._session.execute(stmt.returning(Holding))
+        entity = result.scalar_one()
+        await self._session.flush()
+        return entity
+
     async def get_by_snapshot(
         self,
         tenant_id: str,
@@ -352,6 +594,14 @@ class HoldingRepository(Repository[Holding]):
 
 class TaxLotRepository(Repository[TaxLot]):
     model_class = TaxLot
+
+    async def delete_for_tenant(self, tenant_id: str) -> int:
+        """Delete all lots for one tenant before a full reconstruction."""
+        result = await self._session.execute(
+            delete(TaxLot).where(TaxLot.tenant_id == tenant_id)
+        )
+        await self._session.flush()
+        return int(getattr(result, "rowcount", 0) or 0)
 
     async def find_open_lots(
         self,
@@ -384,6 +634,17 @@ class TaxLotRepository(Repository[TaxLot]):
                 (TaxLot.purchase_transaction_id == transaction_id)  # type: ignore[attr-defined]
                 | (TaxLot.sale_transaction_id == transaction_id)  # type: ignore[attr-defined]
             ),
+        )
+
+    async def find_lots_for_transfer(
+        self,
+        tenant_id: str,
+        transfer_transaction_id: str,
+    ) -> list[TaxLot]:
+        """Find lots created by one security-transfer leg."""
+        return await self.list(
+            TaxLot.tenant_id == tenant_id,  # type: ignore[attr-defined]
+            TaxLot.transfer_transaction_id == transfer_transaction_id,  # type: ignore[attr-defined]
         )
 
 

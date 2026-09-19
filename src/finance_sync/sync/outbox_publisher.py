@@ -28,6 +28,7 @@ from __future__ import annotations
 import asyncio
 import traceback
 from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 import structlog
@@ -40,6 +41,10 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 logger = structlog.get_logger("finance_sync.sync.outbox_publisher")
+
+# A crashed publisher must not strand a message forever.  Claims older than
+# this window are eligible for another publisher to recover.
+CLAIM_TIMEOUT = timedelta(minutes=5)
 
 # Handler type: async callable receiving (session, message)
 OutboxHandler = Callable[
@@ -160,20 +165,41 @@ class OutboxPublisher:
             return count
 
     async def _fetch_pending(self) -> list[OutboxMessage]:
-        """Return pending messages ordered by creation time."""
-        from sqlalchemy import select
+        """Atomically claim and return a batch of messages.
+
+        ``FOR UPDATE SKIP LOCKED`` prevents concurrent publishers from
+        selecting the same rows.  The durable ``processing`` state extends
+        that protection beyond the short claim transaction, while the
+        timeout allows recovery after a worker crash.
+        """
+        from sqlalchemy import or_, select
 
         async with self._session_factory() as session:
+            now = datetime.now(UTC)
+            stale_before = now - CLAIM_TIMEOUT
             stmt = (
                 select(OutboxMessage)
-                .where(
-                    OutboxMessage.status == OutboxMessageStatus.PENDING  # type: ignore[attr-defined]
+                .where(  # type: ignore[attr-defined]
+                    or_(
+                        OutboxMessage.status == OutboxMessageStatus.PENDING,
+                        (OutboxMessage.status == OutboxMessageStatus.PROCESSING)
+                        & (
+                            OutboxMessage.claimed_at.is_(None)
+                            | (OutboxMessage.claimed_at < stale_before)
+                        ),
+                    )
                 )
                 .order_by(OutboxMessage.created_at)  # type: ignore[attr-defined]
                 .limit(self._batch_size)
+                .with_for_update(skip_locked=True)
             )
             result: Result[tuple[OutboxMessage]] = await session.execute(stmt)
-            return list(result.scalars().all())
+            messages = list(result.scalars().all())
+            for message in messages:
+                message.status = OutboxMessageStatus.PROCESSING
+                message.claimed_at = now
+            await session.commit()
+            return messages
 
     async def _dispatch(
         self,
@@ -183,8 +209,6 @@ class OutboxPublisher:
 
         Returns ``True`` on success, ``False`` on failure.
         """
-        from datetime import UTC, datetime
-
         from sqlalchemy import update
 
         handlers = self._handlers.get(
@@ -224,6 +248,7 @@ class OutboxPublisher:
                     .values(
                         status=OutboxMessageStatus.SENT,
                         published_at=now,
+                        claimed_at=None,
                     )
                 )
             else:
@@ -233,6 +258,7 @@ class OutboxPublisher:
                     .values(
                         status=OutboxMessageStatus.FAILED,
                         error_message="; ".join(errors)[:2048],
+                        claimed_at=None,
                     )
                 )
             await session.execute(stmt)
@@ -242,8 +268,6 @@ class OutboxPublisher:
 
     async def _mark_sent(self, message: OutboxMessage) -> None:
         """Mark a message as sent without a handler dispatch."""
-        from datetime import UTC, datetime
-
         from sqlalchemy import update
 
         async with self._session_factory() as session:
@@ -253,6 +277,7 @@ class OutboxPublisher:
                 .values(
                     status=OutboxMessageStatus.SENT,
                     published_at=datetime.now(UTC),
+                    claimed_at=None,
                 )
             )
             await session.execute(stmt)

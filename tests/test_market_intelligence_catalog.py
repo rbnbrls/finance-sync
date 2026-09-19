@@ -9,7 +9,7 @@ Covers the t_7927b7a1 deliverables:
   responses or unlicensed full article text;
 * the MCP surface exposes the same catalog via ``list_intel_sources``
   and the ``finance://intel-sources`` resource;
-* every shipped adapter (``sec``, ``sec_press``, ``openbb``) is
+* every active adapter (``sec``, ``sec_press``) is
   covered by the catalog.
 """
 
@@ -92,7 +92,7 @@ async def session_factory(
 
 @pytest.fixture
 def settings() -> Settings:
-    """Settings without an OpenBB key → the catalog still covers openbb."""
+    """The catalog contains only active providers."""
     return Settings(
         secret_key=SecretStr("test-secret-that-is-long-enough"),
         master_encryption_key=SecretStr("a" * 64),  # 32 hex bytes = 32 bytes
@@ -110,18 +110,18 @@ class TestSourceCatalogService:
     async def test_catalog_covers_every_shipped_adapter(
         self, settings: Settings
     ) -> None:
-        """sec, sec_press and openbb are all present in the catalog."""
+        """sec and sec_press are present; removed OpenBB is absent."""
         registry = build_intel_registry(settings)
         service = IntelSourceCatalogService(registry)
         catalog = await service.catalog()
 
         providers = {s.provider for s in catalog.sources}
-        assert providers == {"sec", "sec_press", "openbb"}
+        assert providers == {"sec", "sec_press"}
 
         by_key = {s.provider: s for s in catalog.sources}
         assert by_key["sec"].display_name == "SEC EDGAR"
         assert by_key["sec_press"].display_name == "SEC Press Releases"
-        assert by_key["openbb"].display_name == "OpenBB Platform"
+        assert "openbb" not in by_key
 
     async def test_catalog_carries_provenance_and_licence_terms(
         self, settings: Settings
@@ -212,7 +212,7 @@ class TestSourceCatalogService:
     async def test_catalog_config_flags_are_names_only(
         self, settings: Settings
     ) -> None:
-        """Config flags are key names; openbb flags include the key name."""
+        """Config flags are key names for active providers."""
         registry = build_intel_registry(settings)
         service = IntelSourceCatalogService(registry)
         catalog = await service.catalog()
@@ -220,7 +220,7 @@ class TestSourceCatalogService:
         by_key = {s.provider: s for s in catalog.sources}
         assert by_key["sec"].config_flags == ["INTEL_SEC_ENABLED"]
         assert by_key["sec_press"].config_flags == ["INTEL_SEC_PRESS_ENABLED"]
-        assert "OPENBB_API_KEY" in by_key["openbb"].config_flags
+        assert "openbb" not in by_key
 
     async def test_catalog_capabilities_reflect_registry(
         self, settings: Settings

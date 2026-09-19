@@ -146,6 +146,7 @@ class PortfolioReadService:
                     HoldingBreakdown(
                         security_id=str(holding.security_id),
                         ticker=security.ticker if security else None,
+                        isin=security.isin if security else None,
                         security_name=security.name if security else "Unknown",
                         security_type=(
                             str(security.security_type) if security else "other"
@@ -277,6 +278,7 @@ class PortfolioReadService:
                     account_name=account.name if account else None,
                     security_id=str(holding.security_id),
                     ticker=security.ticker if security else None,
+                    isin=security.isin if security else None,
                     security_name=security.name if security else "Unknown",
                     security_type=(
                         str(security.security_type) if security else "other"

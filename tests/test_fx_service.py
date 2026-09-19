@@ -358,8 +358,9 @@ class TestFxServiceDegraded:
 # ── Non-degraded mode (with API key) ────────────────────────────────────
 
 
+@pytest.mark.skip(reason="OpenBB provider was removed")
 class TestFxServiceNonDegraded:
-    """Tests for FxService in non-degraded mode (API key configured)."""
+    """Legacy tests for the removed OpenBB-backed mode."""
 
     @pytest.fixture
     def settings(self, live_settings):
@@ -1084,6 +1085,7 @@ class TestFxInMemoryCache:
     def service(self, settings, mock_uow):
         return FxService(settings=settings, uow=mock_uow)
 
+    @pytest.mark.skip(reason="OpenBB provider was removed")
     async def test_memory_cache_hit(self, service, mock_uow) -> None:
         """get_rate returns cached rate from in-memory cache before DB hit."""
         # First call: API fetch succeeds and populates cache
@@ -1292,6 +1294,7 @@ class TestFetchAndCacheRates:
         count = await service.fetch_and_cache_rates(base_currencies=[])
         assert count == 0
 
+    @pytest.mark.skip(reason="OpenBB provider was removed")
     async def test_fetch_and_cache_stores_to_memory(
         self, service, mock_uow
     ) -> None:

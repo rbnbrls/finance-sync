@@ -376,11 +376,5 @@ def test_ci_runs_periodic_isolated_dr_sla_check() -> None:
     assert "pg_dump" in workflow or "synthetic" in workflow
 
 
-def test_backlog_story_flipped_to_done() -> None:
-    text = (REPO_ROOT / "backlog/release19-dr-sla-monitoring.md").read_text(
-        encoding="utf-8"
-    )
-    assert re.search(r"^status:\s*done\s*$", text, re.MULTILINE)
-    assert "## Implementatie en verificatie" in text
-    criteria = re.findall(r"^- \[([ x])\]", text, re.MULTILINE)
-    assert criteria and all(mark == "x" for mark in criteria)
+def test_backlog_story_is_archived_after_completion() -> None:
+    assert not (REPO_ROOT / "backlog/release19-dr-sla-monitoring.md").exists()

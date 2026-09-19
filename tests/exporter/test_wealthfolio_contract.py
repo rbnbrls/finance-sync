@@ -64,6 +64,7 @@ from tests.exporter.fixtures.wf_fixtures import (
     WF_TRANSACTION_TRANSFER_IN,
     WF_TRANSACTION_TRANSFER_OUT,
     WF_TRANSACTION_WITHDRAWAL,
+    make_wf_transaction,
 )
 
 WF_SECURITY_MAP = {
@@ -171,6 +172,18 @@ class TestWFTransactionMapping(TransactionMappingContractTest):
         assert row["instrumentType"] == "EQUITY"
         assert row["currency"] == "USD"
 
+    def test_zero_provider_price_falls_back_to_principal_per_unit(self) -> None:
+        """A broker's zero sentinel must not become a zero-cost trade."""
+        txn = make_wf_transaction(
+            txn_type="purchase",
+            amount="-1505.00",
+            currency="USD",
+        )
+        txn.unit_price = Decimal(0)
+        row = map_transaction_to_wf_row(txn, security=SECURITY_AAPL)
+        assert row["quantity"] == "10.00"
+        assert row["unitPrice"] == "150.50"
+
     def test_map_sell_with_security(self) -> None:
         """Sale should map to SELL activity."""
         row = map_transaction_to_wf_row(
@@ -192,6 +205,17 @@ class TestWFTransactionMapping(TransactionMappingContractTest):
         row = map_transaction_to_wf_row(WF_TRANSACTION_WITHDRAWAL)
         assert row["activityType"] == WF_ACTIVITY_WITHDRAWAL
         assert row["amount"] == "500.00"
+
+    def test_map_bunq_other_outflow_to_spending_withdrawal(self) -> None:
+        """Unclassified Bunq outflows must appear in Spending Tracker."""
+        txn = make_wf_transaction(
+            txn_type="other",
+            amount="-9.76",
+            currency="EUR",
+        )
+        row = map_transaction_to_wf_row(txn)
+        assert row["activityType"] == WF_ACTIVITY_WITHDRAWAL
+        assert row["amount"] == "9.76"
 
     def test_map_dividend(self) -> None:
         """Dividend should map to DIVIDEND with security symbol."""

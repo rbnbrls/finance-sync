@@ -11,10 +11,12 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
+from unittest.mock import AsyncMock
 
 import pytest
 
 from finance_sync.connectors.bunq import (
+    BunqConnector,
     _map_status,
     _map_transaction_type,
     _parse_bunq_datetime,
@@ -32,8 +34,51 @@ from finance_sync.connectors.models import (
     RawTransaction,
 )
 
+
+def test_payment_uses_documented_merchant_category_code() -> None:
+    """The documented Bunq field must survive parsing and be categorized."""
+    transaction = BunqConnector._parse_payment(
+        {
+            "id": 123,
+            "amount": {"value": "-9.76", "currency": "EUR"},
+            "created": "2026-09-18 11:34:14.000000",
+            "updated": "2026-09-18 11:34:14.000000",
+            "description": "COMMANDCODE.AI SAN FRANCISCO, US",
+            "type": "MASTERCARD",
+            "status": "PENDING",
+            "merchant_category_code": "7372",
+        },
+        "account-1",
+    )
+
+    assert transaction.merchant_category_code == "7372"
+    assert transaction.cashflow_suggestion is not None
+    assert transaction.cashflow_suggestion.value == "bills_and_utilities"
+    assert transaction.cashflow_suggestion.source == "bunq_mcc"
+
+
+def test_payment_prefers_explicit_bunq_category_over_mcc() -> None:
+    """A provider category wins over the less-specific MCC heuristic."""
+    transaction = BunqConnector._parse_payment(
+        {
+            "id": 124,
+            "amount": {"value": "-9.76", "currency": "EUR"},
+            "created": "2026-09-18 11:34:14.000000",
+            "updated": "2026-09-18 11:34:14.000000",
+            "description": "Local salon",
+            "type": "MASTERCARD",
+            "merchant_category_code": "5812",
+            "category": "Personal Care",
+        },
+        "account-1",
+    )
+
+    assert transaction.cashflow_suggestion is not None
+    assert transaction.cashflow_suggestion.value == "personal_care"
+    assert transaction.cashflow_suggestion.source == "bunq_category"
+    assert transaction.provider_metadata["bunq_category_raw"] == "Personal Care"
+
 if TYPE_CHECKING:
-    from finance_sync.connectors.bunq import BunqConnector
     from tests.connectors.bunq.conftest import BunqApiMockTransport
 
 # Module-level asyncio is NOT set — each test class declares its own
@@ -89,13 +134,15 @@ class TestBunqConnectorContract:
     # ── Accounts ───────────────────────────────────────────────────────
 
     async def test_fetch_accounts_returns_list(
-        self, bunq_connector: BunqConnector
+        self,
+        bunq_connector: BunqConnector,
+        bunq_mock_transport: BunqApiMockTransport,
     ) -> None:
         """fetch_accounts should return a list of RawAccount."""
         await bunq_connector.authenticate()
         accounts = await bunq_connector.fetch_accounts()
         assert isinstance(accounts, list)
-        assert len(accounts) == 3  # bank + savings + savings goal
+        assert len(accounts) == 4  # bank + savings + savings goal + joint
 
         # First account should be the checking account
         checking = accounts[0]
@@ -113,6 +160,27 @@ class TestBunqConnectorContract:
         goal = accounts[2]
         assert goal.external_account_id == "1000003"
         assert goal.account_type == "savings"
+
+        joint = accounts[3]
+        assert joint.external_account_id == "1000004"
+        assert joint.account_type == "joint"
+        assert joint.provider_metadata["bunq_type"] == "MonetaryAccountJoint"
+
+        account_urls = [str(call["url"]) for call in bunq_mock_transport.call_log]
+        assert any("/user/54321/monetary-account-joint" in url for url in account_urls)
+
+    async def test_fetch_categories_persists_account_catalog(
+        self, bunq_connector: BunqConnector
+    ) -> None:
+        """The account-specific bunq category catalog is fetched and retained."""
+        await bunq_connector.authenticate()
+        categories = await bunq_connector.fetch_categories()
+
+        assert [item["category"] for item in categories] == [
+            "Groceries",
+            "Personal Care",
+        ]
+        assert bunq_connector.get_state()["category_catalog"] == categories
 
     async def test_fetch_accounts_idempotent(
         self, bunq_connector: BunqConnector
@@ -152,7 +220,9 @@ class TestBunqConnectorContract:
         assert txn.amount is not None
 
     async def test_fetch_transactions_with_account_filter(
-        self, bunq_connector: BunqConnector
+        self,
+        bunq_connector: BunqConnector,
+        bunq_mock_transport: BunqApiMockTransport,
     ) -> None:
         """fetch_transactions should accept an account_id filter."""
         await bunq_connector.authenticate()
@@ -163,6 +233,16 @@ class TestBunqConnectorContract:
         assert isinstance(txns, list)
         # Account 1000001 has 3 payments in fixtures
         assert len(txns) == 3
+        payment_urls = [
+            str(call["url"])
+            for call in bunq_mock_transport.call_log
+            if "/payment" in str(call["url"])
+            and "/schedule-payment" not in str(call["url"])
+        ]
+        assert payment_urls
+        assert "/v1/user/54321/monetary-account/1000001/payment" in (
+            payment_urls[0]
+        )
 
     async def test_fetch_transactions_with_limit(
         self, bunq_connector: BunqConnector
@@ -342,7 +422,38 @@ class TestBunqConnectorPagination:
         ]
         assert len(account_calls) >= 2
         # Should have accounts from both pages
-        assert len(accounts) == 3
+        assert len(accounts) == 4  # paginated bank accounts + joint account
+
+    async def test_repeated_future_url_stops_pagination_cycle(
+        self,
+        bunq_connector_config: ConnectorConfig,
+    ) -> None:
+        """A non-advancing bunq cursor must not cause an infinite loop."""
+        from finance_sync.connectors.bunq import BunqConnector
+
+        conn = BunqConnector(config=bunq_connector_config)
+        conn._user_id = 54321
+        repeated_url = "/v1/user/54321/monetary-account?newer_id=1000001"
+        page = {
+            "Response": [
+                {
+                    "MonetaryAccountBank": {
+                        "id": "1001",
+                        "description": "Checking",
+                        "balance": {"value": "10.00", "currency": "EUR"},
+                        "alias": [],
+                    }
+                }
+            ],
+            "Pagination": {"future_url": repeated_url},
+        }
+        request_page = AsyncMock(side_effect=[page, page])
+        conn._request_paginated = request_page
+
+        accounts = await conn._fetch_monetary_accounts("MonetaryAccountBank")
+
+        assert len(accounts) == 2
+        assert request_page.await_count == 2
 
 
 class TestBunqConnectorPaginationHelpers:
@@ -448,6 +559,21 @@ class TestBunqTransactionMapping:
         """Status mapping should be case-insensitive."""
         assert _map_status("accepted") == "booked"
         assert _map_status("Pending") == "pending"
+
+    def test_payment_without_status_is_treated_as_settled(self) -> None:
+        """Settled bunq Payment rows may omit the optional status field."""
+        payload = {
+            "id": 2000001,
+            "created": "2025-06-15 14:30:00.123456",
+            "updated": "2025-06-15 14:35:00.000000",
+            "amount": {"value": "-42.50", "currency": "EUR"},
+            "description": "Coffee shop",
+            "type": "PAYMENT",
+        }
+
+        parsed = BunqConnector._parse_payment(payload, account_id="1000001")
+
+        assert parsed.status == "booked"
 
 
 class TestBunqDatetimeParsing:

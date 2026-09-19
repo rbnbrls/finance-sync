@@ -183,7 +183,7 @@ Options:
 | `--date-from` | (90 days ago) | Explicit start date in ISO-8601 format (e.g. `2026-01-01` or `2026-01-01T00:00:00Z`). Overrides `--days-back`. |
 | `--date-to` | (now) | Explicit end date in ISO-8601 format. Overrides `--days-back`. |
 | `--days-back` | 90 | Look-back window for the analysis (ignored when `--date-from`/`--date-to` are set). |
-| `--threshold-hours` | 48 | Max hour gap for duplicate candidates. |
+| `--threshold-hours` | 48 | Safety bound for same-date broker-ID duplicate matches. |
 
 Exit codes:
 
@@ -211,7 +211,7 @@ Options:
 | `--tenant-id` | (first tenant) | Tenant ID to reconcile. |
 | `--date-from` | (90 days ago) | Explicit start date in ISO-8601 format. |
 | `--date-to` | (now) | Explicit end date in ISO-8601 format. |
-| `--threshold-hours` | 48 | Max hour gap for duplicate candidates. |
+| `--threshold-hours` | 48 | Safety bound for same-date broker-ID duplicate matches. |
 
 Exit codes match the `reconcile` command.
 
@@ -320,3 +320,11 @@ sweep) tracks each push as an `ExportRun` and maintains a per-account
 re-processes the accounts whose cursor did not advance. Activities carry the
 stable remote `accountId`; account mappings are persisted in
 `wealthfolio_account_mappings`.
+
+`finance-sync wealthfolio push --full-history` performs a complete historical
+backfill from the first canonical transaction for each selected account. A
+new non-legacy destination also backfills automatically when it has no
+delivery cursor. All Wealthfolio accounts are transaction-tracked and each
+push removes remote accounts outside the exact finance-sync dataset. Daily
+`SecurityPrice` observations are projected as `FINANCE_SYNC` quotes for
+historical valuation charts.
