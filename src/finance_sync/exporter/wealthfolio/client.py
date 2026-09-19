@@ -349,6 +349,63 @@ class WealthfolioClient:
         response.raise_for_status()
         return response.json()
 
+    async def get_spending_settings(self) -> dict[str, Any]:
+        """Read Wealthfolio's Spending Tracker configuration."""
+        self._ensure_authenticated()
+        response = await self._client.get(
+            f"{self.API_PREFIX}/spending/settings"
+        )
+        response.raise_for_status()
+        payload = response.json()
+        if not isinstance(payload, dict):
+            raise WealthfolioAPIError(
+                "Wealthfolio spending settings response was malformed"
+            )
+        return cast(dict[str, Any], payload)
+
+    async def update_spending_settings(
+        self, *, enabled: bool, account_ids: list[str]
+    ) -> dict[str, Any]:
+        """Update which Wealthfolio cash accounts feed Spending Tracker."""
+        self._ensure_authenticated()
+        response = await self._client.put(
+            f"{self.API_PREFIX}/spending/settings",
+            json={"enabled": enabled, "accountIds": account_ids},
+        )
+        response.raise_for_status()
+        payload = response.json()
+        if not isinstance(payload, dict):
+            raise WealthfolioAPIError(
+                "Wealthfolio spending settings response was malformed"
+            )
+        return cast(dict[str, Any], payload)
+
+    async def ensure_spending_accounts(
+        self, account_ids: set[str]
+    ) -> dict[str, Any]:
+        """Enable and retain all requested accounts in Spending Tracker.
+
+        Wealthfolio stores Spending Tracker membership separately from the
+        account's ``trackingMode``.  Account creation alone therefore does
+        not make imported cash activities visible in the Spending dashboard.
+        Preserve manually selected accounts and add the finance-sync-owned
+        accounts to the existing selection.
+        """
+        settings = await self.get_spending_settings()
+        selected = {
+            str(account_id)
+            for account_id in settings.get("accountIds", [])
+            if account_id
+        }
+        desired = sorted(selected | {str(account_id) for account_id in account_ids})
+        enabled = bool(settings.get("enabled", False))
+        if enabled and desired == sorted(selected):
+            return settings
+        return await self.update_spending_settings(
+            enabled=True,
+            account_ids=desired,
+        )
+
     async def create_account(
         self,
         *,
@@ -1040,6 +1097,73 @@ class WealthfolioClient:
             cast(dict[str, Any], payload) if isinstance(payload, dict) else {}
         )
 
+    async def get_spending_taxonomy(self) -> dict[str, Any]:
+        """Read Wealthfolio's spending taxonomy.
+
+        Spending categories are a separate API resource from the investment
+        taxonomies.  Importing ``categoryAssignment`` into activity metadata
+        does not assign an activity in Wealthfolio's Spending view.
+        """
+        return await self.get_taxonomy("spending_categories")
+
+    async def bulk_assign_activity_categories(
+        self, items: list[dict[str, str]]
+    ) -> list[dict[str, Any]]:
+        """Assign spending categories to activities in one bounded request."""
+        self._ensure_authenticated()
+        response = await self._client.post(
+            f"{self.API_PREFIX}/spending/assignments/bulk",
+            # Wealthfolio's frontend calls this endpoint with the array as
+            # the request body (the wrapper object is used only by the
+            # client-side method arguments).
+            json=items,
+        )
+        if response.status_code in {400, 422}:
+            # The bulk endpoint is atomic. Older/imported activities can make
+            # one batch invalid, while the individual route still accepts all
+            # valid rows. Keep the projection progressing instead of losing
+            # the whole batch because of one legacy activity.
+            assignments: list[dict[str, Any]] = []
+            for item in items:
+                try:
+                    single = await self.assign_activity_category(
+                        activity_id=item["activityId"],
+                        taxonomy_id=item["taxonomyId"],
+                        category_id=item["categoryId"],
+                    )
+                except httpx.HTTPStatusError:
+                    # Keep processing valid activities when Wealthfolio
+                    # rejects a legacy/non-spending activity.
+                    continue
+                if single:
+                    assignments.append(single)
+            return assignments
+        response.raise_for_status()
+        payload = response.json()
+        if isinstance(payload, list):
+            return cast(list[dict[str, Any]], payload)
+        if isinstance(payload, dict) and isinstance(payload.get("items"), list):
+            return cast(list[dict[str, Any]], payload["items"])
+        return []
+
+    async def assign_activity_category(
+        self, *, activity_id: str, taxonomy_id: str, category_id: str
+    ) -> dict[str, Any]:
+        """Assign one activity to one spending category."""
+        self._ensure_authenticated()
+        response = await self._client.put(
+            f"{self.API_PREFIX}/spending/activities/{activity_id}/assignments",
+            json={"taxonomyId": taxonomy_id, "categoryId": category_id},
+        )
+        response.raise_for_status()
+        payload = response.json()
+        if isinstance(payload, dict):
+            return cast(dict[str, Any], payload)
+        # Wealthfolio returns the resulting assignment as a one-element list
+        # on this route. Normalize it to a non-empty success marker for the
+        # exporter counter without leaking endpoint-specific response shapes.
+        return {"assigned": True} if isinstance(payload, list) else {}
+
     async def update_asset_profile(
         self, asset_id: str, profile: dict[str, Any]
     ) -> dict[str, Any]:
@@ -1308,10 +1432,36 @@ class WealthfolioClient:
                 for prefix in preserved_comment_prefixes
             ):
                 continue
-            source_id = (
-                comment.split("ID:", 1)[-1].strip() if "ID:" in comment else ""
-            )
+            if "| ID:" in comment:
+                source_id = comment.rsplit("| ID:", 1)[1].strip().split()[0]
+            elif "ID:" in comment:
+                source_id = comment.rsplit("ID:", 1)[1].strip().split()[0]
+            else:
+                source_id = ""
             if source_id not in external_transaction_ids and row.get("id"):
+                await self.delete_activity(str(row["id"]))
+                removed += 1
+        return removed
+
+    async def delete_activities_by_source_ids(
+        self, account_id: str, source_ids: set[str]
+    ) -> int:
+        """Delete managed activities whose finance-sync source ID is listed."""
+        if not source_ids:
+            return 0
+        rows = await self.get_all_activities(account_id)
+        removed = 0
+        for row in rows:
+            if not row.get("id"):
+                continue
+            comment = str(row.get("comment") or "")
+            if "| ID:" in comment:
+                source_id = comment.rsplit("| ID:", 1)[1].strip().split()[0]
+            elif "ID:" in comment:
+                source_id = comment.rsplit("ID:", 1)[1].strip().split()[0]
+            else:
+                source_id = str(row.get("sourceRecordId") or "").strip()
+            if source_id in source_ids:
                 await self.delete_activity(str(row["id"]))
                 removed += 1
         return removed

@@ -9,6 +9,10 @@ from sqlalchemy import func, select
 from finance_sync.models.account import Account
 from finance_sync.models.transaction import Transaction
 from finance_sync.services.read.pagination import expression, sort_field
+from finance_sync.services.read.transaction_category import (
+    account_category_fallbacks,
+    transaction_category,
+)
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -63,7 +67,9 @@ class AccountReadService:
         )
 
     @staticmethod
-    def _transaction_response(transaction: Transaction) -> Any:
+    def _transaction_response(
+        transaction: Transaction, account_fallback: str | None = None
+    ) -> Any:
         from finance_sync.services.read_api import TransactionResponse
 
         return TransactionResponse(
@@ -93,6 +99,7 @@ class AccountReadService:
             counterparty_name=transaction.counterparty_name,
             counterparty_account_reference=transaction.counterparty_account_reference,
             merchant_category_code=transaction.merchant_category_code,
+            category=transaction_category(transaction, account_fallback),
             original_type=transaction.original_type,
             original_status=transaction.original_status,
             authorization_status=transaction.authorization_status,
@@ -221,8 +228,16 @@ class AccountReadService:
             .limit(limit)
         )
         rows = result.scalars().all()
+        fallback_map = await account_category_fallbacks(
+            self._session, tenant_id, [str(account_id)]
+        )
         return TransactionListResponse(
-            items=[self._transaction_response(tx) for tx in rows],
+            items=[
+                self._transaction_response(
+                    tx, fallback_map.get(str(tx.account_id))
+                )
+                for tx in rows
+            ],
             total=total_result.scalar() or 0,
             limit=limit,
             offset=offset,

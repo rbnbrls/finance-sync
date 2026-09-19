@@ -245,17 +245,27 @@ def _activity_parity_counts(
             continue
         if tombstoned_at is None:
             active_ids.add(normalized)
-    remote_ids = {
-        value
-        for activity in remote_rows
-        if (
-            value := str(
-                activity.get("sourceRecordId")
-                or activity.get("externalTransactionId")
-                or ""
-            ).strip()
-        )
-    }
+    remote_ids: set[str] = set()
+    for activity in remote_rows:
+        value = str(
+            activity.get("sourceRecordId")
+            or activity.get("externalTransactionId")
+            or ""
+        ).strip()
+        if not value:
+            # Wealthfolio versions that omit the source-id fields still
+            # preserve finance-sync's stable source id in the comment marker.
+            comment = str(activity.get("comment") or "")
+            marker = "| ID:"
+            if marker in comment:
+                value = comment.rsplit(marker, 1)[1].strip().split()[0]
+            elif "ID:" in comment:
+                # Some legacy comments have no pipe separator.  Use the
+                # final ID marker so merchant text such as "Order ID:" does
+                # not win over finance-sync's source-id marker.
+                value = comment.rsplit("ID:", 1)[1].strip().split()[0]
+        if value:
+            remote_ids.add(value)
     return (
         len(active_ids),
         len(active_ids - remote_ids),

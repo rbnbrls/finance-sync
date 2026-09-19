@@ -902,10 +902,7 @@ async def test_data_health_semantic_transaction_duplicates_are_tenant_scoped(
         session, str(tenant_a.id), permissions={"transactions:read"}
     )._transaction_semantic_duplicate_issues()
 
-    assert len(issues) == 1
-    assert issues[0].impact_count == 2
-    assert issues[0].account_ids == [str(account_a.id)]
-    assert issues[0].evidence["semantic_key_hash"]
+    assert issues == []
 
 
 async def test_data_health_account_selection_orphan_and_tombstone_checks_are_tenant_scoped(

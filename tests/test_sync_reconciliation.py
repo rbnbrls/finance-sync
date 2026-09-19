@@ -312,8 +312,10 @@ class TestDetectDuplicates:
         assert len(findings) == 3  # 3 choose 2
         assert all(f.match_reason == "exact_external_id" for f in findings)
 
-    def test_heuristic_amount_and_date_match(self, now: datetime) -> None:
-        """Transactions with same amount and close dates are flagged."""
+    def test_amount_and_date_without_same_broker_id_are_not_duplicates(
+        self, now: datetime
+    ) -> None:
+        """Equal amounts and nearby dates are not enough."""
         txns = [
             _txn(
                 external_transaction_id="ext_a",
@@ -331,12 +333,7 @@ class TestDetectDuplicates:
             ),
         ]
         findings = detect_duplicates(txns, threshold_hours=48)
-        assert len(findings) == 1
-        f = findings[0]
-        assert f.match_reason == "amount_and_date"
-        assert f.confidence >= 0.5
-        assert f.same_description is True
-        assert f.same_provider is False
+        assert findings == []
 
     def test_heuristic_beyond_threshold_skipped(self, now: datetime) -> None:
         """Transactions beyond the hour threshold are not flagged."""
@@ -408,7 +405,7 @@ class TestDetectDuplicates:
                 provider_key="bunq",
                 description="Same ID",
             ),
-            # Heuristic pair (different ext IDs, same amount, close dates)
+            # Same amount/date with a different broker ID is not a duplicate.
             _txn(
                 external_transaction_id="heur_a",
                 amount="-30.00",
@@ -432,15 +429,10 @@ class TestDetectDuplicates:
             ),
         ]
         findings = detect_duplicates(txns, threshold_hours=48)
-        assert len(findings) == 2  # 1 exact + 1 heuristic
+        assert len(findings) == 1
         exacts = [f for f in findings if f.match_reason == "exact_external_id"]
-        heuristics = [
-            f for f in findings if f.match_reason == "amount_and_date"
-        ]
         assert len(exacts) == 1
         assert exacts[0].confidence == 1.0
-        assert len(heuristics) == 1
-        assert heuristics[0].confidence >= 0.5
 
     def test_duplicate_transaction_dataclass(self, now: datetime) -> None:
         """DuplicateTransaction dataclass carries expected fields."""
@@ -471,7 +463,7 @@ class TestDetectDuplicates:
                 description="Netflix",
             ),
             _txn(
-                external_transaction_id="a2",
+                external_transaction_id="a1",
                 amount="-50.00",
                 occurred_at=now + timedelta(hours=1),
                 provider_key="trading212",
@@ -480,8 +472,7 @@ class TestDetectDuplicates:
         ]
         findings = detect_duplicates(txns, threshold_hours=48)
         assert len(findings) == 1
-        # Cross-provider (0.5 + 0.2) + same desc (+0.2) = 0.9
-        assert findings[0].confidence == 0.9
+        assert findings[0].confidence == 1.0
 
     def test_heuristic_confidence_same_provider_same_desc(
         self, now: datetime
@@ -496,7 +487,7 @@ class TestDetectDuplicates:
                 description="Netflix",
             ),
             _txn(
-                external_transaction_id="a2",
+                external_transaction_id="a1",
                 amount="-50.00",
                 occurred_at=now + timedelta(hours=1),
                 provider_key="bunq",
@@ -505,8 +496,7 @@ class TestDetectDuplicates:
         ]
         findings = detect_duplicates(txns, threshold_hours=48)
         assert len(findings) == 1
-        # Same provider, same desc: 0.5 + 0 + 0.2 = 0.7
-        assert findings[0].confidence == 0.7
+        assert findings[0].confidence == 1.0
 
     def test_heuristic_confidence_same_provider_diff_desc(
         self, now: datetime
@@ -521,7 +511,7 @@ class TestDetectDuplicates:
                 description="Netflix",
             ),
             _txn(
-                external_transaction_id="a2",
+                external_transaction_id="a1",
                 amount="-50.00",
                 occurred_at=now + timedelta(hours=1),
                 provider_key="bunq",
@@ -530,8 +520,7 @@ class TestDetectDuplicates:
         ]
         findings = detect_duplicates(txns, threshold_hours=48)
         assert len(findings) == 1
-        # Same provider, diff desc: 0.5 + 0.1 + 0 = 0.6
-        assert findings[0].confidence == 0.6
+        assert findings[0].confidence == 1.0
 
     def test_heuristic_case_insensitive_description(
         self, now: datetime
@@ -545,7 +534,7 @@ class TestDetectDuplicates:
                 description="Netflix Subscription",
             ),
             _txn(
-                external_transaction_id="a2",
+                external_transaction_id="a1",
                 amount="-50.00",
                 occurred_at=now + timedelta(hours=1),
                 description="netflix subscription",
@@ -565,7 +554,7 @@ class TestDetectDuplicates:
                 description=None,
             ),
             _txn(
-                external_transaction_id="a2",
+                external_transaction_id="a1",
                 amount="-50.00",
                 occurred_at=now + timedelta(hours=1),
                 description=None,
@@ -585,7 +574,7 @@ class TestDetectDuplicates:
                 description=None,
             ),
             _txn(
-                external_transaction_id="a2",
+                external_transaction_id="a1",
                 amount="-50.00",
                 occurred_at=now + timedelta(hours=1),
                 description="Something",
@@ -604,14 +593,13 @@ class TestDetectDuplicates:
                 occurred_at=now,
             ),
             _txn(
-                external_transaction_id="a2",
+                external_transaction_id="a1",
                 amount="-10.00",
-                occurred_at=now + timedelta(hours=24),
+                occurred_at=now + timedelta(hours=2),
             ),
         ]
-        # 24h gap > 12h threshold → not flagged
-        assert detect_duplicates(txns, threshold_hours=12) == []
-        # 24h gap <= 48h threshold → flagged
+        # Same broker ID/date, but outside a 1-hour safety bound.
+        assert detect_duplicates(txns, threshold_hours=1) == []
         assert len(detect_duplicates(txns, threshold_hours=48)) == 1
 
     def test_connector_label_in_log(self, now: datetime) -> None:
@@ -634,7 +622,7 @@ class TestDetectDuplicates:
     def test_same_external_id_different_amount_still_exact(
         self, now: datetime
     ) -> None:
-        """Exact duplicate by external ID even if amounts differ."""
+        """Different amounts are not duplicates even with the same ID."""
         txns = [
             _txn(
                 external_transaction_id="same",
@@ -648,9 +636,7 @@ class TestDetectDuplicates:
             ),
         ]
         findings = detect_duplicates(txns)
-        assert len(findings) == 1
-        assert findings[0].match_reason == "exact_external_id"
-        assert findings[0].amount_diff > 0
+        assert findings == []
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -671,7 +657,7 @@ class TestSameDescription:
                 description="  Hello World  ",
             ),
             _txn(
-                external_transaction_id="a2",
+                external_transaction_id="a1",
                 amount="-50.00",
                 occurred_at=now + timedelta(hours=1),
                 description="Hello World",
@@ -691,7 +677,7 @@ class TestSameDescription:
                 description="Café",
             ),
             _txn(
-                external_transaction_id="a2",
+                external_transaction_id="a1",
                 amount="-50.00",
                 occurred_at=now + timedelta(hours=1),
                 description="CAFÉ",
@@ -711,7 +697,7 @@ class TestSameDescription:
                 description="",
             ),
             _txn(
-                external_transaction_id="a2",
+                external_transaction_id="a1",
                 amount="-50.00",
                 occurred_at=now + timedelta(hours=1),
                 description=None,
@@ -732,7 +718,7 @@ class TestSameDescription:
                 description="",
             ),
             _txn(
-                external_transaction_id="a2",
+                external_transaction_id="a1",
                 amount="-50.00",
                 occurred_at=now + timedelta(hours=1),
                 description="",
@@ -762,7 +748,7 @@ class TestHeuristicConfidence:
                 description="Rent",
             ),
             _txn(
-                external_transaction_id="a2",
+                external_transaction_id="a1",
                 amount="-100.00",
                 occurred_at=now + timedelta(hours=1),
                 provider_key="trading212",
@@ -771,7 +757,7 @@ class TestHeuristicConfidence:
         ]
         findings = detect_duplicates(txns, threshold_hours=48)
         assert len(findings) == 1
-        assert findings[0].confidence == 0.9
+        assert findings[0].confidence == 1.0
 
     def test_same_provider_same_desc(self, now: datetime) -> None:
         """Same provider + same description = 0.7."""
@@ -784,7 +770,7 @@ class TestHeuristicConfidence:
                 description="Netflix",
             ),
             _txn(
-                external_transaction_id="a2",
+                external_transaction_id="a1",
                 amount="-50.00",
                 occurred_at=now + timedelta(hours=1),
                 provider_key="bunq",
@@ -793,7 +779,7 @@ class TestHeuristicConfidence:
         ]
         findings = detect_duplicates(txns, threshold_hours=48)
         assert len(findings) == 1
-        assert findings[0].confidence == 0.7
+        assert findings[0].confidence == 1.0
 
     def test_cross_provider_no_desc(self, now: datetime) -> None:
         """Cross-provider, both None descriptions: 0.5 + 0.2 + 0.2 = 0.9."""
@@ -806,7 +792,7 @@ class TestHeuristicConfidence:
                 description=None,
             ),
             _txn(
-                external_transaction_id="a2",
+                external_transaction_id="a1",
                 amount="-50.00",
                 occurred_at=now + timedelta(hours=1),
                 provider_key="trading212",
@@ -815,6 +801,5 @@ class TestHeuristicConfidence:
         ]
         findings = detect_duplicates(txns, threshold_hours=48)
         assert len(findings) == 1
-        # Cross-provider (0.5 + 0.2) + both None desc -> same_desc True (+0.2) = 0.9
-        assert findings[0].confidence == 0.9
+        assert findings[0].confidence == 1.0
         assert findings[0].same_description is True

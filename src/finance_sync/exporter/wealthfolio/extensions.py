@@ -11,6 +11,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any, cast
 
+from finance_sync.services.category_options import canonicalize_category
 from finance_sync.services.spending_privacy import redact_destination_metadata
 
 DATASETS = (
@@ -93,9 +94,7 @@ def build_extension_payload(
                 )
 
     for transaction in transactions or []:
-        suggestion = getattr(transaction, "cashflow_suggestion", None)
-        if suggestion is not None and hasattr(suggestion, "model_dump"):
-            suggestion = suggestion.model_dump(mode="json")
+        suggestion = _category_assignment(transaction)
         split_values: list[Any] = list(
             getattr(transaction, "splits", None) or []
         )
@@ -149,6 +148,27 @@ def build_extension_payload(
         "coverage": coverage,
         "datasets": sections,
     }
+
+
+def _category_assignment(transaction: Any) -> Any:
+    """Return the effective category, including explicit user assignments."""
+    override = getattr(transaction, "classification_override", None)
+    if override:
+        return canonicalize_category(str(override)) or override
+    suggestion: Any = getattr(transaction, "cashflow_suggestion", None)
+    if isinstance(suggestion, dict):
+        value = suggestion.get("value") or suggestion.get("category")
+        return canonicalize_category(str(value)) if value else None
+    if suggestion is not None and hasattr(suggestion, "model_dump"):
+        suggestion = suggestion.model_dump(mode="json")
+    if isinstance(suggestion, dict):
+        value = suggestion.get("value") or suggestion.get("category")
+        return canonicalize_category(str(value)) if value else None
+    value = getattr(suggestion, "value", suggestion)
+    if value:
+        return canonicalize_category(str(value)) or value
+    fallback = getattr(transaction, "cashflow_bucket", None)
+    return canonicalize_category(str(fallback)) if fallback else None
 
 
 def _split_payload(split: Any) -> dict[str, Any]:

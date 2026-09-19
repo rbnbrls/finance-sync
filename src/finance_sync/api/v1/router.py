@@ -51,6 +51,7 @@ from finance_sync.api.v1.scheduled_payments import (
 )
 from finance_sync.api.v1.securities import router as securities_router
 from finance_sync.api.v1.spending import router as spending_router
+from finance_sync.api.v1.category_review import router as category_review_router
 from finance_sync.api.v1.spending_config import router as spending_config_router
 from finance_sync.api.v1.staging_providers import (
     router as staging_providers_router,
@@ -104,5 +105,6 @@ router.include_router(prices_router)
 router.include_router(market_data_router)
 router.include_router(sync_router)
 router.include_router(spending_router)
+router.include_router(category_review_router)
 router.include_router(spending_config_router)
 router.include_router(staging_providers_router)

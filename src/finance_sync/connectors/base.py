@@ -385,6 +385,8 @@ class Connector(ABC):
                 authorization_status=r.authorization_status,
                 settlement_status=r.settlement_status,
                 source_record_hash=r.source_record_hash,
+                cashflow_suggestion=r.cashflow_suggestion,
+                classification_source=r.classification_source,
                 refund_amount=r.refund_amount,
                 refund_currency_code=r.refund_currency_code,
                 source_references=r.source_references,

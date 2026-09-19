@@ -833,15 +833,13 @@ class ControlPlaneService:
                 .order_by(ExportRun.started_at.desc())
                 .limit(1)
             )
+            # Failed runs are historical evidence, not an ongoing
+            # destination error.  Once a later export succeeds, the UI must
+            # stop reporting the old failure as actionable; otherwise a
+            # repaired destination remains permanently degraded.
             failed_count = int(
-                await self._session.scalar(
-                    select(func.count(ExportRun.id)).where(
-                        ExportRun.tenant_id == self._tenant_id,
-                        ExportRun.target_id == str(row.id),
-                        ExportRun.status == "failed",
-                    )
-                )
-                or 0
+                latest_export is not None
+                and latest_export.status == "failed"
             )
             destination_rows.append(
                 ControlPlaneDestination(

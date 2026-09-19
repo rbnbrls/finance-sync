@@ -57,7 +57,7 @@ class ReconciliationTriggerRequest(BaseModel):
         default=48,
         ge=1,
         le=720,
-        description="Max hour gap for duplicate candidates",
+        description="Safety bound for timestamps on the same date when matching broker IDs",
     )
 
 
@@ -101,7 +101,7 @@ class TriggerReconciliationRequest(BaseModel):
         default=48,
         ge=1,
         le=720,
-        description="Max hour gap for duplicate candidates",
+        description="Safety bound for timestamps on the same date when matching broker IDs",
     )
 
 
@@ -130,7 +130,7 @@ class CompareConnectorsRequest(BaseModel):
         default=48,
         ge=1,
         le=720,
-        description="Max hour gap for duplicate candidates",
+        description="Safety bound for timestamps on the same date when matching broker IDs",
     )
 
 

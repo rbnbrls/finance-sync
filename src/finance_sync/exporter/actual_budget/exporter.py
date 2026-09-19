@@ -27,7 +27,7 @@ Usage::
 from __future__ import annotations
 
 import traceback
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any, cast
 
 import structlog
@@ -48,6 +48,7 @@ from finance_sync.exporter.actual_budget.transaction_mapper import (
 from finance_sync.exporter.models import ExportRun
 from finance_sync.models import Account, Transaction
 from finance_sync.observability.glitchtip import capture_connector_exception
+from finance_sync.services.internal_transfers import normalize_account_reference
 from finance_sync.sync.errors import categorize_export_error
 
 if TYPE_CHECKING:
@@ -249,6 +250,13 @@ class ActualBudgetExporter:
                     # ── Resolve account mappings ──────────────────
                     fs_accounts = await self._load_accounts(account_ids)
                     log.info("accounts_resolved", count=len(fs_accounts))
+                    own_account_names_by_iban = _account_names_by_iban(
+                        fs_accounts,
+                        self._ab_config.account_name_overrides,
+                    )
+                    transfer_overrides = (
+                        self._ab_config.transfer_account_name_overrides
+                    )
 
                     for fs_acct in fs_accounts:
                         # Map or create AB account
@@ -288,16 +296,76 @@ class ActualBudgetExporter:
                         mapped: list[dict[str, Any]] = []
                         delivered_ids: list[str] = []
                         for transaction in txns:
+                            if (
+                                transaction.transaction_type == "transfer"
+                                and transaction.amount > 0
+                            ):
+                                # Actual Budget creates both account legs from
+                                # one native transfer.  The negative/source
+                                # leg is the canonical owner of that action;
+                                # importing the positive leg as another
+                                # transfer would double the balance movement.
+                                delivered_ids.append(str(transaction.id))
+                                continue
                             counterparty = (
                                 transaction.counterparty_account_reference
                             )
                             destination_name = (
-                                self._ab_config.transfer_account_name_overrides.get(
-                                    str(counterparty or "")
-                                )
+                                transfer_overrides.get(str(counterparty or ""))
                                 if transaction.transaction_type == "transfer"
                                 else None
                             )
+                            if (
+                                transaction.transaction_type == "transfer"
+                                and not destination_name
+                            ):
+                                easy_metadata = (
+                                    transaction.provider_metadata or {}
+                                )
+                                easy_budget = str(
+                                    easy_metadata.get(
+                                        "easy_budgeting_budget", ""
+                                    )
+                                ).strip()
+                                easy_operation = str(
+                                    easy_metadata.get(
+                                        "easy_budgeting_operation", ""
+                                    )
+                                )
+                                if easy_operation == "top_up" and easy_budget:
+                                    destination_name = next(
+                                        (
+                                            account.name
+                                            for account in fs_accounts
+                                            if account.name.casefold()
+                                            == easy_budget.casefold()
+                                        ),
+                                        None,
+                                    )
+                                elif easy_operation == "remainder":
+                                    destination_name = next(
+                                        (
+                                            account.name
+                                            for account in fs_accounts
+                                            if account.name.casefold()
+                                            == "inbox"
+                                        ),
+                                        None,
+                                    )
+                                if not destination_name:
+                                    destination_name = (
+                                        await self._find_easy_budgeting_peer(
+                                            session, transaction
+                                        )
+                                    )
+                                if not destination_name:
+                                    destination_name = (
+                                        own_account_names_by_iban.get(
+                                            normalize_account_reference(
+                                                str(counterparty or "")
+                                            )
+                                        )
+                                    )
                             if destination_name:
                                 transfer_txns.append(transaction)
                                 continue
@@ -322,7 +390,51 @@ class ActualBudgetExporter:
                                 self._ab_config.transfer_account_name_overrides[
                                     counterparty
                                 ]
+                                if (
+                                    counterparty
+                                    in transfer_overrides
+                                )
+                                else own_account_names_by_iban.get(
+                                    normalize_account_reference(counterparty)
+                                )
                             )
+                            if not destination_name:
+                                destination_name = (
+                                    await self._find_easy_budgeting_peer(
+                                        session, transaction
+                                    )
+                                )
+                            if not destination_name:
+                                easy_metadata = (
+                                    transaction.provider_metadata or {}
+                                )
+                                easy_budget = str(
+                                    easy_metadata.get(
+                                        "easy_budgeting_budget", ""
+                                    )
+                                ).strip()
+                                if (
+                                    easy_metadata.get("easy_budgeting_operation")
+                                    == "top_up"
+                                    and easy_budget
+                                ):
+                                    destination_name = next(
+                                        (
+                                            account.name
+                                            for account in fs_accounts
+                                            if account.name.casefold()
+                                            == easy_budget.casefold()
+                                        ),
+                                        None,
+                                    )
+                            if not destination_name:
+                                log.error(
+                                    "internal_transfer_destination_unresolved",
+                                    transaction_id=str(transaction.id),
+                                    counterparty=counterparty,
+                                )
+                                txns_failed += 1
+                                continue
                             reference = f"finance-sync:{transaction.id}"
                             if await client.transfer_exists(reference):
                                 delivered_ids.append(str(transaction.id))
@@ -342,7 +454,9 @@ class ActualBudgetExporter:
                                 date=transaction.occurred_at.date(),
                                 source_account=source_name,
                                 destination_account=target_name,
-                                amount=abs(int(transaction.amount * 100)),
+                                # actualpy accepts major currency units and
+                                # converts them to cents internally.
+                                amount=abs(transaction.amount),
                                 notes=reference,
                             )
                             txns_exported += 1
@@ -579,10 +693,11 @@ class ActualBudgetExporter:
         delivery = await self._get_export_delivery(
             session, account_id=account_id
         )
-        if delivery is not None and delivery.last_exported_at is not None:
-            cursor_since = delivery.last_exported_at
-        else:
-            cursor_since = since
+        # Re-read the requested window on every run.  The imported_id makes
+        # this replay idempotent, while allowing corrected amounts/categories
+        # in the source of truth to update existing Actual rows.
+        _ = delivery
+        cursor_since = since
 
         stmt = (
             select(Transaction)
@@ -591,11 +706,39 @@ class ActualBudgetExporter:
                 Transaction.account_id == account_id,  # type: ignore[attr-defined]
                 Transaction.occurred_at >= cursor_since,  # type: ignore[attr-defined]
                 Transaction.status.in_(["booked", "pending"]),  # type: ignore[attr-defined]
+                Transaction.export_status == "active",  # type: ignore[attr-defined]
             )
             .order_by(Transaction.occurred_at)  # type: ignore[attr-defined]
         )
         result = await session.execute(stmt)
         return list(result.scalars().all())
+
+    async def _find_easy_budgeting_peer(
+        self,
+        session: AsyncSession,
+        transaction: Transaction,
+    ) -> str | None:
+        """Resolve a PAYMENT_ALLOCATE destination from its opposite leg."""
+        window = timedelta(seconds=15)
+        result = await session.execute(
+            select(Transaction, Account.name)
+            .join(Account, Account.id == Transaction.account_id)
+            .where(
+                Transaction.tenant_id == self._tenant_id,
+                Transaction.provider_key == "bunq",
+                Transaction.account_id != transaction.account_id,
+                Transaction.transaction_type == "transfer",
+                Transaction.amount == -transaction.amount,
+                Transaction.description == transaction.description,
+                Transaction.occurred_at >= transaction.occurred_at - window,
+                Transaction.occurred_at <= transaction.occurred_at + window,
+            )
+            .order_by(Transaction.occurred_at),
+        )
+        candidates = result.all()
+        if not candidates:
+            return None
+        return str(candidates[0][1])
 
     async def _last_export_time(self) -> datetime:
         """Return the timestamp of the last successful export.
@@ -758,6 +901,7 @@ class ActualBudgetExporter:
                 Transaction.account_id.in_(account_ids),  # type: ignore[attr-defined]
                 Transaction.occurred_at >= since,  # type: ignore[attr-defined]
                 Transaction.status.in_(["booked", "pending"]),  # type: ignore[attr-defined]
+                Transaction.export_status == "active",  # type: ignore[attr-defined]
             )
             .order_by(Transaction.occurred_at)  # type: ignore[attr-defined]
         )
@@ -804,11 +948,33 @@ def _default_since() -> datetime:
     return datetime.now(UTC) - timedelta(days=90)
 
 
+def _account_names_by_iban(
+    accounts: list[Account], overrides: dict[str, str]
+) -> dict[str, str]:
+    """Map provider IBANs to their configured Actual Budget names."""
+    result: dict[str, str] = {}
+    for account in accounts:
+        iban = normalize_account_reference(
+            (account.provider_metadata or {}).get("iban")
+        )
+        if iban:
+            account_key = getattr(account, "id", None)
+            result[iban] = overrides.get(
+                str(account_key or account.external_account_id), account.name
+            )
+    return result
+
+
 def _category_name(transaction: Transaction) -> str | None:
+    override = getattr(transaction, "classification_override", None)
+    if override:
+        return str(override)
     suggestion: Any = getattr(transaction, "cashflow_suggestion", None)
     if isinstance(suggestion, dict):
         mapping = cast(dict[str, Any], suggestion)
         value = mapping.get("value") or mapping.get("category")
     else:
         value = getattr(suggestion, "value", suggestion)
+    if not value:
+        value = getattr(transaction, "cashflow_bucket", None)
     return str(value) if value else None

@@ -489,6 +489,8 @@ class RawCardTransaction(BaseModel):
     authorization_status: str | None = None
     settlement_status: str | None = None
     source_record_hash: str | None = None
+    cashflow_suggestion: CategorySuggestion | None = None
+    classification_source: str | None = None
     refund_amount: Decimal | None = None
     refund_currency_code: str | None = None
     source_references: list[SourceReference] = Field(

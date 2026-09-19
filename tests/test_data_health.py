@@ -437,7 +437,7 @@ async def test_transaction_fingerprint_health_redacts_fingerprint() -> None:
 
 
 @pytest.mark.asyncio
-async def test_transaction_semantic_duplicate_health_hashes_identity() -> None:
+async def test_transaction_semantic_duplicates_without_broker_id_are_ignored() -> None:
     session = _Session(
         _Result(
             rows=[
@@ -460,12 +460,7 @@ async def test_transaction_semantic_duplicate_health_hashes_identity() -> None:
         cast("AsyncSession", session), "tenant-a"
     )._transaction_semantic_duplicate_issues()
 
-    assert len(issues) == 1
-    assert issues[0].category == "duplicate_transaction_identity"
-    assert issues[0].account_ids == ["account-1"]
-    assert issues[0].impact_count == 2
-    assert issues[0].evidence["semantic_key_hash"]
-    assert "100" not in str(issues[0].model_dump())
+    assert issues == []
 
 
 @pytest.mark.asyncio

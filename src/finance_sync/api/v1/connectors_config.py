@@ -48,6 +48,7 @@ from finance_sync.schemas.connector_release import (
 )
 from finance_sync.schemas.provider_health import ProviderHealthOverview
 from finance_sync.services.auth import decrypt_credential, encrypt_credential
+from finance_sync.services.category_options import TRANSACTION_CATEGORY_VALUES
 from finance_sync.services.connection_audit import (
     AUDIT_ACCOUNTS,
     AUDIT_CREATE,
@@ -342,6 +343,12 @@ class ConnectorConfigResponse(BaseModel):
             "Provider account IDs selected for sync; null/empty = sync all"
         ),
     )
+    account_category_fallbacks: dict[str, str] = Field(
+        default_factory=dict,
+        description=(
+            "Fallback transaction category per provider account ID"
+        ),
+    )
     last_attempt_at: datetime | None = Field(
         default=None,
         description="When the last sync attempt for this connection started",
@@ -393,6 +400,17 @@ class InlineTestAccount(BaseModel):
     id: str = Field(description="Provider account ID")
     label: str = Field(description="Human-readable account label")
     iban: str | None = Field(default=None, description="IBAN if available")
+    account_type: str | None = Field(
+        default=None,
+        description="Provider-normalised type, e.g. checking or savings",
+    )
+    currency_code: str | None = Field(
+        default=None, description="ISO-4217 account currency"
+    )
+    current_balance: str | None = Field(
+        default=None,
+        description="Current balance formatted as a string for the UI",
+    )
 
 
 class ConnectorTestResult(BaseModel):
@@ -440,6 +458,13 @@ class ConnectorAccountsUpdate(BaseModel):
             "that are no longer selected are deleted.  Defaults to false: "
             "changing a selection never removes already-imported history "
             "without this explicit confirmation."
+        ),
+    )
+    account_category_fallbacks: dict[str, str] | None = Field(
+        default=None,
+        description=(
+            "Fallback transaction category per provider account ID; "
+            "omit to keep the existing values"
         ),
     )
 
@@ -566,8 +591,14 @@ def _credential_secrets(cred: Credential, settings: Any) -> list[str]:
 def _credential_response(row: Credential) -> ConnectorConfigResponse:
     """Build the public response for a credential row (no secrets)."""
     options: Any = {}
-    is_configured = bool(row.encrypted_payload) or row.provider_key in (
-        _NON_SECRET_PROVIDERS | _MARKET_DATA_NO_SECRET_KEYS
+    account_category_fallbacks: dict[str, str] = {}
+    # A completed sync is also proof that the stored connection was usable.
+    # Keep that state visible in the control panel even for legacy rows whose
+    # encrypted payload was not populated correctly during creation.
+    is_configured = (
+        bool(row.encrypted_payload)
+        or row.last_success_at is not None
+        or row.provider_key in (_NON_SECRET_PROVIDERS | _MARKET_DATA_NO_SECRET_KEYS)
     )
     label = row.description
     with contextlib.suppress(json.JSONDecodeError, TypeError):
@@ -575,6 +606,13 @@ def _credential_response(row: Credential) -> ConnectorConfigResponse:
         if isinstance(parsed, dict):
             options = cast(dict[str, Any], parsed)
             label = options.pop("_label", label) or label
+            raw_fallbacks = options.pop("account_category_fallbacks", {})
+            if isinstance(raw_fallbacks, dict):
+                account_category_fallbacks = {
+                    str(key): str(value).strip()
+                    for key, value in raw_fallbacks.items()
+                    if str(value).strip()
+                }
     # Older connections stored only the JSON options object in description.
     # Never expose that implementation detail as the connection's name.
     if not label or label.lstrip().startswith("{"):
@@ -595,6 +633,7 @@ def _credential_response(row: Credential) -> ConnectorConfigResponse:
         is_configured=is_configured,
         status=row.status or "active",
         selected_accounts=row.selected_accounts,
+        account_category_fallbacks=account_category_fallbacks,
         last_attempt_at=row.last_attempt_at,
         last_success_at=row.last_success_at,
         last_error=row.last_error,
@@ -1434,6 +1473,14 @@ async def update_connector_config(
     # Update options if provided (preserve _label from existing)
     if options_update is not None:
         merged_options = dict(options_update)
+        # Account fallback categories are managed by the account selector,
+        # but must survive edits to the connection's other options.
+        with contextlib.suppress(json.JSONDecodeError, TypeError):
+            existing = json.loads(cred.description or "{}")
+            if isinstance(existing, dict) and "account_category_fallbacks" in existing:
+                merged_options["account_category_fallbacks"] = existing[
+                    "account_category_fallbacks"
+                ]
         if body.description is not None:
             if body.description:
                 merged_options["_label"] = body.description
@@ -1621,6 +1668,14 @@ async def test_connector_connection(
                             id=acc.external_account_id,
                             label=acc.name,
                             iban=iban,
+                            account_type=getattr(acc, "account_type", None),
+                            currency_code=getattr(acc, "currency_code", None),
+                            current_balance=(
+                                str(getattr(acc, "current_balance", None))
+                                if getattr(acc, "current_balance", None)
+                                is not None
+                                else None
+                            ),
                         )
                     )
             except Exception:
@@ -1947,6 +2002,24 @@ async def set_connection_accounts(
     cred = await _load_tenant_credential(db, auth, config_id)
     previous = list(cred.selected_accounts or [])
     cred.selected_accounts = body.account_ids or None
+    if body.account_category_fallbacks is not None:
+        existing_options: dict[str, Any] = {}
+        with contextlib.suppress(json.JSONDecodeError, TypeError):
+            parsed = json.loads(cred.description or "{}")
+            if isinstance(parsed, dict):
+                existing_options = cast(dict[str, Any], parsed)
+        if not existing_options and cred.description and not cred.description.lstrip().startswith("{"):
+            existing_options["_label"] = cred.description
+        normalized_fallbacks = {
+            str(account_id): str(category).strip()[:256]
+            for account_id, category in body.account_category_fallbacks.items()
+            if str(category).strip() in TRANSACTION_CATEGORY_VALUES
+        }
+        if normalized_fallbacks:
+            existing_options["account_category_fallbacks"] = normalized_fallbacks
+        else:
+            existing_options.pop("account_category_fallbacks", None)
+        cred.description = json.dumps(existing_options, separators=(",", ":"))
     cred.updated_at = datetime.now(UTC)
     await db.flush()
 
@@ -2169,6 +2242,13 @@ async def test_connector_inline(
                         id=acc.external_account_id,
                         label=acc.name,
                         iban=iban,
+                        account_type=getattr(acc, "account_type", None),
+                        currency_code=getattr(acc, "currency_code", None),
+                        current_balance=(
+                            str(getattr(acc, "current_balance", None))
+                            if getattr(acc, "current_balance", None) is not None
+                            else None
+                        ),
                     )
                 )
         except Exception:

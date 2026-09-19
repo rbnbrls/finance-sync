@@ -246,7 +246,7 @@ class TestReconciliationServiceIntegration:
         session: AsyncSession,
         tenant_id: str,
     ) -> None:
-        """Two transactions with same amount and close time -> duplicate finding."""
+        """Same amount, date and broker ID -> duplicate finding."""
         now = datetime.now()
         acct = await _create_account(
             session, tenant_id=tenant_id, provider_key="bunq"
@@ -258,6 +258,7 @@ class TestReconciliationServiceIntegration:
             acct.id,
             tenant_id=tenant_id,
             provider_key="bunq",
+            external_transaction_id="same-broker-payment",
             amount=Decimal("-100.00"),
             occurred_at=now - timedelta(hours=1),
             description="Groceries",
@@ -267,6 +268,7 @@ class TestReconciliationServiceIntegration:
             acct.id,
             tenant_id=tenant_id,
             provider_key="trading212",
+            external_transaction_id="same-broker-payment",
             amount=Decimal("-100.00"),
             occurred_at=now - timedelta(hours=3),
             description="Groceries",
@@ -290,7 +292,7 @@ class TestReconciliationServiceIntegration:
         session: AsyncSession,
         tenant_id: str,
     ) -> None:
-        """Duplicate detection also catches same-provider duplicates."""
+        """Different broker IDs are not duplicate candidates."""
         now = datetime.now()
         acct = await _create_account(
             session, tenant_id=tenant_id, provider_key="bunq"
@@ -326,7 +328,7 @@ class TestReconciliationServiceIntegration:
         )
 
         assert run.status == ReconciliationRunStatus.COMPLETED
-        assert run.finding_count is not None and run.finding_count >= 1
+        assert run.finding_count == 0
 
     async def test_reconcile_no_duplicates_for_distinct_transactions(
         self,
@@ -558,6 +560,7 @@ class TestReconciliationServiceIntegration:
             acct.id,
             tenant_id=tenant_id,
             provider_key="bunq",
+            external_transaction_id="same-provider-key",
             amount=Decimal("-30.00"),
             occurred_at=now - timedelta(hours=1),
             description="Subway",
@@ -567,6 +570,7 @@ class TestReconciliationServiceIntegration:
             acct.id,
             tenant_id=tenant_id,
             provider_key="trading212",
+            external_transaction_id="same-provider-key",
             amount=Decimal("-30.00"),
             occurred_at=now - timedelta(hours=2),
             description="Subway",
@@ -667,6 +671,7 @@ class TestReconciliationServiceQueries:
             acct.id,
             tenant_id=tenant_id,
             provider_key="bunq",
+            external_transaction_id="same-query-key",
             amount=Decimal("-100.00"),
             occurred_at=now - timedelta(hours=1),
             description="Duplicate A",
@@ -676,6 +681,7 @@ class TestReconciliationServiceQueries:
             acct.id,
             tenant_id=tenant_id,
             provider_key="trading212",
+            external_transaction_id="same-query-key",
             amount=Decimal("-100.00"),
             occurred_at=now - timedelta(hours=2),
             description="Duplicate A",
@@ -731,6 +737,7 @@ class TestReconciliationServiceQueries:
             acct.id,
             tenant_id=tenant_id,
             provider_key="bunq",
+            external_transaction_id="same-kind-key",
             amount=Decimal("-200.00"),
             occurred_at=now - timedelta(hours=1),
             description="Large Dup",
@@ -740,6 +747,7 @@ class TestReconciliationServiceQueries:
             acct.id,
             tenant_id=tenant_id,
             provider_key="trading212",
+            external_transaction_id="same-kind-key",
             amount=Decimal("-200.00"),
             occurred_at=now - timedelta(hours=2),
             description="Large Dup",
@@ -784,6 +792,7 @@ class TestReconciliationServiceQueries:
             acct.id,
             tenant_id=tenant_id,
             provider_key="bunq",
+            external_transaction_id="same-severity-key",
             amount=Decimal("-75.00"),
             occurred_at=now - timedelta(hours=1),
             description="Coffee",
@@ -793,6 +802,7 @@ class TestReconciliationServiceQueries:
             acct.id,
             tenant_id=tenant_id,
             provider_key="trading212",
+            external_transaction_id="same-severity-key",
             amount=Decimal("-75.00"),
             occurred_at=now - timedelta(hours=2),
             description="Coffee",
@@ -1142,6 +1152,7 @@ class TestBulkReconciliation:
                 acct.id,
                 tenant_id=tenant_id,
                 provider_key="bunq",
+                external_transaction_id=f"same-bulk-key-{i}",
                 amount=amount,
                 occurred_at=now - timedelta(hours=i + 1),
                 description=f"Item {i}",
@@ -1151,6 +1162,7 @@ class TestBulkReconciliation:
                 acct.id,
                 tenant_id=tenant_id,
                 provider_key="trading212",
+                external_transaction_id=f"same-bulk-key-{i}",
                 amount=amount,
                 occurred_at=now - timedelta(hours=i + 2),
                 description=f"Item {i}",
@@ -1208,8 +1220,9 @@ class TestTransactionRepositoryEdgeCases:
             acct.id,
             tenant_id=tenant_id,
             provider_key="bunq",
+            external_transaction_id="same-broker-payment",
             amount=Decimal("-50.00"),
-            occurred_at=datetime.now() - timedelta(days=5),
+            occurred_at=datetime.now() - timedelta(days=5, hours=1),
             description="Test A",
         )
         await _create_transaction(
@@ -1217,8 +1230,9 @@ class TestTransactionRepositoryEdgeCases:
             acct.id,
             tenant_id=tenant_id,
             provider_key="trading212",
+            external_transaction_id="same-broker-payment",
             amount=Decimal("-50.00"),
-            occurred_at=datetime.now() - timedelta(days=6),
+            occurred_at=datetime.now() - timedelta(days=5, hours=2),
             description="Test B",
         )
         await session.commit()
@@ -1237,7 +1251,7 @@ class TestTransactionRepositoryEdgeCases:
         session: AsyncSession,
         tenant_id: str,
     ) -> None:
-        """Same provider with different external IDs can be detected as duplicates."""
+        """Same provider with different external IDs is not a duplicate."""
         from finance_sync.db.repositories import TransactionRepository
 
         acct = await _create_account(
@@ -1272,8 +1286,7 @@ class TestTransactionRepositoryEdgeCases:
             date_to=now + timedelta(hours=1),
         )
 
-        # Should find the duplicate since same amount + different ext IDs
-        assert len(pairs) == 1
+        assert len(pairs) == 0
 
     async def test_find_duplicate_candidates_skips_distinct_ids_in_descriptions(
         self,

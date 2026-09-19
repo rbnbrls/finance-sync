@@ -143,7 +143,8 @@ def test_discover_budgets_authenticates_and_cleans_up() -> None:
     with patch.dict("sys.modules", {"actual": module}):
         _discover_budgets_sync(_config())
 
-    client.login.assert_called_once()
+    # actualpy authenticates in its constructor when the password is passed.
+    client.login.assert_not_called()
     client.list_user_files.assert_called_once()
     # Discovery never enters a budget context; it always cleans up.
     client.cleanup.assert_called_once()

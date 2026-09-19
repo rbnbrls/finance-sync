@@ -144,6 +144,12 @@ class Transaction(TimestampMixin, Base):
         nullable=False,
         comment="'pending', 'booked', 'reversed', 'cancelled'",
     )
+    export_status: Mapped[str] = mapped_column(
+        String(32),
+        default="active",
+        nullable=False,
+        comment="'active' for downstream projection, 'excluded' otherwise",
+    )
     tombstoned_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )

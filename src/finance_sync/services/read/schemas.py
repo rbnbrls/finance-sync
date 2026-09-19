@@ -67,6 +67,7 @@ class TransactionResponse(BaseModel):
     counterparty_name: str | None = None
     counterparty_account_reference: str | None = None
     merchant_category_code: str | None = None
+    category: str = "other"
     original_type: str | None = None
     original_status: str | None = None
     authorization_status: str | None = None
@@ -111,6 +112,24 @@ class TopLevelTransactionListResponse(BaseModel):
             "(docs/API.md ``meta`` contract)"
         ),
     )
+
+
+class CounterpartyExpenseSummary(BaseModel):
+    """Aggregated outgoing spend for one counterparty and currency."""
+
+    counterparty: str
+    currency_code: str
+    total_spent: E
+    transaction_count: int
+
+
+class CounterpartyExpenseListResponse(BaseModel):
+    """Ranked counterparty spend for the viewer overview."""
+
+    items: list[CounterpartyExpenseSummary]
+    totals_by_currency: dict[str, E]
+    transaction_count: int
+    meta: CollectionMeta = Field(default_factory=CollectionMeta)
 
 
 class DividendListResponse(BaseModel):
@@ -287,6 +306,7 @@ class TopLevelPriceListResponse(BaseModel):
 class HoldingBreakdown(BaseModel):
     security_id: str
     ticker: str | None = None
+    isin: str | None = None
     security_name: str
     security_type: str
     quantity: E
@@ -323,6 +343,7 @@ class HoldingItemResponse(BaseModel):
     account_name: str | None = None
     security_id: str
     ticker: str | None = None
+    isin: str | None = None
     security_name: str
     security_type: str
     quantity: E

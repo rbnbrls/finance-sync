@@ -112,7 +112,9 @@ def test_connector_catalog_exposes_safe_installation_metadata() -> None:
         assert bunq["sdk_version"] == "0.1.0"
         assert bunq["supported_resources"] == ["accounts", "transactions"]
         assert bunq["rate_limit_policy"] == {
-            "max_requests": 60,
+            # Keep a safety margin below Bunq's documented 60/minute
+            # quota so clock skew and concurrent work cannot exhaust it.
+            "max_requests": 50,
             "window_seconds": 60.0,
             "max_retries": 3,
         }

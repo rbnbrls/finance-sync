@@ -26,6 +26,8 @@ from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any
 
+from finance_sync.services.category_options import canonicalize_category
+
 if TYPE_CHECKING:
     from finance_sync.models.holding import Holding as FsHolding
     from finance_sync.models.security import Security as FsSecurity
@@ -276,6 +278,7 @@ def map_transaction_to_wf_row(
     source_record_id = str(txn.external_transaction_id)
     idempotency_key = _idempotency_key(txn)
     comment = _build_comment(txn)
+    category_assignment = _category_assignment(txn)
 
     return {
         "date": occurred.isoformat(),
@@ -355,6 +358,7 @@ def map_transaction_to_wf_row(
                 "categorySuggestion": _json_value(
                     getattr(txn, "cashflow_suggestion", None)
                 ),
+                "categoryAssignment": category_assignment,
                 "splitCount": len(getattr(txn, "splits", ()) or ()),
             },
             **(
@@ -375,6 +379,22 @@ def _json_value(value: Any) -> Any:
     if hasattr(value, "model_dump"):
         return value.model_dump(mode="json")
     return value
+
+
+def _category_assignment(txn: FsTransaction) -> Any:
+    """Return the effective canonical category for downstream exporters."""
+    override = getattr(txn, "classification_override", None)
+    if override:
+        return canonicalize_category(str(override)) or override
+    suggestion: Any = getattr(txn, "cashflow_suggestion", None)
+    if isinstance(suggestion, dict):
+        value = suggestion.get("value") or suggestion.get("category")
+        return canonicalize_category(str(value)) if value else None
+    value = getattr(suggestion, "value", suggestion)
+    if value:
+        return canonicalize_category(str(value)) or value
+    fallback = getattr(txn, "cashflow_bucket", None)
+    return canonicalize_category(str(fallback)) if fallback else None
 
 
 def map_holding_to_wf_row(
@@ -619,6 +639,18 @@ def _resolve_activity_type(txn: FsTransaction) -> str:
     base_type = TRANSACTION_TYPE_MAP.get(
         txn.transaction_type, WF_ACTIVITY_UNKNOWN
     )
+
+    # Bunq frequently classifies ordinary card and bank payments as
+    # ``other``.  Wealthfolio's Spending Tracker only treats cash outflows
+    # as spending when they are represented as WITHDRAWAL (and inflows as
+    # DEPOSIT); mapping these rows to CREDIT makes them disappear from the
+    # spending view even though the activities were imported successfully.
+    if txn.transaction_type == "other":
+        return (
+            WF_ACTIVITY_DEPOSIT
+            if txn.amount >= 0
+            else WF_ACTIVITY_WITHDRAWAL
+        )
 
     # Transfers: positive = IN, negative = OUT
     if txn.transaction_type == "transfer":

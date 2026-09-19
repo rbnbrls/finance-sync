@@ -56,6 +56,7 @@ class YNABExporter:
                 Transaction.account_id.in_(list(account_by_id)),
                 Transaction.occurred_at >= start,
                 Transaction.status.in_(["booked", "pending"]),
+                Transaction.export_status == "active",
             )
             transactions = list(
                 (await session.execute(transaction_stmt)).scalars().all()

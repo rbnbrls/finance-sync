@@ -84,6 +84,7 @@ class SecuroExporter:
                 Transaction.account_id == account_id,
                 Transaction.occurred_at >= since,
                 Transaction.status.in_(["booked", "pending"]),
+                Transaction.export_status == "active",
             )
             .order_by(Transaction.occurred_at, Transaction.id)
         )
