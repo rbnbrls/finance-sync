@@ -2395,15 +2395,16 @@ class WealthfolioExporter:
                             wf_client, "delete_activities_by_source_ids", None
                         )
                         easy_budgeting_ids: set[str] = set()
-                        if (
-                            inspect.iscoroutinefunction(delete_easy_budgeting)
-                        ):
+                        if inspect.iscoroutinefunction(delete_easy_budgeting):
                             easy_budgeting_ids = (
                                 await self._easy_budgeting_external_ids(
                                     fs_acct.id
                                 )
                             )
-                        if easy_budgeting_ids:
+                        if (
+                            easy_budgeting_ids
+                            and delete_easy_budgeting is not None
+                        ):
                             removed = await delete_easy_budgeting(
                                 wf_account_id, easy_budgeting_ids
                             )
@@ -2920,9 +2921,7 @@ class WealthfolioExporter:
             currency=account.currency_code or self._wf_config.default_currency,
             provider_account_id=provider_identity,
             account_type=(
-                "CASH"
-                if _is_cash_account(account)
-                else "SECURITIES"
+                "CASH" if _is_cash_account(account) else "SECURITIES"
             ),
             tracking_mode="TRANSACTIONS",
         )
@@ -3480,9 +3479,7 @@ class WealthfolioExporter:
                     (
                         candidate
                         for candidate in remote
-                        if external_id in json.dumps(
-                            candidate, sort_keys=True
-                        )
+                        if external_id in json.dumps(candidate, sort_keys=True)
                     ),
                     None,
                 )

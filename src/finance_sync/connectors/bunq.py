@@ -198,21 +198,27 @@ def _category_suggestion(
         source = "bunq_category"
         confidence = 0.95
     elif mcc is not None:
-        value = canonicalize_category(
-            _MCC_CATEGORIES.get(mcc, "other_expenses")
-        ) or "other_expenses"
+        value = (
+            canonicalize_category(_MCC_CATEGORIES.get(mcc, "other_expenses"))
+            or "other_expenses"
+        )
         source = "bunq_mcc"
         confidence = 0.75
     else:
         haystack = " ".join(text or "" for text in merchant_text).casefold()
-        value = canonicalize_category(next(
-            (
-                category
-                for merchant, category in _MERCHANT_CATEGORIES.items()
-                if merchant in haystack
-            ),
-            "other_expenses",
-        )) or "other_expenses"
+        value = (
+            canonicalize_category(
+                next(
+                    (
+                        category
+                        for merchant, category in _MERCHANT_CATEGORIES.items()
+                        if merchant in haystack
+                    ),
+                    "other_expenses",
+                )
+            )
+            or "other_expenses"
+        )
         source = (
             "bunq_merchant_rule"
             if value != "other_expenses"
@@ -382,8 +388,7 @@ class BunqConnector(Connector):
         headers = _base_headers()
         body: dict[str, object] = {"secret": api_key}
         resp = await self._request(
-            "POST",
-            "/session-server", json=body, headers=headers
+            "POST", "/session-server", json=body, headers=headers
         )
         data = resp.json()
 
@@ -470,8 +475,7 @@ class BunqConnector(Connector):
                     }
                 )
                 response = await self._request(
-                    "POST",
-                    path, content=payload, headers=headers
+                    "POST", path, content=payload, headers=headers
                 )
                 return response.json()
 
@@ -825,9 +829,7 @@ class BunqConnector(Connector):
             "merchant_id": merchant.get("id"),
             "mcc": mcc,
             "bunq_category": bunq_category,
-            "category": category_suggestion.value
-            if category_suggestion is not None
-            else None,
+            "category": category_suggestion.value,
             "attachment_count": len(attachments),
             "note_present": bool(note_text),
         }
@@ -860,9 +862,7 @@ class BunqConnector(Connector):
             merchant_country=(
                 data.get("merchant_country") or merchant.get("country")
             ),
-            merchant_category_code=(
-                mcc
-            ),
+            merchant_category_code=(mcc),
             counterparty_name=counterparty.get("name") or None,
             counterparty_account_reference=counterparty_iban or None,
             source_record_hash=hashlib.sha256(
@@ -872,11 +872,7 @@ class BunqConnector(Connector):
             refund_amount=refund_amount,
             refund_currency_code=refund_currency,
             cashflow_suggestion=category_suggestion,
-            classification_source=(
-                category_suggestion.source
-                if category_suggestion is not None
-                else None
-            ),
+            classification_source=category_suggestion.source,
             provider_metadata_contract=ProviderMetadata(
                 schema_version="bunq-payment-v1",
                 source_object_type="Payment",
@@ -892,9 +888,7 @@ class BunqConnector(Connector):
                 "merchant_id": merchant.get("id"),
                 "mcc_raw": mcc,
                 "bunq_category_raw": bunq_category,
-                "category": category_suggestion.value
-                if category_suggestion is not None
-                else None,
+                "category": category_suggestion.value,
             },
         )
 
@@ -1204,11 +1198,7 @@ class BunqConnector(Connector):
             ),
             source_record_hash=source_hash,
             cashflow_suggestion=category_suggestion,
-            classification_source=(
-                category_suggestion.source
-                if category_suggestion is not None
-                else None
-            ),
+            classification_source=category_suggestion.source,
             refund_amount=(
                 Decimal(str(data["refund_amount"]))
                 if data.get("refund_amount") is not None
