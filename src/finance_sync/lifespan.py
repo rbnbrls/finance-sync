@@ -255,7 +255,9 @@ async def _init_database(container: Container) -> None:
         raise last_exc
 
 
-async def _bootstrap_legacy_export_targets(container: Container) -> None:
+async def _bootstrap_legacy_export_targets(  # pyright: ignore[reportUnusedFunction]
+    container: Container,
+) -> None:
     """Explicitly migrate legacy global exporter settings into targets.
 
     This helper is intentionally *not* called from normal application

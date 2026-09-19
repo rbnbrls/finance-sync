@@ -2401,7 +2401,10 @@ class WealthfolioExporter:
                                     fs_acct.id
                                 )
                             )
-                        if easy_budgeting_ids:
+                        if (
+                            easy_budgeting_ids
+                            and delete_easy_budgeting is not None
+                        ):
                             removed = await delete_easy_budgeting(
                                 wf_account_id, easy_budgeting_ids
                             )

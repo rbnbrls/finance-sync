@@ -102,7 +102,7 @@ def test_dashboard_exposes_dedicated_data_health_page(
 
 def test_bunq_category_review_routes_are_registered(app: FastAPI) -> None:
     """The GUI's Bunq category queue must not regress to a 404 endpoint."""
-    paths = {route.path for route in app.routes}
+    paths = {getattr(route, "path", "") for route in app.routes}
     assert "/api/v1/control-plane/data-health/bunq-other-transactions" in paths
     assert (
         "/api/v1/control-plane/data-health/bunq-other-transactions/{transaction_id}"

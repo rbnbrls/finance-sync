@@ -829,9 +829,7 @@ class BunqConnector(Connector):
             "merchant_id": merchant.get("id"),
             "mcc": mcc,
             "bunq_category": bunq_category,
-            "category": category_suggestion.value
-            if category_suggestion is not None
-            else None,
+            "category": category_suggestion.value,
             "attachment_count": len(attachments),
             "note_present": bool(note_text),
         }
@@ -874,11 +872,7 @@ class BunqConnector(Connector):
             refund_amount=refund_amount,
             refund_currency_code=refund_currency,
             cashflow_suggestion=category_suggestion,
-            classification_source=(
-                category_suggestion.source
-                if category_suggestion is not None
-                else None
-            ),
+            classification_source=category_suggestion.source,
             provider_metadata_contract=ProviderMetadata(
                 schema_version="bunq-payment-v1",
                 source_object_type="Payment",
@@ -894,9 +888,7 @@ class BunqConnector(Connector):
                 "merchant_id": merchant.get("id"),
                 "mcc_raw": mcc,
                 "bunq_category_raw": bunq_category,
-                "category": category_suggestion.value
-                if category_suggestion is not None
-                else None,
+                "category": category_suggestion.value,
             },
         )
 
@@ -1206,11 +1198,7 @@ class BunqConnector(Connector):
             ),
             source_record_hash=source_hash,
             cashflow_suggestion=category_suggestion,
-            classification_source=(
-                category_suggestion.source
-                if category_suggestion is not None
-                else None
-            ),
+            classification_source=category_suggestion.source,
             refund_amount=(
                 Decimal(str(data["refund_amount"]))
                 if data.get("refund_amount") is not None

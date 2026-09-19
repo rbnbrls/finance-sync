@@ -392,7 +392,7 @@ def _same_desc(
     return a.description.lower().strip() == b.description.lower().strip()
 
 
-def _heuristic_confidence(
+def _heuristic_confidence(  # pyright: ignore[reportUnusedFunction]
     same_provider: bool,
     same_description: bool,
 ) -> float:

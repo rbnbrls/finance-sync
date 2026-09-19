@@ -76,6 +76,7 @@ def test_payment_prefers_explicit_bunq_category_over_mcc() -> None:
     assert transaction.cashflow_suggestion is not None
     assert transaction.cashflow_suggestion.value == "personal_care"
     assert transaction.cashflow_suggestion.source == "bunq_category"
+    assert transaction.provider_metadata is not None
     assert transaction.provider_metadata["bunq_category_raw"] == "Personal Care"
 
 
@@ -165,6 +166,7 @@ class TestBunqConnectorContract:
         joint = accounts[3]
         assert joint.external_account_id == "1000004"
         assert joint.account_type == "joint"
+        assert joint.provider_metadata is not None
         assert joint.provider_metadata["bunq_type"] == "MonetaryAccountJoint"
 
         account_urls = [
