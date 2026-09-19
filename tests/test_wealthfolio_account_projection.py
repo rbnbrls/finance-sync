@@ -10,8 +10,6 @@ def test_bunq_accounts_are_always_projected_as_cash() -> None:
 
 
 def test_non_bunq_investment_accounts_remain_investments() -> None:
-    account = SimpleNamespace(
-        provider_key="degiro", account_type="investment"
-    )
+    account = SimpleNamespace(provider_key="degiro", account_type="investment")
 
     assert _is_cash_account(account) is False

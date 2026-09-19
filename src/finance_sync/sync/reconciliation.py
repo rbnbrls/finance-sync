@@ -360,8 +360,7 @@ def detect_duplicates(
                         confidence=1.0,
                         diff_hours=diff.total_seconds() / 3600,
                         amount_diff=abs(
-                            (a.amount or Decimal(0))
-                            - (b.amount or Decimal(0))
+                            (a.amount or Decimal(0)) - (b.amount or Decimal(0))
                         ),
                         same_description=_same_desc(a, b),
                         same_provider=a.provider_key == b.provider_key,

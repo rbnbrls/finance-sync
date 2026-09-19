@@ -814,9 +814,7 @@ class SyncOrchestrator(CardsSyncMixin):
                         )
                     )
                     owned_ibans = {
-                        normalize_account_reference(
-                            (row[0] or {}).get("iban")
-                        )
+                        normalize_account_reference((row[0] or {}).get("iban"))
                         for row in account_rows
                         if normalize_account_reference(
                             (row[0] or {}).get("iban")
@@ -1000,9 +998,9 @@ class SyncOrchestrator(CardsSyncMixin):
                 if provider_type == "bunq":
                     excluded_pair_rows = (
                         await exclude_unlabeled_bunq_transfer_pairs(
-                        uow.session,
-                        tenant_id=self._tenant_id,
-                        connection_id=connection_id,
+                            uow.session,
+                            tenant_id=self._tenant_id,
+                            connection_id=connection_id,
                         )
                     )
                     if excluded_pair_rows:

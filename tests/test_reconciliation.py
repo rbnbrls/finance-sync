@@ -1560,7 +1560,11 @@ class TestDuplicateCandidateLogic:
         a, b = pairs[0]
         # The pair is sorted by occurred_at, so 'a' is the earlier one (t1, 3h ago)
         # and 'b' is the later one (b1, 2h ago)
-        assert a.external_transaction_id == b.external_transaction_id == "same-broker-id"
+        assert (
+            a.external_transaction_id
+            == b.external_transaction_id
+            == "same-broker-id"
+        )
 
     def test_different_broker_ids_are_not_duplicates(self) -> None:
         now = datetime.now(UTC)

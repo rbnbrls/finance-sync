@@ -390,10 +390,7 @@ class ActualBudgetExporter:
                                 self._ab_config.transfer_account_name_overrides[
                                     counterparty
                                 ]
-                                if (
-                                    counterparty
-                                    in transfer_overrides
-                                )
+                                if (counterparty in transfer_overrides)
                                 else own_account_names_by_iban.get(
                                     normalize_account_reference(counterparty)
                                 )
@@ -414,7 +411,9 @@ class ActualBudgetExporter:
                                     )
                                 ).strip()
                                 if (
-                                    easy_metadata.get("easy_budgeting_operation")
+                                    easy_metadata.get(
+                                        "easy_budgeting_operation"
+                                    )
                                     == "top_up"
                                     and easy_budget
                                 ):

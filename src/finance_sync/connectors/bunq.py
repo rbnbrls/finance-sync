@@ -198,21 +198,27 @@ def _category_suggestion(
         source = "bunq_category"
         confidence = 0.95
     elif mcc is not None:
-        value = canonicalize_category(
-            _MCC_CATEGORIES.get(mcc, "other_expenses")
-        ) or "other_expenses"
+        value = (
+            canonicalize_category(_MCC_CATEGORIES.get(mcc, "other_expenses"))
+            or "other_expenses"
+        )
         source = "bunq_mcc"
         confidence = 0.75
     else:
         haystack = " ".join(text or "" for text in merchant_text).casefold()
-        value = canonicalize_category(next(
-            (
-                category
-                for merchant, category in _MERCHANT_CATEGORIES.items()
-                if merchant in haystack
-            ),
-            "other_expenses",
-        )) or "other_expenses"
+        value = (
+            canonicalize_category(
+                next(
+                    (
+                        category
+                        for merchant, category in _MERCHANT_CATEGORIES.items()
+                        if merchant in haystack
+                    ),
+                    "other_expenses",
+                )
+            )
+            or "other_expenses"
+        )
         source = (
             "bunq_merchant_rule"
             if value != "other_expenses"
@@ -382,8 +388,7 @@ class BunqConnector(Connector):
         headers = _base_headers()
         body: dict[str, object] = {"secret": api_key}
         resp = await self._request(
-            "POST",
-            "/session-server", json=body, headers=headers
+            "POST", "/session-server", json=body, headers=headers
         )
         data = resp.json()
 
@@ -470,8 +475,7 @@ class BunqConnector(Connector):
                     }
                 )
                 response = await self._request(
-                    "POST",
-                    path, content=payload, headers=headers
+                    "POST", path, content=payload, headers=headers
                 )
                 return response.json()
 
@@ -860,9 +864,7 @@ class BunqConnector(Connector):
             merchant_country=(
                 data.get("merchant_country") or merchant.get("country")
             ),
-            merchant_category_code=(
-                mcc
-            ),
+            merchant_category_code=(mcc),
             counterparty_name=counterparty.get("name") or None,
             counterparty_account_reference=counterparty_iban or None,
             source_record_hash=hashlib.sha256(

@@ -54,8 +54,8 @@ class GhostfolioExporter:
                 select(Transaction)
                 .where(
                     Transaction.tenant_id == self._tenant_id,
-                Transaction.status.in_(status_filter),
-                Transaction.export_status == "active",
+                    Transaction.status.in_(status_filter),
+                    Transaction.export_status == "active",
                     Transaction.occurred_at >= since,
                 )
                 .order_by(Transaction.occurred_at, Transaction.id)

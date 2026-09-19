@@ -388,7 +388,10 @@ class TransactionRepository(Repository[Transaction]):
                     # The grouping already requires matching broker IDs and
                     # dates. Keep these guards for defensive callers and to
                     # make the identity rule explicit at pair level.
-                    if not a.external_transaction_id or not b.external_transaction_id:
+                    if (
+                        not a.external_transaction_id
+                        or not b.external_transaction_id
+                    ):
                         continue
                     if a.external_transaction_id != b.external_transaction_id:
                         continue

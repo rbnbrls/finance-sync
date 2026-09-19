@@ -217,12 +217,9 @@ def classify_bunq_internal_transfers(
                         else None
                     )
                     break
-        is_internal = (
-            transaction.provider_key.lower() == "bunq"
-            and (
-                counterparty in normalized_owned
-                or easy_budgeting_operation is not None
-            )
+        is_internal = transaction.provider_key.lower() == "bunq" and (
+            counterparty in normalized_owned
+            or easy_budgeting_operation is not None
         )
         if not is_internal or transaction.transaction_type == "transfer":
             result.append(transaction)

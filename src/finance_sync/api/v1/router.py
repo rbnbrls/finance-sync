@@ -13,6 +13,7 @@ from finance_sync.api.v1.card_transactions import (
     router as card_transactions_router,
 )
 from finance_sync.api.v1.cashflow import router as cashflow_router
+from finance_sync.api.v1.category_review import router as category_review_router
 from finance_sync.api.v1.connectors_config import (
     router as connectors_config_router,
 )
@@ -51,7 +52,6 @@ from finance_sync.api.v1.scheduled_payments import (
 )
 from finance_sync.api.v1.securities import router as securities_router
 from finance_sync.api.v1.spending import router as spending_router
-from finance_sync.api.v1.category_review import router as category_review_router
 from finance_sync.api.v1.spending_config import router as spending_config_router
 from finance_sync.api.v1.staging_providers import (
     router as staging_providers_router,

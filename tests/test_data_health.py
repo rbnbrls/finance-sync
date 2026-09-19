@@ -437,7 +437,9 @@ async def test_transaction_fingerprint_health_redacts_fingerprint() -> None:
 
 
 @pytest.mark.asyncio
-async def test_transaction_semantic_duplicates_without_broker_id_are_ignored() -> None:
+async def test_transaction_semantic_duplicates_without_broker_id_are_ignored() -> (
+    None
+):
     session = _Session(
         _Result(
             rows=[

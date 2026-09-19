@@ -79,18 +79,14 @@ class RateLimiter:
             now = _monotonic()
             # Prune timestamps outside the window
             cutoff = now - self.policy.window_seconds
-            self._request_times = [
-                t for t in self._request_times if t > cutoff
-            ]
+            self._request_times = [t for t in self._request_times if t > cutoff]
 
             if len(self._request_times) >= self.policy.max_requests:
                 # Sleep until the oldest timestamp falls out of the window.
                 # The lock remains held so waiting callers cannot leapfrog
                 # this reservation and create a burst.
                 sleep_for = (
-                    self._request_times[0]
-                    + self.policy.window_seconds
-                    - now
+                    self._request_times[0] + self.policy.window_seconds - now
                 )
                 if sleep_for > 0:
                     await asyncio.sleep(sleep_for)

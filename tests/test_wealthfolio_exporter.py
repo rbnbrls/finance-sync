@@ -1353,7 +1353,11 @@ class TestWealthfolioPushCursor:
         patch.object(
             exporter,
             "_fetch_active_category_transactions",
-            AsyncMock(side_effect=lambda *, account_id: txns_by_account.get(account_id, [])),
+            AsyncMock(
+                side_effect=lambda *, account_id: txns_by_account.get(
+                    account_id, []
+                )
+            ),
         ).start()
         patch.object(
             exporter, "_update_wealthfolio_delivery", update_mock
