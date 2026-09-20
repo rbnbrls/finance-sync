@@ -59,7 +59,7 @@ class TestMCPModule:
 
 
 # ═════════════════════════════════════════════════════════════════════════
-# FastMCP resource / tool introspection
+# MCPServer resource / tool introspection
 # ═════════════════════════════════════════════════════════════════════════
 
 
@@ -68,16 +68,16 @@ class TestMCPResources:
 
     @pytest.fixture(autouse=True)
     def _setup(self) -> None:
-        """Import the MCP server and collect templates."""
+        """Import the MCP server and collect registered resources."""
         from finance_sync.mcp.server import mcp
 
         self._mcp = mcp
-        self._templates = mcp._resource_manager.list_templates()
-        self._template_map = {str(t.uri_template): t for t in self._templates}
+        self._resources = mcp._resource_manager.list_resources()
+        self._resource_map = {str(r.uri): r for r in self._resources}
 
     def test_resource_count(self) -> None:
         """There are exactly 5 resources defined."""
-        uris = set(self._template_map.keys())
+        uris = set(self._resource_map.keys())
         assert "finance://accounts" in uris
         assert "finance://portfolio" in uris
         assert "finance://transactions" in uris
@@ -87,11 +87,11 @@ class TestMCPResources:
 
     def test_resource_metadata(self) -> None:
         """Check resource metadata."""
-        accounts = self._template_map["finance://accounts"]
+        accounts = self._resource_map["finance://accounts"]
         assert accounts.name == "accounts"
         assert "balances" in (accounts.description or "").lower()
 
-        portfolio = self._template_map["finance://portfolio"]
+        portfolio = self._resource_map["finance://portfolio"]
         assert portfolio.name == "portfolio"
         assert "holdings" in (portfolio.description or "").lower()
 

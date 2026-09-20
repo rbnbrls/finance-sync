@@ -19,7 +19,7 @@ directly through the MCP protocol.
 │  (Hermes, Claude,   │                       │  (port 8100)         │
 │   Cursor, etc.)     │                       │                      │
 └─────────────────────┘                       │  ┌────────────────┐  │
-                                              │  │ FastMCP        │  │
+                                              │  │ MCPServer      │  │
                                               │  │ + Auth Middle  │  │
                                               │  └───────┬────────┘  │
                                               │          │            │
@@ -329,8 +329,9 @@ REST API at `/api/v1/`.
 
 ### Transport
 
-The MCP server uses **SSE (Server-Sent Events)** transport for HTTP
-compatibility:
+The MCP server intentionally keeps the legacy **SSE (Server-Sent Events)**
+transport for HTTP compatibility with existing clients. The server runs on
+the MCP 2.x SDK; Streamable HTTP is not enabled by this integration:
 
 - **SSE endpoint**: `GET /sse` — establishes the event stream
 - **Message endpoint**: `POST /messages/` — sends tool/resource requests

@@ -1595,9 +1595,9 @@ async def test_mcp_resources_serialize_results_and_close_sessions() -> None:
             mcp_server, "_get_read_service", new=AsyncMock(return_value=service)
         ),
     ):
-        assert '"items": []' in await mcp_server.resource_accounts(None)
-        assert '"total": 1' in await mcp_server.resource_portfolio(None)
-        assert '"net": 2' in await mcp_server.resource_net_worth(None)
+        assert '"items": []' in await mcp_server.resource_accounts()
+        assert '"total": 1' in await mcp_server.resource_portfolio()
+        assert '"net": 2' in await mcp_server.resource_net_worth()
     assert session.aclose.await_count == 3
 
 
@@ -1624,7 +1624,7 @@ async def test_mcp_transaction_resource_enriches_and_sorts_accounts() -> None:
             mcp_server, "_get_read_service", new=AsyncMock(return_value=service)
         ),
     ):
-        payload = await mcp_server.resource_transactions(None)
+        payload = await mcp_server.resource_transactions()
     assert "Checking" in payload
     service.list_account_transactions.assert_awaited_once_with(
         "tenant", "a", limit=20

@@ -453,23 +453,16 @@ async def test_mcp_resources_serialize_read_service_results(
         get_portfolio=AsyncMock(return_value=portfolio),
         get_net_worth=AsyncMock(return_value=net_worth),
     )
-    monkeypatch.setattr(server, "_get_tenant_id", lambda _ctx: "tenant-1")
+    monkeypatch.setattr(server, "_get_tenant_id", lambda _ctx=None: "tenant-1")
     monkeypatch.setattr(
         server, "_get_read_service", AsyncMock(return_value=service)
     )
-    ctx = _mcp_context()
-
     assert (
-        json.loads(await server.resource_accounts(ctx))["items"][0]["id"]
-        == "a1"
+        json.loads(await server.resource_accounts())["items"][0]["id"] == "a1"
     )
-    assert (
-        json.loads(await server.resource_portfolio(ctx))["total_value"] == "0"
-    )
-    assert (
-        json.loads(await server.resource_net_worth(ctx))["net_worth"] == "12.34"
-    )
-    transactions = json.loads(await server.resource_transactions(ctx))
+    assert json.loads(await server.resource_portfolio())["total_value"] == "0"
+    assert json.loads(await server.resource_net_worth())["net_worth"] == "12.34"
+    transactions = json.loads(await server.resource_transactions())
     assert transactions[0]["account_name"] == "Bank"
     assert transactions[0]["account_type"] == "checking"
     assert session.aclose.await_count == 4

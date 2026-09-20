@@ -7,7 +7,7 @@ Supports two authentication modes (same as the main REST API):
 
 The auth context (tenant_id, principal_id) is stored in a ``ContextVar``
 so that MCP resource/tool handlers can access it regardless of how the
-FastMCP SSE transport constructs the ``RequestContext``.
+MCPServer SSE transport constructs the request context.
 """
 
 from __future__ import annotations
@@ -128,7 +128,7 @@ class MCPAuthMiddleware:
         state["auth"] = auth_ctx
 
         # Also propagate via ContextVar so MCP handlers inside the SSE
-        # message-processing loop can pick it up (the FastMCP SSE transport
+        # message-processing loop can pick it up (the MCPServer SSE transport
         # does NOT set ``RequestContext.request`` to the Starlette Request).
         token = _auth_context_var.set(auth_ctx)
         try:
