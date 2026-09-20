@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import sys
 from datetime import UTC, datetime, timedelta
 from typing import Any, Dict, List, Optional
@@ -128,6 +129,42 @@ def check_key_provider_status() -> Dict[str, Any]:
             "error": str(exc),
             "status": "error",
         }
+
+
+def _check_key_version_downgrade(
+    state: Dict[str, Any], key_info: Dict[str, Any]
+) -> List[Dict[str, str]]:
+    """Return a critical alert when a known numeric version decreases."""
+    previous = state.get("last_reported_version")
+    current = key_info.get("current_version")
+
+    def parse_version(value: Any) -> Optional[int]:
+        if isinstance(value, bool):
+            return None
+        if isinstance(value, int):
+            return value
+        if isinstance(value, str):
+            match = re.fullmatch(r"v?(0|[1-9][0-9]*)", value)
+            if match:
+                return int(match.group(1))
+        return None
+
+    previous_number = parse_version(previous)
+    current_number = parse_version(current)
+    if (
+        previous_number is None
+        or current_number is None
+        or current_number >= previous_number
+    ):
+        return []
+
+    return [
+        {
+            "name": "key_version_downgrade",
+            "severity": "critical",
+            "detail": f"Key version downgraded from {previous} to {current}",
+        }
+    ]
 
 
 def check_key_rotation_status(key_info: Dict[str, Any]) -> List[Dict[str, str]]:

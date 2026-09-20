@@ -100,21 +100,7 @@ logger = structlog.get_logger("finance_sync.sync.orchestrator")
 
 
 class SyncOrchestrator(CardsSyncMixin):
-    """Orchestrate a full connector sync cycle.
-
-    Usage::
-
-        orchestrator = SyncOrchestrator(
-            session_factory=container.session_factory,
-            registry=ConnectorRegistry(),
-            tenant_id=tenant_id,
-        )
-        result = await orchestrator.run_sync(
-            provider_type="bunq",
-            config=connector_config,
-            since=datetime(...),
-        )
-    """
+    """Orchestrate a full connector sync cycle."""
 
     def __init__(
         self,
@@ -131,11 +117,7 @@ class SyncOrchestrator(CardsSyncMixin):
 
     @property
     def _reconciliation_after_sync_enabled(self) -> bool:
-        """Whether auto-reconciliation after sync is enabled.
-
-        Reads from the injected settings object when available; defaults
-        to ``True`` for backward compatibility.
-        """
+        """Whether auto-reconciliation after sync is enabled."""
         if self._settings is not None:
             return bool(
                 getattr(
@@ -151,12 +133,7 @@ class SyncOrchestrator(CardsSyncMixin):
         connection_id: str | None,
         log: structlog.BoundLogger,
     ) -> None:
-        """Record ``last_attempt_at`` on the connection row.
-
-        Runs before the sync pipeline starts so the control-panel UI can
-        show a live attempt timestamp.  Purely informational metadata —
-        failures here must never abort the sync itself.
-        """
+        """Record ``last_attempt_at`` before the sync pipeline starts."""
         if not connection_id:
             return
         try:

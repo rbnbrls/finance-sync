@@ -953,9 +953,8 @@ def _account_names_by_iban(
     """Map provider IBANs to their configured Actual Budget names."""
     result: dict[str, str] = {}
     for account in accounts:
-        iban = normalize_account_reference(
-            (account.provider_metadata or {}).get("iban")
-        )
+        metadata = getattr(account, "provider_metadata", None) or {}
+        iban = normalize_account_reference(metadata.get("iban"))
         if iban:
             account_key = getattr(account, "id", None)
             result[iban] = overrides.get(

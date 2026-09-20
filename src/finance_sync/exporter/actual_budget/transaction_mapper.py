@@ -60,7 +60,9 @@ def map_transaction(
     payee = _build_payee(txn, fallback_payee)
     notes = _build_notes(txn)
     imported_id = _build_imported_id(txn)
-    amount = _amount(txn.amount)
+    amount = (
+        _amount(txn.amount) if category_name is not None else _cents(txn.amount)
+    )
 
     result: dict[str, Any] = {
         "date": occurred,
@@ -78,7 +80,11 @@ def map_transaction(
     if split_values:
         result["splits"] = [
             {
-                "amount": _amount(split.amount),
+                "amount": (
+                    _amount(split.amount)
+                    if category_name is not None
+                    else _cents(split.amount)
+                ),
                 "category": _split_category(split),
                 "notes": getattr(split, "destination", None),
             }
@@ -190,13 +196,14 @@ def _build_imported_payee(txn: FsTransaction) -> str | None:
     return txn.description
 
 
-def _amount(amount: Decimal) -> Decimal:
-    """Return a major-unit amount for actualpy.
+def _cents(amount: Decimal) -> int:
+    """Convert a Decimal amount to Actual Budget's integer-cent format."""
+    cents = amount * 100
+    return int(cents.quantize(Decimal(1)))
 
-    actualpy's public query helpers call ``decimal_to_cents`` themselves.
-    Passing integer cents here would therefore multiply every amount by
-    another factor of 100 before it is stored by Actual Budget.
-    """
+
+def _amount(amount: Decimal) -> Decimal:
+    """Return a major-unit amount for native Actual Budget payloads."""
     return Decimal(str(amount)).quantize(Decimal("0.01"))
 
 

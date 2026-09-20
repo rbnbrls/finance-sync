@@ -228,8 +228,12 @@ class AccountReadService:
             .limit(limit)
         )
         rows = result.scalars().all()
-        fallback_map = await account_category_fallbacks(
-            self._session, tenant_id, [str(account_id)]
+        fallback_map = (
+            await account_category_fallbacks(
+                self._session, tenant_id, [str(account_id)]
+            )
+            if rows
+            else {}
         )
         return TransactionListResponse(
             items=[

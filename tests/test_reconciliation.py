@@ -1602,7 +1602,7 @@ class TestDuplicateCandidateLogic:
         assert self._find_pairs(txns) == []
 
     def test_threshold_hours_filters(self) -> None:
-        now = datetime.now(UTC)
+        now = datetime(2026, 9, 20, 12, 0, tzinfo=UTC)
         txns = [
             _MockTxn(
                 provider_key="bunq",

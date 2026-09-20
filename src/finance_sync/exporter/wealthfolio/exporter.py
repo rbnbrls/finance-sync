@@ -1695,9 +1695,12 @@ class WealthfolioExporter:
             )
             transactions = result.scalars().all()
             return {
-                str(transaction.external_transaction_id)
+                str(
+                    getattr(transaction, "external_transaction_id", transaction)
+                )
                 for transaction in transactions
-                if not is_bunq_easy_budgeting_transaction(transaction)
+                if isinstance(transaction, str)
+                or not is_bunq_easy_budgeting_transaction(transaction)
             }
 
     async def _easy_budgeting_external_ids(self, account_id: str) -> set[str]:

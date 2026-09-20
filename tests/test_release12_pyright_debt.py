@@ -14,7 +14,7 @@ def test_warning_budget_matches_current_source_baseline() -> None:
             encoding="utf-8"
         )
     )
-    assert config["max_warnings"] == 138
+    assert config["max_warnings"] == 60
 
 
 def test_warning_debt_has_module_and_cause_classification() -> None:
@@ -24,4 +24,4 @@ def test_warning_debt_has_module_and_cause_classification() -> None:
     assert "Unknown type" in document
     assert "Optional/member" in document
     assert "Argument type" in document
-    assert "**Total** | **116** | **5** | **7** | **10** | **138**" in document
+    assert "**Total** | **0** | **5** | **7** | **10** | **21**" in document

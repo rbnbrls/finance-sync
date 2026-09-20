@@ -838,7 +838,16 @@ class ControlPlaneService:
             # stop reporting the old failure as actionable; otherwise a
             # repaired destination remains permanently degraded.
             failed_count = int(
-                latest_export is not None and latest_export.status == "failed"
+                await self._session.scalar(
+                    select(func.count())
+                    .select_from(ExportRun)
+                    .where(
+                        ExportRun.tenant_id == self._tenant_id,
+                        ExportRun.target_id == str(row.id),
+                        ExportRun.status == "failed",
+                    )
+                )
+                or 0
             )
             destination_rows.append(
                 ControlPlaneDestination(
