@@ -17,7 +17,7 @@ if TYPE_CHECKING:
     from collections.abc import Generator
 
     from fastapi import FastAPI
-    from httpx import Response
+    from httpx2 import Response
 
 import pytest
 from fastapi.testclient import TestClient

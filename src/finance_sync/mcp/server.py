@@ -1,4 +1,4 @@
-"""FastMCP server for finance-sync.
+"""MCP server for finance-sync.
 
 Exposes financial data and actions via the Model Context Protocol (MCP)
 using Server-Sent Events (SSE) transport.
@@ -8,30 +8,20 @@ Start the server::
     mcp run finance_sync/mcp/server.py  # dev stdio mode
     python -m finance_sync.mcp           # production SSE mode
 
-FastMCP resource & tool implementations that wrap the finance-sync
+MCPServer resource & tool implementations that wrap the finance-sync
 domain services (ReadService, AISummaryService, SyncOrchestrator, etc.)
 """
 
 from __future__ import annotations
 
+import contextvars
 import json
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 import structlog
-
-if TYPE_CHECKING:
-    from mcp.server import FastMCP
-    from mcp.server.fastmcp import Context
-else:
-    try:
-        from mcp.server import FastMCP
-        from mcp.server.fastmcp import Context
-    except ImportError:
-        from mcp.server import MCPServer as FastMCP
-        from mcp.server.context import Context
-from mcp.server.session import ServerSession
+from mcp.server.mcpserver import Context, MCPServer
 from pydantic import BaseModel, Field
 
 from finance_sync.config.settings import Settings
@@ -42,28 +32,37 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
+_lifespan_container: contextvars.ContextVar[Container | None] = (
+    contextvars.ContextVar("mcp_lifespan_container", default=None)
+)
+
 
 # ── Lifespan ─────────────────────────────────────────────────────────────
 
 
 @asynccontextmanager
 async def mcp_lifespan(
-    _server: FastMCP[Any],
+    _server: MCPServer[dict[str, Any]],
 ) -> AsyncGenerator[dict[str, Any]]:
-    """FastMCP lifespan: initialise the DI container.
+    """MCPServer lifespan: initialise the DI container.
 
-    Stores the container in lifespan context so resources/tools can
-    access it via ``ctx.request.app.state.container``.
+    Stores the container in both the MCP lifespan payload and a ContextVar.
+    Tools receive the payload through ``Context``; static resources use the
+    ContextVar because MCP 2.x does not allow Context injection there.
     """
     settings = Settings()
     container = Container.from_settings(settings)
-    async with container.dispose():
-        yield {"container": container, "settings": settings}
+    token = _lifespan_container.set(container)
+    try:
+        async with container.dispose():
+            yield {"container": container, "settings": settings}
+    finally:
+        _lifespan_container.reset(token)
 
 
 # ── MCP Server instance ─────────────────────────────────────────────────
 
-mcp = FastMCP(
+mcp = MCPServer(
     name="finance-sync",
     instructions=(
         "MCP server for the finance-sync financial data platform. "
@@ -73,27 +72,29 @@ mcp = FastMCP(
         "security identifiers."
     ),
     lifespan=mcp_lifespan,
-    host="0.0.0.0",
-    port=8100,
-    sse_path="/sse",
-    message_path="/messages/",
 )
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────
 
-# FastMCP is typed as FastMCP[LifespanResultT]; our lifespan yields
-# dict[str, Any], so tool/resource Context carries that lifespan payload.
-ServerContext = Context[ServerSession, dict[str, Any]]
+# MCPServer injects a Context carrying the lifespan payload into handlers.
+# The request type is transport-specific and is not used by this module.
+ServerContext = Context[dict[str, Any], Any]
 
 
-def _get_container(ctx: ServerContext) -> Container:
-    """Extract the DI container from FastMCP lifespan context."""
-    lifespan_data: dict[str, Any] = ctx.request_context.lifespan_context
-    return lifespan_data["container"]
+def _get_container(ctx: ServerContext | None = None) -> Container:
+    """Extract the DI container from MCPServer lifespan context."""
+    if ctx is not None:
+        lifespan_data: dict[str, Any] = ctx.request_context.lifespan_context
+        return lifespan_data["container"]
+    container = _lifespan_container.get()
+    if container is None:
+        msg = "MCP lifespan container is not available"
+        raise RuntimeError(msg)
+    return container
 
 
-async def _get_read_service(ctx: ServerContext) -> Any:
+async def _get_read_service(ctx: ServerContext | None = None) -> Any:
     """Create a ``ReadService`` scoped to the current request's session.
 
     The service is constructed with the principal's read scope so the
@@ -107,7 +108,7 @@ async def _get_read_service(ctx: ServerContext) -> Any:
     return ReadService(session, scope=scope)
 
 
-async def _get_read_scope(ctx: ServerContext) -> Any:
+async def _get_read_scope(ctx: ServerContext | None = None) -> Any:
     """Resolve the account read scope for the MCP principal.
 
     JWT principals get the user scope (the tenant's sole owner reads every
@@ -137,11 +138,11 @@ async def _get_read_scope(ctx: ServerContext) -> Any:
     return ReadScope.for_api_key(auth.tenant_id)
 
 
-def _get_tenant_id(_ctx: ServerContext) -> str:
+def _get_tenant_id(_ctx: ServerContext | None = None) -> str:
     """Extract tenant ID from the authenticated request.
 
     Reads the auth context from the ``ContextVar`` set by
-    ``MCPAuthMiddleware`` (the FastMCP SSE transport does *not* set
+    ``MCPAuthMiddleware`` (the MCPServer SSE transport does *not* set
     ``RequestContext.request`` to a Starlette ``Request``, so the auth
     state from the ASGI scope must be propagated via a context variable).
     """
@@ -168,7 +169,7 @@ def _serialise(obj: Any) -> str:
     description="List of all financial accounts with current balances.",
     mime_type="application/json",
 )
-async def resource_accounts(ctx: ServerContext) -> str:
+async def resource_accounts() -> str:
     """Return all accounts for the authenticated tenant.
 
     URI: ``finance://accounts``
@@ -176,8 +177,8 @@ async def resource_accounts(ctx: ServerContext) -> str:
     Returns a JSON array of accounts with id, name, type, currency,
     and current balance.
     """
-    tenant_id = _get_tenant_id(ctx)
-    read_service = await _get_read_service(ctx)
+    tenant_id = _get_tenant_id()
+    read_service = await _get_read_service()
     try:
         result = await read_service.list_accounts(tenant_id, limit=200)
         return _serialise(result.model_dump())
@@ -192,7 +193,7 @@ async def resource_accounts(ctx: ServerContext) -> str:
     description="Current investment portfolio with holdings per account.",
     mime_type="application/json",
 )
-async def resource_portfolio(ctx: ServerContext) -> str:
+async def resource_portfolio() -> str:
     """Return the current portfolio breakdown.
 
     URI: ``finance://portfolio``
@@ -200,8 +201,8 @@ async def resource_portfolio(ctx: ServerContext) -> str:
     Returns a JSON object with per-account holdings breakdown,
     including quantities, market values, cost basis, and unrealised P&L.
     """
-    tenant_id = _get_tenant_id(ctx)
-    read_service = await _get_read_service(ctx)
+    tenant_id = _get_tenant_id()
+    read_service = await _get_read_service()
     try:
         result = await read_service.get_portfolio(tenant_id)
         return _serialise(result.model_dump())
@@ -216,7 +217,7 @@ async def resource_portfolio(ctx: ServerContext) -> str:
     description="Recent financial transactions across all accounts.",
     mime_type="application/json",
 )
-async def resource_transactions(ctx: ServerContext) -> str:
+async def resource_transactions() -> str:
     """Return recent transactions.
 
     URI: ``finance://transactions``
@@ -224,8 +225,8 @@ async def resource_transactions(ctx: ServerContext) -> str:
     Returns a JSON array of the 50 most recent transactions.
     For advanced filtering use the REST API at ``/api/v1/``.
     """
-    tenant_id = _get_tenant_id(ctx)
-    read_service = await _get_read_service(ctx)
+    tenant_id = _get_tenant_id()
+    read_service = await _get_read_service()
     try:
         accts_result = await read_service.list_accounts(tenant_id, limit=100)
         all_txns: list[dict[str, Any]] = []
@@ -251,7 +252,7 @@ async def resource_transactions(ctx: ServerContext) -> str:
     description="Current net worth (total assets minus liabilities).",
     mime_type="application/json",
 )
-async def resource_net_worth(ctx: ServerContext) -> str:
+async def resource_net_worth() -> str:
     """Return the current net worth.
 
     URI: ``finance://net-worth``
@@ -259,8 +260,8 @@ async def resource_net_worth(ctx: ServerContext) -> str:
     Returns a JSON object with total_assets, total_liabilities,
     net_worth, and per-account breakdown.
     """
-    tenant_id = _get_tenant_id(ctx)
-    read_service = await _get_read_service(ctx)
+    tenant_id = _get_tenant_id()
+    read_service = await _get_read_service()
     try:
         result = await read_service.get_net_worth(tenant_id)
         return _serialise(result.model_dump())
@@ -280,7 +281,7 @@ async def resource_net_worth(ctx: ServerContext) -> str:
     ),
     mime_type="application/json",
 )
-async def resource_intel_sources(ctx: ServerContext) -> str:
+async def resource_intel_sources() -> str:
     """Return the market-intelligence source catalog.
 
     URI: ``finance://intel-sources``
@@ -292,7 +293,7 @@ async def resource_intel_sources(ctx: ServerContext) -> str:
         IntelSourceCatalogService,
     )
 
-    container = _get_container(ctx)
+    container = _get_container()
     service = IntelSourceCatalogService(container.intel_registry)
     result = await service.catalog()
     return _serialise(result.model_dump())
@@ -1475,11 +1476,14 @@ def create_sse_app() -> Any:
 
     from finance_sync.mcp.auth import MCPAuthMiddleware
 
-    # Get the raw SSE app from FastMCP
-    raw_sse = mcp.sse_app(mount_path="/")
-
-    # Get settings for the middleware
+    # MCP 2.x keeps transport configuration on the app factory rather than
+    # on MCPServer itself. Keep the legacy SSE paths for existing clients.
     settings = Settings()
+    raw_sse = mcp.sse_app(
+        sse_path="/sse",
+        message_path="/messages/",
+        host=settings.mcp_host,
+    )
     app = _Starlette(
         debug=settings.is_debug,
         routes=[

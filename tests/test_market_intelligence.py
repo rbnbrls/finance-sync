@@ -1047,7 +1047,7 @@ class TestInjectionSafety:
 
         from finance_sync.mcp.server import mcp
 
-        # FastMCP exposes tool names statically; assert no dynamic content
+        # MCPServer exposes tool names statically; assert no dynamic content
         # can leak into the schema (the tool name is a fixed literal).
         tool_names = [t.name for t in mcp._tool_manager._tools.values()]  # type: ignore[attr-defined]
         for name in tool_names:

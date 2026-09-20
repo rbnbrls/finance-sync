@@ -393,7 +393,5 @@ class TestSourceCatalogMCP:
         tool_names = {t.name for t in mcp._tool_manager.list_tools()}
         assert "list_intel_sources" in tool_names
 
-        uris = {
-            str(t.uri_template) for t in mcp._resource_manager.list_templates()
-        }
+        uris = {str(r.uri) for r in mcp._resource_manager.list_resources()}
         assert "finance://intel-sources" in uris

@@ -24,8 +24,8 @@ class TestMCPResourcesCompleteness:
         from finance_sync.mcp.server import mcp
 
         self._mcp = mcp
-        self._templates = mcp._resource_manager.list_templates()
-        self._uri_map = {str(t.uri_template): t for t in self._templates}
+        self._resources = mcp._resource_manager.list_resources()
+        self._uri_map = {str(r.uri): r for r in self._resources}
 
     def test_resource_count(self) -> None:
         """There are exactly 5 resources defined."""
@@ -229,11 +229,47 @@ class TestMCPServerInstantiation:
         assert "auth" in actual.lower()
 
     def test_mcp_settings(self) -> None:
-        """FastMCP has expected host, port, and transport config."""
+        """MCP 2.x keeps transport configuration outside server settings."""
         from finance_sync.mcp.server import mcp
 
-        assert mcp.settings.host == "0.0.0.0"
-        assert mcp.settings.port == 8100
+        assert type(mcp).__name__ == "MCPServer"
+        assert not hasattr(mcp.settings, "host")
+        assert not hasattr(mcp.settings, "port")
+
+    def test_sse_app_uses_legacy_client_paths(self, monkeypatch) -> None:
+        """SSE transport settings move to ``sse_app`` in MCP 2.x."""
+        import finance_sync.mcp.server as server
+
+        captured: dict[str, object] = {}
+
+        async def fake_sse(scope, receive, send):
+            return None
+
+        def fake_sse_app(_self, **kwargs):
+            captured.update(kwargs)
+            return fake_sse
+
+        monkeypatch.setattr(type(server.mcp), "sse_app", fake_sse_app)
+
+        instance = server.create_sse_app()
+
+        assert instance is not None
+        assert captured == {
+            "sse_path": "/sse",
+            "message_path": "/messages/",
+            "host": "0.0.0.0",
+        }
+
+    def test_sse_endpoints_require_authentication(self) -> None:
+        """Both legacy SSE endpoints remain protected by middleware."""
+        from starlette.testclient import TestClient
+
+        from finance_sync.mcp.server import app
+
+        with TestClient(app) as client:
+            for path in ("/sse", "/messages/"):
+                response = client.get(path)
+                assert response.status_code == 401
 
 
 # ═════════════════════════════════════════════════════════════════════════
