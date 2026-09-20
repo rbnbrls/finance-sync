@@ -550,19 +550,15 @@ class Settings(BaseSettings):
 
     # ── Worker: Wealthfolio delivery sweep job ───────────────────────
     # ARCHITECTURE.md §5 promises an event-driven exporter delivery plus
-    # a 5-minute sweep.  The sweep is gated on WORKER_JOB_EXPORT_ENABLED;
-    # its default (when the env var is unset) is derived: enabled only
-    # when the Wealthfolio push target is configured (both
-    # WEALTHFOLIO_SERVER_URL and WEALTHFOLIO_PASSWORD are set), so the
-    # job registers and runs on deployments that have the push target,
-    # and stays off (skipping cleanly) everywhere else.
+    # a 5-minute sweep.  The legacy global sweep is opt-in; destination
+    # schedules created by the destinations wizard are the normal export
+    # mechanism.
     worker_job_export_enabled: bool | None = Field(
         default=None,
         validation_alias="WORKER_JOB_EXPORT_ENABLED",
         description=(
-            "Enable the Wealthfolio delivery sweep job (5-min cadence). "
-            "Default (env unset): enabled only when WEALTHFOLIO_SERVER_URL "
-            "and WEALTHFOLIO_PASSWORD are both set."
+            "Enable the legacy global Wealthfolio delivery sweep job "
+            "(5-min cadence). Default: disabled."
         ),
     )
     worker_job_export_interval_minutes: int = Field(
@@ -1171,18 +1167,14 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _resolve_export_job_default(self) -> Settings:
-        """Resolve ``worker_job_export_enabled`` when the env var is unset.
+        """Default the legacy global export sweep to disabled.
 
-        Exact default: enabled only when the Wealthfolio push target is
-        configured (``WEALTHFOLIO_SERVER_URL`` and
-        ``WEALTHFOLIO_PASSWORD`` both non-empty).  An explicit
-        ``WORKER_JOB_EXPORT_ENABLED`` value always wins.
+        An explicit ``WORKER_JOB_EXPORT_ENABLED`` value always wins. Normal
+        downstream exports are controlled by user-created destination
+        schedules instead of global environment credentials.
         """
         if self.worker_job_export_enabled is None:
-            self.worker_job_export_enabled = bool(
-                self.wealthfolio_server_url
-                and self.wealthfolio_password.get_secret_value()
-            )
+            self.worker_job_export_enabled = False
         return self
 
     @model_validator(mode="after")

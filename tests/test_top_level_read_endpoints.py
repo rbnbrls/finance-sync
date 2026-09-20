@@ -14,6 +14,7 @@ Covers:
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from decimal import Decimal
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -156,6 +157,8 @@ class TestOpenAPIRegistration:
 
         assert "/api/v1/transactions" in paths
         assert paths["/api/v1/transactions"]["get"]["tags"] == ["transactions"]
+        assert "/api/v1/transactions/counterparty-expenses" in paths
+        assert "get" in paths["/api/v1/transactions/counterparty-expenses"]
         assert "/api/v1/holdings" in paths
         assert paths["/api/v1/holdings"]["get"]["tags"] == ["holdings"]
         assert "/api/v1/dividends" in paths
@@ -212,6 +215,7 @@ class TestAuthGuards:
 
     ENDPOINTS = [
         ("GET", "/api/v1/transactions"),
+        ("GET", "/api/v1/transactions/counterparty-expenses"),
         ("GET", "/api/v1/holdings"),
         ("GET", "/api/v1/dividends"),
         ("GET", "/api/v1/prices"),
@@ -362,6 +366,35 @@ class TestReadServiceTopLevelTransactions:
         result = await svc.list_transactions(tenant_id="t1")
         assert result.total == 4
         assert result.meta.as_of == latest
+
+    async def test_counterparty_expenses_are_ranked_and_exclude_transfers(
+        self, mock_session: AsyncMock
+    ) -> None:
+        mock_session.execute.return_value.all.return_value = [
+            SimpleNamespace(
+                counterparty="Rent B.V.",
+                currency_code="EUR",
+                total_spent=Decimal("1200.00"),
+                transaction_count=1,
+            ),
+            SimpleNamespace(
+                counterparty="Supermarkt",
+                currency_code="EUR",
+                total_spent=Decimal("85.50"),
+                transaction_count=3,
+            ),
+        ]
+        result = await ReadService(mock_session).list_counterparty_expenses(
+            tenant_id="tenant-abc"
+        )
+        assert [item.counterparty for item in result.items] == [
+            "Rent B.V.",
+            "Supermarkt",
+        ]
+        assert result.totals_by_currency == {"EUR": Decimal("1285.50")}
+        assert result.transaction_count == 4
+        _assert_sql_contains(mock_session, "export_status")
+        _assert_sql_contains(mock_session, "amount < 0")
 
 
 class TestReadServiceTopLevelHoldings:

@@ -183,7 +183,7 @@ Options:
 | `--date-from` | (90 days ago) | Explicit start date in ISO-8601 format (e.g. `2026-01-01` or `2026-01-01T00:00:00Z`). Overrides `--days-back`. |
 | `--date-to` | (now) | Explicit end date in ISO-8601 format. Overrides `--days-back`. |
 | `--days-back` | 90 | Look-back window for the analysis (ignored when `--date-from`/`--date-to` are set). |
-| `--threshold-hours` | 48 | Max hour gap for duplicate candidates. |
+| `--threshold-hours` | 48 | Safety bound for same-date broker-ID duplicate matches. |
 
 Exit codes:
 
@@ -211,7 +211,7 @@ Options:
 | `--tenant-id` | (first tenant) | Tenant ID to reconcile. |
 | `--date-from` | (90 days ago) | Explicit start date in ISO-8601 format. |
 | `--date-to` | (now) | Explicit end date in ISO-8601 format. |
-| `--threshold-hours` | 48 | Max hour gap for duplicate candidates. |
+| `--threshold-hours` | 48 | Safety bound for same-date broker-ID duplicate matches. |
 
 Exit codes match the `reconcile` command.
 

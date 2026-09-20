@@ -299,11 +299,12 @@ def validate_transaction_stream(
         if txn_type != "transfer":
             continue
         raw_metadata = getattr(txn, "provider_metadata_contract", None)
-        metadata: dict[str, Any] = (
-            cast("dict[str, Any]", raw_metadata)
-            if isinstance(raw_metadata, dict)
-            else {}
-        )
+        if isinstance(raw_metadata, dict):
+            metadata = cast("dict[str, Any]", raw_metadata)
+        elif hasattr(raw_metadata, "model_dump"):
+            metadata = cast("dict[str, Any]", raw_metadata.model_dump())
+        else:
+            metadata = {}
         metadata_candidates: list[dict[str, Any]] = [metadata]
         fields = metadata.get("fields")
         if isinstance(fields, dict):
@@ -328,7 +329,15 @@ def validate_transaction_stream(
             getattr(txn, "counterparty_account_reference", None) or ""
         )
         pairing_key = provider_id or fallback
-        if pairing_key:
+        pair_scope = next(
+            (
+                str(candidate.get("pair_scope"))
+                for candidate in metadata_candidates
+                if candidate.get("pair_scope")
+            ),
+            None,
+        )
+        if pairing_key and pair_scope != "cross_account":
             key = (
                 str(getattr(txn, "currency_code", "")),
                 pairing_key,
@@ -336,7 +345,7 @@ def validate_transaction_stream(
                 str(abs(_decimal(getattr(txn, "amount", None)) or Decimal(0))),
             )
             transfers.setdefault(key, []).append(txn)
-        else:
+        elif pair_scope != "cross_account":
             findings.append(
                 PreflightFinding(
                     category="unbalanced_transfer",

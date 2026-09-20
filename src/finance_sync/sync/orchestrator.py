@@ -17,6 +17,7 @@ from finance_sync.connectors.exceptions import (
     TransientError,
 )
 from finance_sync.models import (
+    Account,
     ConnectorState,
     Credential,
     Transaction,
@@ -30,6 +31,12 @@ from finance_sync.observability.connector_metrics import (
 )
 from finance_sync.observability.glitchtip import capture_connector_exception
 from finance_sync.services.incident_reporting import report_connector_failure
+from finance_sync.services.internal_transfers import (
+    bunq_owned_ibans,
+    classify_bunq_internal_transfers,
+    exclude_unlabeled_bunq_transfer_pairs,
+    normalize_account_reference,
+)
 from finance_sync.sync.cards_pipeline import (
     BunqCardsSyncResult,
     CardsSyncMixin,
@@ -93,21 +100,7 @@ logger = structlog.get_logger("finance_sync.sync.orchestrator")
 
 
 class SyncOrchestrator(CardsSyncMixin):
-    """Orchestrate a full connector sync cycle.
-
-    Usage::
-
-        orchestrator = SyncOrchestrator(
-            session_factory=container.session_factory,
-            registry=ConnectorRegistry(),
-            tenant_id=tenant_id,
-        )
-        result = await orchestrator.run_sync(
-            provider_type="bunq",
-            config=connector_config,
-            since=datetime(...),
-        )
-    """
+    """Orchestrate a full connector sync cycle."""
 
     def __init__(
         self,
@@ -124,11 +117,7 @@ class SyncOrchestrator(CardsSyncMixin):
 
     @property
     def _reconciliation_after_sync_enabled(self) -> bool:
-        """Whether auto-reconciliation after sync is enabled.
-
-        Reads from the injected settings object when available; defaults
-        to ``True`` for backward compatibility.
-        """
+        """Whether auto-reconciliation after sync is enabled."""
         if self._settings is not None:
             return bool(
                 getattr(
@@ -144,12 +133,7 @@ class SyncOrchestrator(CardsSyncMixin):
         connection_id: str | None,
         log: structlog.BoundLogger,
     ) -> None:
-        """Record ``last_attempt_at`` on the connection row.
-
-        Runs before the sync pipeline starts so the control-panel UI can
-        show a live attempt timestamp.  Purely informational metadata —
-        failures here must never abort the sync itself.
-        """
+        """Record ``last_attempt_at`` before the sync pipeline starts."""
         if not connection_id:
             return
         try:
@@ -194,7 +178,16 @@ class SyncOrchestrator(CardsSyncMixin):
                 if cred is None or str(cred.tenant_id) != self._tenant_id:
                     return
                 if status == SyncRunStatus.COMPLETED:
-                    cred.last_success_at = datetime.now(UTC)
+                    now = datetime.now(UTC)
+                    cred.last_success_at = now
+                    # A successful import verifies that the provider
+                    # credentials are usable, even if an older connection
+                    # row did not persist the credential-status metadata.
+                    cred.credential_status = "valid"
+                    cred.last_authenticated_at = now
+                    cred.last_test_at = now
+                    cred.last_test_status = "passed"
+                    cred.last_test_error = None
                     cred.last_error = None
                     cred.last_error_category = None
                     cred.retry_after_at = None
@@ -788,6 +781,28 @@ class SyncOrchestrator(CardsSyncMixin):
 
                 await uow.commit()
 
+                owned_ibans: set[str] = set()
+                if provider_type == "bunq":
+                    account_rows = await uow.session.execute(
+                        select(Account.provider_metadata).where(
+                            Account.tenant_id == self._tenant_id,
+                            Account.provider_key == provider_type,
+                            Account.connection_id == connection_id,
+                        )
+                    )
+                    owned_ibans = {
+                        normalize_account_reference((row[0] or {}).get("iban"))
+                        for row in account_rows
+                        if normalize_account_reference(
+                            (row[0] or {}).get("iban")
+                        )
+                    }
+                    owned_ibans.update(bunq_owned_ibans(canonical_accounts))
+                    log.info(
+                        "bunq_owned_accounts_indexed",
+                        owned_iban_count=len(owned_ibans),
+                    )
+
                 cursors: dict[str, dt_type] = {}
                 if resume:
                     cursors = await get_connector_cursors(
@@ -920,6 +935,11 @@ class SyncOrchestrator(CardsSyncMixin):
                         canonical_txns = connector.transform_transactions(
                             raw_txns
                         )
+                        if owned_ibans:
+                            canonical_txns = classify_bunq_internal_transfers(
+                                canonical_txns,
+                                owned_ibans=owned_ibans,
+                            )
                         account_transactions = 0
                         account_unresolved: set[str] = set()
                         current_operation = "persist_transactions"
@@ -952,6 +972,19 @@ class SyncOrchestrator(CardsSyncMixin):
                     holdings_synced += account_holdings
                     unresolved_keys.update(account_unresolved)
                     unresolved_keys.update(account_holdings_unresolved)
+                if provider_type == "bunq":
+                    excluded_pair_rows = (
+                        await exclude_unlabeled_bunq_transfer_pairs(
+                            uow.session,
+                            tenant_id=self._tenant_id,
+                            connection_id=connection_id,
+                        )
+                    )
+                    if excluded_pair_rows:
+                        log.info(
+                            "bunq_easy_budgeting_pairs_excluded",
+                            rows=excluded_pair_rows,
+                        )
                 log.debug("transactions_fetched", count=transactions_synced)
                 await complete_sync_run(
                     uow,

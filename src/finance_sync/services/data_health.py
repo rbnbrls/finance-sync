@@ -151,7 +151,6 @@ class DataHealthService:
             issues.extend(await self._selected_account_issues())
             issues.extend(await self._transaction_identity_issues())
             issues.extend(await self._transaction_fingerprint_issues())
-            issues.extend(await self._transaction_semantic_duplicate_issues())
             issues.extend(await self._transaction_relationship_issues())
             issues.extend(await self._sync_integrity_issues())
             issues.extend(await self._portfolio_quantity_issues())
@@ -908,101 +907,13 @@ class DataHealthService:
     async def _transaction_semantic_duplicate_issues(
         self,
     ) -> list[DataHealthIssue]:
-        """Find likely duplicates when a provider supplies no transaction ID."""
-        transaction_date = func.date(Transaction.occurred_at).label(
-            "transaction_date"
-        )
-        rows = (
-            await self._session_required.execute(
-                select(
-                    Transaction.provider_key,
-                    Transaction.account_id,
-                    transaction_date,
-                    Transaction.transaction_type,
-                    Transaction.amount,
-                    Transaction.currency_code,
-                    Transaction.quantity,
-                    Transaction.security_id,
-                    func.count(Transaction.id),
-                )
-                .where(
-                    Transaction.tenant_id == self._tenant_id,
-                    or_(
-                        Transaction.external_transaction_id.is_(None),
-                        func.trim(Transaction.external_transaction_id) == "",
-                    ),
-                )
-                .group_by(
-                    Transaction.provider_key,
-                    Transaction.account_id,
-                    transaction_date,
-                    Transaction.transaction_type,
-                    Transaction.amount,
-                    Transaction.currency_code,
-                    Transaction.quantity,
-                    Transaction.security_id,
-                )
-                .having(func.count(Transaction.id) > 1)
-                .order_by(Transaction.provider_key, transaction_date)
-            )
-        ).all()
-        issues: list[DataHealthIssue] = []
-        for (
-            provider,
-            account_id,
-            occurred_on,
-            transaction_type,
-            amount,
-            currency,
-            quantity,
-            security_id,
-            count,
-        ) in rows:
-            semantic_key = ":".join(
-                str(value or "")
-                for value in (
-                    provider,
-                    account_id,
-                    occurred_on,
-                    transaction_type,
-                    amount,
-                    currency,
-                    quantity,
-                    security_id,
-                )
-            )
-            digest = self._stable_issue_hash(semantic_key)
-            issues.append(
-                DataHealthIssue(
-                    id=f"transaction-semantic-duplicate:{provider}:{digest}",
-                    category="duplicate_transaction_identity",
-                    severity="warning",
-                    title="Mogelijke transactieduplicatie zonder provider-ID",
-                    description=(
-                        "Meerdere transacties zonder bruikbare provider-ID "
-                        "delen dezelfde semantische sleutel. Controleer of "
-                        "dit dubbele bronrecords of een legitieme herhaling is."
-                    ),
-                    impact_count=int(count),
-                    affected_record_count=int(count),
-                    provider=str(provider),
-                    account_ids=[str(account_id)],
-                    source="transactions",
-                    evidence={
-                        "semantic_key_hash": digest,
-                        "transaction_date": str(occurred_on),
-                        "security_id_present": security_id is not None,
-                        "total_count": int(count),
-                        "detail_limit": 0,
-                    },
-                    action=action(
-                        "view_transactions",
-                        "/api/v1/transactions",
-                        permissions=self._permissions,
-                    ),
-                )
-            )
-        return issues
+        """Return no duplicate finding without a broker transaction ID.
+
+        Amount/date/type similarity is not enough to prove a duplicate. The
+        reconciliation repository requires the broker ID as part of the
+        identity, so this legacy fallback is intentionally inert.
+        """
+        return []
 
     async def _transaction_relationship_issues(self) -> list[DataHealthIssue]:
         """Find transactions detached from their account/connector scope."""

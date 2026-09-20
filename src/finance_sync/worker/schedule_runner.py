@@ -359,7 +359,9 @@ async def _run_export_unlocked(
                     ).all()
                 )
         result = await exporter.push_to_wealthfolio(
-            wf_client=wf_client, accounts=accounts
+            wf_client=wf_client,
+            accounts=accounts,
+            full_sync=bool(target and target.configuration.get("full_sync")),
         )
         errors = list(result.get("errors") or [])
         status = "failed" if errors or result.get("failed", 0) else "completed"

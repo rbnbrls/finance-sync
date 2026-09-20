@@ -407,6 +407,7 @@ class ActualBudgetClient:
         syncs.
         """
         import actual.queries as q
+        from actual.utils.conversions import decimal_to_cents
 
         count = 0
         for txn_data in transactions:
@@ -424,6 +425,11 @@ class ActualBudgetClient:
                     cleared=txn_data.get("cleared", False),
                     imported_payee=txn_data.get("imported_payee"),
                 )
+                # ``reconcile_transaction`` updates metadata on an existing
+                # imported row, but actualpy deliberately leaves its amount
+                # untouched.  Keep re-exports authoritative when an older
+                # finance-sync version wrote integer cents as major units.
+                parent.amount = decimal_to_cents(txn_data.get("amount", 0))
                 if txn_data.get("splits"):
                     await self._create_split_children(
                         parent, txn_data["splits"]
@@ -514,28 +520,39 @@ def _init_sync(
 
 def _discover_budgets_sync(config: ActualBudgetConfig) -> list[dict[str, Any]]:
     """Log in and return remote budget metadata, without downloading files."""
+    import contextlib
+    import tempfile
+
     import actual as actual_module
 
-    actual = actual_module.Actual(
-        base_url=config.server_url,
-        password=config.password,
-        cert=config.verify_ssl,
-        timeout=config.request_timeout,
-    )
-    try:
-        login = getattr(actual, "login", None)
-        if callable(login):
-            login()
-        files = actual.list_user_files()
-        return [
-            {
-                "id": item.file_id,
-                "sync_id": item.group_id or item.file_id,
-                "name": item.name,
-                "encrypted": item.encrypt_key_id is not None,
-            }
-            for item in files.data
-            if not item.deleted
-        ]
-    finally:
-        actual.cleanup()
+    # actualpy's metadata endpoint still needs a local data directory for
+    # its session/cache, even though discovery does not download a budget.
+    # Keep that cache isolated and remove it after the request.
+    with tempfile.TemporaryDirectory(
+        prefix="finance_sync_ab_discovery_"
+    ) as data_dir:
+        actual = actual_module.Actual(
+            base_url=config.server_url,
+            password=config.password,
+            cert=config.verify_ssl,
+            timeout=config.request_timeout,
+            data_dir=data_dir,
+        )
+        try:
+            # actualpy authenticates in its constructor when ``password`` is
+            # supplied. Calling ``login()`` again without the password raises
+            # an authorization error and masks a valid connection.
+            files = actual.list_user_files()
+            return [
+                {
+                    "id": item.file_id,
+                    "sync_id": item.group_id or item.file_id,
+                    "name": item.name,
+                    "encrypted": item.encrypt_key_id is not None,
+                }
+                for item in files.data
+                if not item.deleted
+            ]
+        finally:
+            with contextlib.suppress(Exception):
+                actual.cleanup()

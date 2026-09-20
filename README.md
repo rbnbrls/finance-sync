@@ -47,6 +47,21 @@ Create a `.env` with at least `POSTGRES_PASSWORD`, `SECRET_KEY` and
 docker compose up --build
 ```
 
+For the complete local bunq-to-destinations setup, including Wealthfolio and
+Actual Budget, use the local overlays:
+
+```bash
+docker compose \
+  -f docker-compose.yml \
+  -f docker-compose.local-wealthfolio.yml \
+  -f docker-compose.local-actual-budget.yml \
+  up -d --build
+```
+
+The local UIs are available at `http://localhost:8001`,
+`http://localhost:8088` and `http://localhost:5006`. Actual Budget stores its
+local server state in the `actual_budget_local_data` Docker volume.
+
 Compose starts PostgreSQL and Redis, runs `alembic upgrade head`, and only
 then starts the API and worker. The API is available at
 `http://localhost:8000`; the worker health endpoint is at

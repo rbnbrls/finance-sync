@@ -127,6 +127,15 @@ def _transaction_extension_values(transaction: Any) -> dict[str, Any]:
     return values
 
 
+def _transaction_export_status(transaction: Any) -> str:
+    """Derive the canonical downstream-export decision at ingestion time."""
+    metadata = getattr(transaction, "provider_metadata", None) or {}
+    detection = str(metadata.get("internal_transfer_detection") or "")
+    if detection.startswith("bunq_easy_budgeting"):
+        return "excluded"
+    return "active"
+
+
 def _add_lifecycle_event(
     uow: Any,
     *,
@@ -579,6 +588,7 @@ class TransactionPersistence:
                     "fee_amount": transaction.fee_amount,
                     "fee_currency_code": transaction.fee_currency_code,
                     "status": transaction_status,
+                    "export_status": _transaction_export_status(transaction),
                     "provider_fingerprint": transaction.provider_fingerprint,
                     "revision": 1,
                     **_transaction_extension_values(transaction),
@@ -624,7 +634,9 @@ class TransactionPersistence:
                 "fee_amount",
                 "fee_currency_code",
                 "status",
+                "export_status",
                 "provider_fingerprint",
+                "provider_metadata",
                 "provider_metadata_contract",
                 "merchant_name",
                 "merchant_id",
@@ -732,6 +744,7 @@ class TransactionPersistence:
                 entity_id=entity_id,
                 changed_fields={"batch_upsert": True},
                 provider_key=provider_key,
+                deduplicate=True,
             )
 
     async def persist_transaction(
@@ -762,6 +775,7 @@ class TransactionPersistence:
             "fee_amount",
             "fee_currency_code",
             "status",
+            "export_status",
             "amount_in_base",
             "base_currency_code",
             "fx_rate",
@@ -847,6 +861,7 @@ class TransactionPersistence:
                     entity_id=str(existing.id),
                     changed_fields=changed,
                     provider_key=transaction.provider_key,
+                    deduplicate=True,
                 )
             else:
                 self._last_upsert_outcome["unchanged"] = (
@@ -897,6 +912,7 @@ class TransactionPersistence:
             fee_amount=transaction.fee_amount,
             fee_currency_code=transaction.fee_currency_code,
             status=transaction_status,
+            export_status=_transaction_export_status(transaction),
             provider_fingerprint=transaction.provider_fingerprint,
             revision=1,
             **_transaction_extension_values(transaction),

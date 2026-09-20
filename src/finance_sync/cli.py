@@ -121,7 +121,10 @@ def _build_parser() -> ArgumentParser:
         "--threshold-hours",
         type=int,
         default=48,
-        help="Max hour gap for duplicate candidates (default: 48)",
+        help=(
+            "Safety bound for same-date broker-ID duplicate matches "
+            "(default: 48)"
+        ),
     )
     rec.add_argument(
         "--tenant-id",
@@ -186,7 +189,10 @@ def _build_parser() -> ArgumentParser:
         "--threshold-hours",
         type=int,
         default=48,
-        help="Max hour gap for duplicate candidates (default: 48)",
+        help=(
+            "Safety bound for same-date broker-ID duplicate matches "
+            "(default: 48)"
+        ),
     )
     cmp.add_argument(
         "--tenant-id",

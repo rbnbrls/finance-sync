@@ -13,11 +13,18 @@ from finance_sync.exporter.actual_budget.transaction_mapper import (
 from finance_sync.exporter.firefly.transaction_mapper import (
     map_transaction as map_firefly,
 )
+from finance_sync.exporter.wealthfolio.exporter import (
+    _spending_category_ids_from_taxonomy,
+)
 from finance_sync.exporter.wealthfolio.transaction_mapper import (
     map_transaction_to_wf_row,
 )
 from finance_sync.exporter.ynab.transaction_mapper import (
     map_transaction as map_ynab,
+)
+from finance_sync.services.category_options import (
+    TRANSACTION_CATEGORY_VALUES,
+    canonicalize_category,
 )
 
 
@@ -105,10 +112,35 @@ def test_equivalent_canonical_spending_reaches_each_native_projection() -> None:
 
     assert actual["payee"] == "Example Shop"
     assert actual["category"] == "Groceries"
-    assert actual["splits"][0]["amount"] == -700
+    assert actual["splits"][0]["amount"] == Decimal("-7.00")
     assert firefly["description"] == "Example Shop"
     assert firefly["category_name"] == "5411"
     assert ynab["payee_name"] == "Example Shop"
     assert ynab["amount"] == -12340
     assert wealthfolio["activityType"] == "FEE"
     assert wealthfolio["sourceRecordId"] == "payment-1"
+
+
+def test_complete_category_taxonomy_projects_to_wealthfolio() -> None:
+    """Every supported category has a destination id and legacy aliases work."""
+    mapping = _spending_category_ids_from_taxonomy({"categories": []})
+
+    assert set(TRANSACTION_CATEGORY_VALUES) <= set(mapping)
+    assert canonicalize_category("Health") == "health_wellness"
+    assert canonicalize_category("Bills & Utilities") == "bills_and_utilities"
+    assert canonicalize_category("Other") == "other_expenses"
+
+
+def test_wealthfolio_custom_spending_categories_are_preserved() -> None:
+    """Destination-local categories must not become an unassigned activity."""
+    mapping = _spending_category_ids_from_taxonomy(
+        {
+            "categories": [
+                {"id": "wf-investing", "key": "investing"},
+                {"id": "wf-sport", "name": "Sport"},
+            ]
+        }
+    )
+
+    assert mapping["investing"] == "wf-investing"
+    assert mapping["sport"] == "wf-sport"

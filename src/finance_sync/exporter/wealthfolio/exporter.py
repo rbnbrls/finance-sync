@@ -49,6 +49,8 @@ from finance_sync.exporter.wealthfolio.transaction_mapper import (
     InvalidFxRateError,
     UnresolvedCashCurrencyError,
     UnresolvedSecurityExportError,
+    _category_assignment,
+    _idempotency_key,
     map_holding_to_wf_row,
     map_holdings_to_csv,
     map_security_catalog_to_csv,
@@ -70,6 +72,10 @@ from finance_sync.models import (
     Transaction,
 )
 from finance_sync.observability.glitchtip import capture_connector_exception
+from finance_sync.services.category_options import canonicalize_category
+from finance_sync.services.internal_transfers import (
+    is_bunq_easy_budgeting_transaction,
+)
 from finance_sync.services.wealthfolio_preflight import (
     validate_dataset_completeness,
     validate_holdings,
@@ -91,6 +97,69 @@ if TYPE_CHECKING:
 
 
 logger = structlog.get_logger("finance_sync.exporter.wealthfolio")
+
+
+def _activity_source_id(activity: dict[str, Any]) -> str:
+    """Extract the final finance-sync source ID from a Wealthfolio row."""
+    source_id = str(activity.get("sourceRecordId") or "").strip()
+    if source_id:
+        return source_id
+    comment = str(activity.get("comment") or "")
+    if "| ID:" in comment:
+        return comment.rsplit("| ID:", 1)[1].strip().split()[0]
+    if "ID:" in comment:
+        return comment.rsplit("ID:", 1)[1].strip().split()[0]
+    return ""
+
+
+_WEALTHFOLIO_SPENDING_CATEGORY_IDS = {
+    "employment": "cat_employment",
+    "housing": "cat_housing",
+    "groceries": "cat_groceries",
+    "food_and_dining": "cat_food",
+    "transportation": "cat_transport",
+    "travel": "cat_travel",
+    "entertainment": "cat_entertainment",
+    "health_wellness": "cat_health",
+    "bills_and_utilities": "cat_bills",
+    "personal_care": "cat_personal_care",
+    "education": "cat_education",
+    "shopping": "cat_shopping",
+    "gifts_and_donations": "cat_gifts_donations",
+    "fees_and_charges": "cat_fees",
+    "finance": "cat_finance",
+    "other_expenses": "cat_other_expense",
+}
+
+
+def _spending_category_ids_from_taxonomy(
+    taxonomy: dict[str, Any],
+) -> dict[str, str]:
+    """Build a category-key -> Wealthfolio-category-id map.
+
+    The built-in categories are canonicalized to the finance-sync taxonomy,
+    but Wealthfolio also permits destination-local categories (for example
+    ``investing`` and ``sport``).  Those keys must remain usable instead of
+    being silently discarded when they are not part of the core taxonomy.
+    """
+    result = dict(_WEALTHFOLIO_SPENDING_CATEGORY_IDS)
+    raw_categories = taxonomy.get("categories", [])
+    if not isinstance(raw_categories, list):
+        return result
+    for raw in raw_categories:
+        if not isinstance(raw, dict):
+            continue
+        category_id = raw.get("id")
+        key = raw.get("key") or raw.get("name")
+        if not category_id or not key:
+            continue
+        raw_key = "_".join(
+            str(key).strip().casefold().replace("&", "and").split()
+        )
+        normalized = canonicalize_category(raw_key) or raw_key
+        if normalized:
+            result[normalized] = str(category_id)
+    return result
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -189,6 +258,111 @@ class WealthfolioExporter:
 
     # ── Public API ───────────────────────────────────────────────────
 
+    async def _assign_spending_categories(
+        self,
+        *,
+        wf_client: WealthfolioClient,
+        wf_account_id: str,
+        transactions: list[Transaction],
+    ) -> int:
+        """Project finance-sync categories into Wealthfolio Spending.
+
+        Wealthfolio keeps spending assignments in a dedicated relation. The
+        category metadata included with an imported activity is useful for
+        provenance, but is not enough for the Spending dashboard. Resolve
+        activities by the stable finance-sync source id and update them in
+        bounded bulk requests.
+        """
+        get_taxonomy = getattr(wf_client, "get_spending_taxonomy", None)
+        bulk_assign = getattr(
+            wf_client, "bulk_assign_activity_categories", None
+        )
+        if not (
+            inspect.iscoroutinefunction(get_taxonomy)
+            and inspect.iscoroutinefunction(bulk_assign)
+        ):
+            # Lightweight test doubles and older destination clients may not
+            # support the dedicated spending API yet.
+            return 0
+
+        taxonomy = await get_taxonomy()
+        category_ids = _spending_category_ids_from_taxonomy(taxonomy)
+        activities = await wf_client.get_all_activities(wf_account_id)
+        by_source_id: dict[str, str] = {}
+        for activity in activities:
+            activity_id = activity.get("id")
+            if not activity_id:
+                continue
+            source_id = activity.get("sourceRecordId")
+            if not source_id:
+                source_id = _activity_source_id(activity)
+            if source_id:
+                by_source_id[str(source_id)] = str(activity_id)
+
+        items: list[dict[str, str]] = []
+        for transaction in transactions:
+            category = _category_assignment(transaction)
+            if not category:
+                continue
+            category_id = category_ids.get(str(category).strip().lower())
+            activity_id = by_source_id.get(
+                str(transaction.external_transaction_id)
+            )
+            if not category_id or not activity_id:
+                continue
+            items.append(
+                {
+                    "activityId": activity_id,
+                    "taxonomyId": "spending_categories",
+                    "categoryId": category_id,
+                }
+            )
+
+        assigned = 0
+        for offset in range(0, len(items), 250):
+            result = await bulk_assign(items[offset : offset + 250])
+            assigned += len(result) if isinstance(result, list) else 250
+        if items:
+            self._log.info(
+                "wealthfolio_spending_categories_assigned",
+                account_id=wf_account_id,
+                matched=len(items),
+                assigned=assigned,
+            )
+        return assigned
+
+    async def _fetch_active_category_transactions(
+        self,
+        *,
+        account_id: str,
+    ) -> list[Transaction]:
+        """Load the complete source set used for category reconciliation.
+
+        Category assignments are a separate Wealthfolio projection from the
+        activity import.  They must not be limited to the recent transaction
+        window; otherwise historical activities that already exist in
+        Wealthfolio remain uncategorized forever.
+        """
+        async with self._session_factory() as session:
+            statuses = ["booked"] + (
+                ["pending"] if self._wf_config.include_pending else []
+            )
+            result = await session.execute(
+                select(Transaction)
+                .where(
+                    Transaction.tenant_id == self._tenant_id,  # type: ignore[attr-defined]
+                    Transaction.account_id == account_id,  # type: ignore[attr-defined]
+                    Transaction.status.in_(statuses),  # type: ignore[attr-defined]
+                    Transaction.export_status == "active",  # type: ignore[attr-defined]
+                )
+                .order_by(Transaction.occurred_at)  # type: ignore[attr-defined]
+            )
+            return [
+                transaction
+                for transaction in result.scalars().all()
+                if not is_bunq_easy_budgeting_transaction(transaction)
+            ]
+
     async def run_export(
         self,
         *,
@@ -227,7 +401,9 @@ class WealthfolioExporter:
         csv_files: list[str] = []
         extension_transactions: list[Transaction] = []
         preflight_manifest: dict[str, object] | None = None
-        _since = since or await self._last_export_time()
+        # Reconcile the recent source window on every run. Wealthfolio's
+        # idempotency key makes this replay safe and propagates corrections.
+        _since = since or _default_since()
 
         # ── Create ExportRun ──────────────────────────────────────
         async with self._session_factory() as session:
@@ -1481,6 +1657,7 @@ class WealthfolioExporter:
                     Transaction.tenant_id == self._tenant_id,  # type: ignore[attr-defined]
                     Transaction.account_id == account_id,  # type: ignore[attr-defined]
                     Transaction.status.in_(status_filter),  # type: ignore[attr-defined]
+                    Transaction.export_status == "active",  # type: ignore[attr-defined]
                 )
                 .order_by(Transaction.occurred_at)  # type: ignore[attr-defined]
             )
@@ -1509,13 +1686,38 @@ class WealthfolioExporter:
                 ["pending"] if self._wf_config.include_pending else []
             )
             result = await session.execute(
-                select(Transaction.external_transaction_id).where(
+                select(Transaction).where(
                     Transaction.tenant_id == self._tenant_id,  # type: ignore[attr-defined]
                     Transaction.account_id == account_id,  # type: ignore[attr-defined]
                     Transaction.status.in_(statuses),  # type: ignore[attr-defined]
+                    Transaction.export_status == "active",  # type: ignore[attr-defined]
                 )
             )
-            return {str(value) for value in result.scalars().all()}
+            transactions = result.scalars().all()
+            return {
+                str(
+                    getattr(transaction, "external_transaction_id", transaction)
+                )
+                for transaction in transactions
+                if isinstance(transaction, str)
+                or not is_bunq_easy_budgeting_transaction(transaction)
+            }
+
+    async def _easy_budgeting_external_ids(self, account_id: str) -> set[str]:
+        """Return Easy Budgeting IDs so old destination rows can be purged."""
+        async with self._session_factory() as session:
+            result = await session.execute(
+                select(Transaction).where(
+                    Transaction.tenant_id == self._tenant_id,  # type: ignore[attr-defined]
+                    Transaction.account_id == account_id,  # type: ignore[attr-defined]
+                    Transaction.provider_key == "bunq",  # type: ignore[attr-defined]
+                )
+            )
+            return {
+                str(transaction.external_transaction_id)
+                for transaction in result.scalars().all()
+                if is_bunq_easy_budgeting_transaction(transaction)
+            }
 
     async def _earliest_transaction_time(self, account_id: str) -> datetime:
         """Return the first canonical transaction date for an account.
@@ -1532,6 +1734,7 @@ class WealthfolioExporter:
                     ["booked"]
                     + (["pending"] if self._wf_config.include_pending else [])
                 ),  # type: ignore[attr-defined]
+                Transaction.export_status == "active",  # type: ignore[attr-defined]
             )
             result = await session.execute(stmt)
             value = result.scalar_one_or_none()
@@ -2191,6 +2394,58 @@ class WealthfolioExporter:
                     if rebuild:
                         await wf_client.delete_activities(wf_account_id)
                     else:
+                        delete_easy_budgeting = getattr(
+                            wf_client, "delete_activities_by_source_ids", None
+                        )
+                        easy_budgeting_ids: set[str] = set()
+                        if inspect.iscoroutinefunction(delete_easy_budgeting):
+                            easy_budgeting_ids = (
+                                await self._easy_budgeting_external_ids(
+                                    fs_acct.id
+                                )
+                            )
+                        if (
+                            easy_budgeting_ids
+                            and delete_easy_budgeting is not None
+                        ):
+                            removed = await delete_easy_budgeting(
+                                wf_account_id, easy_budgeting_ids
+                            )
+                            if removed:
+                                log.info(
+                                    "wealthfolio_easy_budgeting_removed",
+                                    account=fs_acct.name,
+                                    removed=removed,
+                                )
+                        # Older imports can have lost their sourceRecordId or
+                        # have been reclassified in finance-sync after the
+                        # original import.  The Bunq-generated description is
+                        # still an unambiguous ownership marker, so remove
+                        # those legacy rows by comment as well.
+                        delete_easy_budgeting_comments = getattr(
+                            wf_client,
+                            "delete_activities_by_comment_prefix",
+                            None,
+                        )
+                        if inspect.iscoroutinefunction(
+                            delete_easy_budgeting_comments
+                        ):
+                            removed_by_comment = 0
+                            for prefix in (
+                                "Remainder of your ",
+                                "Automatic budget top up.",
+                            ):
+                                removed_by_comment += (
+                                    await delete_easy_budgeting_comments(
+                                        wf_account_id, prefix
+                                    )
+                                )
+                            if removed_by_comment:
+                                log.info(
+                                    "wealthfolio_easy_budgeting_legacy_removed",
+                                    account=fs_acct.name,
+                                    removed=removed_by_comment,
+                                )
                         allowed_activity_ids = (
                             await self._transaction_external_ids(fs_acct.id)
                         )
@@ -2225,35 +2480,37 @@ class WealthfolioExporter:
                             security_map=security_map,
                         )
                     )
-                    # Resume from the per-account delivery cursor when
-                    # one exists (idempotent resume after partial failure).
-                    # The (occurred_at, id) tuple excludes the boundary
-                    # transaction so nothing already delivered is re-pushed.
-                    if full_sync or rebuild:
-                        txns = await self._fetch_pending_transactions(
-                            account_id=fs_acct.id,
-                            since=await self._earliest_transaction_time(
-                                fs_acct.id
-                            ),
+                    # Re-read the requested source window on every run. The
+                    # destination deduplicates by idempotency key, while this
+                    # guarantees amount/category corrections are replayed.
+                    txns = await self._fetch_pending_transactions(
+                        account_id=fs_acct.id,
+                        since=(
+                            await self._earliest_transaction_time(fs_acct.id)
+                            if (full_sync or rebuild)
+                            else _since
+                        ),
+                    )
+                    # Bunq Easy Budgeting is an internal ledger movement, not
+                    # a user cashflow. Keep it out of Wealthfolio entirely;
+                    # the cleanup above removes any rows imported by older
+                    # exporter versions.
+                    txns = [
+                        txn
+                        for txn in txns
+                        if not is_bunq_easy_budgeting_transaction(txn)
+                    ]
+                    category_transactions = (
+                        await self._fetch_active_category_transactions(
+                            account_id=fs_acct.id
                         )
-                    elif delivery_cursor is not None:
-                        txns = await self._fetch_pending_transactions(
-                            account_id=fs_acct.id,
-                            since=_since,
-                            after=delivery_cursor,
-                        )
-                    else:
-                        txns = await self._fetch_pending_transactions(
-                            account_id=fs_acct.id,
-                            since=(
-                                await self._earliest_transaction_time(
-                                    fs_acct.id
-                                )
-                                if since is None and self._target_id != "legacy"
-                                else _since
-                            ),
-                        )
+                    )
                     if not txns:
+                        await self._assign_spending_categories(
+                            wf_client=wf_client,
+                            wf_account_id=wf_account_id,
+                            transactions=category_transactions,
+                        )
                         continue
 
                     if max_transactions:
@@ -2414,6 +2671,12 @@ class WealthfolioExporter:
                         )
                         continue
 
+                    await self._assign_spending_categories(
+                        wf_client=wf_client,
+                        wf_account_id=wf_account_id,
+                        transactions=category_transactions,
+                    )
+
                     # Advance the delivery cursor only after the push
                     # for this account succeeded (idempotent resume).
                     await self._update_wealthfolio_delivery(
@@ -2483,6 +2746,26 @@ class WealthfolioExporter:
                         exception_type=type(exc).__name__,
                         error=str(exc) or repr(exc),
                     )
+
+            # Wealthfolio keeps Spending Tracker membership in a separate
+            # settings document; creating a CASH account with
+            # ``trackingMode=TRANSACTIONS`` does not select it there.  Add
+            # every finance-sync-managed cash account to the tracker while
+            # retaining any accounts the user selected manually.
+            spending_account_ids = {
+                wf_account_id
+                for fs_acct, wf_account_id in projected_accounts
+                if _is_cash_account(fs_acct)
+            }
+            ensure_spending_accounts = getattr(
+                wf_client, "ensure_spending_accounts", None
+            )
+            if spending_account_ids and ensure_spending_accounts is not None:
+                await ensure_spending_accounts(spending_account_ids)
+                log.info(
+                    "wealthfolio_spending_accounts_reconciled",
+                    count=len(spending_account_ids),
+                )
 
             # Assets can be created while activities/holdings are imported.
             # Enrich after that phase so first-time securities are included
@@ -2641,9 +2924,7 @@ class WealthfolioExporter:
             currency=account.currency_code or self._wf_config.default_currency,
             provider_account_id=provider_identity,
             account_type=(
-                "CASH"
-                if account.account_type in {"checking", "savings", "cash"}
-                else "SECURITIES"
+                "CASH" if _is_cash_account(account) else "SECURITIES"
             ),
             tracking_mode="TRANSACTIONS",
         )
@@ -2902,7 +3183,7 @@ class WealthfolioExporter:
         # transaction window (common for bunq exports).
         if (
             not source_rows
-            and fs_account.account_type in {"checking", "savings", "cash"}
+            and _is_cash_account(fs_account)
             and fs_account.current_balance is not None
         ):
             remote_cash = sum(
@@ -3065,9 +3346,99 @@ class WealthfolioExporter:
                 value = activity.get(key)
                 if value:
                     remote_by_id[str(value)] = activity
-            comment = str(activity.get("comment") or "")
+            comment = str(
+                activity.get("comment") or activity.get("notes") or ""
+            )
             if "ID:" in comment:
                 remote_by_id[comment.split("ID:", 1)[1].strip()] = activity
+
+        # A delivery cursor is an optimization, not proof that the complete
+        # projection exists. A partial import or a manually deleted activity
+        # can leave an old source transaction absent after the cursor advanced.
+        # Repair those holes before comparing totals; otherwise every retry
+        # reports the same stale failure forever.
+        missing = [
+            txn
+            for txn in source
+            if str(txn.external_transaction_id) not in remote_by_id
+            and _idempotency_key(txn) not in remote_by_id
+        ]
+        if missing:
+            repair_rows: list[dict[str, Any]] = []
+            repairable = 0
+            for txn in missing:
+                try:
+                    row = map_transaction_to_wf_row(
+                        txn,
+                        security=(
+                            security_map.get(txn.security_id)
+                            if txn.security_id
+                            else None
+                        ),
+                        instrument_type_map=self._wf_config.instrument_type_overrides,
+                        default_currency=self._wf_config.default_currency,
+                        account_currency=fs_account.currency_code,
+                        allow_multi_currency_cash=_supports_multi_currency_cash(
+                            fs_account
+                        ),
+                    )
+                except ValueError as exc:
+                    self._log.warning(
+                        "wealthfolio_missing_transaction_unrepairable",
+                        account=fs_account.name,
+                        transaction_id=str(txn.id),
+                        source_record_id=str(txn.external_transaction_id),
+                        error=str(exc),
+                    )
+                    continue
+                repair_rows.append(
+                    _wf_row_to_api_activity(row, account_id=wf_account_id)
+                )
+                repairable += 1
+
+            repaired = 0
+            for offset in range(0, len(repair_rows), 500):
+                result = await wf_client.push_activities(
+                    repair_rows[offset : offset + 500]
+                )
+                repaired += int(result.get("imported", 0))
+                if result.get("failed", 0):
+                    self._log.warning(
+                        "wealthfolio_missing_transaction_repair_failed",
+                        account=fs_account.name,
+                        detected=len(missing),
+                        attempted=repairable,
+                        repaired=repaired,
+                        failed=int(result.get("failed", 0)),
+                    )
+                    break
+            self._log.info(
+                "wealthfolio_missing_transactions_repaired",
+                account=fs_account.name,
+                detected=len(missing),
+                attempted=repairable,
+                imported=repaired,
+            )
+
+            # Re-read after repair so the checks below validate what actually
+            # persisted in Wealthfolio.
+            remote_result = wf_client.get_all_activities(wf_account_id)
+            remote = (
+                await remote_result
+                if inspect.isawaitable(remote_result)
+                else remote_result
+            )
+            remote_by_id = {}
+            for activity in remote:
+                for key in ("sourceRecordId", "idempotencyKey"):
+                    value = activity.get(key)
+                    if value:
+                        remote_by_id[str(value)] = activity
+                comment = str(
+                    activity.get("comment") or activity.get("notes") or ""
+                )
+                if "ID:" in comment:
+                    remote_by_id[comment.split("ID:", 1)[1].strip()] = activity
         findings: list[dict[str, str]] = []
         source_cash = Decimal(0)
         remote_cash = Decimal(0)
@@ -3102,6 +3473,19 @@ class WealthfolioExporter:
             activity = remote_by_id.get(str(row["idempotencyKey"]))
             if activity is None:
                 activity = remote_by_id.get(str(txn.external_transaction_id))
+            if activity is None and txn.external_transaction_id:
+                # Some Wealthfolio API versions omit the source identity
+                # fields while retaining the imported comment.  Keep the
+                # reconciliation tolerant of that response shape.
+                external_id = str(txn.external_transaction_id)
+                activity = next(
+                    (
+                        candidate
+                        for candidate in remote
+                        if external_id in json.dumps(candidate, sort_keys=True)
+                    ),
+                    None,
+                )
             if activity is None:
                 findings.append(
                     {
@@ -3165,6 +3549,7 @@ class WealthfolioExporter:
                             else []
                         )
                     ),
+                    Transaction.export_status == "active",  # type: ignore[attr-defined]
                 )
                 .order_by(Transaction.occurred_at)
             )
@@ -3191,6 +3576,19 @@ def _supports_multi_currency_cash(account: Account) -> bool:
     ):
         return bool(metadata["supports_multi_currency_cash"])
     return False
+
+
+def _is_cash_account(account: Account) -> bool:
+    """Return whether an account must be projected as Wealthfolio cash.
+
+    Bunq accounts are budgeted bank accounts, even when the connector's
+    account metadata or a legacy persisted row labels them as brokerage or
+    investment.  Treating them as cash also makes them eligible for
+    Wealthfolio's Spending Tracker.
+    """
+    if str(account.provider_key or "").lower() == "bunq":
+        return True
+    return account.account_type in {"checking", "savings", "cash"}
 
 
 def _decimal_or_none(value: Any) -> Decimal | None:

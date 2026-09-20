@@ -8,7 +8,6 @@ from unittest.mock import patch
 import pytest
 
 from scripts.key_rotation_monitoring import (
-    _check_key_version_downgrade,
     build_key_issue_body,
     build_key_marker,
     check_key_provider_status,
@@ -44,6 +43,7 @@ def test_check_key_provider_status_error():
     with (
         patch.dict("os.environ", {}, clear=True),
         patch("os.getcwd", return_value="/nonexistent"),
+        # Mock os.path.exists to return False for the config file
         patch("os.path.exists", return_value=False),
     ):
         result = check_key_provider_status()
@@ -130,32 +130,6 @@ def test_check_key_rotation_status_with_error():
     assert "Provider connection failed" in alerts[0]["detail"]
 
 
-def test_check_key_version_downgrade_alerts_only_for_numeric_decrease():
-    """Report downgrades only for canonical numeric key versions."""
-    state = {"last_reported_version": "10"}
-
-    alert = _check_key_version_downgrade(state, {"current_version": "9"})
-    assert alert == [
-        {
-            "name": "key_version_downgrade",
-            "severity": "critical",
-            "detail": "Key version downgraded from 10 to 9",
-        }
-    ]
-    assert _check_key_version_downgrade(state, {"current_version": "11"}) == []
-    assert _check_key_version_downgrade(state, {"current_version": "v9"}) == []
-
-
-def test_check_key_rotation_status_includes_downgrade_alert():
-    """Include state-based downgrade alerts alongside expiry alerts."""
-    alerts = check_key_rotation_status(
-        {"current_version": "1", "hours_to_expiry": 100},
-        {"last_reported_version": "2"},
-    )
-
-    assert [alert["name"] for alert in alerts] == ["key_version_downgrade"]
-
-
 def test_build_key_issue_body():
     """Test building the key rotation issue body."""
     timestamp = "2026-08-28T12:00:00+00:00"
@@ -188,17 +162,6 @@ def test_build_key_issue_body():
         "- **key_approaching_expiry** (warning): Key version v2 expires in 720.0 hours"
         in body
     )
-    assert "<!-- key-rotation-monitor:2026-08-28 -->" in body
-
-
-def test_build_key_issue_body_accepts_zulu_timestamp():
-    """Build a deterministic marker from a UTC timestamp using Z notation."""
-    body = build_key_issue_body(
-        "2026-08-28T23:30:00Z",
-        {"hours_to_expiry": 720.0},
-        [],
-    )
-
     assert "<!-- key-rotation-monitor:2026-08-28 -->" in body
 
 

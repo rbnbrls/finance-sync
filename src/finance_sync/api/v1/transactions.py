@@ -22,6 +22,7 @@ from finance_sync.api.deps.auth import (
 from finance_sync.dependencies import get_db
 from finance_sync.models.enums import TransactionType
 from finance_sync.services.read_api import (
+    CounterpartyExpenseListResponse,
     ReadService,
     TopLevelTransactionListResponse,
 )
@@ -74,5 +75,26 @@ async def list_transactions(
         offset=offset,
         sort_by=sort_by,
         sort_order=sort_order,
+    )
+    return result.model_dump()
+
+
+@router.get(
+    "/counterparty-expenses",
+    response_model=CounterpartyExpenseListResponse,
+)
+async def list_counterparty_expenses(
+    auth: AuthContext = Depends(require_permission("transactions", "read")),
+    db: AsyncSession = Depends(get_db),
+    scope: ReadScope = Depends(get_read_scope),
+    limit: int = Query(default=10, ge=1, le=50),
+    currency: str | None = Query(default=None),
+) -> dict[str, Any]:
+    """Rank outgoing bank spend by counterparty for viewer insights."""
+    svc = _get_service(db, scope=scope)
+    result = await svc.list_counterparty_expenses(
+        tenant_id=auth.tenant_id,
+        limit=limit,
+        currency_code=currency,
     )
     return result.model_dump()

@@ -769,6 +769,53 @@ def exporter(wf_config: WealthfolioConfig) -> WealthfolioExporter:
 
 class TestWealthfolioExporter:
     @pytest.mark.asyncio
+    async def test_reconciliation_repairs_missing_source_activity(
+        self, exporter: WealthfolioExporter
+    ) -> None:
+        """A missing old activity is repaired instead of failing forever."""
+        account = _make_mock_account()
+        txn = _make_mock_transaction(
+            external_transaction_id="1757031895",
+            account_id=account.id,
+        )
+        wf_client = MagicMock()
+        wf_client.get_all_activities = AsyncMock(
+            side_effect=[
+                [],
+                [
+                    {
+                        "sourceRecordId": "1757031895",
+                        "amount": "42.50",
+                        "fee": "0",
+                        "tax": "0",
+                    }
+                ],
+            ]
+        )
+        wf_client.push_activities = AsyncMock(
+            return_value={"imported": 1, "skipped": 0, "failed": 0}
+        )
+
+        with patch.object(
+            exporter,
+            "_fetch_all_active_transactions",
+            new=AsyncMock(return_value=[txn]),
+        ):
+            findings = await exporter._reconcile_activity_totals(
+                wf_client=wf_client,
+                fs_account=account,
+                wf_account_id="wf-account-1",
+                security_map={},
+            )
+
+        assert findings == []
+        wf_client.push_activities.assert_awaited_once()
+        assert (
+            wf_client.push_activities.await_args.args[0][0]["sourceRecordId"]
+            == "1757031895"
+        )
+
+    @pytest.mark.asyncio
     async def test_run_export_no_accounts(self, exporter) -> None:
         """No accounts returns completed with zero counts."""
         with (
@@ -1304,6 +1351,15 @@ class TestWealthfolioPushCursor:
             exporter, "_fetch_pending_transactions", fetch_mock
         ).start()
         patch.object(
+            exporter,
+            "_fetch_active_category_transactions",
+            AsyncMock(
+                side_effect=lambda *, account_id: txns_by_account.get(
+                    account_id, []
+                )
+            ),
+        ).start()
+        patch.object(
             exporter, "_update_wealthfolio_delivery", update_mock
         ).start()
         patch.object(exporter, "_complete_run", complete_mock).start()
@@ -1317,7 +1373,7 @@ class TestWealthfolioPushCursor:
     async def test_push_resumes_from_delivery_cursor(
         self, exporter: WealthfolioExporter
     ) -> None:
-        """Cursor ``(occurred_at, id)`` wins over the fallback ``since``."""
+        """A prior cursor does not suppress source corrections."""
         acct = _make_mock_account()
         txn = _make_mock_transaction()
         cursor_ts = datetime(2025, 6, 1, 12, 0, tzinfo=UTC)
@@ -1346,12 +1402,11 @@ class TestWealthfolioPushCursor:
                 since=fallback,
             )
 
-        # Fetch resumed strictly after the (occurred_at, id) cursor, not
-        # from the fallback timestamp (and not from the cursor timestamp
-        # either — the boundary transaction must not be re-fetched).
+        # Reconcile from the requested window even when a cursor exists so
+        # changed amounts/categories are replayed idempotently.
         kwargs = fetch_mock.await_args.kwargs
-        assert kwargs["after"] == (cursor_ts, UUID(cursor_id))
         assert kwargs["since"] == fallback
+        assert "after" not in kwargs
         assert result["imported"] == 1
         assert result["errors"] == []
 

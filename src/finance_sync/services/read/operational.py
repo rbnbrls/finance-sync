@@ -33,6 +33,8 @@ from finance_sync.services.read.schemas import (
     CardTransactionResponse,
     CashflowHistoryEntry,
     CashflowHistoryResponse,
+    CounterpartyExpenseListResponse,
+    CounterpartyExpenseSummary,
     DividendListResponse,
     NetWorthHistoryEntry,
     NetWorthHistoryResponse,
@@ -45,6 +47,10 @@ from finance_sync.services.read.schemas import (
     SyncRunStatusCount,
     TopLevelTransactionListResponse,
     TransactionResponse,
+)
+from finance_sync.services.read.transaction_category import (
+    account_category_fallbacks,
+    transaction_category,
 )
 
 if TYPE_CHECKING:
@@ -101,7 +107,9 @@ class OperationalReadService:
         )
 
     @staticmethod
-    def _tx_to_response(t: Transaction) -> TransactionResponse:
+    def _tx_to_response(
+        t: Transaction, account_fallback: str | None = None
+    ) -> TransactionResponse:
         return TransactionResponse(
             id=str(t.id),
             account_id=str(t.account_id),
@@ -125,6 +133,7 @@ class OperationalReadService:
             counterparty_name=t.counterparty_name,
             counterparty_account_reference=t.counterparty_account_reference,
             merchant_category_code=t.merchant_category_code,
+            category=transaction_category(t, account_fallback),
             original_type=t.original_type,
             original_status=t.original_status,
             authorization_status=t.authorization_status,
@@ -214,9 +223,15 @@ class OperationalReadService:
         )
         result = await self._session.execute(stmt)
         rows: list[Transaction] = list(result.scalars().all())  # type: ignore[assignment]
+        fallback_map = await account_category_fallbacks(
+            self._session, tenant_id, [str(t.account_id) for t in rows]
+        )
 
         return TopLevelTransactionListResponse(
-            items=[self._tx_to_response(t) for t in rows],
+            items=[
+                self._tx_to_response(t, fallback_map.get(str(t.account_id)))
+                for t in rows
+            ],
             total=total,
             limit=limit,
             offset=offset,
@@ -224,6 +239,76 @@ class OperationalReadService:
                 as_of=meta_row.as_of,
                 freshness=freshness_for(meta_row.as_of),
             ),
+        )
+
+    async def list_counterparty_expenses(
+        self,
+        tenant_id: str,
+        *,
+        limit: int = 10,
+        currency_code: str | None = None,
+    ) -> CounterpartyExpenseListResponse:
+        """Return ranked outgoing spend grouped by counterparty.
+
+        Excluded/tombstoned transactions are deliberately omitted. This keeps
+        internal Bunq budgeting transfers out of the insight while retaining
+        real outgoing payments whose counterparty name is unavailable by
+        grouping them under a safe fallback label.
+        """
+        counterparty = func.coalesce(
+            func.nullif(func.trim(Transaction.counterparty_name), ""),
+            func.nullif(
+                func.trim(Transaction.counterparty_account_reference), ""
+            ),
+            func.nullif(func.trim(Transaction.merchant_name), ""),
+            func.nullif(func.trim(Transaction.description), ""),
+            "Onbekende tegenrekening",
+        ).label("counterparty")
+        conditions: list[Any] = [
+            Transaction.tenant_id == tenant_id,  # type: ignore[attr-defined]
+            self._derived_scope_condition(Transaction),
+            Transaction.amount < 0,  # type: ignore[attr-defined]
+            Transaction.export_status == "active",  # type: ignore[attr-defined]
+            Transaction.tombstoned_at.is_(None),  # type: ignore[attr-defined]
+        ]
+        if currency_code is not None:
+            conditions.append(
+                Transaction.currency_code == currency_code.upper()  # type: ignore[attr-defined]
+            )
+
+        statement = (
+            select(
+                counterparty,
+                Transaction.currency_code.label("currency_code"),
+                func.sum(-Transaction.amount).label("total_spent"),
+                func.count(Transaction.id).label("transaction_count"),
+            )
+            .where(_expr(*conditions))
+            .group_by(counterparty, Transaction.currency_code)
+            .order_by(desc("total_spent"), counterparty)
+            .limit(limit)
+        )
+        result = await self._session.execute(statement)
+        rows = result.all()
+        items = [
+            CounterpartyExpenseSummary(
+                counterparty=str(row.counterparty),
+                currency_code=str(row.currency_code),
+                total_spent=row.total_spent,
+                transaction_count=int(row.transaction_count),
+            )
+            for row in rows
+        ]
+        totals_by_currency: dict[str, E] = {}
+        for item in items:
+            totals_by_currency[item.currency_code] = (
+                totals_by_currency.get(item.currency_code, E("0"))
+                + item.total_spent
+            )
+        return CounterpartyExpenseListResponse(
+            items=items,
+            totals_by_currency=totals_by_currency,
+            transaction_count=sum(item.transaction_count for item in items),
         )
 
     async def list_dividends(

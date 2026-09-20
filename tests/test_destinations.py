@@ -229,6 +229,23 @@ def test_activity_parity_counts_detect_missing_and_stale_records() -> None:
     ) == (2, 1, 2)
 
 
+def test_activity_parity_counts_reads_source_id_from_wealthfolio_comment() -> (
+    None
+):
+    assert _activity_parity_counts(
+        [("comment-id", None)],
+        [{"comment": "Imported by finance-sync | ID: comment-id"}],
+    ) == (1, 0, 0)
+    assert _activity_parity_counts(
+        [("bare-id", None)],
+        [{"comment": "ID: bare-id"}],
+    ) == (1, 0, 0)
+    assert _activity_parity_counts(
+        [("final-id", None)],
+        [{"comment": "Order ID: merchant-id | ID: final-id"}],
+    ) == (1, 0, 0)
+
+
 @pytest.mark.parametrize(
     ("account", "expected"),
     [

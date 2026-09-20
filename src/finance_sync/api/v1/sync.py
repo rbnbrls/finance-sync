@@ -247,7 +247,7 @@ async def _run_connection_sync(
             config=config,
             since=(
                 datetime.now(UTC) - timedelta(days=3650)
-                if full_history and cred.provider_key == "trading212"
+                if full_history and cred.provider_key in {"bunq", "trading212"}
                 else None
             ),
             connection_id=str(cred.id),

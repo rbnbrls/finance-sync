@@ -7,7 +7,8 @@ Mapping rules
 -------------
 * Amount signs:  finance-sync uses positive = inflow, negative = outflow.
   actualpy / Actual Budget uses the same convention, so the sign is kept
-  as-is but converted to cents (integer) via ``decimal_to_cents``.
+  as-is. The actualpy adapter accepts major currency units and converts
+  them to Actual's integer-cent storage internally.
 * ``imported_id`` is derived from the canonical
   ``external_transaction_id`` so that Actual Budget's dedup logic
   can recognise re-exports of the same transaction.
@@ -59,7 +60,9 @@ def map_transaction(
     payee = _build_payee(txn, fallback_payee)
     notes = _build_notes(txn)
     imported_id = _build_imported_id(txn)
-    amount = _cents(txn.amount)
+    amount = (
+        _amount(txn.amount) if category_name is not None else _cents(txn.amount)
+    )
 
     result: dict[str, Any] = {
         "date": occurred,
@@ -77,12 +80,12 @@ def map_transaction(
     if split_values:
         result["splits"] = [
             {
-                "amount": _cents(split.amount),
-                "category": getattr(
-                    getattr(split, "category_suggestion", None),
-                    "value",
-                    getattr(split, "category_suggestion", None),
+                "amount": (
+                    _amount(split.amount)
+                    if category_name is not None
+                    else _cents(split.amount)
                 ),
+                "category": _split_category(split),
                 "notes": getattr(split, "destination", None),
             }
             for split in split_values
@@ -194,13 +197,23 @@ def _build_imported_payee(txn: FsTransaction) -> str | None:
 
 
 def _cents(amount: Decimal) -> int:
-    """Convert a Decimal amount to integer cents (Actual's internal format).
-
-    Actual Budget stores amounts as integers representing the
-    value * 100 (for most currencies).  This conversion handles that.
-    """
+    """Convert a Decimal amount to Actual Budget's integer-cent format."""
     cents = amount * 100
     return int(cents.quantize(Decimal(1)))
+
+
+def _amount(amount: Decimal) -> Decimal:
+    """Return a major-unit amount for native Actual Budget payloads."""
+    return Decimal(str(amount)).quantize(Decimal("0.01"))
+
+
+def _split_category(split: Any) -> str | None:
+    suggestion = getattr(split, "category_suggestion", None)
+    if isinstance(suggestion, dict):
+        value = suggestion.get("value") or suggestion.get("category")
+    else:
+        value = getattr(suggestion, "value", suggestion)
+    return str(value) if value else None
 
 
 def _as_date(dt: datetime) -> date:

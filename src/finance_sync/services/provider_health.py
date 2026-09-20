@@ -167,8 +167,10 @@ class ProviderHealthService:
             getattr(credential, "credential_status", None) or "unknown"
         )
         expired = expires_at is not None and expires_at <= datetime.now(UTC)
-        configured = bool(credential.encrypted_payload) or (
-            credential.provider_key
+        configured = (
+            bool(credential.encrypted_payload)
+            or credential.last_success_at is not None
+            or credential.provider_key
             in {
                 "csv_import",
                 "degiro_pension",

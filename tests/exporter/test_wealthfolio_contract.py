@@ -206,6 +206,17 @@ class TestWFTransactionMapping(TransactionMappingContractTest):
         assert row["activityType"] == WF_ACTIVITY_WITHDRAWAL
         assert row["amount"] == "500.00"
 
+    def test_map_bunq_other_outflow_to_spending_withdrawal(self) -> None:
+        """Unclassified Bunq outflows must appear in Spending Tracker."""
+        txn = make_wf_transaction(
+            txn_type="other",
+            amount="-9.76",
+            currency="EUR",
+        )
+        row = map_transaction_to_wf_row(txn)
+        assert row["activityType"] == WF_ACTIVITY_WITHDRAWAL
+        assert row["amount"] == "9.76"
+
     def test_map_dividend(self) -> None:
         """Dividend should map to DIVIDEND with security symbol."""
         row = map_transaction_to_wf_row(

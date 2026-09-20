@@ -13,10 +13,7 @@ from typing import Any, cast
 from sqlalchemy import delete, select
 
 from finance_sync.db.repository import Repository
-from finance_sync.duplicate_detection import (
-    has_distinct_transaction_ids_in_descriptions,
-    is_cash_reservation_pair,
-)
+from finance_sync.duplicate_detection import is_cash_reservation_pair
 from finance_sync.models import (
     Account,
     ActualBudgetAccountMapping,
@@ -304,16 +301,22 @@ class TransactionRepository(Repository[Transaction]):
     ) -> list[tuple[Transaction, Transaction]]:
         """Find pairs of transactions that may be duplicates within an account.
 
-        A candidate pair is two transactions in the same account with
-        identical amounts/currencies for the same account and security (or
-        both cash-only), with close occurrence dates (within
-        *threshold_hours*) but different external IDs or provider keys.
+        A candidate pair is two transactions in the same account with the
+        same amount/currency/security, the same occurrence date and the same
+        broker transaction ID.  Amount alone is deliberately insufficient:
+        recurring payments and multiple broker events can legitimately share
+        an amount.  Rows without a date or broker transaction ID are not
+        heuristic duplicate candidates.
 
         When *provider_keys* is set, only transactions from those
         providers are considered.
 
-        Returns a list of (tx_a, tx_b) tuples, ordered by descending
-        amount magnitude so the most suspicious pairs come first.
+        ``threshold_hours`` remains a safety bound for timestamps on the same
+        calendar date; it keeps the existing API contract while the date and
+        broker-ID checks provide the identity requirements.
+
+        Returns a list of (tx_a, tx_b) tuples, ordered by descending amount
+        magnitude so the most suspicious pairs come first.
         """
         from collections import defaultdict
 
@@ -351,20 +354,23 @@ class TransactionRepository(Repository[Transaction]):
             account_ids=account_ids,
         )
 
-        # Group by the fields that identify the economic event. Amount alone
-        # is not enough: two different securities can legitimately generate
-        # the same cash amount on the same day (for example two securities-
-        # lending payments of EUR 0.04). Keep security_id in the key so the
-        # reconciliation layer does not report those as duplicates.
-        groups: dict[tuple[str, str, str, str], list[Transaction]] = (
+        # Group by the complete heuristic identity. Amount alone (or amount
+        # plus a nearby timestamp) is not enough: recurring payments and
+        # multiple broker events can legitimately share an amount. The broker
+        # transaction ID is the provider's stable identity for this check.
+        groups: dict[tuple[str, str, str, str, str, str], list[Transaction]] = (
             defaultdict(list)
         )
         for t in all_txns:
+            if t.occurred_at is None or not t.external_transaction_id:
+                continue
             key = (
                 str(t.account_id),
                 str(t.amount),
                 str(t.currency_code or "").upper(),
                 str(t.security_id or "cash"),
+                t.occurred_at.date().isoformat(),
+                str(t.external_transaction_id),
             )
             groups[key].append(t)
 
@@ -379,17 +385,19 @@ class TransactionRepository(Repository[Transaction]):
             for i in range(len(group)):
                 for j in range(i + 1, len(group)):
                     a, b = group[i], group[j]
-                    # Skip if same provider key AND same external ID
+                    # The grouping already requires matching broker IDs and
+                    # dates. Keep these guards for defensive callers and to
+                    # make the identity rule explicit at pair level.
                     if (
-                        a.provider_key == b.provider_key
-                        and a.external_transaction_id
-                        == b.external_transaction_id
+                        not a.external_transaction_id
+                        or not b.external_transaction_id
                     ):
                         continue
-                    # A provider can legitimately book equal amounts close
-                    # together. If each description carries its own distinct
-                    # transaction ID, these are separate provider events.
-                    if has_distinct_transaction_ids_in_descriptions(a, b):
+                    if a.external_transaction_id != b.external_transaction_id:
+                        continue
+                    if a.occurred_at is None or b.occurred_at is None:
+                        continue
+                    if a.occurred_at.date() != b.occurred_at.date():
                         continue
                     if is_cash_reservation_pair(a, b):
                         continue

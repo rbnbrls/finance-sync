@@ -1486,9 +1486,16 @@ class TestDuplicateCandidateLogic:
         """Replicate the core pair-finding logic from find_duplicate_candidates."""
         from collections import defaultdict
 
-        groups: dict[tuple[str, str], list] = defaultdict(list)
+        groups: dict[tuple[str, str, str, str], list] = defaultdict(list)
         for t in txns:
-            key = (str(t.account_id), str(t.amount))
+            if t.occurred_at is None or not t.external_transaction_id:
+                continue
+            key = (
+                str(t.account_id),
+                str(t.amount),
+                t.occurred_at.date().isoformat(),
+                str(t.external_transaction_id),
+            )
             groups[key].append(t)
 
         pairs = []
@@ -1501,15 +1508,13 @@ class TestDuplicateCandidateLogic:
             for i in range(len(group)):
                 for j in range(i + 1, len(group)):
                     a, b = group[i], group[j]
-                    if (
-                        a.provider_key == b.provider_key
-                        and a.external_transaction_id
-                        == b.external_transaction_id
-                    ):
+                    if a.external_transaction_id != b.external_transaction_id:
                         continue
                     t_a = a.occurred_at
                     t_b = b.occurred_at
                     if t_a is None or t_b is None:
+                        continue
+                    if t_a.date() != t_b.date():
                         continue
                     diff_hours = abs((t_a - t_b).total_seconds()) / 3600
                     if diff_hours <= threshold_hours:
@@ -1534,18 +1539,18 @@ class TestDuplicateCandidateLogic:
         pairs = self._find_pairs(txns)
         assert len(pairs) == 0
 
-    def test_detects_duplicate_same_amount_close_time(self) -> None:
+    def test_detects_duplicate_same_amount_date_and_broker_id(self) -> None:
         now = datetime.now(UTC)
         txns = [
             _MockTxn(
                 provider_key="bunq",
-                external_transaction_id="b1",
+                external_transaction_id="same-broker-id",
                 amount=Decimal("-50.00"),
                 occurred_at=now - timedelta(hours=2),
             ),
             _MockTxn(
                 provider_key="trading212",
-                external_transaction_id="t1",
+                external_transaction_id="same-broker-id",
                 amount=Decimal("-50.00"),
                 occurred_at=now - timedelta(hours=3),
             ),
@@ -1555,12 +1560,13 @@ class TestDuplicateCandidateLogic:
         a, b = pairs[0]
         # The pair is sorted by occurred_at, so 'a' is the earlier one (t1, 3h ago)
         # and 'b' is the later one (b1, 2h ago)
-        assert {a.external_transaction_id, b.external_transaction_id} == {
-            "b1",
-            "t1",
-        }
+        assert (
+            a.external_transaction_id
+            == b.external_transaction_id
+            == "same-broker-id"
+        )
 
-    def test_ignores_same_provider_same_id(self) -> None:
+    def test_different_broker_ids_are_not_duplicates(self) -> None:
         now = datetime.now(UTC)
         txns = [
             _MockTxn(
@@ -1571,36 +1577,52 @@ class TestDuplicateCandidateLogic:
             ),
             _MockTxn(
                 provider_key="bunq",
-                external_transaction_id="b1",  # Same external ID!
+                external_transaction_id="b2",
                 amount=Decimal("-50.00"),
                 occurred_at=now - timedelta(hours=3),
             ),
         ]
         pairs = self._find_pairs(txns)
-        assert len(pairs) == 0, "Should skip same provider+same external ID"
+        assert len(pairs) == 0
 
-    def test_threshold_hours_filters(self) -> None:
+    def test_different_dates_are_not_duplicates(self) -> None:
         now = datetime.now(UTC)
         txns = [
             _MockTxn(
-                provider_key="bunq",
-                external_transaction_id="b1",
+                external_transaction_id="same-broker-id",
                 amount=Decimal("-50.00"),
-                occurred_at=now - timedelta(hours=48),
+                occurred_at=now - timedelta(hours=2),
+            ),
+            _MockTxn(
+                external_transaction_id="same-broker-id",
+                amount=Decimal("-50.00"),
+                occurred_at=now - timedelta(days=1, hours=2),
+            ),
+        ]
+        assert self._find_pairs(txns) == []
+
+    def test_threshold_hours_filters(self) -> None:
+        now = datetime(2026, 9, 20, 12, 0, tzinfo=UTC)
+        txns = [
+            _MockTxn(
+                provider_key="bunq",
+                external_transaction_id="same-broker-id",
+                amount=Decimal("-50.00"),
+                occurred_at=now - timedelta(hours=8),
             ),
             _MockTxn(
                 provider_key="trading212",
-                external_transaction_id="t1",
+                external_transaction_id="same-broker-id",
                 amount=Decimal("-50.00"),
-                occurred_at=now - timedelta(hours=2),  # 46 hours apart
+                occurred_at=now - timedelta(hours=2),
             ),
         ]
-        # Threshold of 24 hours should filter it out
-        pairs = self._find_pairs(txns, threshold_hours=24)
+        # Threshold of 5 hours should filter the same-day pair out.
+        pairs = self._find_pairs(txns, threshold_hours=5)
         assert len(pairs) == 0
 
-        # Threshold of 48 hours should include it
-        pairs = self._find_pairs(txns, threshold_hours=48)
+        # Threshold of 24 hours should include it.
+        pairs = self._find_pairs(txns, threshold_hours=24)
         assert len(pairs) == 1
 
     def test_different_amounts_not_duplicates(self) -> None:
@@ -1621,25 +1643,25 @@ class TestDuplicateCandidateLogic:
         txns = [
             _MockTxn(
                 provider_key="a",
-                external_transaction_id="x1",
+                external_transaction_id="same-large-id",
                 amount=Decimal("-500.00"),
                 occurred_at=now - timedelta(hours=2),
             ),
             _MockTxn(
                 provider_key="b",
-                external_transaction_id="y1",
+                external_transaction_id="same-large-id",
                 amount=Decimal("-500.00"),
                 occurred_at=now - timedelta(hours=3),
             ),
             _MockTxn(
                 provider_key="a",
-                external_transaction_id="x2",
+                external_transaction_id="same-small-id",
                 amount=Decimal("-5.00"),
                 occurred_at=now - timedelta(hours=1),
             ),
             _MockTxn(
                 provider_key="b",
-                external_transaction_id="y2",
+                external_transaction_id="same-small-id",
                 amount=Decimal("-5.00"),
                 occurred_at=now - timedelta(hours=4),
             ),
@@ -1654,13 +1676,13 @@ class TestDuplicateCandidateLogic:
         txns = [
             _MockTxn(
                 provider_key="bunq",
-                external_transaction_id="b1",
+                external_transaction_id="same-broker-id",
                 amount=Decimal("-50.00"),
                 occurred_at=None,
             ),
             _MockTxn(
                 provider_key="trading212",
-                external_transaction_id="t1",
+                external_transaction_id="same-broker-id",
                 amount=Decimal("-50.00"),
                 occurred_at=datetime.now(UTC) - timedelta(hours=2),
             ),
@@ -1674,19 +1696,19 @@ class TestDuplicateCandidateLogic:
         txns = [
             _MockTxn(
                 provider_key="bunq",
-                external_transaction_id="b1",
+                external_transaction_id="same-broker-id",
                 amount=Decimal("-25.00"),
                 occurred_at=now - timedelta(hours=1),
             ),
             _MockTxn(
                 provider_key="trading212",
-                external_transaction_id="t1",
+                external_transaction_id="same-broker-id",
                 amount=Decimal("-25.00"),
                 occurred_at=now - timedelta(hours=2),
             ),
             _MockTxn(
                 provider_key="revolut",
-                external_transaction_id="r1",
+                external_transaction_id="same-broker-id",
                 amount=Decimal("-25.00"),
                 occurred_at=now - timedelta(hours=3),
             ),

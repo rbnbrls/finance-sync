@@ -58,6 +58,7 @@ class InvestBrainExporter:
                 Transaction.account_id.in_(list(account_map)),
                 Transaction.transaction_type.in_(["purchase", "sale"]),
                 Transaction.occurred_at >= since,
+                Transaction.export_status == "active",
             )
             if not self._config.include_pending:
                 stmt = stmt.where(Transaction.status == "booked")

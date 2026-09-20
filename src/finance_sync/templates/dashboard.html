@@ -165,6 +165,26 @@
             transition: border-color 0.15s;
         }
         .connector-card:hover { border-color: var(--accent); }
+        .connector-card-expandable { padding: 0; overflow: hidden; }
+        .connector-card-expandable > summary {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 14px;
+            padding: 18px 20px;
+            cursor: pointer;
+            list-style: none;
+        }
+        .connector-card-expandable > summary::-webkit-details-marker { display: none; }
+        .connector-card-expandable > summary::after {
+            content: '⌄';
+            color: var(--text-muted);
+            font-size: 1rem;
+            transition: transform .15s ease;
+        }
+        .connector-card-expandable[open] > summary::after { transform: rotate(180deg); }
+        .connector-card-expandable > summary:hover { background: rgba(255,255,255,.025); }
+        .connector-card-details { padding: 0 20px 20px; }
         .connector-card .top {
             display: flex;
             justify-content: space-between;
@@ -872,6 +892,49 @@
         .viewer-card-info > .mdi { font-size:1rem; }
         .viewer-card-tooltip { position:absolute; top:22px; right:0; width:245px; padding:9px 11px; border:1px solid var(--border); border-radius:8px; background:var(--surface); color:var(--text); font-size:.75rem; line-height:1.4; box-shadow:0 8px 24px rgba(15,23,42,.18); opacity:0; pointer-events:none; transform:translateY(-3px); transition:opacity .15s ease, transform .15s ease; }
         .viewer-card-info:hover .viewer-card-tooltip, .viewer-card-info:focus .viewer-card-tooltip, .viewer-card-info:focus-within .viewer-card-tooltip { opacity:1; transform:translateY(0); }
+        .viewer-category-chart { display:grid; grid-template-columns:minmax(120px, 150px) 1fr; gap:18px; align-items:center; margin-top:12px; }
+        .viewer-category-donut { width:150px; height:150px; border-radius:50%; position:relative; display:grid; place-items:center; }
+        .viewer-category-donut::after { content:""; width:76px; height:76px; border-radius:50%; background:var(--surface); box-shadow:0 0 0 1px var(--border); }
+        .viewer-category-legend { display:grid; gap:8px; min-width:0; }
+        .viewer-category-legend-item { display:flex; align-items:center; gap:7px; min-width:0; font-size:.78rem; }
+        .viewer-category-legend-item > span:nth-child(2) { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+        .viewer-category-swatch { width:10px; height:10px; flex:0 0 10px; border-radius:3px; }
+        .viewer-category-link { padding:0; border:0; background:transparent; color:var(--accent); font:inherit; text-decoration:underline; cursor:pointer; }
+        .viewer-category-link:hover, .viewer-category-link:focus-visible { color:var(--text); }
+        .viewer-category-amount { margin-left:auto; color:var(--text-muted); white-space:nowrap; font-variant-numeric:tabular-nums; }
+        .viewer-counterparty-card { grid-column:1 / -1; }
+        .viewer-counterparty-list { display:grid; gap:8px; margin-top:12px; }
+        .viewer-counterparty-row { display:grid; grid-template-columns:minmax(0,1fr) auto auto; align-items:center; gap:12px; padding:10px 0; border-top:1px solid var(--border); }
+        .viewer-counterparty-row:first-child { border-top:0; padding-top:0; }
+        .viewer-counterparty-name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:600; }
+        .viewer-counterparty-count { color:var(--text-muted); font-size:.75rem; white-space:nowrap; }
+        .viewer-counterparty-total { font-variant-numeric:tabular-nums; font-weight:700; white-space:nowrap; }
+        .viewer-tabs { display:flex; gap:4px; padding:4px; margin-bottom:20px; background:var(--surface); border:1px solid var(--border); border-radius:12px; width:max-content; max-width:100%; }
+        .viewer-tab { display:inline-flex; align-items:center; gap:8px; padding:9px 14px; border:0; border-radius:8px; background:transparent; color:var(--text-muted); font:600 .85rem var(--font); cursor:pointer; white-space:nowrap; }
+        .viewer-tab:hover { color:var(--text); background:var(--surface-2); }
+        .viewer-tab.is-active { color:var(--text); background:var(--accent); box-shadow:0 4px 12px rgba(16,185,129,.18); }
+        .viewer-tab-panel { min-width:0; }
+        .viewer-tab-panel .card-header { margin-bottom:14px; }
+        .viewer-table-wrap { overflow-x:auto; border:1px solid var(--border); border-radius:10px; }
+        .viewer-finance-table { min-width:1120px; }
+        .viewer-finance-table th { white-space:nowrap; background:color-mix(in srgb, var(--surface-2) 45%, transparent); }
+        .viewer-finance-table td { white-space:nowrap; }
+        .viewer-finance-table .numeric { text-align:right; font-variant-numeric:tabular-nums; }
+        .viewer-finance-table .positive { color:var(--green); }
+        .viewer-finance-table .negative { color:var(--red); }
+        .viewer-product { display:flex; align-items:center; gap:9px; min-width:180px; }
+        .viewer-product-mark { width:30px; height:30px; display:grid; place-items:center; border-radius:8px; color:var(--accent); background:color-mix(in srgb, var(--accent) 14%, transparent); font-size:.8rem; font-weight:800; }
+        .viewer-product-name { font-weight:700; }
+        .viewer-product-meta { display:block; margin-top:2px; color:var(--text-muted); font-size:.73rem; }
+        .viewer-transaction-toolbar { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:14px; }
+        .viewer-transaction-toolbar input { min-width:260px; flex:1 1 260px; max-width:420px; }
+        .viewer-transaction-toolbar input, .viewer-transaction-toolbar select { background:var(--bg); color:var(--text); border:1px solid var(--border); border-radius:7px; padding:8px 10px; font:400 .85rem var(--font); }
+        .viewer-filter-cell { width:46px; text-align:center !important; }
+        .viewer-filter-cell input { accent-color:var(--accent); width:16px; height:16px; }
+        .viewer-amount { text-align:right; font-variant-numeric:tabular-nums; font-family:var(--font-mono); }
+        .viewer-amount.deposit { color:var(--green); }
+        .viewer-amount.payment { color:var(--red); }
+        @media (max-width:560px) { .viewer-tabs { width:100%; overflow-x:auto; } .viewer-tab { flex:1 0 auto; } }
         .upload-dropzone {
             display: flex;
             flex-direction: column;
@@ -1146,6 +1209,7 @@
             </div>
             <div id="data-health-status" class="control-status" data-status="loading" aria-live="polite" aria-busy="true"><div><h2 class="control-status-label">Data health laden…</h2><p>De actuele status wordt opgehaald.</p></div><span class="spinner" aria-hidden="true"></span></div>
             <div id="data-health-summary" class="quality-grid" aria-live="polite" aria-busy="true"><div class="overview-empty"><span class="spinner"></span> Overzicht laden…</div></div>
+            <div class="card control-section"><div class="card-header"><div><h2>Bunq-transacties zonder categorie</h2><p class="chain-subtitle">Beoordeel alleen onbevestigde bankrekeningtransacties met categorie Other. De grootste bedragen staan bovenaan.</p></div><button type="button" class="btn btn-secondary btn-sm" onclick="loadBunqCategoryReview()">Verversen</button></div><div id="data-health-bunq-category-review" aria-live="polite" aria-busy="true"><div class="overview-empty">Transacties laden…</div></div></div>
             <div class="card control-section"><div class="card-header"><div><h2>Herstelqueue</h2><p class="chain-subtitle">Asynchrone herstelacties worden door de worker uitgevoerd.</p></div><button type="button" class="btn btn-secondary btn-sm" onclick="loadDataHealth()">Verversen</button></div><div id="data-health-remediation" aria-live="polite" aria-busy="true"><div class="overview-empty">Herstelqueue laden…</div></div></div>
             <div class="card control-section"><div class="card-header"><div><h2>Marktdata &amp; verrijking</h2><p class="chain-subtitle">Deze connectors zijn niet accountgebonden. Ze vullen koersen, valuta en security-informatie aan en verbeteren zo je centrale datamodel.</p></div></div><div id="data-health-market-data" aria-live="polite" aria-busy="true"><div class="overview-empty">Marktdata-connectors laden…</div></div></div>
             <div class="card control-section"><div class="card-header"><div><h2>Bronnen</h2><p class="chain-subtitle">Laatste succesvolle sync en datadekking per bron.</p></div></div><div id="data-health-sources" aria-live="polite" aria-busy="true"><div class="overview-empty">Bronnen laden…</div></div></div>
@@ -1169,16 +1233,16 @@
                 <button type="button" class="btn btn-secondary" onclick="loadViewer()"><span class="mdi mdi-refresh"></span> Vernieuwen</button>
             </div>
             <div id="viewer-summary" class="connector-grid" aria-live="polite" aria-busy="true"></div>
-            <div class="card">
-                <div class="card-header"><h2>Accounts</h2></div>
-                <div id="viewer-accounts" aria-live="polite" aria-busy="true"></div>
+            <div class="viewer-tabs" role="tablist" aria-label="Viewer weergave">
+                <button id="viewer-tab-brokers" class="viewer-tab is-active" type="button" role="tab" aria-selected="true" aria-controls="viewer-panel-brokers" onclick="switchViewerTab('brokers')"><span class="mdi mdi-chart-line" aria-hidden="true"></span> Broker accounts <span id="viewer-broker-count"></span></button>
+                <button id="viewer-tab-banks" class="viewer-tab" type="button" role="tab" aria-selected="false" aria-controls="viewer-panel-banks" onclick="switchViewerTab('banks')"><span class="mdi mdi-bank-outline" aria-hidden="true"></span> Bankrekeningen <span id="viewer-bank-count"></span></button>
             </div>
-            <div class="card">
-                <div class="card-header"><h2>Holdings</h2></div>
+            <div id="viewer-panel-brokers" class="viewer-tab-panel card" role="tabpanel" aria-labelledby="viewer-tab-brokers">
+                <div class="card-header"><div><h2>Investeringen</h2><p class="field-hint">Actuele posities per broker account</p></div></div>
                 <div id="viewer-holdings" aria-live="polite" aria-busy="true"></div>
             </div>
-            <div class="card">
-                <div class="card-header"><h2>Recente transacties</h2></div>
+            <div id="viewer-panel-banks" class="viewer-tab-panel card hidden" role="tabpanel" aria-labelledby="viewer-tab-banks" hidden>
+                <div class="card-header"><div><h2>Transacties</h2><p class="field-hint">Banktransacties met betaling en storting apart weergegeven</p></div></div>
                 <div id="viewer-transactions" aria-live="polite" aria-busy="true"></div>
             </div>
         </div>
@@ -1362,16 +1426,65 @@
         }
 
         async function loadDataHealth() {
-            const ids = ['data-health-status', 'data-health-summary', 'data-health-remediation', 'data-health-market-data', 'data-health-sources', 'data-health-issues'];
+            const ids = ['data-health-status', 'data-health-summary', 'data-health-bunq-category-review', 'data-health-remediation', 'data-health-market-data', 'data-health-sources', 'data-health-issues'];
             ids.forEach(id => document.getElementById(id)?.setAttribute('aria-busy', 'true'));
             try {
                 const data = await api('GET', '/control-plane/data-health');
                 let remediation = [];
                 try { remediation = (await api('GET', '/control-plane/remediation?limit=50')).items || []; } catch (_) { /* summary remains useful */ }
                 renderDataHealth(data, remediation);
+                await loadBunqCategoryReview();
                 await loadMarketDataProviders();
             }
             catch (error) { renderDataHealthError(error); }
+        }
+
+        async function loadBunqCategoryReview() {
+            const container = document.getElementById('data-health-bunq-category-review');
+            if (!container) return;
+            container.setAttribute('aria-busy', 'true');
+            try {
+                const result = await api('GET', '/control-plane/data-health/bunq-other-transactions?limit=100');
+                renderBunqCategoryReview(result.items || []);
+            } catch (error) {
+                container.innerHTML = `<div class="alert alert-error" role="alert">De Bunq-categorisatiequeue kon niet worden geladen. ${escapeHtml(error.message || '')}</div>`;
+            } finally { container.setAttribute('aria-busy', 'false'); }
+        }
+
+        function renderBunqCategoryReview(items) {
+            const container = document.getElementById('data-health-bunq-category-review');
+            if (!container) return;
+            if (!items.length) {
+                container.innerHTML = '<div class="overview-empty">Geen onbevestigde Bunq-transacties met categorie Other.</div>';
+                return;
+            }
+            const options = '<option value="" selected disabled>Kies categorie</option>' + BUNQ_CATEGORY_OPTIONS.map(([value, label]) => `<option value="${value}">${label}</option>`).join('');
+            const rows = items.map(item => `<tr>
+                <td>${escapeHtml(formatControlDate(item.occurred_at))}</td>
+                <td><strong>${escapeHtml(item.account || '—')}</strong><span class="viewer-product-meta">${escapeHtml(item.payee || item.description || '—')}</span></td>
+                <td>${escapeHtml(item.description || '—')}</td>
+                <td class="viewer-amount">${escapeHtml(viewerMoney(Math.abs(Number(item.amount || 0)), item.currency_code))}</td>
+                <td><select id="bunq-review-category-${escapeHtml(item.id)}" aria-label="Categorie voor ${escapeHtml(item.description || item.id)}">${options}</select></td>
+                <td class="control-actions"><button type="button" class="btn btn-primary btn-sm" onclick="saveBunqCategoryReview('${escapeHtml(item.id)}')">Opslaan</button><button type="button" class="btn btn-secondary btn-sm" onclick="confirmBunqOther('${escapeHtml(item.id)}')">Bevestig Other Expenses</button></td>
+            </tr>`).join('');
+            container.innerHTML = `<div class="control-table-wrap"><table class="data-table control-table"><thead><tr><th>Datum</th><th>Account / tegenpartij</th><th>Notitie</th><th>Bedrag</th><th>Nieuwe categorie</th><th>Actie</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+        }
+
+        async function saveBunqCategoryReview(transactionId) {
+            const category = document.getElementById(`bunq-review-category-${transactionId}`)?.value;
+            await submitBunqCategoryReview(transactionId, category);
+        }
+
+        async function confirmBunqOther(transactionId) {
+            await submitBunqCategoryReview(transactionId, 'other_expenses');
+        }
+
+        async function submitBunqCategoryReview(transactionId, category) {
+            try {
+                await api('POST', `/control-plane/data-health/bunq-other-transactions/${encodeURIComponent(transactionId)}`, { category });
+                toast(category === 'other_expenses' ? 'Other Expenses bevestigd.' : 'Categorie opgeslagen.', 'success');
+                await loadBunqCategoryReview();
+            } catch (error) { toast(error?.message || 'De categorie kon niet worden opgeslagen.', 'error'); }
         }
 
         const dataHealthLabels = { healthy: 'Alles in orde', attention_required: 'Aandacht vereist', error: 'Fout in de datastroom', partial: 'Data gedeeltelijk beschikbaar', unavailable: 'Niet beschikbaar' };
@@ -1385,6 +1498,8 @@
             }
             const summary = document.getElementById('data-health-summary');
             if (summary) { summary.setAttribute('aria-busy', 'false'); summary.innerHTML = '<div class="overview-empty">Overzicht tijdelijk niet beschikbaar.</div>'; }
+            const categoryReview = document.getElementById('data-health-bunq-category-review');
+            if (categoryReview) { categoryReview.setAttribute('aria-busy', 'false'); categoryReview.innerHTML = '<div class="overview-empty">Bunq-categorisatie tijdelijk niet beschikbaar.</div>'; }
             const remediation = document.getElementById('data-health-remediation');
             if (remediation) { remediation.setAttribute('aria-busy', 'false'); remediation.innerHTML = '<div class="overview-empty">Herstelqueue tijdelijk niet beschikbaar.</div>'; }
             const sources = document.getElementById('data-health-sources');
@@ -2137,21 +2252,20 @@
                 api('GET', '/accounts?limit=200'),
                 api('GET', '/portfolio'),
                 api('GET', '/holdings?limit=500'),
-                api('GET', '/transactions?limit=50&sort_order=desc'),
+                api('GET', '/transactions?limit=500&sort_order=desc'),
+                api('GET', '/transactions/counterparty-expenses?limit=10'),
             ]);
             const [accountResult, portfolioResult, holdingResult, transactionResult] = settled;
+            const counterpartyResult = settled[4];
             const accountData = accountResult.status === 'fulfilled' ? accountResult.value : null;
             const portfolioData = portfolioResult.status === 'fulfilled' ? portfolioResult.value : null;
             const holdingData = holdingResult.status === 'fulfilled' ? holdingResult.value : null;
             const transactionData = transactionResult.status === 'fulfilled' ? transactionResult.value : null;
-
+            const counterpartyData = counterpartyResult.status === 'fulfilled' ? counterpartyResult.value : null;
+            window.viewerAccountItems = accountData?.items || [];
+            window.viewerSummaryState = { accountData, portfolioData, holdingData, transactionData, counterpartyData };
             if (summary) {
-                const currency = portfolioData?.currency_code || 'EUR';
-                summary.innerHTML = `
-                    <div class="card"><div class="field-hint">Portefeuillewaarde</div><div class="page-title">${viewerMoney(portfolioData?.total_value, currency)}</div></div>
-                    <div class="card viewer-summary-card"><span class="viewer-card-info" tabindex="0" role="img" aria-label="Uitleg kostprijs"><span class="mdi mdi-information-outline" aria-hidden="true"></span><span class="viewer-card-tooltip" role="tooltip">De totale historische kostprijs van de huidige holdings. Dit is wat er volgens de import voor de aangehouden effecten is betaald, niet de actuele marktwaarde.</span></span><div class="field-hint">Kostprijs</div><div class="page-title">${viewerMoney(portfolioData?.total_cost_basis, currency)}</div></div>
-                    <div class="card"><div class="field-hint">Accounts / holdings</div><div class="page-title">${viewerCell(accountData?.total ?? '—')} / ${viewerCell(holdingData?.total ?? '—')}</div></div>
-                    <div class="card"><div class="field-hint">Transacties</div><div class="page-title">${viewerCell(transactionData?.total ?? '—')}</div></div>`;
+                renderViewerSummary(window.viewerActiveTab || 'brokers');
                 summary.setAttribute('aria-busy', 'false');
             }
             if (accounts) {
@@ -2172,6 +2286,10 @@
                     : renderViewerTransactions(transactionData?.items || []);
                 transactions.setAttribute('aria-busy', 'false');
             }
+            const brokerCount = document.getElementById('viewer-broker-count');
+            const bankCount = document.getElementById('viewer-bank-count');
+            if (brokerCount) brokerCount.textContent = holdingData ? `· ${holdingData.items?.length || 0}` : '';
+            if (bankCount) bankCount.textContent = transactionData ? `· ${transactionData.items?.length || 0}` : '';
             if (portfolioResult.status === 'rejected' && summary) {
                 summary.insertAdjacentHTML('afterbegin', renderViewerError('Portefeuilleoverzicht kon niet worden geladen.', portfolioResult.reason?.message, 'loadViewer'));
             }
@@ -2196,6 +2314,93 @@
                 if (Number.isFinite(value)) totals[currency] = (totals[currency] || 0) + value;
             });
             return Object.entries(totals).map(([currency, value]) => viewerMoney(value, currency)).join('<br>') || '—';
+        }
+
+        function viewerCategoryName(item) {
+            const raw = String(item.category || item.classification_override || 'Other').trim();
+            return raw && raw.toLocaleLowerCase() !== 'other' ? raw : 'Other';
+        }
+
+        function viewerCategoryBreakdown(items) {
+            const totals = new Map();
+            items.forEach(item => {
+                const amount = Number(item.amount);
+                // A category distribution represents spending, not salary or
+                // transfers entering a bank account.
+                if (!Number.isFinite(amount) || amount >= 0) return;
+                const category = viewerCategoryName(item);
+                totals.set(category, (totals.get(category) || 0) + Math.abs(amount));
+            });
+            return [...totals.entries()].sort((a, b) => b[1] - a[1]);
+        }
+
+        function renderViewerCategoryCard(items) {
+            const breakdown = viewerCategoryBreakdown(items);
+            if (!breakdown.length) {
+                return '<div class="card viewer-summary-card"><div class="field-hint">Verdeling uitgaven</div><div class="field-hint">Geen uitgaande transacties beschikbaar.</div></div>';
+            }
+            const palette = ['#10b981', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6', '#14b8a6', '#f97316', '#64748b'];
+            const total = breakdown.reduce((sum, [, value]) => sum + value, 0);
+            let cursor = 0;
+            const segments = breakdown.map(([, value], index) => {
+                const start = cursor / total * 100;
+                cursor += value;
+                return `${palette[index % palette.length]} ${start.toFixed(2)}% ${(cursor / total * 100).toFixed(2)}%`;
+            });
+            const currency = String(items.find(item => item.currency_code)?.currency_code || 'EUR').toUpperCase();
+            const legend = breakdown.map(([category, value], index) => {
+                const label = category === 'Other'
+                    ? `<button type="button" class="viewer-category-link" onclick="openViewerCategoryOverride()">Other</button>`
+                    : viewerCell(category);
+                return `<div class="viewer-category-legend-item"><span class="viewer-category-swatch" style="background:${palette[index % palette.length]}" aria-hidden="true"></span><span>${label}</span><span class="viewer-category-amount">${viewerMoney(value, currency)}</span></div>`;
+            }).join('');
+            return `<div class="card viewer-summary-card"><div class="field-hint">Verdeling uitgaven</div><div class="viewer-category-chart"><div class="viewer-category-donut" role="img" aria-label="Verdeling van uitgaven per categorie" style="background:conic-gradient(${segments.join(',')})"></div><div class="viewer-category-legend" aria-label="Categorieën">${legend}</div></div></div>`;
+        }
+
+        function renderViewerSummary(tab = 'brokers') {
+            const summary = document.getElementById('viewer-summary');
+            const state = window.viewerSummaryState;
+            if (!summary || !state) return;
+            const { accountData, portfolioData, holdingData, transactionData } = state;
+            const accounts = accountData?.items || [];
+            const bankAccounts = accounts.filter(item => !viewerAccountIsBroker(item));
+            if (tab === 'banks') {
+                summary.innerHTML = `
+                    <div class="card viewer-summary-card"><div class="field-hint">Totaal huidig saldo</div><div class="page-title">${viewerTotalsByCurrency(bankAccounts, 'current_balance')}</div><div class="field-hint">Alle bankrekeningen, per valuta</div></div>
+                    ${renderViewerCategoryCard(transactionData?.items || [])}
+                    ${renderViewerCounterpartyCard(state.counterpartyData)}
+                    <div class="card viewer-summary-card"><div class="field-hint">Bankrekeningen</div><div class="page-title">${viewerCell(bankAccounts.length)}</div></div>
+                    <div class="card viewer-summary-card"><div class="field-hint">Transacties</div><div class="page-title">${viewerCell(transactionData?.total ?? '—')}</div></div>`;
+                return;
+            }
+            const currency = portfolioData?.currency_code || 'EUR';
+            summary.innerHTML = `
+                <div class="card viewer-summary-card"><div class="field-hint">Portefeuillewaarde</div><div class="page-title">${viewerMoney(portfolioData?.total_value, currency)}</div></div>
+                <div class="card viewer-summary-card"><span class="viewer-card-info" tabindex="0" role="img" aria-label="Uitleg kostprijs"><span class="mdi mdi-information-outline" aria-hidden="true"></span><span class="viewer-card-tooltip" role="tooltip">De totale historische kostprijs van de huidige holdings. Dit is wat er volgens de import voor de aangehouden effecten is betaald, niet de actuele marktwaarde.</span></span><div class="field-hint">Kostprijs</div><div class="page-title">${viewerMoney(portfolioData?.total_cost_basis, currency)}</div></div>
+                <div class="card viewer-summary-card"><div class="field-hint">Accounts / holdings</div><div class="page-title">${viewerCell(accountData?.total ?? '—')} / ${viewerCell(holdingData?.total ?? '—')}</div></div>
+                <div class="card viewer-summary-card"><div class="field-hint">Transacties</div><div class="page-title">${viewerCell(transactionData?.total ?? '—')}</div></div>`;
+        }
+
+        function renderViewerCounterpartyCard(data) {
+            const items = data?.items || [];
+            if (!items.length) {
+                return '<div class="card viewer-summary-card viewer-counterparty-card"><div class="field-hint">Waar gaat het geld heen?</div><div class="field-hint">Geen uitgaven per tegenrekening beschikbaar.</div></div>';
+            }
+            const rows = items.map(item => `<div class="viewer-counterparty-row"><span class="viewer-counterparty-name" title="${escapeHtml(item.counterparty || '')}">${viewerCell(item.counterparty)}</span><span class="viewer-counterparty-count">${viewerCell(item.transaction_count)} transacties</span><span class="viewer-counterparty-total">${viewerMoney(item.total_spent, item.currency_code)}</span></div>`).join('');
+            const totals = Object.entries(data.totals_by_currency || {}).map(([currency, value]) => viewerMoney(value, currency)).join('<br>');
+            return `<div class="card viewer-summary-card viewer-counterparty-card"><div class="field-hint">Waar gaat het geld heen?</div><div class="page-title">${totals || '—'}</div><div class="field-hint">Top tegenrekeningen of omschrijvingen, gesorteerd van hoog naar laag · ${viewerCell(data.transaction_count)} uitgaven</div><div class="viewer-counterparty-list" aria-label="Uitgaven per tegenrekening">${rows}</div></div>`;
+        }
+
+        function openViewerCategoryOverride() {
+            switchSection('data-health');
+            setTimeout(() => {
+                const target = document.getElementById('data-health-bunq-category-review');
+                if (target) {
+                    target.setAttribute('tabindex', '-1');
+                    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    target.focus({ preventScroll: true });
+                }
+            }, 0);
         }
 
         function renderViewerAccounts(items) {
@@ -2238,6 +2443,24 @@
         }
 
         let viewerHoldingsState = { items: [], query: '', sortBy: '', direction: 'asc' };
+        window.viewerAccountItems = [];
+        window.viewerSummaryState = null;
+        window.viewerActiveTab = 'brokers';
+
+        function switchViewerTab(tab) {
+            const isBrokers = tab === 'brokers';
+            window.viewerActiveTab = isBrokers ? 'brokers' : 'banks';
+            document.querySelectorAll('.viewer-tab').forEach(button => {
+                const active = button.id === `viewer-tab-${tab}`;
+                button.classList.toggle('is-active', active);
+                button.setAttribute('aria-selected', String(active));
+            });
+            const brokerPanel = document.getElementById('viewer-panel-brokers');
+            const bankPanel = document.getElementById('viewer-panel-banks');
+            if (brokerPanel) { brokerPanel.classList.toggle('hidden', !isBrokers); brokerPanel.hidden = !isBrokers; }
+            if (bankPanel) { bankPanel.classList.toggle('hidden', isBrokers); bankPanel.hidden = isBrokers; }
+            renderViewerSummary(window.viewerActiveTab);
+        }
 
         function toggleViewerAccountGroup(index, button) {
             const details = document.getElementById(`viewer-account-details-${index}`);
@@ -2261,11 +2484,19 @@
             const key = viewerHoldingsState.sortBy;
             if (key) visible.sort((a, b) => String(a[key] ?? '').localeCompare(String(b[key] ?? ''), undefined, { numeric: true, sensitivity: 'base' }) * (viewerHoldingsState.direction === 'asc' ? 1 : -1));
             if (!viewerHoldingsState.items.length) return '<div class="empty-state" style="padding:24px 10px;"><p>Geen holdings in de database.</p></div>';
-            const columns = [['ticker', 'Effect'], ['account_name', 'Account'], ['quantity', 'Aantal'], ['market_value', 'Marktwaarde'], ['price', 'Prijs'], ['observed_at', 'Geobserveerd']];
-            const heading = columns.map(([key, label]) => `<th><button type="button" class="viewer-sort-button" onclick="sortViewerHoldings('${key}')">${label}<span aria-hidden="true">${viewerHoldingsState.sortBy === key ? (viewerHoldingsState.direction === 'asc' ? ' ↑' : ' ↓') : ' ↕'}</span></button></th>`).join('');
-            const body = visible.map(item => `<tr><td><strong>${viewerCell(item.ticker || item.security_name)}</strong><br><span class="field-hint">${viewerCell(item.security_name)}</span></td><td>${viewerCell(item.account_name)}</td><td>${viewerCell(item.quantity)}</td><td>${viewerMoney(item.market_value, item.currency_code)}</td><td>${viewerMoney(item.price, item.price_currency || item.currency_code)}</td><td>${viewerCell(fmtDate(item.observed_at))}</td></tr>`).join('');
+            const columns = [['security_name', 'Product'], ['ticker', 'Symbool | ISIN'], ['quantity', 'Aantal'], ['price', 'Koers'], ['currency_code', 'Valuta'], ['market_value', 'Waarde'], ['cost_basis', 'GAK'], ['unrealised_pl', 'W/V €'], ['unrealised_pl_pct', 'W/V %'], ['unrealised_pl', 'Ongerealiseerde W/V €'], ['unrealised_pl', 'Totale W/V€']];
+            const heading = columns.map(([key, label]) => `<th class="${['quantity','price','market_value','cost_basis','unrealised_pl','unrealised_pl_pct'].includes(key) ? 'numeric' : ''}"><button type="button" class="viewer-sort-button" onclick="sortViewerHoldings('${key}')">${label}<span aria-hidden="true">${viewerHoldingsState.sortBy === key ? (viewerHoldingsState.direction === 'asc' ? ' ↑' : ' ↓') : ' ↕'}</span></button></th>`).join('');
+            const accountById = new Map((window.viewerAccountItems || []).map(account => [String(account.id), account]));
+            const body = visible.map(item => {
+                const account = accountById.get(String(item.account_id));
+                const currency = item.currency_code || 'EUR';
+                const plClass = Number(item.unrealised_pl) > 0 ? 'positive' : Number(item.unrealised_pl) < 0 ? 'negative' : '';
+                const product = `<div class="viewer-product"><span class="viewer-product-mark">${escapeHtml(String(item.ticker || item.security_name || '?').slice(0, 2).toUpperCase())}</span><span><span class="viewer-product-name">${viewerCell(item.security_name)}</span><span class="viewer-product-meta">${viewerCell(account?.name || item.account_name)}</span></span></div>`;
+                const symbolIsin = `${viewerCell(item.ticker)}<br><span class="viewer-product-meta">${viewerCell(item.isin || 'ISIN niet beschikbaar')}</span>`;
+                return `<tr><td>${product}</td><td>${symbolIsin}</td><td class="numeric">${viewerCell(item.quantity)}</td><td class="numeric">${viewerMoney(item.price, item.price_currency || currency)}</td><td>${viewerCell(String(currency).toUpperCase())}</td><td class="numeric">${viewerMoney(item.market_value, currency)}</td><td class="numeric">${viewerMoney(item.cost_basis, item.cost_basis_currency || currency)}</td><td class="numeric ${plClass}">${viewerMoney(item.unrealised_pl, currency)}</td><td class="numeric ${plClass}">${item.unrealised_pl_pct == null ? '—' : `${Number(item.unrealised_pl_pct).toFixed(2)}%`}</td><td class="numeric ${plClass}">${viewerMoney(item.unrealised_pl, currency)}</td><td class="numeric ${plClass}">${viewerMoney(item.unrealised_pl, currency)}</td></tr>`;
+            }).join('');
             const container = document.getElementById('viewer-holdings');
-            const html = `<div class="viewer-table-toolbar"><label for="viewer-holdings-search">Zoek holding</label><input id="viewer-holdings-search" type="search" placeholder="Ticker, naam of account…" value="${escapeHtml(viewerHoldingsState.query)}" oninput="viewerHoldingsState.query=this.value; renderViewerHoldings(viewerHoldingsState.items, false)"><span class="field-hint">${visible.length} van ${viewerHoldingsState.items.length}</span></div><div style="overflow-x:auto;"><table class="data-table"><thead><tr>${heading}</tr></thead><tbody>${body || '<tr><td colspan="6" class="viewer-filter-empty">Geen holdings gevonden.</td></tr>'}</tbody></table></div>`;
+            const html = `<div class="viewer-table-toolbar"><label for="viewer-holdings-search">Zoek positie</label><input id="viewer-holdings-search" type="search" placeholder="Product, ticker of account…" value="${escapeHtml(viewerHoldingsState.query)}" oninput="viewerHoldingsState.query=this.value; renderViewerHoldings(viewerHoldingsState.items, false)"><span class="field-hint">${visible.length} van ${viewerHoldingsState.items.length}</span></div><div class="viewer-table-wrap"><table class="data-table viewer-finance-table"><thead><tr>${heading}</tr></thead><tbody>${body || '<tr><td colspan="11" class="viewer-filter-empty">Geen posities gevonden.</td></tr>'}</tbody></table></div>`;
             if (container) {
                 container.innerHTML = html;
                 if (!reset) {
@@ -2278,7 +2509,21 @@
 
         function renderViewerTransactions(items) {
             if (!items.length) return '<div class="empty-state" style="padding:24px 10px;"><p>Geen transacties in de database.</p></div>';
-            return `<div style="overflow-x:auto;"><table class="data-table"><thead><tr><th>Datum</th><th>Provider</th><th>Type</th><th>Omschrijving</th><th>Bedrag</th><th>Status</th></tr></thead><tbody>${items.map(item => `<tr><td>${viewerCell(fmtDate(item.occurred_at))}</td><td>${viewerCell(item.provider_key)}</td><td>${viewerCell(item.transaction_type)}</td><td>${viewerCell(item.description)}</td><td>${viewerMoney(item.amount, item.currency_code)}</td><td>${viewerCell(item.status)}</td></tr>`).join('')}</tbody></table></div>`;
+            const accountById = new Map((window.viewerAccountItems || []).map(account => [String(account.id), account]));
+            const rows = items.map(item => {
+                const account = accountById.get(String(item.account_id));
+                const amount = Number(item.amount);
+                const isDeposit = amount >= 0 || /deposit|dividend|interest|refund|income/i.test(String(item.transaction_type || ''));
+                const payee = item.merchant_name || item.counterparty_name || item.description;
+                const category = item.category || 'other';
+                return `<tr><td class="viewer-filter-cell"><input type="checkbox" aria-label="Selecteer transactie"></td><td>${viewerCell(fmtDate(item.occurred_at))}</td><td><strong>${viewerCell(account?.name || item.account_id)}</strong><span class="viewer-product-meta">${viewerCell(item.provider_key)}</span></td><td>${viewerCell(payee)}</td><td>${viewerCell(item.description)}</td><td>${viewerCell(category)}</td><td class="viewer-amount payment">${isDeposit ? '—' : viewerMoney(Math.abs(amount), item.currency_code)}</td><td class="viewer-amount deposit">${isDeposit ? viewerMoney(Math.abs(amount), item.currency_code) : '—'}</td></tr>`;
+            }).join('');
+            return `<div class="viewer-transaction-toolbar"><label for="viewer-transactions-search">Zoek transacties</label><input id="viewer-transactions-search" type="search" placeholder="Payee, account of notitie…" oninput="filterViewerTransactions(this.value)"><span class="field-hint">${items.length} transacties geladen</span></div><div class="viewer-table-wrap"><table class="data-table viewer-finance-table" id="viewer-transactions-table"><thead><tr><th class="viewer-filter-cell">Filter</th><th>Date</th><th>Account</th><th>Payee</th><th>Notes</th><th>Category</th><th class="numeric">Payment</th><th class="numeric">Deposit</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+        }
+
+        function filterViewerTransactions(query) {
+            const needle = String(query || '').toLocaleLowerCase();
+            document.querySelectorAll('#viewer-transactions-table tbody tr').forEach(row => row.classList.toggle('hidden', needle && !row.textContent.toLocaleLowerCase().includes(needle)));
         }
 
         // ── Load & render connectors ────────────────────────────────────
@@ -2549,11 +2794,12 @@
                 ? `<div class="conn-error" role="alert" title="${escapeHtml(String(cfg.last_error))}"><span class="mdi mdi-alert-outline"></span> ${escapeHtml(truncateText(cfg.last_error, 160))}</div>`
                 : '';
             return `
-                <div class="connector-card" data-connection="${connectionId}" data-provider="${provider}">
-                    <div class="top">
-                        <div class="name">${label}</div>
+                <details class="connector-card connector-card-expandable" data-connection="${connectionId}" data-provider="${provider}">
+                    <summary>
+                        <span class="name">${label}</span>
                         ${statusBadge}
-                    </div>
+                    </summary>
+                    <div class="connector-card-details">
                     <div class="desc">${displayName} · ${escapeHtml(String(cfg.id || cfg.connection_id))}</div>
                     <div class="conn-meta">
                         <div class="meta-row">
@@ -2582,7 +2828,7 @@
                         <div class="actions">
                             <button class="btn btn-secondary btn-sm" onclick="testConnection('${connectionId}', '${provider}')"><span class="mdi mdi-check-circle-outline"></span> Verbinding controleren</button>
                             <button class="btn btn-secondary btn-sm" onclick="refreshConnectionHealth('${connectionId}')"><span class="mdi mdi-heart-pulse"></span> Status vernieuwen</button>
-                            <button class="btn btn-secondary btn-sm" onclick="openAccountsModal('${connectionId}')"><span class="mdi mdi-folder-account-outline"></span> Accounts beheren</button>
+                            <button class="btn btn-secondary btn-sm" onclick="openAccountsModal('${connectionId}')"><span class="mdi mdi-folder-account-outline"></span> Rekeningen selecteren</button>
                             <button class="btn btn-secondary btn-sm" onclick="openConfigModal('${provider}', '${connectionId}')"><span class="mdi mdi-pencil-outline"></span> Instellingen</button>
                             <button class="btn btn-secondary btn-sm" onclick="openRenameModal('${connectionId}')"><span class="mdi mdi-rename-box-outline"></span> Naam wijzigen</button>
                             ${isPaused
@@ -2593,7 +2839,8 @@
                     </details>
                     <div id="test-result-${connectionId}" style="margin-top: 12px;" aria-live="polite"></div>
                     <div id="health-result-${connectionId}" style="margin-top: 8px;" aria-live="polite"></div>
-                </div>`;
+                    </div>
+                </details>`;
         }
 
         async function refreshConnectionHealth(connectionId) {
@@ -3028,6 +3275,7 @@
             if (!panel || !c) return;
             const copy = importWizardDefinition(provider);
             const isApi = fileUploadState.method === 'api';
+            const isBunq = provider === 'bunq' && isApi;
             const isSaxoFile = provider === 'saxo_investor' && !isApi;
             const fields = [...(c.credential_fields || []).map(f => ({ ...f, group: 'credential' })), ...(c.option_fields || []).map(f => ({ ...f, group: 'option' }))];
             const fieldHtml = fields.map(f => {
@@ -3043,14 +3291,20 @@
                 ? '<div class="alert alert-info"><strong>Eén SaxoInvestor-account</strong><span style="display:block;margin-top:4px;">Je hebt geen inloggegevens of technische instellingen nodig. Upload straks één Posities-bestand en één Transacties-bestand.</span></div>'
                 : `<div class="form-group"><label for="inline-profile-name">Naam van deze koppeling</label><input id="inline-profile-name" type="text" value="${escapeHtml(String(c.display_name || provider))}" required aria-required="true"><div class="field-hint">Deze naam wordt gebruikt om de koppeling later terug te vinden.</div></div>`;
             panel.classList.remove('hidden');
-            document.getElementById('import-flow-step').textContent = 'Stap 2 van 2';
-            const profileHeading = isApi ? 'Trading212 API-gegevens' : 'Profielgegevens';
+            document.getElementById('import-flow-step').textContent = isBunq ? 'Stap 2 van 3' : 'Stap 2 van 2';
+            const profileHeading = isBunq ? 'Bunq API-toegang' : (isApi ? 'Trading212 API-gegevens' : 'Profielgegevens');
             const apiHelp = isApi && provider === 'trading212'
                 ? '<div class="alert alert-info" role="note"><strong>Gebruik beide Trading212-gegevens.</strong><span style="display:block;margin-top:4px;">Vul je API Key en API Secret in uit Trading212. Deze worden versleuteld opgeslagen en nooit teruggetoond.</span></div>'
                 : '';
             const testButton = isApi ? '<button type="button" class="btn btn-secondary" id="inline-profile-test" onclick="testInlineProfile(\'' + escapeHtml(provider) + '\')">Verbinding testen</button>' : '';
             const saveDisabled = isApi ? ' disabled' : '';
-            panel.innerHTML = `<div class="degiro-wizard-progress"><div class="wizard-step active"><div class="wizard-step-line"></div><div class="wizard-step-label">${escapeHtml(String(c.display_name || provider))}</div></div><div class="wizard-step active"><div class="wizard-step-line"></div><div class="wizard-step-label">${isApi ? 'API testen en opslaan' : 'Profiel instellen'}</div></div></div><p class="degiro-wizard-copy">Maak eerst een profiel aan voor ${escapeHtml(String(c.display_name || provider))}. ${isApi ? 'Test de gegevens en kies daarna de accounts die je wilt synchroniseren.' : 'Daarna kun je direct bestanden importeren.'}</p>${profileName}${apiHelp}${profileFields ? `<h3 style="font-size:.9rem;font-weight:600;margin:16px 0 12px;">${profileHeading}</h3>${profileFields}` : ''}<div id="inline-profile-test-result" aria-live="polite"></div><div id="inline-profile-accounts" class="wizard-accounts hidden"></div><div id="inline-profile-error" class="hidden alert alert-error" role="alert"></div><div class="degiro-wizard-actions"><button type="button" class="btn btn-secondary" onclick="resetImportFlow()">Andere tegenpartij</button><div class="degiro-wizard-actions-right">${testButton}<button type="button" class="btn btn-primary" id="inline-profile-save" onclick="saveInlineProfile('${escapeHtml(provider)}')"${saveDisabled}>Koppeling opslaan</button></div></div>`;
+            const progress = isBunq
+                ? `<div class="degiro-wizard-progress"><div class="wizard-step active"><div class="wizard-step-line"></div><div class="wizard-step-label">Bunq kiezen</div></div><div class="wizard-step active"><div class="wizard-step-line"></div><div class="wizard-step-label">API testen</div></div><div id="inline-step-accounts" class="wizard-step"><div class="wizard-step-line"></div><div class="wizard-step-label">Rekeningen kiezen</div></div></div>`
+                : `<div class="degiro-wizard-progress"><div class="wizard-step active"><div class="wizard-step-line"></div><div class="wizard-step-label">${escapeHtml(String(c.display_name || provider))}</div></div><div class="wizard-step active"><div class="wizard-step-line"></div><div class="wizard-step-label">${isApi ? 'API testen en opslaan' : 'Profiel instellen'}</div></div></div>`;
+            const intro = isBunq
+                ? 'Vul je Bunq API-key in, test de verbinding en selecteer daarna welke rekeningen je wilt synchroniseren.'
+                : `Maak eerst een profiel aan voor ${escapeHtml(String(c.display_name || provider))}. ${isApi ? 'Test de gegevens en kies daarna de accounts die je wilt synchroniseren.' : 'Daarna kun je direct bestanden importeren.'}`;
+            panel.innerHTML = `${progress}<p class="degiro-wizard-copy">${intro}</p>${profileName}${apiHelp}${profileFields ? `<h3 style="font-size:.9rem;font-weight:600;margin:16px 0 12px;">${profileHeading}</h3>${profileFields}` : ''}<div id="inline-profile-test-result" aria-live="polite"></div><div id="inline-profile-accounts" class="wizard-accounts hidden"></div><div id="inline-profile-error" class="hidden alert alert-error" role="alert"></div><div class="degiro-wizard-actions"><button type="button" class="btn btn-secondary" onclick="resetImportFlow()">Andere tegenpartij</button><div class="degiro-wizard-actions-right">${testButton}<button type="button" class="btn btn-primary" id="inline-profile-save" onclick="saveInlineProfile('${escapeHtml(provider)}')"${saveDisabled}>Koppeling opslaan</button></div></div>`;
             document.getElementById('import-provider-choice').classList.add('hidden');
         }
 
@@ -3094,7 +3348,11 @@
                 fileUploadState.inlineAccounts = response.accounts || [];
                 if (result) result.innerHTML = `<div class="alert alert-success" role="status"><span class="mdi mdi-check-circle-outline"></span> ${escapeHtml(response.message || 'Verbinding geslaagd.')}</div>`;
                 const accounts = document.getElementById('inline-profile-accounts');
-                if (accounts && fileUploadState.inlineAccounts.length) { accounts.classList.remove('hidden'); accounts.innerHTML = renderAccountCheckboxes(fileUploadState.inlineAccounts, fileUploadState.inlineAccounts.map(a => String(a.id))); }
+                if (accounts && fileUploadState.inlineAccounts.length) { accounts.classList.remove('hidden'); accounts.innerHTML = renderAccountCheckboxes(fileUploadState.inlineAccounts, fileUploadState.inlineAccounts.map(a => String(a.id)), {}); }
+                if (provider === 'bunq') {
+                    document.getElementById('import-flow-step').textContent = 'Stap 3 van 3';
+                    document.getElementById('inline-step-accounts')?.classList.add('active');
+                }
                 if (save) save.disabled = false;
             } catch (e) {
                 fileUploadState.inlineTested = false;
@@ -3111,7 +3369,7 @@
             panel.classList.remove('hidden');
             document.getElementById('import-flow-step').textContent = 'Stap 2 van 2';
             document.getElementById('import-provider-choice').classList.add('hidden');
-            panel.innerHTML = `<div class="degiro-wizard-progress"><div class="wizard-step active"><div class="wizard-step-line"></div><div class="wizard-step-label">${escapeHtml(String(c.display_name || provider))}</div></div><div class="wizard-step active"><div class="wizard-step-line"></div><div class="wizard-step-label">API-koppeling</div></div></div><p class="degiro-wizard-copy">Kies een bestaande koppeling of voeg een nieuwe ${escapeHtml(String(c.display_name || provider))}-koppeling toe.</p><div class="connector-grid">${configs.map(cfg => `<div class="connector-card"><div class="name">${escapeHtml(String(cfg.description || c.display_name || provider))}</div><div class="desc">${cfg.is_configured ? 'Koppeling actief' : 'Configuratie ontbreekt'}</div><div class="actions" style="margin-top:12px;"><button type="button" class="btn btn-secondary btn-sm" onclick="testConnection('${escapeHtml(String(cfg.id))}', '${escapeHtml(provider)}')">Verbinding testen</button><button type="button" class="btn btn-secondary btn-sm" onclick="openAccountsModal('${escapeHtml(String(cfg.id))}')">Accounts beheren</button></div></div>`).join('')}<button type="button" class="connector-card" style="text-align:left;cursor:pointer;" onclick="renderInlineProfileSetup('${escapeHtml(provider)}')"><div class="name"><span class="mdi mdi-plus"></span> Nieuwe koppeling</div><div class="desc">API-gegevens instellen</div></button></div><div class="degiro-wizard-actions"><button type="button" class="btn btn-secondary" onclick="resetImportFlow()">Andere tegenpartij</button></div>`;
+            panel.innerHTML = `<div class="degiro-wizard-progress"><div class="wizard-step active"><div class="wizard-step-line"></div><div class="wizard-step-label">${escapeHtml(String(c.display_name || provider))}</div></div><div class="wizard-step active"><div class="wizard-step-line"></div><div class="wizard-step-label">API-koppeling</div></div></div><p class="degiro-wizard-copy">Kies een bestaande koppeling of voeg een nieuwe ${escapeHtml(String(c.display_name || provider))}-koppeling toe.</p><div class="connector-grid">${configs.map(cfg => `<div class="connector-card"><div class="name">${escapeHtml(String(cfg.description || c.display_name || provider))}</div><div class="desc">${cfg.is_configured ? 'Koppeling actief' : 'Configuratie ontbreekt'}</div><div class="actions" style="margin-top:12px;"><button type="button" class="btn btn-secondary btn-sm" onclick="testConnection('${escapeHtml(String(cfg.id))}', '${escapeHtml(provider)}')">Verbinding testen</button><button type="button" class="btn btn-secondary btn-sm" onclick="openAccountsModal('${escapeHtml(String(cfg.id))}')">Rekeningen selecteren</button></div></div>`).join('')}<button type="button" class="connector-card" style="text-align:left;cursor:pointer;" onclick="renderInlineProfileSetup('${escapeHtml(provider)}')"><div class="name"><span class="mdi mdi-plus"></span> Nieuwe koppeling</div><div class="desc">API-gegevens instellen</div></button></div><div class="degiro-wizard-actions"><button type="button" class="btn btn-secondary" onclick="resetImportFlow()">Andere tegenpartij</button></div>`;
         }
 
         async function saveInlineProfile(provider) {
@@ -3503,7 +3761,7 @@
                     const accountsBox = document.getElementById('wizard-accounts');
                     if (wizardAccounts.length) {
                         accountsBox.classList.remove('hidden');
-                        accountsBox.innerHTML = renderAccountCheckboxes(wizardAccounts, wizardAccounts.map(a => String(a.id)));
+                        accountsBox.innerHTML = renderAccountCheckboxes(wizardAccounts, wizardAccounts.map(a => String(a.id)), {});
                     } else {
                         accountsBox.classList.add('hidden');
                     }
@@ -3532,24 +3790,84 @@
             return 'acc-' + String(accountId).replace(/[^A-Za-z0-9_-]/g, '_');
         }
 
-        function renderAccountCheckboxes(accounts, selectedIds) {
+        const BUNQ_CATEGORY_OPTIONS = [
+            ['employment', 'Employment'],
+            ['housing', 'Housing'],
+            ['groceries', 'Groceries'],
+            ['food_and_dining', 'Food & Dining'],
+            ['transportation', 'Transportation'],
+            ['shopping', 'Shopping'],
+            ['entertainment', 'Entertainment'],
+            ['health_wellness', 'Health & Wellness'],
+            ['bills_and_utilities', 'Bills & Utilities'],
+            ['personal_care', 'Personal Care'],
+            ['education', 'Education'],
+            ['travel', 'Travel'],
+            ['gifts_and_donations', 'Gifts & Donations'],
+            ['fees_and_charges', 'Fees & Charges'],
+            ['finance', 'Finance'],
+            ['other_expenses', 'Other Expenses'],
+        ];
+
+        function renderAccountCheckboxes(accounts, selectedIds, fallbackMap) {
             const selectedSet = new Set((selectedIds || []).map(String));
-            let html = '<h3 style="font-size:0.9rem;font-weight:600;margin-bottom:10px;">Accounts to sync</h3>';
-            html += '<p style="font-size:0.8rem;color:var(--text-muted);margin-bottom:12px;">Choose which provider accounts this connection should sync. Only selected accounts are synchronised and exported.</p>';
+            const configuredFallbacks = fallbackMap || {};
+            const typeLabels = {
+                checking: 'Betaalrekeningen',
+                joint: 'Gezamenlijke rekeningen',
+                savings: 'Spaarrekeningen',
+                credit: 'Creditcards',
+                loan: 'Leningen',
+                investment: 'Beleggingsrekeningen',
+                brokerage: 'Beleggingsrekeningen',
+                cash: 'Contanten',
+                other: 'Overige rekeningen',
+            };
+            const typeRank = { checking: 1, joint: 2, savings: 3, credit: 4, loan: 5, investment: 6, brokerage: 6, cash: 7, other: 99 };
+            const groups = new Map();
             for (const acc of accounts) {
-                const inputId = accountInputId(acc.id);
-                const label = escapeHtml(String(acc.label || acc.id));
-                const sub = acc.iban ? escapeHtml(String(acc.iban)) : escapeHtml(String(acc.id));
-                html += `
-                    <div class="account-row">
-                        <input type="checkbox" id="${inputId}" class="wizard-account-cb" value="${escapeHtml(String(acc.id))}" ${selectedSet.has(String(acc.id)) ? 'checked' : ''}>
-                        <div>
-                            <div class="account-label"><label for="${inputId}" style="margin:0;color:var(--text);">${label}</label></div>
-                            <div class="account-sub">${sub}</div>
-                        </div>
-                    </div>`;
+                const type = String(acc.account_type || 'other').toLowerCase();
+                if (!groups.has(type)) groups.set(type, []);
+                groups.get(type).push(acc);
+            }
+            let html = '<h3 style="font-size:0.9rem;font-weight:600;margin-bottom:10px;">Rekeningen selecteren</h3>';
+            html += '<p style="font-size:0.8rem;color:var(--text-muted);margin-bottom:12px;">Kies welke Bunq-rekeningen Finance-Sync synchroniseert. Niet-geselecteerde rekeningen worden niet geïmporteerd of geëxporteerd.</p>';
+            for (const [type, groupedAccounts] of [...groups.entries()].sort((a, b) => (typeRank[a[0]] || 99) - (typeRank[b[0]] || 99) || a[0].localeCompare(b[0]))) {
+                groupedAccounts.sort((a, b) => String(a.label || a.id).localeCompare(String(b.label || b.id), 'nl'));
+                const groupKey = `account-group-${type.replace(/[^A-Za-z0-9_-]/g, '_')}`;
+                const groupLabel = typeLabels[type] || (type.charAt(0).toUpperCase() + type.slice(1));
+                html += `<section class="account-type-group" aria-labelledby="${groupKey}" style="margin:16px 0 18px;"><div style="display:flex;align-items:center;justify-content:space-between;gap:12px;border-bottom:1px solid var(--border);padding-bottom:7px;margin-bottom:4px;"><h4 id="${groupKey}" style="font-size:.85rem;margin:0;">${escapeHtml(groupLabel)} <span class="field-hint">(${groupedAccounts.length})</span></h4><button type="button" class="btn btn-secondary btn-sm" onclick="toggleAccountGroup('${escapeHtml(type)}', this)">Alles uit</button></div>`;
+                for (const acc of groupedAccounts) {
+                    const inputId = accountInputId(acc.id);
+                    const label = escapeHtml(String(acc.label || acc.id));
+                    const identity = acc.iban || acc.id;
+                    const balance = acc.current_balance != null ? ` · ${escapeHtml(String(acc.current_balance))} ${escapeHtml(String(acc.currency_code || ''))}` : '';
+                    const sub = `${escapeHtml(String(identity))}${balance}`;
+                    html += `
+                        <div class="account-row">
+                            <input type="checkbox" id="${inputId}" class="wizard-account-cb account-group-${escapeHtml(type)}" value="${escapeHtml(String(acc.id))}" ${selectedSet.has(String(acc.id)) ? 'checked' : ''}>
+                            <div>
+                                <div class="account-label"><label for="${inputId}" style="margin:0;color:var(--text);">${label}</label></div>
+                                <div class="account-sub">${sub}</div>
+                            </div>
+                            <div style="display:flex;align-items:center;gap:8px;margin-top:6px;">
+                                <label for="${inputId}-fallback" style="margin:0;font-size:.74rem;color:var(--text-muted);white-space:nowrap;">Fallback categorie</label>
+                                <select id="${inputId}-fallback" class="wizard-account-fallback" data-account-id="${escapeHtml(String(acc.id))}" style="margin:0;min-width:0;flex:1;">
+                                    ${BUNQ_CATEGORY_OPTIONS.map(([value, optionLabel]) => `<option value="${value}" ${String(configuredFallbacks[String(acc.id)] || 'other') === value ? 'selected' : ''}>${optionLabel}</option>`).join('')}
+                                </select>
+                            </div>
+                        </div>`;
+                }
+                html += '</section>';
             }
             return html;
+        }
+
+        function toggleAccountGroup(type, button) {
+            const boxes = Array.from(document.querySelectorAll(`.account-group-${CSS.escape(type)}`));
+            const allChecked = boxes.length > 0 && boxes.every(box => box.checked);
+            boxes.forEach(box => { box.checked = !allChecked; });
+            if (button) button.textContent = allChecked ? 'Alles aan' : 'Alles uit';
         }
 
         async function saveConfig(event, providerType, isEdit, connectionId) {
@@ -3631,8 +3949,18 @@
 
                     // Apply the account selection chosen from the test result.
                     const checked = Array.from(document.querySelectorAll('.wizard-account-cb:checked')).map(el => el.value);
-                    if (wizardAccounts.length && checked.length && checked.length !== wizardAccounts.length) {
-                        await api('POST', `/connectors/configs/${result.id}/accounts`, { account_ids: checked, purge_unselected: false });
+                    const fallbackCategories = Object.fromEntries(
+                        Array.from(document.querySelectorAll('.wizard-account-fallback')).map(el => [
+                            el.dataset.accountId,
+                            String(el.value || '').trim(),
+                        ]).filter(([, value]) => value)
+                    );
+                    if (wizardAccounts.length) {
+                        await api('POST', `/connectors/configs/${result.id}/accounts`, {
+                            account_ids: checked,
+                            purge_unselected: false,
+                            account_category_fallbacks: fallbackCategories,
+                        });
                     }
                 }
                 closeModal();
@@ -3718,7 +4046,7 @@
             modal.className = 'modal-overlay';
             modal.innerHTML = `
                 <div class="modal" style="width:540px;">
-                    <h2 id="accounts-modal-title">Accounts — ${escapeHtml(String(cfg.description || cfg.provider_type))}</h2>
+                    <h2 id="accounts-modal-title">Rekeningen selecteren — ${escapeHtml(String(cfg.description || cfg.provider_type))}</h2>
                     <div id="accounts-body" aria-live="polite"><div class="alert alert-info"><span class="spinner"></span> Loading accounts…</div></div>
                 </div>`;
             document.getElementById('modal-container').appendChild(modal);
@@ -3731,11 +4059,11 @@
                 if (!accounts || !accounts.length) {
                     body.innerHTML = `
                         <p style="color:var(--text-muted);font-size:0.9rem;margin-bottom:16px;">
-                            No account list available for this connection yet. Run a connection test to fetch the accounts the provider offers.
+                            Nog geen rekeninglijst beschikbaar. Test de verbinding om de actuele rekeningen bij bunq op te halen.
                         </p>
                         <div class="modal-footer">
                             <button type="button" class="btn btn-secondary" onclick="closeModal()">Close</button>
-                            <button type="button" class="btn btn-primary" onclick="refreshAccounts('${escapeHtml(String(connectionId))}')"><span class="mdi mdi-refresh"></span> Refresh accounts</button>
+                            <button type="button" class="btn btn-primary" onclick="refreshAccounts('${escapeHtml(String(connectionId))}')"><span class="mdi mdi-refresh"></span> Rekeningen vernieuwen</button>
                         </div>`;
                     return;
                 }
@@ -3746,7 +4074,8 @@
                 const checkedSet = new Set(preselected);
                 const hasDeselected = accounts.some(a => previousSet.has(String(a.id)) && !checkedSet.has(String(a.id)));
                 let html = '<div class="selection-warning"><span class="mdi mdi-alert-outline"></span> Changing the account selection never removes already-imported history.</div>';
-                html += `<div id="accounts-list">${renderAccountCheckboxes(accounts, preselected)}</div>`;
+                html += '<p style="font-size:.8rem;color:var(--text-muted);margin:0 0 12px;">Kies per rekening de categorie die wordt gebruikt wanneer Bunq geen categorie teruggeeft. Standaard is de naam van de rekening ingevuld.</p>';
+                html += `<div id="accounts-list">${renderAccountCheckboxes(accounts, preselected, cfg.account_category_fallbacks || {})}</div>`;
                 html += `<div class="field-hint" style="margin-top:14px;">${accounts.map(a => `<button type="button" class="btn btn-danger btn-sm" style="margin:4px 4px 0 0;" onclick="deleteLinkedAccount('${escapeHtml(String(connectionId))}', '${escapeHtml(String(a.id))}')"><span class="mdi mdi-delete-outline"></span> Verwijder ${escapeHtml(String(a.label || a.id))}</button>`).join('')}</div>`;
                 html += `
                     <div class="form-group" style="margin-top:12px;">
@@ -3810,7 +4139,17 @@
             const btn = document.getElementById('accounts-save');
             btn.disabled = true;
             try {
-                await api('POST', `/connectors/configs/${connectionId}/accounts`, { account_ids: checked, purge_unselected: purge });
+                const fallbackCategories = Object.fromEntries(
+                    Array.from(document.querySelectorAll('.wizard-account-fallback')).map(el => [
+                        el.dataset.accountId,
+                        String(el.value || '').trim(),
+                    ]).filter(([, value]) => value)
+                );
+                await api('POST', `/connectors/configs/${connectionId}/accounts`, {
+                    account_ids: checked,
+                    purge_unselected: purge,
+                    account_category_fallbacks: fallbackCategories,
+                });
                 connTestAccounts[connectionId] = null; // force a fresh fetch next time
                 closeModal();
                 toast('Account selection saved', 'success');
@@ -4083,7 +4422,7 @@
                     const accounts = result.accounts || [];
                     connTestAccounts[configId] = accounts;
                     if (accounts.length) {
-                        html += `<div style="margin-top:8px;"><button type="button" class="btn btn-secondary btn-sm" onclick="openAccountsModal('${escapeHtml(String(configId))}')"><span class="mdi mdi-folder-account-outline"></span> Select accounts (${accounts.length} available)</button></div>`;
+                        html += `<div style="margin-top:8px;"><button type="button" class="btn btn-secondary btn-sm" onclick="openAccountsModal('${escapeHtml(String(configId))}')"><span class="mdi mdi-folder-account-outline"></span> Rekeningen selecteren (${accounts.length} beschikbaar)</button></div>`;
                     }
                     resultEl.innerHTML = html;
                 } else {

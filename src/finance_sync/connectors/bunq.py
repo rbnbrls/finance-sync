@@ -21,6 +21,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import logging
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any, cast
@@ -34,6 +35,7 @@ from finance_sync.connectors.exceptions import (
     TransientError,
 )
 from finance_sync.connectors.models import (
+    CategorySuggestion,
     ProviderMetadata,
     RawAccount,
     RawCardTransaction,
@@ -42,6 +44,7 @@ from finance_sync.connectors.models import (
     SourceReference,
 )
 from finance_sync.connectors.rate_limiter import RateLimitPolicy
+from finance_sync.services.category_options import canonicalize_category
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -50,6 +53,184 @@ if TYPE_CHECKING:
 
 _BUNQ_API_BASE = "https://api.bunq.com/v1"
 _DEFAULT_COUNT = 200
+logger = logging.getLogger(__name__)
+
+
+# Bunq exposes the merchant category code (MCC), rather than a human-readable
+# spending category, on payment objects.  Keep the translation at the source
+# boundary so every exporter receives the same category suggestion.
+_MCC_CATEGORIES: dict[str, str] = {
+    "4111": "transportation",
+    "4121": "transportation",
+    "4131": "transportation",
+    "4722": "travel",
+    "4789": "transportation",
+    "4900": "utilities",
+    "5411": "groceries",
+    "5422": "groceries",
+    "5441": "groceries",
+    "5451": "groceries",
+    "5462": "groceries",
+    "5499": "groceries",
+    "5541": "transportation",
+    "5542": "transportation",
+    "5812": "food_and_dining",
+    "5814": "food_and_dining",
+    "5815": "entertainment",
+    "5816": "entertainment",
+    "5817": "entertainment",
+    "5818": "entertainment",
+    "5912": "health",
+    "7011": "travel",
+    "3000": "travel",
+    "4511": "travel",
+    "4729": "travel",
+    "4784": "transportation",
+    "5960": "personal_care",
+    "7230": "personal_care",
+    "7298": "personal_care",
+    "7299": "personal_care",
+    "7372": "software",
+    "7379": "software",
+    "7832": "entertainment",
+    "7841": "entertainment",
+    "7991": "entertainment",
+    "7995": "entertainment",
+    "8062": "health",
+    "8099": "health",
+    "8211": "education",
+    "8220": "education",
+    "8299": "education",
+    "8398": "gifts_and_donations",
+    "8661": "gifts_and_donations",
+    "9311": "fees_and_charges",
+    "9399": "fees_and_charges",
+    "6011": "finance",
+    "6300": "finance",
+}
+
+_MERCHANT_CATEGORIES: dict[str, str] = {
+    "commandcode": "software",
+    "openai": "software",
+    "chatgpt": "software",
+    "github": "software",
+    "aws": "software",
+    "google cloud": "software",
+    "albert heijn": "groceries",
+    "jumbo": "groceries",
+    "lidl": "groceries",
+    "ah to go": "groceries",
+    "ns ": "transportation",
+    "uber": "transportation",
+    "bolt": "transportation",
+    "booking.com": "travel",
+    "airbnb": "travel",
+    "school": "education",
+    "university": "education",
+    "belastingdienst": "fees_and_charges",
+    "belasting": "fees_and_charges",
+    "donation": "gifts_and_donations",
+    "charity": "gifts_and_donations",
+    "salaris": "employment",
+    "salary": "employment",
+    "payroll": "employment",
+    "spotify": "entertainment",
+    "netflix": "entertainment",
+}
+
+
+def _extract_mcc(data: dict[str, Any], merchant: dict[str, Any]) -> str | None:
+    """Read the MCC names used by Bunq payment and card-payment payloads."""
+    value = (
+        data.get("merchant_category_code")
+        or data.get("mcc")
+        or merchant.get("merchant_category_code")
+        or merchant.get("mcc")
+    )
+    if value is None or not str(value).strip():
+        return None
+    return str(value).strip()
+
+
+def _extract_bunq_category(data: dict[str, Any]) -> str | None:
+    """Read an optional human category from provider-specific payloads.
+
+    The public Payment schema documents MCC on the counterparty label, while
+    some production payloads include the category in an additional or nested
+    field. Accept both shapes without assuming the field is always present.
+    """
+    candidates: list[Any] = [
+        data.get("category"),
+        data.get("category_name"),
+        data.get("payment_category"),
+        data.get("additional_transaction_information"),
+        data.get("additional_transaction_information_category"),
+    ]
+    for candidate in candidates:
+        values = candidate if isinstance(candidate, list) else [candidate]
+        for value in values:
+            if isinstance(value, dict):
+                value = (
+                    value.get("category")
+                    or value.get("name")
+                    or value.get("value")
+                )
+            if value and not str(value).isdigit():
+                return str(value).strip()
+    return None
+
+
+def _category_suggestion(
+    mcc: str | None,
+    *merchant_text: str | None,
+    category: str | None = None,
+) -> CategorySuggestion:
+    """Create one stable, provider-provenanced Bunq category.
+
+    Some Bunq ``Payment`` payloads omit MCC entirely (notably Mastercard
+    payments from the monetary-account endpoint).  In that case use a
+    conservative merchant rule and finally ``other_expenses`` so downstream
+    apps do not show an unclassified transaction.
+    """
+    canonical_category = canonicalize_category(category)
+    if canonical_category is not None:
+        value = canonical_category
+        source = "bunq_category"
+        confidence = 0.95
+    elif mcc is not None:
+        value = (
+            canonicalize_category(_MCC_CATEGORIES.get(mcc, "other_expenses"))
+            or "other_expenses"
+        )
+        source = "bunq_mcc"
+        confidence = 0.75
+    else:
+        haystack = " ".join(text or "" for text in merchant_text).casefold()
+        value = (
+            canonicalize_category(
+                next(
+                    (
+                        category
+                        for merchant, category in _MERCHANT_CATEGORIES.items()
+                        if merchant in haystack
+                    ),
+                    "other_expenses",
+                )
+            )
+            or "other_expenses"
+        )
+        source = (
+            "bunq_merchant_rule"
+            if value != "other_expenses"
+            else "bunq_fallback"
+        )
+        confidence = 0.65 if source == "bunq_merchant_rule" else 0.2
+    return CategorySuggestion(
+        value=value,
+        source=source,
+        confidence=confidence,
+        taxonomy="personal",
+    )
 
 
 class BunqConnector(Connector):
@@ -90,9 +271,17 @@ class BunqConnector(Connector):
         "scheduled_payments": "complete",
         "transfer_links": "partial",
     }
+    metadata_capabilities = (
+        "transaction_category_catalog",
+        "merchant_category_code",
+        "monetary_account_metadata",
+    )
 
+    # Keep a safety margin below Bunq's documented 60 requests/minute. The
+    # limiter is shared by every request made by this connector, including
+    # installation/session calls and pagination, not only sync wrappers.
     rate_limit_policy = RateLimitPolicy(
-        max_requests=60,
+        max_requests=50,
         window_seconds=60,
         max_retries=3,
         backoff_base=1.0,
@@ -124,6 +313,8 @@ class BunqConnector(Connector):
         #: Opaque persisted connector state (bunq installation material).
         #: Injected by the orchestrator before a run and read back after.
         self._state: dict[str, Any] = {}
+        self._category_catalog: list[dict[str, Any]] = []
+        self._category_catalog_loaded = False
         # bunq requires the full installation flow (RSA key exchange →
         # /installation → /device-server → signed /session-server) for
         # every new API key; the legacy session-only path only works for
@@ -140,10 +331,20 @@ class BunqConnector(Connector):
     def set_state(self, state: dict[str, Any]) -> None:
         """Replace the persisted connector state (e.g. from a prior run)."""
         self._state = dict(state or {})
+        raw_catalog = self._state.get("category_catalog")
+        self._category_catalog = (
+            [item for item in raw_catalog if isinstance(item, dict)]
+            if isinstance(raw_catalog, list)
+            else []
+        )
+        self._category_catalog_loaded = bool(self._category_catalog)
 
     def get_state(self) -> dict[str, Any]:
         """Return the connector state that should be persisted after a run."""
-        return dict(self._state)
+        state = dict(self._state)
+        if self._category_catalog:
+            state["category_catalog"] = list(self._category_catalog)
+        return state
 
     # ── Authentication ──────────────────────────────────────────────────
 
@@ -186,10 +387,9 @@ class BunqConnector(Connector):
         """
         headers = _base_headers()
         body: dict[str, object] = {"secret": api_key}
-        resp = await self._http.post(
-            "/session-server", json=body, headers=headers
+        resp = await self._request(
+            "POST", "/session-server", json=body, headers=headers
         )
-        resp.raise_for_status()
         data = resp.json()
 
         session_token: str | None = None
@@ -248,12 +448,12 @@ class BunqConnector(Connector):
                     encoding=serialization.Encoding.PEM,
                     format=serialization.PublicFormat.SubjectPublicKeyInfo,
                 )
-                installation = await self._http.post(
+                installation = await self._request(
+                    "POST",
                     "/installation",
                     json={"client_public_key": public_key.decode("ascii")},
                     headers=_base_headers(),
                 )
-                installation.raise_for_status()
                 installation_token = _bunq_token(installation.json())
                 fresh_installation = True
 
@@ -274,10 +474,9 @@ class BunqConnector(Connector):
                         ).decode("ascii"),
                     }
                 )
-                response = await self._http.post(
-                    path, content=payload, headers=headers
+                response = await self._request(
+                    "POST", path, content=payload, headers=headers
                 )
-                response.raise_for_status()
                 return response.json()
 
             if fresh_installation:
@@ -326,7 +525,7 @@ class BunqConnector(Connector):
     # ── Accounts ────────────────────────────────────────────────────────
 
     async def fetch_accounts(self) -> list[RawAccount]:
-        """Fetch all monetary accounts (bank + savings) via paginated API."""
+        """Fetch bank, savings and joint accounts via paginated API."""
         if not self._user_id:
             msg = "BunqConnector not authenticated"
             raise PermanentError(msg)
@@ -338,17 +537,30 @@ class BunqConnector(Connector):
         accounts.extend(
             await self._fetch_monetary_accounts("MonetaryAccountSavings")
         )
+        # Joint accounts are exposed by bunq through their own collection;
+        # they are not included reliably in the generic monetary-account
+        # response.  Without this call shared accounts remain invisible.
+        accounts.extend(
+            await self._fetch_monetary_accounts(
+                "MonetaryAccountJoint", endpoint="monetary-account-joint"
+            )
+        )
         return accounts
 
     async def _fetch_monetary_accounts(
         self,
         account_type: str,
+        *,
+        endpoint: str = "monetary-account",
     ) -> list[RawAccount]:
         """Fetch monetary accounts of a given type, handling pagination."""
         items: list[RawAccount] = []
-        url = f"/user/{self._user_id}/monetary-account?count={_DEFAULT_COUNT}"
+        url = f"/user/{self._user_id}/{endpoint}?count={_DEFAULT_COUNT}"
+        seen_urls: set[str] = set()
 
         while url:
+            if not self._mark_pagination_url(url, seen_urls):
+                break
             data = await self._request_paginated(url)
             for entry in data.get("Response", []):
                 account_data = entry.get(account_type)
@@ -372,6 +584,8 @@ class BunqConnector(Connector):
             acct_type = "savings"
         elif bunq_type == "MonetaryAccountBank":
             acct_type = "checking"
+        elif bunq_type == "MonetaryAccountJoint":
+            acct_type = "joint"
         else:
             acct_type = "other"
 
@@ -406,6 +620,65 @@ class BunqConnector(Connector):
             },
         )
 
+    async def fetch_categories(self) -> list[dict[str, Any]]:
+        """Fetch bunq's account-specific transaction category catalog.
+
+        Categories are auxiliary metadata: a missing/unsupported endpoint must
+        not make an otherwise valid payment sync fail. The raw catalog is
+        persisted in connector state for diagnostics and future classification
+        rules, while transaction rows keep only the safe category fields.
+        """
+        if not self._user_id:
+            msg = "BunqConnector not authenticated"
+            raise PermanentError(msg)
+        if self._category_catalog_loaded:
+            return list(self._category_catalog)
+        try:
+            response = await self._request(
+                "GET",
+                f"/user/{self._user_id}/additional-transaction-information-category",
+                headers=self._auth_headers(),
+            )
+            payload = response.json()
+        except (PermanentError, TransientError) as exc:
+            self._category_catalog_loaded = True
+            logger.warning("bunq_category_catalog_unavailable: %s", str(exc))
+            return list(self._category_catalog)
+
+        raw_items = (
+            payload.get("Response", payload)
+            if isinstance(payload, dict)
+            else payload
+        )
+        if not isinstance(raw_items, list):
+            self._category_catalog_loaded = True
+            return list(self._category_catalog)
+        catalog: list[dict[str, Any]] = []
+        for item in raw_items:
+            value = item
+            if isinstance(item, dict) and len(item) == 1:
+                value = next(iter(item.values()))
+            if not isinstance(value, dict):
+                continue
+            category = value.get("category")
+            if category:
+                catalog.append(
+                    {
+                        "category": str(category),
+                        "type": value.get("type"),
+                        "status": value.get("status"),
+                        "description": value.get("description"),
+                        "description_translated": value.get(
+                            "description_translated"
+                        ),
+                        "order": value.get("order"),
+                    }
+                )
+        self._category_catalog = catalog
+        self._category_catalog_loaded = True
+        logger.info("bunq_category_catalog_loaded: %s", len(catalog))
+        return list(catalog)
+
     # ── Transactions ────────────────────────────────────────────────────
 
     async def fetch_transactions(
@@ -423,6 +696,8 @@ class BunqConnector(Connector):
         if not self._user_id:
             msg = "BunqConnector not authenticated"
             raise PermanentError(msg)
+
+        await self.fetch_categories()
 
         if account_id:
             account_ids: Sequence[str] = [account_id]
@@ -452,9 +727,15 @@ class BunqConnector(Connector):
         support bunq's server-side date-range limitations.
         """
         items: list[RawTransaction] = []
-        url = f"/monetary-account/{account_id}/payment?count={_DEFAULT_COUNT}"
+        url = (
+            f"/user/{self._user_id}/monetary-account/{account_id}/payment"
+            f"?count={_DEFAULT_COUNT}"
+        )
+        seen_urls: set[str] = set()
 
         while url:
+            if not self._mark_pagination_url(url, seen_urls):
+                break
             data = await self._request_paginated(url)
             for entry in data.get("Response", []):
                 payment = entry.get("Payment")
@@ -490,6 +771,15 @@ class BunqConnector(Connector):
         counterparty: dict[str, Any] = data.get("counterparty_alias") or {}
         counterparty_iban = counterparty.get("value", "")
         merchant: dict[str, Any] = data.get("merchant") or {}
+        mcc = _extract_mcc(data, merchant)
+        bunq_category = _extract_bunq_category(data)
+        category_suggestion = _category_suggestion(
+            mcc,
+            description,
+            data.get("merchant_name"),
+            merchant.get("name"),
+            category=bunq_category,
+        )
 
         attachments = data.get("attachment", [])
         source_references = [
@@ -523,6 +813,32 @@ class BunqConnector(Connector):
             refund_amount = None
             refund_currency = None
 
+        # Keep the small, destination-relevant Bunq extensions in a stable
+        # contract.  The complete response is represented by
+        # ``source_record_hash`` for change detection; sensitive/provider-
+        # specific fields are deliberately not copied wholesale.
+        note = data.get("note") or data.get("notes")
+        note_text = note if isinstance(note, str) else None
+        contract_fields = {
+            "type": payment_type,
+            "status": status_raw,
+            "created": data.get("created"),
+            "updated": data.get("updated"),
+            "sub_type": data.get("sub_type"),
+            "counterparty_alias_type": counterparty.get("type"),
+            "merchant_id": merchant.get("id"),
+            "mcc": mcc,
+            "bunq_category": bunq_category,
+            "category": category_suggestion.value,
+            "attachment_count": len(attachments),
+            "note_present": bool(note_text),
+        }
+        contract_fields = {
+            key: value
+            for key, value in contract_fields.items()
+            if value is not None
+        }
+
         return RawTransaction(
             external_transaction_id=payment_id,
             external_account_id=account_id,
@@ -532,7 +848,11 @@ class BunqConnector(Connector):
             booked_at=updated or created,
             description=description,
             transaction_type=_map_transaction_type(payment_type),
-            status=_map_status(status_raw),
+            # Monetary-account Payment responses from bunq commonly omit a
+            # status for already-settled rows (notably Mastercard payments).
+            # They are not pending merely because the optional field is
+            # absent; explicit PENDING/REJECTED/etc. values still win.
+            status=_map_status(status_raw or "ACCEPTED"),
             original_type=str(payment_type) or None,
             original_status=str(status_raw) or None,
             merchant_name=(
@@ -542,9 +862,7 @@ class BunqConnector(Connector):
             merchant_country=(
                 data.get("merchant_country") or merchant.get("country")
             ),
-            merchant_category_code=(
-                str(data.get("mcc")) if data.get("mcc") is not None else None
-            ),
+            merchant_category_code=(mcc),
             counterparty_name=counterparty.get("name") or None,
             counterparty_account_reference=counterparty_iban or None,
             source_record_hash=hashlib.sha256(
@@ -553,17 +871,24 @@ class BunqConnector(Connector):
             source_references=source_references,
             refund_amount=refund_amount,
             refund_currency_code=refund_currency,
+            cashflow_suggestion=category_suggestion,
+            classification_source=category_suggestion.source,
             provider_metadata_contract=ProviderMetadata(
                 schema_version="bunq-payment-v1",
                 source_object_type="Payment",
-                fields={"type": payment_type, "status": status_raw},
+                fields=contract_fields,
             ),
             provider_metadata={
                 "payment_type": payment_type,
                 "counterparty_iban": counterparty_iban,
                 "attachment_count": len(attachments),
                 "sub_type": data.get("sub_type"),
-                "note_present": bool(data.get("note") or data.get("notes")),
+                "note": note_text,
+                "counterparty_alias_type": counterparty.get("type"),
+                "merchant_id": merchant.get("id"),
+                "mcc_raw": mcc,
+                "bunq_category_raw": bunq_category,
+                "category": category_suggestion.value,
             },
         )
 
@@ -606,11 +931,15 @@ class BunqConnector(Connector):
         """Fetch schedule-payment entries for a single monetary account."""
         items: list[RawScheduledPayment] = []
         url = (
-            f"/monetary-account/{account_id}/schedule-payment"
+            f"/user/{self._user_id}/monetary-account/{account_id}"
+            f"/schedule-payment"
             f"?count={_DEFAULT_COUNT}"
         )
+        seen_urls: set[str] = set()
 
         while url:
+            if not self._mark_pagination_url(url, seen_urls):
+                break
             data = await self._request_paginated(url)
             for entry in data.get("Response", []):
                 schedule = entry.get("SchedulePayment")
@@ -738,8 +1067,11 @@ class BunqConnector(Connector):
         """Fetch all cards for the authenticated user."""
         items: list[dict[str, Any]] = []
         url = f"/user/{self._user_id}/card?count={_DEFAULT_COUNT}"
+        seen_urls: set[str] = set()
 
         while url:
+            if not self._mark_pagination_url(url, seen_urls):
+                break
             data = await self._request_paginated(url)
             for entry in data.get("Response", []):
                 card_data = entry.get("Card")
@@ -770,8 +1102,11 @@ class BunqConnector(Connector):
         """
         items: list[RawCardTransaction] = []
         url = f"/card/{card_id}/card-payment?count={_DEFAULT_COUNT}"
+        seen_urls: set[str] = set()
 
         while url:
+            if not self._mark_pagination_url(url, seen_urls):
+                break
             data = await self._request_paginated(url)
             for entry in data.get("Response", []):
                 payment = entry.get("CardPayment")
@@ -809,7 +1144,16 @@ class BunqConnector(Connector):
         merchant_country = data.get("merchant_country") or data.get(
             "merchant", {}
         ).get("country")
-        mcc = data.get("mcc")
+        merchant = data.get("merchant") or {}
+        mcc = _extract_mcc(data, merchant)
+        bunq_category = _extract_bunq_category(data)
+        category_suggestion = _category_suggestion(
+            mcc,
+            data.get("description"),
+            data.get("merchant_name"),
+            merchant.get("name"),
+            category=bunq_category,
+        )
 
         card_data: dict[str, Any] = data.get("card", {}) or {}
         card_uuid = str(card_data.get("id", "")) or str(data.get("card_id", ""))
@@ -853,6 +1197,8 @@ class BunqConnector(Connector):
                 else None
             ),
             source_record_hash=source_hash,
+            cashflow_suggestion=category_suggestion,
+            classification_source=category_suggestion.source,
             refund_amount=(
                 Decimal(str(data["refund_amount"]))
                 if data.get("refund_amount") is not None
@@ -875,11 +1221,61 @@ class BunqConnector(Connector):
                 "original_card_id": card_id,
                 "card_uuid": card_uuid,
                 "mcc_raw": mcc,
+                "bunq_category_raw": bunq_category,
                 "merchant_raw": data.get("merchant", {}),
             },
         )
 
     # ── Pagination helper ───────────────────────────────────────────────
+
+    @staticmethod
+    def _mark_pagination_url(url: str, seen_urls: set[str]) -> bool:
+        """Return false when bunq returns a pagination URL we've seen.
+
+        A provider response with a repeated ``future_url`` must not make a
+        sync loop forever.  This has occurred in production when bunq
+        returned a cursor that did not advance; stopping at the repeated
+        cursor preserves the data already received and lets the sync report
+        a bounded result instead of exhausting the API rate limit.
+        """
+        if url in seen_urls:
+            logger.warning("bunq_pagination_cycle_detected")
+            return False
+        seen_urls.add(url)
+        return True
+
+    async def _request(
+        self,
+        method: str,
+        url: str,
+        **kwargs: Any,
+    ) -> httpx.Response:
+        """Perform one Bunq request through the shared throttle/retry path.
+
+        This is intentionally lower-level than the base connector fetch
+        wrappers: Bunq's installation, session, pagination and card calls
+        all count against the same per-user quota.
+        """
+
+        async def request_once() -> object:
+            try:
+                response = await self._http.request(method, url, **kwargs)
+                response.raise_for_status()
+                return response
+            except httpx.HTTPStatusError as exc:
+                _raise_for_status(exc.response)
+                raise  # pragma: no cover - _raise_for_status always raises
+            except httpx.TimeoutException as exc:
+                msg = "bunq request timed out"
+                raise TransientError(msg) from exc
+            except httpx.HTTPError as exc:
+                msg = f"bunq HTTP error: {exc}"
+                raise TransientError(msg) from exc
+
+        if self._rate_limiter is None:
+            return cast("httpx.Response", await request_once())
+        response = await self._rate_limiter.retry(request_once)
+        return cast("httpx.Response", response)
 
     async def _request_paginated(
         self,
@@ -891,26 +1287,15 @@ class BunqConnector(Connector):
         """
         headers = self._auth_headers()
 
-        try:
-            response = await self._http.get(url, headers=headers)
-            response.raise_for_status()
-            return response.json()
-        except httpx.HTTPStatusError as exc:
-            _raise_for_status(exc.response)
-            raise  # unreachable — keeps type checker happy
-        except httpx.TimeoutException as exc:
-            msg = "bunq request timed out"
-            raise TransientError(msg) from exc
-        except httpx.HTTPError as exc:
-            msg = f"bunq HTTP error: {exc}"
-            raise TransientError(msg) from exc
+        response = await self._request("GET", url, headers=headers)
+        return response.json()
 
     def _next_page_url(self, data: dict[str, Any]) -> str | None:
         """Extract the next-page URL from a paginated response.
 
         Uses the connector's configured base URL so custom endpoints
-        (bunq sandbox, staging mocks) page against themselves instead of
-        jumping back to the production API.
+        (bunq sandbox or another explicitly configured endpoint) page against
+        themselves instead of jumping back to the production API.
         """
         pagination = data.get("Pagination") or data.get("PaginatedResponse")
         if not pagination:

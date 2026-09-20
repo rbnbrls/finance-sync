@@ -100,6 +100,16 @@ def test_dashboard_exposes_dedicated_data_health_page(
     assert "'settings'" in html
 
 
+def test_bunq_category_review_routes_are_registered(app: FastAPI) -> None:
+    """The GUI's Bunq category queue must not regress to a 404 endpoint."""
+    paths = {getattr(route, "path", "") for route in app.routes}
+    assert "/api/v1/control-plane/data-health/bunq-other-transactions" in paths
+    assert (
+        "/api/v1/control-plane/data-health/bunq-other-transactions/{transaction_id}"
+        in paths
+    )
+
+
 def test_dashboard_exposes_connector_lifecycle_delete_guards(
     client: TestClient,
 ) -> None:
@@ -217,17 +227,25 @@ def test_dashboard_ships_read_only_database_viewer(client: TestClient) -> None:
     assert 'data-section="viewer"' in html
     assert 'id="section-viewer"' in html
     assert 'id="viewer-summary"' in html
-    assert 'id="viewer-accounts"' in html
+    assert 'id="viewer-panel-brokers"' in html
     assert 'id="viewer-holdings"' in html
     assert 'id="viewer-transactions"' in html
     assert "api('GET', '/accounts?limit=200')" in html
     assert "api('GET', '/portfolio')" in html
     assert "api('GET', '/holdings?limit=500')" in html
-    assert "api('GET', '/transactions?limit=50&sort_order=desc')" in html
+    assert "api('GET', '/transactions?limit=500&sort_order=desc')" in html
+    assert "api('GET', '/transactions/counterparty-expenses?limit=10')" in html
     assert "function loadViewer()" in html
     assert "function renderViewerAccounts" in html
     assert "function renderViewerHoldings" in html
     assert "function renderViewerTransactions" in html
+    assert "function renderViewerSummary" in html
+    assert "Totaal huidig saldo" in html
+    assert "function renderViewerCategoryCard" in html
+    assert "function renderViewerCounterpartyCard" in html
+    assert "Waar gaat het geld heen?" in html
+    assert "function openViewerCategoryOverride" in html
+    assert "openViewerCategoryOverride()" in html
 
 
 def test_dashboard_separates_manual_uploads_from_api_connectors(
@@ -814,7 +832,7 @@ def test_dashboard_test_result_drives_account_selection(
     offered for selection, both on the card and inside the create wizard."""
     html = _dashboard_html(client)
     assert "openAccountsModal(" in html
-    assert "Select accounts" in html
+    assert "Rekeningen selecteren" in html
     assert "testWizardConnection" in html
     assert "renderAccountCheckboxes" in html
     assert "wizard-account-cb" in html

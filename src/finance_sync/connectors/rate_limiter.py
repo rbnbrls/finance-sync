@@ -60,6 +60,10 @@ class RateLimiter:
     def __init__(self, policy: RateLimitPolicy | None = None) -> None:
         self.policy = policy or RateLimitPolicy()
         self._request_times: list[float] = []
+        # Connector fetches can be started concurrently by account/card
+        # pipelines. Serialise slot allocation so concurrent callers cannot
+        # all observe the same free capacity and burst past the provider.
+        self._acquire_lock = asyncio.Lock()
 
     # ── Sliding-window throttle ────────────────────────────────────────
     async def acquire(self) -> None:
@@ -71,26 +75,29 @@ class RateLimiter:
         if self.policy.max_requests <= 0:
             return
 
-        now = _monotonic()
-        # Prune timestamps outside the window
-        cutoff = now - self.policy.window_seconds
-        self._request_times = [t for t in self._request_times if t > cutoff]
+        async with self._acquire_lock:
+            now = _monotonic()
+            # Prune timestamps outside the window
+            cutoff = now - self.policy.window_seconds
+            self._request_times = [t for t in self._request_times if t > cutoff]
 
-        if len(self._request_times) >= self.policy.max_requests:
-            # Sleep until the oldest timestamp falls out of the window
-            sleep_for = (
-                self._request_times[0] + self.policy.window_seconds - now
-            )
-            if sleep_for > 0:
-                await asyncio.sleep(sleep_for)
-            # Re-prune after waiting
-            self._request_times = [
-                t
-                for t in self._request_times
-                if t > _monotonic() - self.policy.window_seconds
-            ]
+            if len(self._request_times) >= self.policy.max_requests:
+                # Sleep until the oldest timestamp falls out of the window.
+                # The lock remains held so waiting callers cannot leapfrog
+                # this reservation and create a burst.
+                sleep_for = (
+                    self._request_times[0] + self.policy.window_seconds - now
+                )
+                if sleep_for > 0:
+                    await asyncio.sleep(sleep_for)
+                # Re-prune after waiting
+                self._request_times = [
+                    t
+                    for t in self._request_times
+                    if t > _monotonic() - self.policy.window_seconds
+                ]
 
-        self._request_times.append(_monotonic())
+            self._request_times.append(_monotonic())
 
     # ── Exponential backoff with jitter ────────────────────────────────
     def backoff_delay(self, attempt: int) -> float:

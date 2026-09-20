@@ -379,6 +379,50 @@ class TestWealthfolioClientImport:
         assert accounts[0]["name"] == "Brokerage"
         mock_get.assert_called_once_with("/api/v1/accounts")
 
+    async def test_ensure_spending_accounts_adds_accounts_without_dropping_manual_selection(
+        self, client: WealthfolioClient
+    ) -> None:
+        client._is_authenticated = True
+        with (
+            patch.object(
+                client,
+                "get_spending_settings",
+                return_value={"enabled": False, "accountIds": ["manual"]},
+            ),
+            patch.object(
+                client,
+                "update_spending_settings",
+                return_value={
+                    "enabled": True,
+                    "accountIds": ["bunq-a", "manual"],
+                },
+            ) as update,
+        ):
+            result = await client.ensure_spending_accounts({"bunq-a"})
+
+        update.assert_awaited_once_with(
+            enabled=True,
+            account_ids=["bunq-a", "manual"],
+        )
+        assert result["enabled"] is True
+
+    async def test_ensure_spending_accounts_is_idempotent(
+        self, client: WealthfolioClient
+    ) -> None:
+        client._is_authenticated = True
+        with (
+            patch.object(
+                client,
+                "get_spending_settings",
+                return_value={"enabled": True, "accountIds": ["bunq-a"]},
+            ),
+            patch.object(client, "update_spending_settings") as update,
+        ):
+            result = await client.ensure_spending_accounts({"bunq-a"})
+
+        update.assert_not_awaited()
+        assert result["accountIds"] == ["bunq-a"]
+
     async def test_ensure_account_uses_stable_provider_identity(
         self, client: WealthfolioClient
     ) -> None:

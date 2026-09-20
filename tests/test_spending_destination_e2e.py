@@ -176,7 +176,7 @@ def _identity(destination: str, payload: dict[str, Any]) -> str:
 
 def _amount(destination: str, payload: dict[str, Any]) -> Decimal:
     if destination == "actual":
-        return Decimal(payload["amount"]) / 100
+        return Decimal(str(payload["amount"]))
     if destination == "ynab":
         return Decimal(payload["amount"]) / 1000
     return Decimal(str(payload["amount"]))
@@ -214,7 +214,7 @@ def test_full_local_destination_pipeline_is_content_and_replay_safe(
     first = payloads[0]
     if destination == "actual":
         assert first["category"] == "Groceries"
-        assert first["splits"][0]["amount"] == -700
+        assert first["splits"][0]["amount"] == Decimal("-7.00")
     elif destination == "firefly":
         assert first["category_name"] == "groceries"
         assert first["canonical_splits"][0]["destination"] == "food"
