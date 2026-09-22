@@ -398,9 +398,7 @@ class SyncOrchestrator(CardsSyncMixin):
                 connector.set_state(stored)
                 log.debug("connector_state_injected", provider=provider_type)
 
-        # Authenticate before opening the pipeline session. Authentication is
-        # provider network I/O; keeping a database transaction/session alive
-        # while waiting for it can exhaust the small shared pool.
+        # Keep provider network I/O outside the small shared DB pool.
         preauthenticated = provider_type == "trading212"
         if preauthenticated:
             await connector.authenticate()
@@ -425,10 +423,6 @@ class SyncOrchestrator(CardsSyncMixin):
                 **pipeline_kwargs,
             )
 
-        # Tax lots are a derived projection of the complete transaction
-        # stream. Rebuild them after every successful broker sync so imports
-        # with a holdings snapshot and a subsequently fetched trade history
-        # cannot leave data-health with stale or missing lot capacity.
         if result.status == SyncRunStatus.COMPLETED:
             from finance_sync.services.tax_lot_service import (
                 compute_all_tax_lots,
@@ -633,11 +627,7 @@ class SyncOrchestrator(CardsSyncMixin):
             tenant_id=self._tenant_id,
         )
 
-        # Connector imports use datetime.min as an unbounded fetch cursor.
-        # It is not a meaningful reconciliation window: passing it through
-        # creates a false historical gap from year 1. Let reconciliation use
-        # its documented 90-day default unless the caller supplied a real
-        # analysis boundary.
+        # Ignore datetime.min, which would create a false historical gap.
         reconciliation_date_from = (
             None if date_from is not None and date_from.year <= 1 else date_from
         )
