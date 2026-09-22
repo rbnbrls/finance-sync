@@ -712,13 +712,14 @@ class SyncOrchestrator(CardsSyncMixin):
         current_account_id: str | None = None
 
         async def heartbeat(stage: str, account_id: str | None = None) -> None:
-            """Expose the current pipeline stage without sharing its UoW."""
+            """Persist progress without opening a competing session."""
             if run_id is not None:
                 await update_sync_run_progress(
                     self._session_factory,
                     run_id,
                     stage=stage,
                     account_id=account_id,
+                    session=uow.session,
                 )
 
         selected_set: set[str] | None = (

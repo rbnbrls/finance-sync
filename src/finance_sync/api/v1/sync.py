@@ -236,6 +236,11 @@ async def _run_connection_sync(
 
     try:
         config = _decrypt_config(cred, cred.provider_key, container.settings)
+        # The caller's session may have acquired a pooled connection while
+        # resolving the credential.  Provider authentication and the sync
+        # pipeline use their own sessions; release this one before waiting on
+        # network I/O so small pools cannot deadlock the pipeline.
+        await db.close()
         orchestrator = SyncOrchestrator(
             session_factory=container.session_factory,
             registry=ConnectorRegistry(),

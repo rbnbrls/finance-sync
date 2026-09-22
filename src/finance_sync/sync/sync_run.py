@@ -13,6 +13,7 @@ from typing import Any, cast
 
 from sqlalchemy import select, update
 from sqlalchemy.exc import OperationalError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from finance_sync.models import SyncRun
 from finance_sync.models.enums import SyncRunStatus
@@ -32,15 +33,17 @@ async def update_sync_run_progress(
     *,
     stage: str,
     account_id: str | None = None,
+    session: AsyncSession | None = None,
 ) -> None:
-    """Persist a small, tenant-safe heartbeat in an independent transaction."""
+    """Persist a small, tenant-safe heartbeat.
+
+    Callers that already own a session should pass it explicitly.  This keeps
+    heartbeat writes from opening a second session while the sync transaction
+    is active, which can otherwise exhaust a small worker pool.
+    """
     from datetime import UTC, datetime
 
-    factory = cast(Any, session_factory)
-    session_context = factory()
-    if inspect.isawaitable(session_context):
-        session_context = await session_context
-    async with session_context as session:
+    if session is not None:
         try:
             await session.execute(
                 update(SyncRun)
@@ -60,6 +63,29 @@ async def update_sync_run_progress(
             # reject that write while the pipeline transaction is active; a
             # telemetry failure must not turn a successful sync into a failure.
             await session.rollback()
+        return
+
+    factory = cast(Any, session_factory)
+    session_context = factory()
+    if inspect.isawaitable(session_context):
+        session_context = await session_context
+    async with session_context as owned_session:
+        try:
+            await owned_session.execute(
+                update(SyncRun)
+                .where(
+                    SyncRun.id == run_id,
+                    SyncRun.status == SyncRunStatus.RUNNING,
+                )
+                .values(
+                    current_stage=stage,
+                    current_account_id=account_id,
+                    last_activity_at=datetime.now(UTC),
+                )
+            )
+            await owned_session.commit()
+        except OperationalError:
+            await owned_session.rollback()
 
 
 async def ensure_sync_run_active(session_factory: object, run_id: str) -> None:

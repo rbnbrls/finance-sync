@@ -78,6 +78,8 @@ class Container:
                     settings.database_pool_max_size
                     - settings.database_pool_min_size
                 ),
+                pool_pre_ping=True,
+                pool_timeout=settings.database_pool_timeout,
                 echo=settings.is_debug,
                 json_serializer=default_json_serializer,
             )
