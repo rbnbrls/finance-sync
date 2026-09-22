@@ -398,12 +398,20 @@ class SyncOrchestrator(CardsSyncMixin):
                 connector.set_state(stored)
                 log.debug("connector_state_injected", provider=provider_type)
 
+        # Keep provider network I/O outside the small shared DB pool.
+        preauthenticated = provider_type == "trading212"
+        if preauthenticated:
+            await connector.authenticate()
+            log.debug("authenticated")
+
         async with self._session_factory() as session:
             pipeline_kwargs: dict[str, Any] = {
                 "resume": since is None,
                 "connection_id": connection_id,
                 "selected_accounts": selected_accounts,
             }
+            if preauthenticated:
+                pipeline_kwargs["authenticated"] = True
             if compatibility_error is not None:
                 pipeline_kwargs["compatibility_error"] = compatibility_error
             result = await self._run_pipeline(
@@ -415,10 +423,6 @@ class SyncOrchestrator(CardsSyncMixin):
                 **pipeline_kwargs,
             )
 
-        # Tax lots are a derived projection of the complete transaction
-        # stream. Rebuild them after every successful broker sync so imports
-        # with a holdings snapshot and a subsequently fetched trade history
-        # cannot leave data-health with stale or missing lot capacity.
         if result.status == SyncRunStatus.COMPLETED:
             from finance_sync.services.tax_lot_service import (
                 compute_all_tax_lots,
@@ -623,11 +627,7 @@ class SyncOrchestrator(CardsSyncMixin):
             tenant_id=self._tenant_id,
         )
 
-        # Connector imports use datetime.min as an unbounded fetch cursor.
-        # It is not a meaningful reconciliation window: passing it through
-        # creates a false historical gap from year 1. Let reconciliation use
-        # its documented 90-day default unless the caller supplied a real
-        # analysis boundary.
+        # Ignore datetime.min, which would create a false historical gap.
         reconciliation_date_from = (
             None if date_from is not None and date_from.year <= 1 else date_from
         )
@@ -688,6 +688,7 @@ class SyncOrchestrator(CardsSyncMixin):
         connection_id: str | None = None,
         selected_accounts: list[str] | None = None,
         compatibility_error: str | None = None,
+        authenticated: bool = False,
     ) -> SyncResult:
         from datetime import datetime as _dt
 
@@ -712,13 +713,14 @@ class SyncOrchestrator(CardsSyncMixin):
         current_account_id: str | None = None
 
         async def heartbeat(stage: str, account_id: str | None = None) -> None:
-            """Expose the current pipeline stage without sharing its UoW."""
+            """Persist progress without opening a competing session."""
             if run_id is not None:
                 await update_sync_run_progress(
                     self._session_factory,
                     run_id,
                     stage=stage,
                     account_id=account_id,
+                    session=uow.session,
                 )
 
         selected_set: set[str] | None = (
@@ -752,10 +754,11 @@ class SyncOrchestrator(CardsSyncMixin):
                 if compatibility_error:
                     raise PermanentError(compatibility_error)
 
-                current_operation = "authenticate"
-                await heartbeat(current_operation)
-                await connector.authenticate()
-                log.debug("authenticated")
+                if not authenticated:
+                    current_operation = "authenticate"
+                    await heartbeat(current_operation)
+                    await connector.authenticate()
+                    log.debug("authenticated")
 
                 current_operation = "fetch_accounts"
                 await heartbeat(current_operation)
