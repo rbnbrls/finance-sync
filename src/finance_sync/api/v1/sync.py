@@ -258,17 +258,26 @@ async def _run_connection_sync(
             connection_id=str(cred.id),
             selected_accounts=list(cred.selected_accounts or []),
         )
-        run_id = await _latest_run_id(db, cred.provider_key, str(cred.id))
         status = str(result.status.value)
         if getattr(result, "error_category", None) == "already_running":
             status = "running"
-        await _record_sync_audit(
-            db,
-            tenant_id=tenant_id,
-            cred=cred,
-            status=status,
-            error_message=result.error_message,
-        )
+        # ``db`` was deliberately closed before provider I/O.  Do not reopen
+        # that caller-owned session for the post-run audit: request/background
+        # callers may keep its context alive, and reusing it would make the
+        # session lifetime span the network call again.  Audit work gets its
+        # own short-lived session instead.
+        async with container.session_factory() as audit_db:
+            audit_db.info["settings"] = container.settings
+            run_id = await _latest_run_id(
+                audit_db, cred.provider_key, str(cred.id)
+            )
+            await _record_sync_audit(
+                audit_db,
+                tenant_id=tenant_id,
+                cred=cred,
+                status=status,
+                error_message=result.error_message,
+            )
         return SyncRunLink(
             connection_id=str(cred.id),
             provider=cred.provider_key,
@@ -282,13 +291,15 @@ async def _run_connection_sync(
             link=f"/api/v1/sync-runs/{run_id}" if run_id else None,
         )
     except Exception as exc:
-        await _record_sync_audit(
-            db,
-            tenant_id=tenant_id,
-            cred=cred,
-            status="error",
-            error_message=str(exc),
-        )
+        async with container.session_factory() as audit_db:
+            audit_db.info["settings"] = container.settings
+            await _record_sync_audit(
+                audit_db,
+                tenant_id=tenant_id,
+                cred=cred,
+                status="error",
+                error_message=str(exc),
+            )
         return SyncRunLink(
             connection_id=str(cred.id),
             provider=cred.provider_key,

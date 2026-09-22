@@ -21,9 +21,13 @@ async def test_connection_sync_releases_request_session_before_provider_io() -> 
     """Provider authentication must not hold the caller's DB connection."""
     db = MagicMock()
     db.close = AsyncMock()
+    audit_db = MagicMock()
+    audit_context = MagicMock()
+    audit_context.__aenter__ = AsyncMock(return_value=audit_db)
+    audit_context.__aexit__ = AsyncMock(return_value=None)
     container = SimpleNamespace(
         settings=SimpleNamespace(),
-        session_factory=MagicMock(),
+        session_factory=MagicMock(return_value=audit_context),
     )
     credential = SimpleNamespace(
         id="connection-1",
@@ -50,6 +54,8 @@ async def test_connection_sync_releases_request_session_before_provider_io() -> 
         return result
 
     orchestrator.run_sync = AsyncMock(side_effect=assert_session_released)
+    latest_run_id = AsyncMock(return_value="run-1")
+    record_audit = AsyncMock()
 
     with (
         patch(
@@ -65,11 +71,11 @@ async def test_connection_sync_releases_request_session_before_provider_io() -> 
         ),
         patch(
             "finance_sync.api.v1.sync._latest_run_id",
-            new=AsyncMock(return_value="run-1"),
+            new=latest_run_id,
         ),
         patch(
             "finance_sync.api.v1.sync._record_sync_audit",
-            new=AsyncMock(),
+            new=record_audit,
         ),
     ):
         link = await _run_connection_sync(
@@ -81,6 +87,10 @@ async def test_connection_sync_releases_request_session_before_provider_io() -> 
 
     assert link.status == "completed"
     db.close.assert_awaited_once()
+    assert latest_run_id.await_args.args[0] is audit_db
+    assert record_audit.await_args.args[0] is audit_db
+    assert latest_run_id.await_args.args[0] is not db
+    assert record_audit.await_args.args[0] is not db
 
 
 @pytest.mark.asyncio
