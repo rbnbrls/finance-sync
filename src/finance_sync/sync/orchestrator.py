@@ -398,12 +398,22 @@ class SyncOrchestrator(CardsSyncMixin):
                 connector.set_state(stored)
                 log.debug("connector_state_injected", provider=provider_type)
 
+        # Authenticate before opening the pipeline session. Authentication is
+        # provider network I/O; keeping a database transaction/session alive
+        # while waiting for it can exhaust the small shared pool.
+        preauthenticated = provider_type == "trading212"
+        if preauthenticated:
+            await connector.authenticate()
+            log.debug("authenticated")
+
         async with self._session_factory() as session:
             pipeline_kwargs: dict[str, Any] = {
                 "resume": since is None,
                 "connection_id": connection_id,
                 "selected_accounts": selected_accounts,
             }
+            if preauthenticated:
+                pipeline_kwargs["authenticated"] = True
             if compatibility_error is not None:
                 pipeline_kwargs["compatibility_error"] = compatibility_error
             result = await self._run_pipeline(
@@ -688,6 +698,7 @@ class SyncOrchestrator(CardsSyncMixin):
         connection_id: str | None = None,
         selected_accounts: list[str] | None = None,
         compatibility_error: str | None = None,
+        authenticated: bool = False,
     ) -> SyncResult:
         from datetime import datetime as _dt
 
@@ -753,10 +764,11 @@ class SyncOrchestrator(CardsSyncMixin):
                 if compatibility_error:
                     raise PermanentError(compatibility_error)
 
-                current_operation = "authenticate"
-                await heartbeat(current_operation)
-                await connector.authenticate()
-                log.debug("authenticated")
+                if not authenticated:
+                    current_operation = "authenticate"
+                    await heartbeat(current_operation)
+                    await connector.authenticate()
+                    log.debug("authenticated")
 
                 current_operation = "fetch_accounts"
                 await heartbeat(current_operation)
