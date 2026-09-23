@@ -27,6 +27,19 @@ def test_release_workflow_gates_smoke_artifacts_and_image_tag() -> None:
     assert "staging-smoke.xml" in workflow
 
 
+def test_release_smoke_step_propagates_script_failures_through_tee() -> None:
+    workflow = (ROOT / ".github/workflows/release.yml").read_text(
+        encoding="utf-8"
+    )
+    smoke_step = workflow.split("- name: Run acceptance smoke tests", 1)[
+        1
+    ].split("- name: Validate smoke evidence", 1)[0]
+    assert "set -o pipefail" in smoke_step
+    assert "python3 scripts/release_smoke.py 2>&1 | tee staging-smoke.log" in (
+        smoke_step
+    )
+
+
 def test_smoke_summary_is_safe_and_machine_readable() -> None:
     summary = {
         "commit": "abc",
