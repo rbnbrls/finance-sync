@@ -379,11 +379,10 @@ class CardsSyncMixin:
             end_ts = _dt.now(UTC)
             await mark_sync_run_failed(
                 self._session_factory,
-                run,
+                run_id,
                 str(exc),
                 log,
                 connection_id=connection_id,
-                run_id=run_id,
                 connector="bunq_cards",
             )
             return BunqCardsSyncResult(
@@ -398,11 +397,10 @@ class CardsSyncMixin:
             tb = traceback.format_exc()
             await mark_sync_run_failed(
                 self._session_factory,
-                run,
+                run_id,
                 tb,
                 log,
                 connection_id=connection_id,
-                run_id=run_id,
                 connector="bunq_cards",
             )
             return BunqCardsSyncResult(

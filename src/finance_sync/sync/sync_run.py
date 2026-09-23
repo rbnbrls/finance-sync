@@ -328,12 +328,11 @@ async def record_failed_sync_run(
 
 async def mark_sync_run_failed(
     session_factory: object,
-    run: object | None,
+    run_id: str | None,
     error_message: str,
     log: structlog.BoundLogger,
     *,
     connection_id: str | None = None,
-    run_id: str | None = None,
     connector: str | None = None,
     error_category: str = "unknown",
     retry_after_at: datetime | None = None,
@@ -347,8 +346,13 @@ async def mark_sync_run_failed(
     cannot be reloaded — instead a fresh ``FAILED`` row is inserted so failed
     runs stay observable (alerting relies on them).  The row carries the run's
     *connection_id* when the failed run was connection-scoped.
+
+    Only the run **id** crosses the boundary: the ``SyncRun`` instance belongs
+    to the pipeline session that just failed, and this function writes through
+    a fresh one, so passing the ORM object would hand a detached, expired row
+    to another transaction.
     """
-    if run is None:
+    if not run_id:
         log.error("sync_failed_before_run_created", error=error_message)
         return
 
@@ -366,7 +370,7 @@ async def mark_sync_run_failed(
             session_context as recovery_session,
             _UnitOfWork(recovery_session) as uow,
         ):
-            reloaded = await uow.sync_runs.get(run_id) if run_id else None
+            reloaded = await uow.sync_runs.get(run_id)
             if reloaded is not None:
                 await complete_sync_run(
                     uow,

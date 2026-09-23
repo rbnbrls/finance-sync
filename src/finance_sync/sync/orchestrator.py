@@ -1077,12 +1077,11 @@ class SyncOrchestrator(CardsSyncMixin):
             end_ts = _dt.now(UTC)
             await mark_sync_run_failed(
                 self._session_factory,
-                run,
+                run_id,
                 str(exc),
                 log,
                 error_category=categorize_sync_error(exc),
                 connection_id=connection_id,
-                run_id=run_id,
                 connector=provider_type,
             )
             return SyncResult(
@@ -1117,12 +1116,11 @@ class SyncOrchestrator(CardsSyncMixin):
             category = categorize_sync_error(exc)
             await mark_sync_run_failed(
                 self._session_factory,
-                run,
+                run_id,
                 str(exc),
                 log,
                 error_category=category,
                 connection_id=connection_id,
-                run_id=run_id,
                 connector=provider_type,
                 retry_after_at=retry_after_at,
                 rate_limit_attempts=1,
@@ -1158,12 +1156,11 @@ class SyncOrchestrator(CardsSyncMixin):
             end_ts = _dt.now(UTC)
             await mark_sync_run_failed(
                 self._session_factory,
-                run,
+                run_id,
                 str(exc),
                 log,
                 error_category=categorize_sync_error(exc),
                 connection_id=connection_id,
-                run_id=run_id,
                 connector=provider_type,
             )
             return SyncResult(
@@ -1200,12 +1197,11 @@ class SyncOrchestrator(CardsSyncMixin):
             )
             await mark_sync_run_failed(
                 self._session_factory,
-                run,
+                run_id,
                 error_message,
                 log,
                 error_category=categorize_sync_error(exc),
                 connection_id=connection_id,
-                run_id=run_id,
                 connector=provider_type,
             )
             return SyncResult(
