@@ -288,6 +288,14 @@ async def _run_connection_sync(
     connection_id on accounts/transactions/runs/cursors and updates the
     connection's ``last_attempt_at`` / ``last_success_at`` /
     sanitised ``last_error``.
+
+    Session contract: *db* is caller-owned and is **released** here before
+    provider I/O, so a connection is never held for the whole provider round
+    trip (that is the pool-exhaustion fix).  Everything this function persists
+    goes through the orchestrator's and the audit's own sessions, and the
+    credential is snapshotted before the release; callers must not rely on
+    uncommitted work in *db* surviving the call.  All current callers load the
+    credential read-only, so none has work to lose.
     """
     from finance_sync.models.credential import CONNECTION_STATUS_PAUSED
 
