@@ -20,7 +20,11 @@ from finance_sync.sync.sync_cursor import (
     get_cursor,
     upsert_sync_cursor,
 )
-from finance_sync.sync.sync_run import complete_sync_run, start_sync_run
+from finance_sync.sync.sync_run import (
+    complete_sync_run,
+    mark_sync_run_failed,
+    start_sync_run,
+)
 
 if TYPE_CHECKING:
     from datetime import datetime as dt_type
@@ -373,8 +377,8 @@ class CardsSyncMixin:
 
         except (PermanentError, TransientError, ConnectorError) as exc:
             end_ts = _dt.now(UTC)
-            await self._mark_run_failed(
-                session,
+            await mark_sync_run_failed(
+                self._session_factory,
                 run,
                 str(exc),
                 log,
@@ -392,8 +396,8 @@ class CardsSyncMixin:
         except Exception:
             end_ts = _dt.now(UTC)
             tb = traceback.format_exc()
-            await self._mark_run_failed(
-                session,
+            await mark_sync_run_failed(
+                self._session_factory,
                 run,
                 tb,
                 log,
