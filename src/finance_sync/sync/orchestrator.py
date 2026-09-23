@@ -66,6 +66,7 @@ from finance_sync.sync.persistence import (
     PersistenceContext,
     SyncPersistence,
 )
+from finance_sync.sync.preflight import authenticate_before_pipeline
 from finance_sync.sync.results import ReconciliationRunSummary, SyncResult
 from finance_sync.sync.stages.accounts import AccountSyncStage
 from finance_sync.sync.stages.holdings import HoldingsSyncStage
@@ -77,6 +78,7 @@ from finance_sync.sync.sync_cursor import (
 from finance_sync.sync.sync_run import (
     SyncAlreadyRunningError,
     complete_sync_run,
+    mark_sync_run_failed,
     recover_stale_sync_runs,
     start_sync_run,
     update_sync_run_progress,
@@ -398,27 +400,45 @@ class SyncOrchestrator(CardsSyncMixin):
                 connector.set_state(stored)
                 log.debug("connector_state_injected", provider=provider_type)
 
-        async with self._session_factory() as session:
-            pipeline_kwargs: dict[str, Any] = {
-                "resume": since is None,
-                "connection_id": connection_id,
-                "selected_accounts": selected_accounts,
-            }
-            if compatibility_error is not None:
-                pipeline_kwargs["compatibility_error"] = compatibility_error
-            result = await self._run_pipeline(
-                session,
+        # Keep provider network I/O outside the small shared DB pool: the
+        # connector authenticates before the pipeline session is acquired.
+        preauthenticated = provider_type == "trading212"
+        auth_failure: SyncResult | None = None
+        if preauthenticated:
+            auth_failure = await authenticate_before_pipeline(
                 connector,
-                provider_type,
-                _since,
-                log,
-                **pipeline_kwargs,
+                provider_type=provider_type,
+                session_factory=self._session_factory,
+                settings=self._settings,
+                log=log,
+                connection_id=connection_id,
             )
 
-        # Tax lots are a derived projection of the complete transaction
-        # stream. Rebuild them after every successful broker sync so imports
-        # with a holdings snapshot and a subsequently fetched trade history
-        # cannot leave data-health with stale or missing lot capacity.
+        if auth_failure is not None:
+            # Authentication failed before the pipeline opened its session,
+            # so no resource unit of work exists to roll back; the failure has
+            # already been recorded as a FAILED SyncRun.
+            result = auth_failure
+        else:
+            async with self._session_factory() as session:
+                pipeline_kwargs: dict[str, Any] = {
+                    "resume": since is None,
+                    "connection_id": connection_id,
+                    "selected_accounts": selected_accounts,
+                }
+                if preauthenticated:
+                    pipeline_kwargs["authenticated"] = True
+                if compatibility_error is not None:
+                    pipeline_kwargs["compatibility_error"] = compatibility_error
+                result = await self._run_pipeline(
+                    session,
+                    connector,
+                    provider_type,
+                    _since,
+                    log,
+                    **pipeline_kwargs,
+                )
+
         if result.status == SyncRunStatus.COMPLETED:
             from finance_sync.services.tax_lot_service import (
                 compute_all_tax_lots,
@@ -623,11 +643,7 @@ class SyncOrchestrator(CardsSyncMixin):
             tenant_id=self._tenant_id,
         )
 
-        # Connector imports use datetime.min as an unbounded fetch cursor.
-        # It is not a meaningful reconciliation window: passing it through
-        # creates a false historical gap from year 1. Let reconciliation use
-        # its documented 90-day default unless the caller supplied a real
-        # analysis boundary.
+        # Ignore datetime.min, which would create a false historical gap.
         reconciliation_date_from = (
             None if date_from is not None and date_from.year <= 1 else date_from
         )
@@ -688,6 +704,7 @@ class SyncOrchestrator(CardsSyncMixin):
         connection_id: str | None = None,
         selected_accounts: list[str] | None = None,
         compatibility_error: str | None = None,
+        authenticated: bool = False,
     ) -> SyncResult:
         from datetime import datetime as _dt
 
@@ -712,13 +729,14 @@ class SyncOrchestrator(CardsSyncMixin):
         current_account_id: str | None = None
 
         async def heartbeat(stage: str, account_id: str | None = None) -> None:
-            """Expose the current pipeline stage without sharing its UoW."""
+            """Persist progress without opening a competing session."""
             if run_id is not None:
                 await update_sync_run_progress(
                     self._session_factory,
                     run_id,
                     stage=stage,
                     account_id=account_id,
+                    session=uow.session,
                 )
 
         selected_set: set[str] | None = (
@@ -752,10 +770,11 @@ class SyncOrchestrator(CardsSyncMixin):
                 if compatibility_error:
                     raise PermanentError(compatibility_error)
 
-                current_operation = "authenticate"
-                await heartbeat(current_operation)
-                await connector.authenticate()
-                log.debug("authenticated")
+                if not authenticated:
+                    current_operation = "authenticate"
+                    await heartbeat(current_operation)
+                    await connector.authenticate()
+                    log.debug("authenticated")
 
                 current_operation = "fetch_accounts"
                 await heartbeat(current_operation)
@@ -1056,14 +1075,13 @@ class SyncOrchestrator(CardsSyncMixin):
                 fallback_capture=capture_connector_exception,
             )
             end_ts = _dt.now(UTC)
-            await self._mark_run_failed(
-                session,
-                run,
+            await mark_sync_run_failed(
+                self._session_factory,
+                run_id,
                 str(exc),
                 log,
                 error_category=categorize_sync_error(exc),
                 connection_id=connection_id,
-                run_id=run_id,
                 connector=provider_type,
             )
             return SyncResult(
@@ -1096,14 +1114,13 @@ class SyncOrchestrator(CardsSyncMixin):
                 else None
             )
             category = categorize_sync_error(exc)
-            await self._mark_run_failed(
-                session,
-                run,
+            await mark_sync_run_failed(
+                self._session_factory,
+                run_id,
                 str(exc),
                 log,
                 error_category=category,
                 connection_id=connection_id,
-                run_id=run_id,
                 connector=provider_type,
                 retry_after_at=retry_after_at,
                 rate_limit_attempts=1,
@@ -1137,14 +1154,13 @@ class SyncOrchestrator(CardsSyncMixin):
                 fallback_capture=capture_connector_exception,
             )
             end_ts = _dt.now(UTC)
-            await self._mark_run_failed(
-                session,
-                run,
+            await mark_sync_run_failed(
+                self._session_factory,
+                run_id,
                 str(exc),
                 log,
                 error_category=categorize_sync_error(exc),
                 connection_id=connection_id,
-                run_id=run_id,
                 connector=provider_type,
             )
             return SyncResult(
@@ -1179,14 +1195,13 @@ class SyncOrchestrator(CardsSyncMixin):
                 error_kind=classify_sync_error(exc).value,
                 error=str(exc)[:500],
             )
-            await self._mark_run_failed(
-                session,
-                run,
+            await mark_sync_run_failed(
+                self._session_factory,
+                run_id,
                 error_message,
                 log,
                 error_category=categorize_sync_error(exc),
                 connection_id=connection_id,
-                run_id=run_id,
                 connector=provider_type,
             )
             return SyncResult(
@@ -1200,79 +1215,6 @@ class SyncOrchestrator(CardsSyncMixin):
                 error_category=categorize_sync_error(exc),
                 error_kind=classify_sync_error(exc).value,
                 duration_s=(end_ts - start_ts).total_seconds(),
-            )
-
-    async def _mark_run_failed(
-        self,
-        _session: AsyncSession,
-        run: object | None,
-        error_message: str,
-        log: structlog.BoundLogger,
-        *,
-        connection_id: str | None = None,
-        run_id: str | None = None,
-        connector: str | None = None,
-        error_category: str = "unknown",
-        retry_after_at: datetime | None = None,
-        rate_limit_attempts: int = 0,
-        rate_limit_scope: str | None = None,
-        last_http_status: int | None = None,
-    ) -> None:
-        """Persist a failed SyncRun outside the main UoW (which rolled back).
-
-        The in-flight ``SyncRun`` row was rolled back with the transaction,
-        so it cannot be reloaded — instead a fresh ``FAILED`` row is
-        inserted so failed runs stay observable (alerting relies on them).
-        The row carries the run's *connection_id* when the failed run was
-        connection-scoped.
-        """
-        if run is None:
-            log.error("sync_failed_before_run_created", error=error_message)
-            return
-
-        from finance_sync.db.uow import UnitOfWork as _UnitOfWork
-        from finance_sync.models import SyncRun as _SyncRun
-
-        try:
-            # The pipeline may have committed checkpoints before a later
-            # stage fails.  Its session is then in a failed/expired state;
-            # always record the terminal status through a fresh transaction.
-            async with (
-                self._session_factory() as recovery_session,
-                _UnitOfWork(recovery_session) as uow,
-            ):
-                reloaded = await uow.sync_runs.get(run_id) if run_id else None
-                if reloaded is not None:
-                    await complete_sync_run(
-                        uow,
-                        reloaded,
-                        status=SyncRunStatus.FAILED,
-                        error_message=error_message[:2048],
-                        error_category=error_category,
-                        retry_after_at=retry_after_at,
-                        rate_limit_attempts=rate_limit_attempts,
-                        rate_limit_scope=rate_limit_scope,
-                        last_http_status=last_http_status,
-                    )
-                else:
-                    uow.session.add(
-                        _SyncRun(
-                            connector=connector or "unknown",
-                            connection_id=connection_id,
-                            status=SyncRunStatus.FAILED,
-                            completed_at=datetime.now(UTC),
-                            error_message=error_message[:2048],
-                            error_category=error_category,
-                            retry_after_at=retry_after_at,
-                            rate_limit_attempts=rate_limit_attempts,
-                            rate_limit_scope=rate_limit_scope,
-                            last_http_status=last_http_status,
-                        )
-                    )
-        except Exception as exc:
-            log.error(
-                "failed_to_persist_failed_sync_run",
-                error=str(exc),
             )
 
 

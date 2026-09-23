@@ -11,11 +11,15 @@ from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
+import structlog
 from sqlalchemy import select, update
 from sqlalchemy.exc import OperationalError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from finance_sync.models import SyncRun
 from finance_sync.models.enums import SyncRunStatus
+
+logger = structlog.get_logger("finance_sync.sync.sync_run")
 
 
 class SyncAlreadyRunningError(RuntimeError):
@@ -32,15 +36,25 @@ async def update_sync_run_progress(
     *,
     stage: str,
     account_id: str | None = None,
+    session: AsyncSession | None = None,
 ) -> None:
-    """Persist a small, tenant-safe heartbeat in an independent transaction."""
+    """Persist a small, tenant-safe heartbeat.
+
+    Callers that already own a session should pass it explicitly.  This keeps
+    heartbeat writes from opening a second session while the sync transaction
+    is active, which can otherwise exhaust a small worker pool.
+
+    A caller-owned session is only ever *written through*: the heartbeat must
+    not commit or roll that transaction back.  Committing would publish the
+    resource writes the pipeline is still assembling (so a later failure could
+    no longer roll the account/holding/transaction unit of work back), and
+    rolling back would silently discard the pipeline's work.  Progress written
+    this way is therefore committed together with the pipeline's own
+    checkpoints (after the accounts stage and after each account).
+    """
     from datetime import UTC, datetime
 
-    factory = cast(Any, session_factory)
-    session_context = factory()
-    if inspect.isawaitable(session_context):
-        session_context = await session_context
-    async with session_context as session:
+    if session is not None:
         try:
             await session.execute(
                 update(SyncRun)
@@ -54,12 +68,39 @@ async def update_sync_run_progress(
                     last_activity_at=datetime.now(UTC),
                 )
             )
-            await session.commit()
+        except Exception as exc:
+            # Telemetry must never turn a successful sync into a failure, and
+            # the caller's session must not be repaired here: if the pipeline
+            # transaction is broken it will fail (and be reported) on its own.
+            logger.debug(
+                "sync_run_progress_write_failed",
+                run_id=run_id,
+                stage=stage,
+                error=str(exc)[:200],
+            )
+        return
+
+    factory = cast(Any, session_factory)
+    session_context = factory()
+    if inspect.isawaitable(session_context):
+        session_context = await session_context
+    async with session_context as owned_session:
+        try:
+            await owned_session.execute(
+                update(SyncRun)
+                .where(
+                    SyncRun.id == run_id,
+                    SyncRun.status == SyncRunStatus.RUNNING,
+                )
+                .values(
+                    current_stage=stage,
+                    current_account_id=account_id,
+                    last_activity_at=datetime.now(UTC),
+                )
+            )
+            await owned_session.commit()
         except OperationalError:
-            # Heartbeats use an independent transaction.  SQLite can briefly
-            # reject that write while the pipeline transaction is active; a
-            # telemetry failure must not turn a successful sync into a failure.
-            await session.rollback()
+            await owned_session.rollback()
 
 
 async def ensure_sync_run_active(session_factory: object, run_id: str) -> None:
@@ -206,3 +247,157 @@ async def complete_sync_run(
         run.report = dict(report)
     await uow.session.flush()  # type: ignore[union-attr]
     return run
+
+
+def build_failed_sync_run(
+    *,
+    connector: str | None,
+    connection_id: str | None,
+    error_message: str,
+    error_category: str,
+    retry_after_at: datetime | None = None,
+    rate_limit_attempts: int = 0,
+    rate_limit_scope: str | None = None,
+    last_http_status: int | None = None,
+) -> SyncRun:
+    """Build a terminal ``FAILED`` ``SyncRun`` row.
+
+    Used whenever no in-flight row survived to be reloaded and completed: the
+    pipeline transaction rolled it back, or the failure happened before the
+    run was created (provider authentication runs before the pipeline session
+    is opened).  Callers add the row to their own session.
+    """
+    return SyncRun(
+        connector=connector or "unknown",
+        connection_id=connection_id,
+        status=SyncRunStatus.FAILED,
+        completed_at=datetime.now(UTC),
+        error_message=error_message[:2048],
+        error_category=error_category,
+        retry_after_at=retry_after_at,
+        rate_limit_attempts=rate_limit_attempts,
+        rate_limit_scope=rate_limit_scope,
+        last_http_status=last_http_status,
+    )
+
+
+async def record_failed_sync_run(
+    session_factory: object,
+    *,
+    connector: str | None,
+    connection_id: str | None = None,
+    error_message: str,
+    error_category: str,
+    retry_after_at: datetime | None = None,
+    rate_limit_attempts: int = 0,
+    rate_limit_scope: str | None = None,
+    last_http_status: int | None = None,
+) -> None:
+    """Insert a terminal ``FAILED`` ``SyncRun`` through a short-lived session.
+
+    Failures outside the pipeline's own transaction (e.g. provider
+    authentication, which runs before the pipeline session exists) still have
+    to stay observable: alerting and the API read failed runs from the
+    database.
+    """
+    factory = cast(Any, session_factory)
+    session_context = factory()
+    if inspect.isawaitable(session_context):
+        session_context = await session_context
+    try:
+        async with session_context as session:
+            session.add(
+                build_failed_sync_run(
+                    connector=connector,
+                    connection_id=connection_id,
+                    error_message=error_message,
+                    error_category=error_category,
+                    retry_after_at=retry_after_at,
+                    rate_limit_attempts=rate_limit_attempts,
+                    rate_limit_scope=rate_limit_scope,
+                    last_http_status=last_http_status,
+                )
+            )
+            await session.commit()
+    except Exception as exc:
+        logger.error(
+            "failed_to_persist_failed_sync_run",
+            error=str(exc)[:500],
+        )
+
+
+async def mark_sync_run_failed(
+    session_factory: object,
+    run_id: str | None,
+    error_message: str,
+    log: structlog.BoundLogger,
+    *,
+    connection_id: str | None = None,
+    connector: str | None = None,
+    error_category: str = "unknown",
+    retry_after_at: datetime | None = None,
+    rate_limit_attempts: int = 0,
+    rate_limit_scope: str | None = None,
+    last_http_status: int | None = None,
+) -> None:
+    """Persist a failed SyncRun outside the main UoW (which rolled back).
+
+    The in-flight ``SyncRun`` row was rolled back with the transaction, so it
+    cannot be reloaded — instead a fresh ``FAILED`` row is inserted so failed
+    runs stay observable (alerting relies on them).  The row carries the run's
+    *connection_id* when the failed run was connection-scoped.
+
+    Only the run **id** crosses the boundary: the ``SyncRun`` instance belongs
+    to the pipeline session that just failed, and this function writes through
+    a fresh one, so passing the ORM object would hand a detached, expired row
+    to another transaction.
+    """
+    if not run_id:
+        log.error("sync_failed_before_run_created", error=error_message)
+        return
+
+    from finance_sync.db.uow import UnitOfWork as _UnitOfWork
+
+    factory = cast(Any, session_factory)
+    session_context = factory()
+    if inspect.isawaitable(session_context):
+        session_context = await session_context
+    try:
+        # The pipeline may have committed checkpoints before a later stage
+        # fails.  Its session is then in a failed/expired state; always record
+        # the terminal status through a fresh transaction.
+        async with (
+            session_context as recovery_session,
+            _UnitOfWork(recovery_session) as uow,
+        ):
+            reloaded = await uow.sync_runs.get(run_id)
+            if reloaded is not None:
+                await complete_sync_run(
+                    uow,
+                    reloaded,
+                    status=SyncRunStatus.FAILED,
+                    error_message=error_message[:2048],
+                    error_category=error_category,
+                    retry_after_at=retry_after_at,
+                    rate_limit_attempts=rate_limit_attempts,
+                    rate_limit_scope=rate_limit_scope,
+                    last_http_status=last_http_status,
+                )
+            else:
+                uow.session.add(
+                    build_failed_sync_run(
+                        connector=connector,
+                        connection_id=connection_id,
+                        error_message=error_message,
+                        error_category=error_category,
+                        retry_after_at=retry_after_at,
+                        rate_limit_attempts=rate_limit_attempts,
+                        rate_limit_scope=rate_limit_scope,
+                        last_http_status=last_http_status,
+                    )
+                )
+    except Exception as exc:
+        log.error(
+            "failed_to_persist_failed_sync_run",
+            error=str(exc),
+        )
