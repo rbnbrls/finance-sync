@@ -591,6 +591,7 @@ jobs:
 
       - name: Run acceptance smoke tests
         run: |
+          set -o pipefail
           export SMOKE_BASE_URL="https://${STAGING_APP_UUID}.7rb.nl"
           python3 scripts/release_smoke.py 2>&1 | tee staging-smoke.log
         env:
