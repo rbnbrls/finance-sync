@@ -52,7 +52,7 @@ test-ci:                           ## CI unit test run (sequential, coverage thr
 	APP_ENVIRONMENT=dev DEBUG=false uv run pytest -m "not integration and not e2e" --cov=finance_sync --cov-report=term --cov-report=xml --cov-fail-under=80 --junitxml=junit.xml
 
 ci-fast:                           ## Run the complete fast PR quality gate locally
-	make format-check lint type pyright-budget test-collect test-ci coverage-check
+	make format-check lint type pyright-budget test-collect test-ci coverage-publish coverage-check
 
 # ── Full GitHub CI parity ──────────────────────────────────────────
 # These targets intentionally use the same commands and gates as
