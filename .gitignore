@@ -44,7 +44,9 @@ htmlcov/
 .coverage.*
 .cache
 nosetests.xml
-coverage.xml
+# coverage.xml is deliberately NOT ignored: it is the published coverage report
+# (scripts/coverage_report.py, committed to the default branch so the number is
+# readable without an expiring CI artifact).
 *.cover
 *.py.cover
 *.py,cover

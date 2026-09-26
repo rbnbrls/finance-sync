@@ -152,6 +152,22 @@ jobs:
       - name: Run unit tests with coverage (≥80%)
         run: make test-ci
 
+      - name: Publish the coverage report
+        # The committed report is this repository's published coverage number:
+        # a reader (and the darkfactory quality lane) reads it from the default
+        # branch, while a CI artifact expires. Normalising drops the run
+        # timestamp and the runner's absolute checkout path, so the same
+        # measurement produces the same bytes on any machine.
+        run: make coverage-publish
+
+      - name: The committed coverage report must match this run
+        # A committed report nobody re-measures is a stale number, and a stale
+        # number is worse than no number. A change that moves coverage must run
+        # `make coverage-refresh` and commit the regenerated coverage.xml in the
+        # same pull request; an unchanged measurement produces no diff at all.
+        # `make ci-fast` runs the same check locally.
+        run: make coverage-check
+
       - name: Upload coverage report
         uses: actions/upload-artifact@v7
         if: always()
