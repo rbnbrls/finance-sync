@@ -9,7 +9,8 @@ make ci
 ```
 
 `make ci-fast` runs, in order, Ruff format, Ruff lint, Pyright, test
-collection, and the unit suite with the 80% coverage threshold. Collection is
+collection, and the unit suite with the 80% coverage threshold followed by the
+published-coverage check (see "Published coverage report"). Collection is
 intentionally before test execution so missing imports or renamed helpers fail
 without starting the expensive suite. `make ci` additionally runs the
 PostgreSQL migration round-trip, real PostgreSQL/Redis integration and E2E
@@ -55,6 +56,26 @@ GitHub Actions job summary, including the commit SHA. The incident workflow
 reuses an open incident for the same workflow/job/branch/category across
 repair pushes, while retaining the exact head SHA in the fingerprint and
 issue details.
+
+## Published coverage report
+
+`coverage.xml` at the repository root is committed, and it is the number a
+reader outside CI can trust: a CI artifact expires, and a badge is an image
+with no data in it. `scripts/coverage_report.py` writes it after the unit
+suite, dropping the two fields that would otherwise make it specific to the
+machine that measured it — the run `timestamp` and the absolute checkout path
+in `<source>` (`[tool.coverage.run] relative_files` keeps every `filename`
+repository-relative, and the published report names `.` as its base).
+
+The `Test (3.12)` job measures, publishes, and then runs
+`git diff --exit-code -- coverage.xml`: while that diff is dirty the job fails,
+because a committed report nobody re-measures is a stale number and a stale
+number is worse than no number. A change that moves coverage therefore has to
+run `make coverage-refresh` and commit the regenerated report in the same pull
+request; an unchanged measurement produces no diff at all. The workflow never
+commits the report itself — the job token keeps `contents: read`, so the
+publication travels through review and the merge. `make ci-fast` runs the same
+check locally, and `tests/test_coverage_report.py` pins the contract.
 
 ## Release workflow
 

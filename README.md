@@ -96,6 +96,7 @@ make format-check  # Ruff formatter check
 make type          # Pyright
 make test          # unit tests
 make test-cov      # unit tests with coverage
+make coverage-refresh  # re-measure and republish the committed coverage.xml
 make test-integration
 make test-e2e
 make ci-fast       # all fast CI checks: format, lint, types, tests
@@ -104,6 +105,17 @@ make ci-fast       # all fast CI checks: format, lint, types, tests
 Integration and E2E tests use the PostgreSQL/Redis services from
 `docker-compose.test.yml`. The default test command excludes both markers.
 The coverage threshold is 80% (`pyproject.toml`).
+
+The measured report is published at `coverage.xml` in the repository root and
+committed, so the coverage number is readable without downloading a CI
+artifact (`scripts/coverage_report.py` writes the machine-independent copy:
+`[tool.coverage.run] relative_files`, no run timestamp, no absolute checkout
+path). The `Test` job re-measures and publishes the report from the same run
+and then fails while `git diff --exit-code -- coverage.xml` is dirty, so a
+change that moves coverage must run `make coverage-refresh` and commit the
+regenerated `coverage.xml` in the same pull request. CI publishes through that
+merge only — the workflow token has no write grant. `make ci-fast` runs the
+same check locally.
 
 Install the pre-commit hooks with `make pre-commit-install`; they use the same
 Ruff version and `src`/`tests` scope as CI. Run `make ci-fast` before pushing.

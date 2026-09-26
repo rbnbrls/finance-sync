@@ -197,10 +197,22 @@ markers = [
 source = ["finance_sync", "src"]
 branch = true
 command_line = "-m pytest"
+# `relative_files` keeps the published report machine-independent: paths in
+# coverage.xml are written relative to the working directory instead of the
+# absolute checkout, so the committed report carries no `/home/...` (or
+# `/home/runner/work/...`) prefix. `scripts/coverage_report.py` normalises the
+# remaining volatile field (the timestamp) before the report is committed.
+relative_files = true
 omit = [
     "src/finance_sync/reconciliation/remediation/*",
     "src/finance_sync/services/remediation.py",
 ]
+
+[tool.coverage.xml]
+# The published report path -- committed at the repository root, so the
+# darkfactory quality lane (and any other reader) can parse a coverage number
+# from the default branch instead of an expiring CI artifact.
+output = "coverage.xml"
 
 [tool.coverage.report]
 # Keep the local default identical to the enforced CI gate.
