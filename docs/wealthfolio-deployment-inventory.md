@@ -12,7 +12,18 @@ based on this inventory is tracked separately.
 
 | App | UUID | FQDN | Deployed commit | Container |
 |---|---|---|---|---|
-| finance-sync-staging | mdeal4aqq9ycnozn3mg83zix | https://mdeal4aqq9ycnozn3mg83zix.7rb.nl | c4c5855 ("fix(ops): ship wget in production image … (#234)") — 1 commit behind main | mdeal4aqq9ycnozn3mg83zix-063130662014 (uvicorn API only) |
+| finance-sync-staging | — (application deleted) | — | — | — |
+
+> ⚠️ 2026-09-26: the `finance-sync-staging` application recorded in this
+> snapshot has been deleted from Coolify — the UUID that used to be quoted
+> here resolves to nothing on the provider, so nothing may target it.  Coolify
+> identifiers are no longer committed anywhere in this repo: the release path
+> (`scripts/resolve-coolify-app.sh`) and the health monitor
+> (`src/finance_sync/monitoring/health_monitor.py`) resolve the application by
+> name at run time and fail closed with a typed reason when it cannot be
+> resolved.  The production application recreated on the same date is
+> `finance-sync-production`, serving https://prod-finance-sync.7rb.nl (see
+> docs/RELEASING.md); the note below is the earlier 2026-08-24 state.
 
 > ⚠️ 2026-08-24: the production app `obcopz3142hxzs1zlie78amh` no longer exists
 > on dev.7rb.nl. `finance-sync-staging` is the only finance-sync app deployed

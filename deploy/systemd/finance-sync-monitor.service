@@ -17,14 +17,22 @@ ExecStart=/usr/local/bin/finance-sync-monitor
 # Optional overrides:
 #   STATE_FILE=/var/lib/finance-sync/finance-sync-monitor-state.json
 #   COOLIFY_API_URL=http://192.168.3.110:8000/api/v1
-#   COOLIFY_APP_UUID=obcopz3142hxzs1zlie78amh
-#   MONITOR_HEALTH_BASE_URL=https://<app-uuid>.7rb.nl
+#   COOLIFY_APP_NAME=finance-sync-production
+#   COOLIFY_APP_UUID=<uuid>          explicit override, still checked against
+#                                    the provider unless the URL is pinned too
+#   MONITOR_HEALTH_BASE_URL=https://prod-finance-sync.7rb.nl
+# No application UUID is configured here: the monitor resolves the monitored
+# application from the Coolify API by name on every run (and probes the route
+# Coolify serves for it), so recreating the application needs no change to
+# this unit.
 EnvironmentFile=/etc/finance-sync/finance-sync-monitor.env
 # State file default lives in /var/lib/finance-sync (created on first run).
 # If STATE_FILE is overridden, adjust StateDirectory accordingly.
 StateDirectory=finance-sync
-# Exit code 1 means GitHub issue creation failed; systemd records it in
-# the unit state but the timer keeps running.
+# Exit code 1 means GitHub issue creation failed; exit code 2 means the target
+# application could not be resolved (a typed `error:<reason>` on stderr, e.g.
+# error:coolify_application_not_found:finance-sync-production).  systemd
+# records either in the unit state but the timer keeps running.
 Restart=no
 
 [Install]
