@@ -10,7 +10,7 @@ make ci
 
 `make ci-fast` runs, in order, Ruff format, Ruff lint, Pyright, test
 collection, and the unit suite with the 80% coverage threshold followed by the
-published-coverage check (see "Published coverage report"). Collection is
+published-coverage check (see "Published coverage summary"). Collection is
 intentionally before test execution so missing imports or renamed helpers fail
 without starting the expensive suite. `make ci` additionally runs the
 PostgreSQL migration round-trip, real PostgreSQL/Redis integration and E2E
@@ -57,25 +57,38 @@ reuses an open incident for the same workflow/job/branch/category across
 repair pushes, while retaining the exact head SHA in the fingerprint and
 issue details.
 
-## Published coverage report
+## Published coverage summary
 
-`coverage.xml` at the repository root is committed, and it is the number a
-reader outside CI can trust: a CI artifact expires, and a badge is an image
-with no data in it. `scripts/coverage_report.py` writes it after the unit
-suite, dropping the two fields that would otherwise make it specific to the
-machine that measured it — the run `timestamp` and the absolute checkout path
-in `<source>` (`[tool.coverage.run] relative_files` keeps every `filename`
-repository-relative, and the published report names `.` as its base).
+`coverage-summary.json` at the repository root is committed, and it is the
+number a reader outside CI can trust: a CI artifact expires, and a badge is an
+image with no data in it. `scripts/coverage_report.py` derives it from the
+per-line Cobertura report of the same run — one entry per measured file plus
+the totals, with the per-file counters required to sum to the reporter's own
+totals before anything is written.
+
+The published artifact is a *summary* rather than the full report for a
+concrete reason: the darkfactory quality lane reads a committed file through
+the provider's contents API, which answers with an empty body above 1MB (and
+the lane truncates what it does receive at 400,000 characters). The first
+repair committed `coverage.xml` itself — 1.5MB — which made `main` look
+measured while the lane still read nothing from it. `coverage.xml` therefore
+stays a build output, uploaded as the `coverage-report-3.12` artifact, and the
+committed summary is the reader-sized projection of it.
+`[tool.coverage.run] relative_files` keeps every path in both files relative to
+the checkout, and no run timestamp is carried, so the same measurement produces
+the same bytes on any machine.
 
 The `Test (3.12)` job measures, publishes, and then runs
-`git diff --exit-code -- coverage.xml`: while that diff is dirty the job fails,
-because a committed report nobody re-measures is a stale number and a stale
-number is worse than no number. A change that moves coverage therefore has to
-run `make coverage-refresh` and commit the regenerated report in the same pull
-request; an unchanged measurement produces no diff at all. The workflow never
-commits the report itself — the job token keeps `contents: read`, so the
-publication travels through review and the merge. `make ci-fast` runs the same
-check locally, and `tests/test_coverage_report.py` pins the contract.
+`git diff --exit-code -- coverage-summary.json`: while that diff is dirty the
+job fails, because a committed number nobody re-measures is a stale number and
+a stale number is worse than no number. A change that moves coverage therefore
+has to run `make coverage-refresh` and commit the regenerated summary in the
+same pull request; an unchanged measurement produces no diff at all. The
+workflow never commits the summary itself — the job token keeps
+`contents: read`, so the publication travels through review and the merge.
+`make ci-fast` runs the same check locally, and
+`tests/test_coverage_report.py` pins the contract, including the size limit
+that made the first attempt fail.
 
 ## Release workflow
 

@@ -142,17 +142,17 @@ ci:                                 ## Run all required GitHub CI gates locally
 coverage:                          ## Generate HTML coverage report
 	coverage html
 
-coverage-publish:                  ## Publish coverage.xml as the committed, machine-independent report
+coverage-publish:                  ## Publish coverage-summary.json from the measured coverage.xml
 	uv run python scripts/coverage_report.py --summary
 
-coverage-check:                    ## Fail while the committed coverage report differs from this run
-	@git ls-files --error-unmatch coverage.xml >/dev/null || { \
-		echo "coverage.xml is not tracked by git; the published report must be committed"; exit 1; }
-	@git diff --exit-code -- coverage.xml || { \
-		echo "coverage.xml is stale: run 'make coverage-refresh' and commit the regenerated report"; exit 1; }
-	@echo "coverage.xml matches this run"
+coverage-check:                    ## Fail while the committed coverage summary differs from this run
+	@git ls-files --error-unmatch coverage-summary.json >/dev/null || { \
+		echo "coverage-summary.json is not tracked by git; the published number must be committed"; exit 1; }
+	@git diff --exit-code -- coverage-summary.json || { \
+		echo "coverage-summary.json is stale: run 'make coverage-refresh' and commit the regenerated summary"; exit 1; }
+	@echo "coverage-summary.json matches this run"
 
-coverage-refresh: test-ci          ## Re-measure the unit suite, then republish coverage.xml
+coverage-refresh: test-ci          ## Re-measure the unit suite, then republish coverage-summary.json
 	uv run python scripts/coverage_report.py --summary
 
 # ── Housekeeping ───────────────────────────────────────────────────
@@ -164,7 +164,7 @@ clean:                             ## Remove cache and build artifacts
 	find . -type d -name htmlcov -exec rm -rf {} + 2>/dev/null || true
 	find . -type d -name '*.egg-info' -exec rm -rf {} + 2>/dev/null || true
 	find . -type d -name .mypy_cache -exec rm -rf {} + 2>/dev/null || true
-	rm -rf dist/ build/ .coverage junit.xml
+	rm -rf dist/ build/ .coverage junit.xml coverage.xml
 
 # ── Pre-commit ─────────────────────────────────────────────────────
 pre-commit-install:                ## Install pre-commit hooks

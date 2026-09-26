@@ -44,9 +44,12 @@ htmlcov/
 .coverage.*
 .cache
 nosetests.xml
-# coverage.xml is deliberately NOT ignored: it is the published coverage report
-# (scripts/coverage_report.py, committed to the default branch so the number is
-# readable without an expiring CI artifact).
+# coverage.xml is the per-line Cobertura report: a build output, uploaded as
+# the `coverage-report-*` workflow artifact. `coverage-summary.json` is
+# deliberately NOT ignored -- it is the published number
+# (scripts/coverage_report.py writes it, and it is committed because the
+# quality lane's reader cannot fetch a report the size of coverage.xml).
+coverage.xml
 *.cover
 *.py.cover
 *.py,cover
