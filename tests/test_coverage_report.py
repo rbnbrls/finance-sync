@@ -185,8 +185,9 @@ def test_quality_gate_and_makefile_carry_the_report_contract() -> None:
     makefile = MAKEFILE.read_text(encoding="utf-8")
     assert "coverage-publish:" in makefile
     assert "coverage-check:" in makefile
-    # Local `make ci-fast` runs the same check the workflow runs.
-    assert "test-ci coverage-check" in makefile
+    # Local `make ci-fast` runs the same sequence the workflow runs: measure,
+    # publish, then refuse a stale report.
+    assert "test-ci coverage-publish coverage-check" in makefile
     # The published report is source, not build output: `make clean` must not
     # delete it.
     assert ".coverage junit.xml" in makefile
