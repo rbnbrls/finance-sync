@@ -1,0 +1,4582 @@
+{
+  "files": {
+    "src/finance_sync/__init__.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 1,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 1
+      }
+    },
+    "src/finance_sync/__main__.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 2
+      },
+      "lines": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 4
+      }
+    },
+    "src/finance_sync/api/__init__.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 1,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 1
+      }
+    },
+    "src/finance_sync/api/deps/auth.py": {
+      "branches": {
+        "covered": 26,
+        "pct": 59.09,
+        "skipped": 0,
+        "total": 44
+      },
+      "lines": {
+        "covered": 101,
+        "pct": 78.91,
+        "skipped": 0,
+        "total": 128
+      }
+    },
+    "src/finance_sync/api/middleware/ai_rate_limit.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 8
+      },
+      "lines": {
+        "covered": 9,
+        "pct": 25.71,
+        "skipped": 0,
+        "total": 35
+      }
+    },
+    "src/finance_sync/api/middleware/destination_probe_rate_limit.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 12
+      },
+      "lines": {
+        "covered": 12,
+        "pct": 22.64,
+        "skipped": 0,
+        "total": 53
+      }
+    },
+    "src/finance_sync/api/middleware/rate_limit.py": {
+      "branches": {
+        "covered": 12,
+        "pct": 42.86,
+        "skipped": 0,
+        "total": 28
+      },
+      "lines": {
+        "covered": 78,
+        "pct": 75.0,
+        "skipped": 0,
+        "total": 104
+      }
+    },
+    "src/finance_sync/api/v1/__init__.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 1,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 1
+      }
+    },
+    "src/finance_sync/api/v1/accounts.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 4
+      },
+      "lines": {
+        "covered": 25,
+        "pct": 52.08,
+        "skipped": 0,
+        "total": 48
+      }
+    },
+    "src/finance_sync/api/v1/ai_summary.py": {
+      "branches": {
+        "covered": 2,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 2
+      },
+      "lines": {
+        "covered": 18,
+        "pct": 56.25,
+        "skipped": 0,
+        "total": 32
+      }
+    },
+    "src/finance_sync/api/v1/allocation.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 14,
+        "pct": 93.33,
+        "skipped": 0,
+        "total": 15
+      }
+    },
+    "src/finance_sync/api/v1/analytics.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 4
+      },
+      "lines": {
+        "covered": 12,
+        "pct": 57.14,
+        "skipped": 0,
+        "total": 21
+      }
+    },
+    "src/finance_sync/api/v1/auth.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 18
+      },
+      "lines": {
+        "covered": 67,
+        "pct": 49.63,
+        "skipped": 0,
+        "total": 135
+      }
+    },
+    "src/finance_sync/api/v1/card_transactions.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 11,
+        "pct": 78.57,
+        "skipped": 0,
+        "total": 14
+      }
+    },
+    "src/finance_sync/api/v1/cashflow.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 14,
+        "pct": 66.67,
+        "skipped": 0,
+        "total": 21
+      }
+    },
+    "src/finance_sync/api/v1/category_review.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 10
+      },
+      "lines": {
+        "covered": 19,
+        "pct": 40.43,
+        "skipped": 0,
+        "total": 47
+      }
+    },
+    "src/finance_sync/api/v1/connectors_config.py": {
+      "branches": {
+        "covered": 81,
+        "pct": 49.39,
+        "skipped": 0,
+        "total": 164
+      },
+      "lines": {
+        "covered": 475,
+        "pct": 71.21,
+        "skipped": 0,
+        "total": 667
+      }
+    },
+    "src/finance_sync/api/v1/control_plane.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 8
+      },
+      "lines": {
+        "covered": 50,
+        "pct": 63.29,
+        "skipped": 0,
+        "total": 79
+      }
+    },
+    "src/finance_sync/api/v1/datamarts.py": {
+      "branches": {
+        "covered": 8,
+        "pct": 25.0,
+        "skipped": 0,
+        "total": 32
+      },
+      "lines": {
+        "covered": 110,
+        "pct": 69.62,
+        "skipped": 0,
+        "total": 158
+      }
+    },
+    "src/finance_sync/api/v1/degiro_imports.py": {
+      "branches": {
+        "covered": 26,
+        "pct": 61.9,
+        "skipped": 0,
+        "total": 42
+      },
+      "lines": {
+        "covered": 139,
+        "pct": 79.43,
+        "skipped": 0,
+        "total": 175
+      }
+    },
+    "src/finance_sync/api/v1/destinations.py": {
+      "branches": {
+        "covered": 74,
+        "pct": 51.39,
+        "skipped": 0,
+        "total": 144
+      },
+      "lines": {
+        "covered": 352,
+        "pct": 66.17,
+        "skipped": 0,
+        "total": 532
+      }
+    },
+    "src/finance_sync/api/v1/dividends.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 16,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 16
+      }
+    },
+    "src/finance_sync/api/v1/enrichment.py": {
+      "branches": {
+        "covered": 45,
+        "pct": 47.87,
+        "skipped": 0,
+        "total": 94
+      },
+      "lines": {
+        "covered": 214,
+        "pct": 72.3,
+        "skipped": 0,
+        "total": 296
+      }
+    },
+    "src/finance_sync/api/v1/exporters.py": {
+      "branches": {
+        "covered": 44,
+        "pct": 75.86,
+        "skipped": 0,
+        "total": 58
+      },
+      "lines": {
+        "covered": 188,
+        "pct": 91.71,
+        "skipped": 0,
+        "total": 205
+      }
+    },
+    "src/finance_sync/api/v1/feedback.py": {
+      "branches": {
+        "covered": 10,
+        "pct": 41.67,
+        "skipped": 0,
+        "total": 24
+      },
+      "lines": {
+        "covered": 47,
+        "pct": 65.28,
+        "skipped": 0,
+        "total": 72
+      }
+    },
+    "src/finance_sync/api/v1/file_uploads.py": {
+      "branches": {
+        "covered": 51,
+        "pct": 79.69,
+        "skipped": 0,
+        "total": 64
+      },
+      "lines": {
+        "covered": 206,
+        "pct": 91.96,
+        "skipped": 0,
+        "total": 224
+      }
+    },
+    "src/finance_sync/api/v1/ha_integration.py": {
+      "branches": {
+        "covered": 2,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 2
+      },
+      "lines": {
+        "covered": 17,
+        "pct": 62.96,
+        "skipped": 0,
+        "total": 27
+      }
+    },
+    "src/finance_sync/api/v1/holding_relevance.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 8
+      },
+      "lines": {
+        "covered": 38,
+        "pct": 43.68,
+        "skipped": 0,
+        "total": 87
+      }
+    },
+    "src/finance_sync/api/v1/holdings.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 16,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 16
+      }
+    },
+    "src/finance_sync/api/v1/intel_credentials.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 2
+      },
+      "lines": {
+        "covered": 23,
+        "pct": 40.35,
+        "skipped": 0,
+        "total": 57
+      }
+    },
+    "src/finance_sync/api/v1/legacy_exporters.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 5,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 5
+      }
+    },
+    "src/finance_sync/api/v1/market_data.py": {
+      "branches": {
+        "covered": 10,
+        "pct": 15.62,
+        "skipped": 0,
+        "total": 64
+      },
+      "lines": {
+        "covered": 76,
+        "pct": 38.97,
+        "skipped": 0,
+        "total": 195
+      }
+    },
+    "src/finance_sync/api/v1/market_intelligence.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 6
+      },
+      "lines": {
+        "covered": 30,
+        "pct": 35.71,
+        "skipped": 0,
+        "total": 84
+      }
+    },
+    "src/finance_sync/api/v1/net_worth.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 14,
+        "pct": 66.67,
+        "skipped": 0,
+        "total": 21
+      }
+    },
+    "src/finance_sync/api/v1/performance.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 20,
+        "pct": 55.56,
+        "skipped": 0,
+        "total": 36
+      }
+    },
+    "src/finance_sync/api/v1/portfolio.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 14,
+        "pct": 66.67,
+        "skipped": 0,
+        "total": 21
+      }
+    },
+    "src/finance_sync/api/v1/prices.py": {
+      "branches": {
+        "covered": 1,
+        "pct": 25.0,
+        "skipped": 0,
+        "total": 4
+      },
+      "lines": {
+        "covered": 17,
+        "pct": 85.0,
+        "skipped": 0,
+        "total": 20
+      }
+    },
+    "src/finance_sync/api/v1/reconciliation.py": {
+      "branches": {
+        "covered": 17,
+        "pct": 60.71,
+        "skipped": 0,
+        "total": 28
+      },
+      "lines": {
+        "covered": 179,
+        "pct": 88.61,
+        "skipped": 0,
+        "total": 202
+      }
+    },
+    "src/finance_sync/api/v1/root.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 7,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 7
+      }
+    },
+    "src/finance_sync/api/v1/router.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 89,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 89
+      }
+    },
+    "src/finance_sync/api/v1/saxo_imports.py": {
+      "branches": {
+        "covered": 10,
+        "pct": 71.43,
+        "skipped": 0,
+        "total": 14
+      },
+      "lines": {
+        "covered": 73,
+        "pct": 85.88,
+        "skipped": 0,
+        "total": 85
+      }
+    },
+    "src/finance_sync/api/v1/scheduled_payments.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 10,
+        "pct": 76.92,
+        "skipped": 0,
+        "total": 13
+      }
+    },
+    "src/finance_sync/api/v1/securities.py": {
+      "branches": {
+        "covered": 4,
+        "pct": 66.67,
+        "skipped": 0,
+        "total": 6
+      },
+      "lines": {
+        "covered": 56,
+        "pct": 81.16,
+        "skipped": 0,
+        "total": 69
+      }
+    },
+    "src/finance_sync/api/v1/spending.py": {
+      "branches": {
+        "covered": 15,
+        "pct": 68.18,
+        "skipped": 0,
+        "total": 22
+      },
+      "lines": {
+        "covered": 106,
+        "pct": 84.8,
+        "skipped": 0,
+        "total": 125
+      }
+    },
+    "src/finance_sync/api/v1/spending_config.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 4
+      },
+      "lines": {
+        "covered": 46,
+        "pct": 58.23,
+        "skipped": 0,
+        "total": 79
+      }
+    },
+    "src/finance_sync/api/v1/staging_providers.py": {
+      "branches": {
+        "covered": 4,
+        "pct": 50.0,
+        "skipped": 0,
+        "total": 8
+      },
+      "lines": {
+        "covered": 36,
+        "pct": 76.6,
+        "skipped": 0,
+        "total": 47
+      }
+    },
+    "src/finance_sync/api/v1/subscriptions.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 28
+      },
+      "lines": {
+        "covered": 126,
+        "pct": 60.29,
+        "skipped": 0,
+        "total": 209
+      }
+    },
+    "src/finance_sync/api/v1/sync.py": {
+      "branches": {
+        "covered": 12,
+        "pct": 54.55,
+        "skipped": 0,
+        "total": 22
+      },
+      "lines": {
+        "covered": 125,
+        "pct": 82.24,
+        "skipped": 0,
+        "total": 152
+      }
+    },
+    "src/finance_sync/api/v1/sync_runs.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 14
+      },
+      "lines": {
+        "covered": 36,
+        "pct": 40.45,
+        "skipped": 0,
+        "total": 89
+      }
+    },
+    "src/finance_sync/api/v1/sync_schedules.py": {
+      "branches": {
+        "covered": 6,
+        "pct": 50.0,
+        "skipped": 0,
+        "total": 12
+      },
+      "lines": {
+        "covered": 113,
+        "pct": 87.6,
+        "skipped": 0,
+        "total": 129
+      }
+    },
+    "src/finance_sync/api/v1/tax_lots.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 8
+      },
+      "lines": {
+        "covered": 59,
+        "pct": 76.62,
+        "skipped": 0,
+        "total": 77
+      }
+    },
+    "src/finance_sync/api/v1/transactions.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 19,
+        "pct": 86.36,
+        "skipped": 0,
+        "total": 22
+      }
+    },
+    "src/finance_sync/api/v1/webhooks.py": {
+      "branches": {
+        "covered": 6,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 6
+      },
+      "lines": {
+        "covered": 53,
+        "pct": 96.36,
+        "skipped": 0,
+        "total": 55
+      }
+    },
+    "src/finance_sync/app.py": {
+      "branches": {
+        "covered": 2,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 2
+      },
+      "lines": {
+        "covered": 33,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 33
+      }
+    },
+    "src/finance_sync/cli.py": {
+      "branches": {
+        "covered": 100,
+        "pct": 59.52,
+        "skipped": 0,
+        "total": 168
+      },
+      "lines": {
+        "covered": 424,
+        "pct": 69.39,
+        "skipped": 0,
+        "total": 611
+      }
+    },
+    "src/finance_sync/config/__init__.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 3,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 3
+      }
+    },
+    "src/finance_sync/config/environments.py": {
+      "branches": {
+        "covered": 2,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 2
+      },
+      "lines": {
+        "covered": 24,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 24
+      }
+    },
+    "src/finance_sync/config/settings.py": {
+      "branches": {
+        "covered": 18,
+        "pct": 81.82,
+        "skipped": 0,
+        "total": 22
+      },
+      "lines": {
+        "covered": 233,
+        "pct": 96.68,
+        "skipped": 0,
+        "total": 241
+      }
+    },
+    "src/finance_sync/connectors/__init__.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 6,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 6
+      }
+    },
+    "src/finance_sync/connectors/base.py": {
+      "branches": {
+        "covered": 4,
+        "pct": 66.67,
+        "skipped": 0,
+        "total": 6
+      },
+      "lines": {
+        "covered": 65,
+        "pct": 85.53,
+        "skipped": 0,
+        "total": 76
+      }
+    },
+    "src/finance_sync/connectors/bunq.py": {
+      "branches": {
+        "covered": 149,
+        "pct": 81.87,
+        "skipped": 0,
+        "total": 182
+      },
+      "lines": {
+        "covered": 498,
+        "pct": 90.38,
+        "skipped": 0,
+        "total": 551
+      }
+    },
+    "src/finance_sync/connectors/capabilities.py": {
+      "branches": {
+        "covered": 6,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 6
+      },
+      "lines": {
+        "covered": 32,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 32
+      }
+    },
+    "src/finance_sync/connectors/csv_import.py": {
+      "branches": {
+        "covered": 17,
+        "pct": 77.27,
+        "skipped": 0,
+        "total": 22
+      },
+      "lines": {
+        "covered": 75,
+        "pct": 89.29,
+        "skipped": 0,
+        "total": 84
+      }
+    },
+    "src/finance_sync/connectors/degiro_pension.py": {
+      "branches": {
+        "covered": 153,
+        "pct": 76.5,
+        "skipped": 0,
+        "total": 200
+      },
+      "lines": {
+        "covered": 497,
+        "pct": 86.28,
+        "skipped": 0,
+        "total": 576
+      }
+    },
+    "src/finance_sync/connectors/environment.py": {
+      "branches": {
+        "covered": 8,
+        "pct": 57.14,
+        "skipped": 0,
+        "total": 14
+      },
+      "lines": {
+        "covered": 23,
+        "pct": 69.7,
+        "skipped": 0,
+        "total": 33
+      }
+    },
+    "src/finance_sync/connectors/exceptions.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 10,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 10
+      }
+    },
+    "src/finance_sync/connectors/manual_expense.py": {
+      "branches": {
+        "covered": 9,
+        "pct": 64.29,
+        "skipped": 0,
+        "total": 14
+      },
+      "lines": {
+        "covered": 56,
+        "pct": 86.15,
+        "skipped": 0,
+        "total": 65
+      }
+    },
+    "src/finance_sync/connectors/models.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 308,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 308
+      }
+    },
+    "src/finance_sync/connectors/plaid_like.py": {
+      "branches": {
+        "covered": 28,
+        "pct": 63.64,
+        "skipped": 0,
+        "total": 44
+      },
+      "lines": {
+        "covered": 121,
+        "pct": 77.07,
+        "skipped": 0,
+        "total": 157
+      }
+    },
+    "src/finance_sync/connectors/rate_limiter.py": {
+      "branches": {
+        "covered": 15,
+        "pct": 83.33,
+        "skipped": 0,
+        "total": 18
+      },
+      "lines": {
+        "covered": 71,
+        "pct": 94.67,
+        "skipped": 0,
+        "total": 75
+      }
+    },
+    "src/finance_sync/connectors/registry.py": {
+      "branches": {
+        "covered": 35,
+        "pct": 70.0,
+        "skipped": 0,
+        "total": 50
+      },
+      "lines": {
+        "covered": 124,
+        "pct": 83.78,
+        "skipped": 0,
+        "total": 148
+      }
+    },
+    "src/finance_sync/connectors/saxo_investor.py": {
+      "branches": {
+        "covered": 86,
+        "pct": 67.19,
+        "skipped": 0,
+        "total": 128
+      },
+      "lines": {
+        "covered": 276,
+        "pct": 78.86,
+        "skipped": 0,
+        "total": 350
+      }
+    },
+    "src/finance_sync/connectors/trading212.py": {
+      "branches": {
+        "covered": 119,
+        "pct": 87.5,
+        "skipped": 0,
+        "total": 136
+      },
+      "lines": {
+        "covered": 391,
+        "pct": 82.49,
+        "skipped": 0,
+        "total": 474
+      }
+    },
+    "src/finance_sync/connectors/ynab.py": {
+      "branches": {
+        "covered": 40,
+        "pct": 80.0,
+        "skipped": 0,
+        "total": 50
+      },
+      "lines": {
+        "covered": 162,
+        "pct": 81.41,
+        "skipped": 0,
+        "total": 199
+      }
+    },
+    "src/finance_sync/container.py": {
+      "branches": {
+        "covered": 18,
+        "pct": 52.94,
+        "skipped": 0,
+        "total": 34
+      },
+      "lines": {
+        "covered": 82,
+        "pct": 71.3,
+        "skipped": 0,
+        "total": 115
+      }
+    },
+    "src/finance_sync/control_plane_contract.py": {
+      "branches": {
+        "covered": 6,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 6
+      },
+      "lines": {
+        "covered": 15,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 15
+      }
+    },
+    "src/finance_sync/db/__init__.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 2
+      },
+      "lines": {
+        "covered": 26,
+        "pct": 86.67,
+        "skipped": 0,
+        "total": 30
+      }
+    },
+    "src/finance_sync/db/json.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 6
+      },
+      "lines": {
+        "covered": 7,
+        "pct": 41.18,
+        "skipped": 0,
+        "total": 17
+      }
+    },
+    "src/finance_sync/db/repositories.py": {
+      "branches": {
+        "covered": 32,
+        "pct": 59.26,
+        "skipped": 0,
+        "total": 54
+      },
+      "lines": {
+        "covered": 166,
+        "pct": 72.49,
+        "skipped": 0,
+        "total": 229
+      }
+    },
+    "src/finance_sync/db/repository.py": {
+      "branches": {
+        "covered": 9,
+        "pct": 90.0,
+        "skipped": 0,
+        "total": 10
+      },
+      "lines": {
+        "covered": 45,
+        "pct": 95.74,
+        "skipped": 0,
+        "total": 47
+      }
+    },
+    "src/finance_sync/db/types.py": {
+      "branches": {
+        "covered": 6,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 6
+      },
+      "lines": {
+        "covered": 26,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 26
+      }
+    },
+    "src/finance_sync/db/uow.py": {
+      "branches": {
+        "covered": 6,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 6
+      },
+      "lines": {
+        "covered": 117,
+        "pct": 86.03,
+        "skipped": 0,
+        "total": 136
+      }
+    },
+    "src/finance_sync/dependencies.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 18,
+        "pct": 94.74,
+        "skipped": 0,
+        "total": 19
+      }
+    },
+    "src/finance_sync/duplicate_detection.py": {
+      "branches": {
+        "covered": 2,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 2
+      },
+      "lines": {
+        "covered": 19,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 19
+      }
+    },
+    "src/finance_sync/enrichment/gateway.py": {
+      "branches": {
+        "covered": 23,
+        "pct": 28.05,
+        "skipped": 0,
+        "total": 82
+      },
+      "lines": {
+        "covered": 109,
+        "pct": 39.93,
+        "skipped": 0,
+        "total": 273
+      }
+    },
+    "src/finance_sync/enrichment/identifiers.py": {
+      "branches": {
+        "covered": 8,
+        "pct": 80.0,
+        "skipped": 0,
+        "total": 10
+      },
+      "lines": {
+        "covered": 16,
+        "pct": 88.89,
+        "skipped": 0,
+        "total": 18
+      }
+    },
+    "src/finance_sync/enrichment/metadata_enricher.py": {
+      "branches": {
+        "covered": 44,
+        "pct": 73.33,
+        "skipped": 0,
+        "total": 60
+      },
+      "lines": {
+        "covered": 140,
+        "pct": 84.85,
+        "skipped": 0,
+        "total": 165
+      }
+    },
+    "src/finance_sync/enrichment/models.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 153,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 153
+      }
+    },
+    "src/finance_sync/enrichment/price_store.py": {
+      "branches": {
+        "covered": 12,
+        "pct": 85.71,
+        "skipped": 0,
+        "total": 14
+      },
+      "lines": {
+        "covered": 69,
+        "pct": 93.24,
+        "skipped": 0,
+        "total": 74
+      }
+    },
+    "src/finance_sync/enrichment/security_resolver.py": {
+      "branches": {
+        "covered": 36,
+        "pct": 75.0,
+        "skipped": 0,
+        "total": 48
+      },
+      "lines": {
+        "covered": 92,
+        "pct": 91.09,
+        "skipped": 0,
+        "total": 101
+      }
+    },
+    "src/finance_sync/exporter/__init__.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 4,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 4
+      }
+    },
+    "src/finance_sync/exporter/actual_budget/__init__.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 2,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 2
+      }
+    },
+    "src/finance_sync/exporter/actual_budget/client.py": {
+      "branches": {
+        "covered": 9,
+        "pct": 32.14,
+        "skipped": 0,
+        "total": 28
+      },
+      "lines": {
+        "covered": 111,
+        "pct": 68.52,
+        "skipped": 0,
+        "total": 162
+      }
+    },
+    "src/finance_sync/exporter/actual_budget/config.py": {
+      "branches": {
+        "covered": 2,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 2
+      },
+      "lines": {
+        "covered": 27,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 27
+      }
+    },
+    "src/finance_sync/exporter/actual_budget/exporter.py": {
+      "branches": {
+        "covered": 50,
+        "pct": 65.79,
+        "skipped": 0,
+        "total": 76
+      },
+      "lines": {
+        "covered": 258,
+        "pct": 82.17,
+        "skipped": 0,
+        "total": 314
+      }
+    },
+    "src/finance_sync/exporter/actual_budget/models.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 31,
+        "pct": 93.94,
+        "skipped": 0,
+        "total": 33
+      }
+    },
+    "src/finance_sync/exporter/actual_budget/transaction_mapper.py": {
+      "branches": {
+        "covered": 22,
+        "pct": 84.62,
+        "skipped": 0,
+        "total": 26
+      },
+      "lines": {
+        "covered": 63,
+        "pct": 95.45,
+        "skipped": 0,
+        "total": 66
+      }
+    },
+    "src/finance_sync/exporter/capabilities.py": {
+      "branches": {
+        "covered": 3,
+        "pct": 21.43,
+        "skipped": 0,
+        "total": 14
+      },
+      "lines": {
+        "covered": 27,
+        "pct": 71.05,
+        "skipped": 0,
+        "total": 38
+      }
+    },
+    "src/finance_sync/exporter/client.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 2
+      }
+    },
+    "src/finance_sync/exporter/config.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 2
+      }
+    },
+    "src/finance_sync/exporter/exporter.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 2
+      }
+    },
+    "src/finance_sync/exporter/firefly/__init__.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 3,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 3
+      }
+    },
+    "src/finance_sync/exporter/firefly/client.py": {
+      "branches": {
+        "covered": 41,
+        "pct": 64.06,
+        "skipped": 0,
+        "total": 64
+      },
+      "lines": {
+        "covered": 125,
+        "pct": 83.89,
+        "skipped": 0,
+        "total": 149
+      }
+    },
+    "src/finance_sync/exporter/firefly/config.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 2
+      },
+      "lines": {
+        "covered": 16,
+        "pct": 80.0,
+        "skipped": 0,
+        "total": 20
+      }
+    },
+    "src/finance_sync/exporter/firefly/exporter.py": {
+      "branches": {
+        "covered": 9,
+        "pct": 30.0,
+        "skipped": 0,
+        "total": 30
+      },
+      "lines": {
+        "covered": 96,
+        "pct": 66.21,
+        "skipped": 0,
+        "total": 145
+      }
+    },
+    "src/finance_sync/exporter/firefly/transaction_mapper.py": {
+      "branches": {
+        "covered": 14,
+        "pct": 87.5,
+        "skipped": 0,
+        "total": 16
+      },
+      "lines": {
+        "covered": 30,
+        "pct": 96.77,
+        "skipped": 0,
+        "total": 31
+      }
+    },
+    "src/finance_sync/exporter/ghostfolio/__init__.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 3,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 3
+      }
+    },
+    "src/finance_sync/exporter/ghostfolio/client.py": {
+      "branches": {
+        "covered": 6,
+        "pct": 50.0,
+        "skipped": 0,
+        "total": 12
+      },
+      "lines": {
+        "covered": 33,
+        "pct": 78.57,
+        "skipped": 0,
+        "total": 42
+      }
+    },
+    "src/finance_sync/exporter/ghostfolio/config.py": {
+      "branches": {
+        "covered": 2,
+        "pct": 50.0,
+        "skipped": 0,
+        "total": 4
+      },
+      "lines": {
+        "covered": 18,
+        "pct": 78.26,
+        "skipped": 0,
+        "total": 23
+      }
+    },
+    "src/finance_sync/exporter/ghostfolio/exporter.py": {
+      "branches": {
+        "covered": 4,
+        "pct": 40.0,
+        "skipped": 0,
+        "total": 10
+      },
+      "lines": {
+        "covered": 35,
+        "pct": 66.04,
+        "skipped": 0,
+        "total": 53
+      }
+    },
+    "src/finance_sync/exporter/ghostfolio/transaction_mapper.py": {
+      "branches": {
+        "covered": 10,
+        "pct": 45.45,
+        "skipped": 0,
+        "total": 22
+      },
+      "lines": {
+        "covered": 29,
+        "pct": 65.91,
+        "skipped": 0,
+        "total": 44
+      }
+    },
+    "src/finance_sync/exporter/investbrain/__init__.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 4,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 4
+      }
+    },
+    "src/finance_sync/exporter/investbrain/client.py": {
+      "branches": {
+        "covered": 9,
+        "pct": 50.0,
+        "skipped": 0,
+        "total": 18
+      },
+      "lines": {
+        "covered": 55,
+        "pct": 72.37,
+        "skipped": 0,
+        "total": 76
+      }
+    },
+    "src/finance_sync/exporter/investbrain/config.py": {
+      "branches": {
+        "covered": 2,
+        "pct": 50.0,
+        "skipped": 0,
+        "total": 4
+      },
+      "lines": {
+        "covered": 18,
+        "pct": 78.26,
+        "skipped": 0,
+        "total": 23
+      }
+    },
+    "src/finance_sync/exporter/investbrain/exporter.py": {
+      "branches": {
+        "covered": 3,
+        "pct": 18.75,
+        "skipped": 0,
+        "total": 16
+      },
+      "lines": {
+        "covered": 31,
+        "pct": 46.97,
+        "skipped": 0,
+        "total": 66
+      }
+    },
+    "src/finance_sync/exporter/investbrain/transaction_mapper.py": {
+      "branches": {
+        "covered": 5,
+        "pct": 62.5,
+        "skipped": 0,
+        "total": 8
+      },
+      "lines": {
+        "covered": 15,
+        "pct": 88.24,
+        "skipped": 0,
+        "total": 17
+      }
+    },
+    "src/finance_sync/exporter/models.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 25,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 25
+      }
+    },
+    "src/finance_sync/exporter/securo/__init__.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 3,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 3
+      }
+    },
+    "src/finance_sync/exporter/securo/client.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 6
+      },
+      "lines": {
+        "covered": 18,
+        "pct": 28.57,
+        "skipped": 0,
+        "total": 63
+      }
+    },
+    "src/finance_sync/exporter/securo/config.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 12,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 12
+      }
+    },
+    "src/finance_sync/exporter/securo/exporter.py": {
+      "branches": {
+        "covered": 11,
+        "pct": 42.31,
+        "skipped": 0,
+        "total": 26
+      },
+      "lines": {
+        "covered": 86,
+        "pct": 66.67,
+        "skipped": 0,
+        "total": 129
+      }
+    },
+    "src/finance_sync/exporter/transaction_mapper.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 2,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 2
+      }
+    },
+    "src/finance_sync/exporter/wealthfolio/__init__.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 3,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 3
+      }
+    },
+    "src/finance_sync/exporter/wealthfolio/client.py": {
+      "branches": {
+        "covered": 128,
+        "pct": 66.67,
+        "skipped": 0,
+        "total": 192
+      },
+      "lines": {
+        "covered": 432,
+        "pct": 75.13,
+        "skipped": 0,
+        "total": 575
+      }
+    },
+    "src/finance_sync/exporter/wealthfolio/config.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 20,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 20
+      }
+    },
+    "src/finance_sync/exporter/wealthfolio/exporter.py": {
+      "branches": {
+        "covered": 305,
+        "pct": 56.27,
+        "skipped": 0,
+        "total": 542
+      },
+      "lines": {
+        "covered": 976,
+        "pct": 71.4,
+        "skipped": 0,
+        "total": 1367
+      }
+    },
+    "src/finance_sync/exporter/wealthfolio/extensions.py": {
+      "branches": {
+        "covered": 17,
+        "pct": 53.12,
+        "skipped": 0,
+        "total": 32
+      },
+      "lines": {
+        "covered": 39,
+        "pct": 67.24,
+        "skipped": 0,
+        "total": 58
+      }
+    },
+    "src/finance_sync/exporter/wealthfolio/models.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 33,
+        "pct": 94.29,
+        "skipped": 0,
+        "total": 35
+      }
+    },
+    "src/finance_sync/exporter/wealthfolio/transaction_mapper.py": {
+      "branches": {
+        "covered": 103,
+        "pct": 87.29,
+        "skipped": 0,
+        "total": 118
+      },
+      "lines": {
+        "covered": 265,
+        "pct": 93.97,
+        "skipped": 0,
+        "total": 282
+      }
+    },
+    "src/finance_sync/exporter/ynab/__init__.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 5,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 5
+      }
+    },
+    "src/finance_sync/exporter/ynab/client.py": {
+      "branches": {
+        "covered": 11,
+        "pct": 45.83,
+        "skipped": 0,
+        "total": 24
+      },
+      "lines": {
+        "covered": 54,
+        "pct": 75.0,
+        "skipped": 0,
+        "total": 72
+      }
+    },
+    "src/finance_sync/exporter/ynab/config.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 12,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 12
+      }
+    },
+    "src/finance_sync/exporter/ynab/exporter.py": {
+      "branches": {
+        "covered": 6,
+        "pct": 42.86,
+        "skipped": 0,
+        "total": 14
+      },
+      "lines": {
+        "covered": 43,
+        "pct": 81.13,
+        "skipped": 0,
+        "total": 53
+      }
+    },
+    "src/finance_sync/exporter/ynab/transaction_mapper.py": {
+      "branches": {
+        "covered": 6,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 6
+      },
+      "lines": {
+        "covered": 15,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 15
+      }
+    },
+    "src/finance_sync/gui/router.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 25,
+        "pct": 96.15,
+        "skipped": 0,
+        "total": 26
+      }
+    },
+    "src/finance_sync/identity/__init__.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 34,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 34
+      }
+    },
+    "src/finance_sync/identity/resolver.py": {
+      "branches": {
+        "covered": 69,
+        "pct": 67.65,
+        "skipped": 0,
+        "total": 102
+      },
+      "lines": {
+        "covered": 202,
+        "pct": 78.91,
+        "skipped": 0,
+        "total": 256
+      }
+    },
+    "src/finance_sync/intel/adapters/openbb.py": {
+      "branches": {
+        "covered": 48,
+        "pct": 58.54,
+        "skipped": 0,
+        "total": 82
+      },
+      "lines": {
+        "covered": 157,
+        "pct": 74.76,
+        "skipped": 0,
+        "total": 210
+      }
+    },
+    "src/finance_sync/intel/adapters/sec.py": {
+      "branches": {
+        "covered": 52,
+        "pct": 74.29,
+        "skipped": 0,
+        "total": 70
+      },
+      "lines": {
+        "covered": 169,
+        "pct": 80.86,
+        "skipped": 0,
+        "total": 209
+      }
+    },
+    "src/finance_sync/intel/adapters/sec_press.py": {
+      "branches": {
+        "covered": 27,
+        "pct": 75.0,
+        "skipped": 0,
+        "total": 36
+      },
+      "lines": {
+        "covered": 126,
+        "pct": 85.71,
+        "skipped": 0,
+        "total": 147
+      }
+    },
+    "src/finance_sync/intel/credentials.py": {
+      "branches": {
+        "covered": 15,
+        "pct": 62.5,
+        "skipped": 0,
+        "total": 24
+      },
+      "lines": {
+        "covered": 111,
+        "pct": 86.05,
+        "skipped": 0,
+        "total": 129
+      }
+    },
+    "src/finance_sync/intel/enums.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 33,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 33
+      }
+    },
+    "src/finance_sync/intel/exceptions.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 13,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 13
+      }
+    },
+    "src/finance_sync/intel/hashing.py": {
+      "branches": {
+        "covered": 4,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 4
+      },
+      "lines": {
+        "covered": 12,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 12
+      }
+    },
+    "src/finance_sync/intel/identity.py": {
+      "branches": {
+        "covered": 21,
+        "pct": 95.45,
+        "skipped": 0,
+        "total": 22
+      },
+      "lines": {
+        "covered": 42,
+        "pct": 97.67,
+        "skipped": 0,
+        "total": 43
+      }
+    },
+    "src/finance_sync/intel/licensing.py": {
+      "branches": {
+        "covered": 12,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 12
+      },
+      "lines": {
+        "covered": 24,
+        "pct": 92.31,
+        "skipped": 0,
+        "total": 26
+      }
+    },
+    "src/finance_sync/intel/models.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 35,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 35
+      }
+    },
+    "src/finance_sync/intel/provider.py": {
+      "branches": {
+        "covered": 11,
+        "pct": 55.0,
+        "skipped": 0,
+        "total": 20
+      },
+      "lines": {
+        "covered": 108,
+        "pct": 90.0,
+        "skipped": 0,
+        "total": 120
+      }
+    },
+    "src/finance_sync/intel/registry.py": {
+      "branches": {
+        "covered": 9,
+        "pct": 64.29,
+        "skipped": 0,
+        "total": 14
+      },
+      "lines": {
+        "covered": 39,
+        "pct": 82.98,
+        "skipped": 0,
+        "total": 47
+      }
+    },
+    "src/finance_sync/intel/scheduler.py": {
+      "branches": {
+        "covered": 25,
+        "pct": 69.44,
+        "skipped": 0,
+        "total": 36
+      },
+      "lines": {
+        "covered": 159,
+        "pct": 81.54,
+        "skipped": 0,
+        "total": 195
+      }
+    },
+    "src/finance_sync/intel/service.py": {
+      "branches": {
+        "covered": 38,
+        "pct": 90.48,
+        "skipped": 0,
+        "total": 42
+      },
+      "lines": {
+        "covered": 184,
+        "pct": 97.35,
+        "skipped": 0,
+        "total": 189
+      }
+    },
+    "src/finance_sync/lifespan.py": {
+      "branches": {
+        "covered": 26,
+        "pct": 72.22,
+        "skipped": 0,
+        "total": 36
+      },
+      "lines": {
+        "covered": 97,
+        "pct": 82.91,
+        "skipped": 0,
+        "total": 117
+      }
+    },
+    "src/finance_sync/main.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 3,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 3
+      }
+    },
+    "src/finance_sync/mcp/__init__.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 1,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 1
+      }
+    },
+    "src/finance_sync/mcp/__main__.py": {
+      "branches": {
+        "covered": 1,
+        "pct": 50.0,
+        "skipped": 0,
+        "total": 2
+      },
+      "lines": {
+        "covered": 5,
+        "pct": 50.0,
+        "skipped": 0,
+        "total": 10
+      }
+    },
+    "src/finance_sync/mcp/auth.py": {
+      "branches": {
+        "covered": 17,
+        "pct": 65.38,
+        "skipped": 0,
+        "total": 26
+      },
+      "lines": {
+        "covered": 86,
+        "pct": 86.87,
+        "skipped": 0,
+        "total": 99
+      }
+    },
+    "src/finance_sync/mcp/server.py": {
+      "branches": {
+        "covered": 16,
+        "pct": 50.0,
+        "skipped": 0,
+        "total": 32
+      },
+      "lines": {
+        "covered": 346,
+        "pct": 81.03,
+        "skipped": 0,
+        "total": 427
+      }
+    },
+    "src/finance_sync/models/__init__.py": {
+      "branches": {
+        "covered": 7,
+        "pct": 38.89,
+        "skipped": 0,
+        "total": 18
+      },
+      "lines": {
+        "covered": 75,
+        "pct": 88.24,
+        "skipped": 0,
+        "total": 85
+      }
+    },
+    "src/finance_sync/models/account.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 33,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 33
+      }
+    },
+    "src/finance_sync/models/api_key.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 22,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 22
+      }
+    },
+    "src/finance_sync/models/balance.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 22,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 22
+      }
+    },
+    "src/finance_sync/models/card_transaction.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 48,
+        "pct": 97.96,
+        "skipped": 0,
+        "total": 49
+      }
+    },
+    "src/finance_sync/models/connection_audit_log.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 35,
+        "pct": 97.22,
+        "skipped": 0,
+        "total": 36
+      }
+    },
+    "src/finance_sync/models/connector_release.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 23,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 23
+      }
+    },
+    "src/finance_sync/models/connector_state.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 18,
+        "pct": 94.74,
+        "skipped": 0,
+        "total": 19
+      }
+    },
+    "src/finance_sync/models/credential.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 44,
+        "pct": 97.78,
+        "skipped": 0,
+        "total": 45
+      }
+    },
+    "src/finance_sync/models/datamart.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 47,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 47
+      }
+    },
+    "src/finance_sync/models/detected_subscription.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 37,
+        "pct": 97.37,
+        "skipped": 0,
+        "total": 38
+      }
+    },
+    "src/finance_sync/models/duplicate_review.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 19,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 19
+      }
+    },
+    "src/finance_sync/models/enrichment_freshness.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 19,
+        "pct": 95.0,
+        "skipped": 0,
+        "total": 20
+      }
+    },
+    "src/finance_sync/models/enums.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 163,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 163
+      }
+    },
+    "src/finance_sync/models/export_target.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 42,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 42
+      }
+    },
+    "src/finance_sync/models/fundamental_observation.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 32,
+        "pct": 96.97,
+        "skipped": 0,
+        "total": 33
+      }
+    },
+    "src/finance_sync/models/fx_rate.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 19,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 19
+      }
+    },
+    "src/finance_sync/models/holding.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 27,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 27
+      }
+    },
+    "src/finance_sync/models/holding_relevance.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 110,
+        "pct": 98.21,
+        "skipped": 0,
+        "total": 112
+      }
+    },
+    "src/finance_sync/models/import_run.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 41,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 41
+      }
+    },
+    "src/finance_sync/models/market_data_exception.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 11,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 11
+      }
+    },
+    "src/finance_sync/models/market_intelligence_item.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 37,
+        "pct": 97.37,
+        "skipped": 0,
+        "total": 38
+      }
+    },
+    "src/finance_sync/models/market_intelligence_provider_state.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 29,
+        "pct": 96.67,
+        "skipped": 0,
+        "total": 30
+      }
+    },
+    "src/finance_sync/models/market_intelligence_review_queue.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 21,
+        "pct": 95.45,
+        "skipped": 0,
+        "total": 22
+      }
+    },
+    "src/finance_sync/models/market_intelligence_run.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 30,
+        "pct": 96.77,
+        "skipped": 0,
+        "total": 31
+      }
+    },
+    "src/finance_sync/models/mixins.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 12,
+        "pct": 92.31,
+        "skipped": 0,
+        "total": 13
+      }
+    },
+    "src/finance_sync/models/outbox.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 24,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 24
+      }
+    },
+    "src/finance_sync/models/reconciliation.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 47,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 47
+      }
+    },
+    "src/finance_sync/models/refresh_token.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 18,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 18
+      }
+    },
+    "src/finance_sync/models/remediation.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 43,
+        "pct": 97.73,
+        "skipped": 0,
+        "total": 44
+      }
+    },
+    "src/finance_sync/models/resolution_audit_log.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 20,
+        "pct": 95.24,
+        "skipped": 0,
+        "total": 21
+      }
+    },
+    "src/finance_sync/models/scheduled_payment.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 35,
+        "pct": 97.22,
+        "skipped": 0,
+        "total": 36
+      }
+    },
+    "src/finance_sync/models/security.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 20,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 20
+      }
+    },
+    "src/finance_sync/models/security_listing.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 18,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 18
+      }
+    },
+    "src/finance_sync/models/security_metadata_observation.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 19,
+        "pct": 95.0,
+        "skipped": 0,
+        "total": 20
+      }
+    },
+    "src/finance_sync/models/security_price.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 25,
+        "pct": 96.15,
+        "skipped": 0,
+        "total": 26
+      }
+    },
+    "src/finance_sync/models/spending.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 55,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 55
+      }
+    },
+    "src/finance_sync/models/spending_config.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 47,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 47
+      }
+    },
+    "src/finance_sync/models/spending_policy.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 18,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 18
+      }
+    },
+    "src/finance_sync/models/spending_rule.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 19,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 19
+      }
+    },
+    "src/finance_sync/models/sync_cursor.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 20,
+        "pct": 95.24,
+        "skipped": 0,
+        "total": 21
+      }
+    },
+    "src/finance_sync/models/sync_run.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 34,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 34
+      }
+    },
+    "src/finance_sync/models/sync_schedule.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 38,
+        "pct": 97.44,
+        "skipped": 0,
+        "total": 39
+      }
+    },
+    "src/finance_sync/models/tax_lot.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 39,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 39
+      }
+    },
+    "src/finance_sync/models/tenant.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 15,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 15
+      }
+    },
+    "src/finance_sync/models/transaction.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 68,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 68
+      }
+    },
+    "src/finance_sync/models/transaction_event.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 20,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 20
+      }
+    },
+    "src/finance_sync/models/unresolved_security.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 25,
+        "pct": 89.29,
+        "skipped": 0,
+        "total": 28
+      }
+    },
+    "src/finance_sync/models/user.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 18,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 18
+      }
+    },
+    "src/finance_sync/models/wealthfolio_health_cursor.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 25,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 25
+      }
+    },
+    "src/finance_sync/models/webhook.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 39,
+        "pct": 95.12,
+        "skipped": 0,
+        "total": 41
+      }
+    },
+    "src/finance_sync/monitoring/health_monitor.py": {
+      "branches": {
+        "covered": 101,
+        "pct": 80.16,
+        "skipped": 0,
+        "total": 126
+      },
+      "lines": {
+        "covered": 365,
+        "pct": 87.11,
+        "skipped": 0,
+        "total": 419
+      }
+    },
+    "src/finance_sync/monitoring/wealthfolio_monitor.py": {
+      "branches": {
+        "covered": 12,
+        "pct": 60.0,
+        "skipped": 0,
+        "total": 20
+      },
+      "lines": {
+        "covered": 92,
+        "pct": 74.19,
+        "skipped": 0,
+        "total": 124
+      }
+    },
+    "src/finance_sync/observability/connector_metrics.py": {
+      "branches": {
+        "covered": 4,
+        "pct": 66.67,
+        "skipped": 0,
+        "total": 6
+      },
+      "lines": {
+        "covered": 18,
+        "pct": 85.71,
+        "skipped": 0,
+        "total": 21
+      }
+    },
+    "src/finance_sync/observability/destination_metrics.py": {
+      "branches": {
+        "covered": 4,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 4
+      },
+      "lines": {
+        "covered": 14,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 14
+      }
+    },
+    "src/finance_sync/observability/glitchtip.py": {
+      "branches": {
+        "covered": 27,
+        "pct": 56.25,
+        "skipped": 0,
+        "total": 48
+      },
+      "lines": {
+        "covered": 82,
+        "pct": 73.87,
+        "skipped": 0,
+        "total": 111
+      }
+    },
+    "src/finance_sync/observability/health.py": {
+      "branches": {
+        "covered": 2,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 2
+      },
+      "lines": {
+        "covered": 44,
+        "pct": 83.02,
+        "skipped": 0,
+        "total": 53
+      }
+    },
+    "src/finance_sync/observability/logging.py": {
+      "branches": {
+        "covered": 8,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 8
+      },
+      "lines": {
+        "covered": 45,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 45
+      }
+    },
+    "src/finance_sync/observability/metrics.py": {
+      "branches": {
+        "covered": 9,
+        "pct": 90.0,
+        "skipped": 0,
+        "total": 10
+      },
+      "lines": {
+        "covered": 78,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 78
+      }
+    },
+    "src/finance_sync/providers/openbb_fx.py": {
+      "branches": {
+        "covered": 25,
+        "pct": 96.15,
+        "skipped": 0,
+        "total": 26
+      },
+      "lines": {
+        "covered": 103,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 103
+      }
+    },
+    "src/finance_sync/schemas/__init__.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 4,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 4
+      }
+    },
+    "src/finance_sync/schemas/analytics.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 32,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 32
+      }
+    },
+    "src/finance_sync/schemas/connector_compatibility.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 17,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 17
+      }
+    },
+    "src/finance_sync/schemas/connector_release.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 13,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 13
+      }
+    },
+    "src/finance_sync/schemas/control_plane.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 110,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 110
+      }
+    },
+    "src/finance_sync/schemas/data_health.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 67,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 67
+      }
+    },
+    "src/finance_sync/schemas/data_quality.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 37,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 37
+      }
+    },
+    "src/finance_sync/schemas/freshness.py": {
+      "branches": {
+        "covered": 4,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 4
+      },
+      "lines": {
+        "covered": 35,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 35
+      }
+    },
+    "src/finance_sync/schemas/fx_rate.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 21,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 21
+      }
+    },
+    "src/finance_sync/schemas/provider_health.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 44,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 44
+      }
+    },
+    "src/finance_sync/schemas/rate_limit.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 10,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 10
+      }
+    },
+    "src/finance_sync/schemas/remediation.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 45,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 45
+      }
+    },
+    "src/finance_sync/services/account_selection.py": {
+      "branches": {
+        "covered": 9,
+        "pct": 90.0,
+        "skipped": 0,
+        "total": 10
+      },
+      "lines": {
+        "covered": 28,
+        "pct": 87.5,
+        "skipped": 0,
+        "total": 32
+      }
+    },
+    "src/finance_sync/services/ai_summary.py": {
+      "branches": {
+        "covered": 21,
+        "pct": 61.76,
+        "skipped": 0,
+        "total": 34
+      },
+      "lines": {
+        "covered": 133,
+        "pct": 88.67,
+        "skipped": 0,
+        "total": 150
+      }
+    },
+    "src/finance_sync/services/allocation.py": {
+      "branches": {
+        "covered": 48,
+        "pct": 88.89,
+        "skipped": 0,
+        "total": 54
+      },
+      "lines": {
+        "covered": 191,
+        "pct": 99.48,
+        "skipped": 0,
+        "total": 192
+      }
+    },
+    "src/finance_sync/services/analytics_overview.py": {
+      "branches": {
+        "covered": 2,
+        "pct": 33.33,
+        "skipped": 0,
+        "total": 6
+      },
+      "lines": {
+        "covered": 55,
+        "pct": 93.22,
+        "skipped": 0,
+        "total": 59
+      }
+    },
+    "src/finance_sync/services/auth.py": {
+      "branches": {
+        "covered": 17,
+        "pct": 94.44,
+        "skipped": 0,
+        "total": 18
+      },
+      "lines": {
+        "covered": 79,
+        "pct": 96.34,
+        "skipped": 0,
+        "total": 82
+      }
+    },
+    "src/finance_sync/services/cashflow.py": {
+      "branches": {
+        "covered": 59,
+        "pct": 89.39,
+        "skipped": 0,
+        "total": 66
+      },
+      "lines": {
+        "covered": 211,
+        "pct": 96.79,
+        "skipped": 0,
+        "total": 218
+      }
+    },
+    "src/finance_sync/services/category_options.py": {
+      "branches": {
+        "covered": 4,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 4
+      },
+      "lines": {
+        "covered": 11,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 11
+      }
+    },
+    "src/finance_sync/services/connection_audit.py": {
+      "branches": {
+        "covered": 15,
+        "pct": 93.75,
+        "skipped": 0,
+        "total": 16
+      },
+      "lines": {
+        "covered": 34,
+        "pct": 97.14,
+        "skipped": 0,
+        "total": 35
+      }
+    },
+    "src/finance_sync/services/connector_certification.py": {
+      "branches": {
+        "covered": 30,
+        "pct": 83.33,
+        "skipped": 0,
+        "total": 36
+      },
+      "lines": {
+        "covered": 59,
+        "pct": 90.77,
+        "skipped": 0,
+        "total": 65
+      }
+    },
+    "src/finance_sync/services/connector_compatibility.py": {
+      "branches": {
+        "covered": 30,
+        "pct": 78.95,
+        "skipped": 0,
+        "total": 38
+      },
+      "lines": {
+        "covered": 84,
+        "pct": 81.55,
+        "skipped": 0,
+        "total": 103
+      }
+    },
+    "src/finance_sync/services/connector_data_deletion.py": {
+      "branches": {
+        "covered": 12,
+        "pct": 50.0,
+        "skipped": 0,
+        "total": 24
+      },
+      "lines": {
+        "covered": 83,
+        "pct": 84.69,
+        "skipped": 0,
+        "total": 98
+      }
+    },
+    "src/finance_sync/services/connector_releases.py": {
+      "branches": {
+        "covered": 16,
+        "pct": 47.06,
+        "skipped": 0,
+        "total": 34
+      },
+      "lines": {
+        "covered": 68,
+        "pct": 68.0,
+        "skipped": 0,
+        "total": 100
+      }
+    },
+    "src/finance_sync/services/control_plane.py": {
+      "branches": {
+        "covered": 47,
+        "pct": 87.04,
+        "skipped": 0,
+        "total": 54
+      },
+      "lines": {
+        "covered": 182,
+        "pct": 97.85,
+        "skipped": 0,
+        "total": 186
+      }
+    },
+    "src/finance_sync/services/control_plane_actions.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 20,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 20
+      }
+    },
+    "src/finance_sync/services/data_health.py": {
+      "branches": {
+        "covered": 303,
+        "pct": 81.02,
+        "skipped": 0,
+        "total": 374
+      },
+      "lines": {
+        "covered": 750,
+        "pct": 88.97,
+        "skipped": 0,
+        "total": 843
+      }
+    },
+    "src/finance_sync/services/data_quality.py": {
+      "branches": {
+        "covered": 5,
+        "pct": 83.33,
+        "skipped": 0,
+        "total": 6
+      },
+      "lines": {
+        "covered": 41,
+        "pct": 97.62,
+        "skipped": 0,
+        "total": 42
+      }
+    },
+    "src/finance_sync/services/data_quality_repair.py": {
+      "branches": {
+        "covered": 10,
+        "pct": 45.45,
+        "skipped": 0,
+        "total": 22
+      },
+      "lines": {
+        "covered": 69,
+        "pct": 64.49,
+        "skipped": 0,
+        "total": 107
+      }
+    },
+    "src/finance_sync/services/datamart_policy.py": {
+      "branches": {
+        "covered": 2,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 2
+      },
+      "lines": {
+        "covered": 21,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 21
+      }
+    },
+    "src/finance_sync/services/degiro_import.py": {
+      "branches": {
+        "covered": 61,
+        "pct": 62.24,
+        "skipped": 0,
+        "total": 98
+      },
+      "lines": {
+        "covered": 228,
+        "pct": 76.51,
+        "skipped": 0,
+        "total": 298
+      }
+    },
+    "src/finance_sync/services/destination_reconciliation.py": {
+      "branches": {
+        "covered": 16,
+        "pct": 72.73,
+        "skipped": 0,
+        "total": 22
+      },
+      "lines": {
+        "covered": 29,
+        "pct": 82.86,
+        "skipped": 0,
+        "total": 35
+      }
+    },
+    "src/finance_sync/services/destination_references.py": {
+      "branches": {
+        "covered": 1,
+        "pct": 50.0,
+        "skipped": 0,
+        "total": 2
+      },
+      "lines": {
+        "covered": 12,
+        "pct": 75.0,
+        "skipped": 0,
+        "total": 16
+      }
+    },
+    "src/finance_sync/services/fx_service.py": {
+      "branches": {
+        "covered": 78,
+        "pct": 81.25,
+        "skipped": 0,
+        "total": 96
+      },
+      "lines": {
+        "covered": 199,
+        "pct": 82.57,
+        "skipped": 0,
+        "total": 241
+      }
+    },
+    "src/finance_sync/services/github_issue.py": {
+      "branches": {
+        "covered": 29,
+        "pct": 80.56,
+        "skipped": 0,
+        "total": 36
+      },
+      "lines": {
+        "covered": 115,
+        "pct": 82.73,
+        "skipped": 0,
+        "total": 139
+      }
+    },
+    "src/finance_sync/services/ha_integration.py": {
+      "branches": {
+        "covered": 9,
+        "pct": 64.29,
+        "skipped": 0,
+        "total": 14
+      },
+      "lines": {
+        "covered": 70,
+        "pct": 95.89,
+        "skipped": 0,
+        "total": 73
+      }
+    },
+    "src/finance_sync/services/hermes_relevance.py": {
+      "branches": {
+        "covered": 28,
+        "pct": 58.33,
+        "skipped": 0,
+        "total": 48
+      },
+      "lines": {
+        "covered": 96,
+        "pct": 87.27,
+        "skipped": 0,
+        "total": 110
+      }
+    },
+    "src/finance_sync/services/holding_relevance.py": {
+      "branches": {
+        "covered": 270,
+        "pct": 75.42,
+        "skipped": 0,
+        "total": 358
+      },
+      "lines": {
+        "covered": 622,
+        "pct": 88.73,
+        "skipped": 0,
+        "total": 701
+      }
+    },
+    "src/finance_sync/services/incident_reporting.py": {
+      "branches": {
+        "covered": 5,
+        "pct": 83.33,
+        "skipped": 0,
+        "total": 6
+      },
+      "lines": {
+        "covered": 30,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 30
+      }
+    },
+    "src/finance_sync/services/internal_transfers.py": {
+      "branches": {
+        "covered": 20,
+        "pct": 50.0,
+        "skipped": 0,
+        "total": 40
+      },
+      "lines": {
+        "covered": 60,
+        "pct": 57.69,
+        "skipped": 0,
+        "total": 104
+      }
+    },
+    "src/finance_sync/services/key_provider.py": {
+      "branches": {
+        "covered": 10,
+        "pct": 71.43,
+        "skipped": 0,
+        "total": 14
+      },
+      "lines": {
+        "covered": 49,
+        "pct": 92.45,
+        "skipped": 0,
+        "total": 53
+      }
+    },
+    "src/finance_sync/services/key_status.py": {
+      "branches": {
+        "covered": 17,
+        "pct": 77.27,
+        "skipped": 0,
+        "total": 22
+      },
+      "lines": {
+        "covered": 70,
+        "pct": 90.91,
+        "skipped": 0,
+        "total": 77
+      }
+    },
+    "src/finance_sync/services/market_intelligence_catalog.py": {
+      "branches": {
+        "covered": 2,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 2
+      },
+      "lines": {
+        "covered": 45,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 45
+      }
+    },
+    "src/finance_sync/services/market_intelligence_read.py": {
+      "branches": {
+        "covered": 6,
+        "pct": 37.5,
+        "skipped": 0,
+        "total": 16
+      },
+      "lines": {
+        "covered": 103,
+        "pct": 80.47,
+        "skipped": 0,
+        "total": 128
+      }
+    },
+    "src/finance_sync/services/market_intelligence_review.py": {
+      "branches": {
+        "covered": 8,
+        "pct": 57.14,
+        "skipped": 0,
+        "total": 14
+      },
+      "lines": {
+        "covered": 51,
+        "pct": 91.07,
+        "skipped": 0,
+        "total": 56
+      }
+    },
+    "src/finance_sync/services/merchant_classifier.py": {
+      "branches": {
+        "covered": 50,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 50
+      },
+      "lines": {
+        "covered": 131,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 131
+      }
+    },
+    "src/finance_sync/services/non_production_seed.py": {
+      "branches": {
+        "covered": 10,
+        "pct": 83.33,
+        "skipped": 0,
+        "total": 12
+      },
+      "lines": {
+        "covered": 48,
+        "pct": 87.27,
+        "skipped": 0,
+        "total": 55
+      }
+    },
+    "src/finance_sync/services/pattern_clustering.py": {
+      "branches": {
+        "covered": 192,
+        "pct": 86.49,
+        "skipped": 0,
+        "total": 222
+      },
+      "lines": {
+        "covered": 460,
+        "pct": 95.83,
+        "skipped": 0,
+        "total": 480
+      }
+    },
+    "src/finance_sync/services/performance.py": {
+      "branches": {
+        "covered": 64,
+        "pct": 65.31,
+        "skipped": 0,
+        "total": 98
+      },
+      "lines": {
+        "covered": 326,
+        "pct": 85.56,
+        "skipped": 0,
+        "total": 381
+      }
+    },
+    "src/finance_sync/services/provider_health.py": {
+      "branches": {
+        "covered": 27,
+        "pct": 71.05,
+        "skipped": 0,
+        "total": 38
+      },
+      "lines": {
+        "covered": 96,
+        "pct": 88.89,
+        "skipped": 0,
+        "total": 108
+      }
+    },
+    "src/finance_sync/services/read/__init__.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 8,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 8
+      }
+    },
+    "src/finance_sync/services/read/accounts.py": {
+      "branches": {
+        "covered": 10,
+        "pct": 71.43,
+        "skipped": 0,
+        "total": 14
+      },
+      "lines": {
+        "covered": 47,
+        "pct": 81.03,
+        "skipped": 0,
+        "total": 58
+      }
+    },
+    "src/finance_sync/services/read/analytics.py": {
+      "branches": {
+        "covered": 7,
+        "pct": 50.0,
+        "skipped": 0,
+        "total": 14
+      },
+      "lines": {
+        "covered": 40,
+        "pct": 76.92,
+        "skipped": 0,
+        "total": 52
+      }
+    },
+    "src/finance_sync/services/read/analytics_history.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 9,
+        "pct": 81.82,
+        "skipped": 0,
+        "total": 11
+      }
+    },
+    "src/finance_sync/services/read/benchmarking.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 19,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 19
+      }
+    },
+    "src/finance_sync/services/read/benchmarks.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 8,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 8
+      }
+    },
+    "src/finance_sync/services/read/budgets.py": {
+      "branches": {
+        "covered": 2,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 2
+      },
+      "lines": {
+        "covered": 11,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 11
+      }
+    },
+    "src/finance_sync/services/read/operational.py": {
+      "branches": {
+        "covered": 56,
+        "pct": 73.68,
+        "skipped": 0,
+        "total": 76
+      },
+      "lines": {
+        "covered": 184,
+        "pct": 80.0,
+        "skipped": 0,
+        "total": 230
+      }
+    },
+    "src/finance_sync/services/read/pagination.py": {
+      "branches": {
+        "covered": 2,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 2
+      },
+      "lines": {
+        "covered": 11,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 11
+      }
+    },
+    "src/finance_sync/services/read/portfolio.py": {
+      "branches": {
+        "covered": 27,
+        "pct": 75.0,
+        "skipped": 0,
+        "total": 36
+      },
+      "lines": {
+        "covered": 107,
+        "pct": 99.07,
+        "skipped": 0,
+        "total": 108
+      }
+    },
+    "src/finance_sync/services/read/prices.py": {
+      "branches": {
+        "covered": 2,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 2
+      },
+      "lines": {
+        "covered": 10,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 10
+      }
+    },
+    "src/finance_sync/services/read/query_counter.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 16,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 16
+      }
+    },
+    "src/finance_sync/services/read/schemas.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 343,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 343
+      }
+    },
+    "src/finance_sync/services/read/securities.py": {
+      "branches": {
+        "covered": 13,
+        "pct": 72.22,
+        "skipped": 0,
+        "total": 18
+      },
+      "lines": {
+        "covered": 58,
+        "pct": 90.62,
+        "skipped": 0,
+        "total": 64
+      }
+    },
+    "src/finance_sync/services/read/transaction_category.py": {
+      "branches": {
+        "covered": 1,
+        "pct": 2.94,
+        "skipped": 0,
+        "total": 34
+      },
+      "lines": {
+        "covered": 13,
+        "pct": 20.97,
+        "skipped": 0,
+        "total": 62
+      }
+    },
+    "src/finance_sync/services/read_api.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 13,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 13
+      }
+    },
+    "src/finance_sync/services/reconciliation.py": {
+      "branches": {
+        "covered": 86,
+        "pct": 93.48,
+        "skipped": 0,
+        "total": 92
+      },
+      "lines": {
+        "covered": 245,
+        "pct": 96.84,
+        "skipped": 0,
+        "total": 253
+      }
+    },
+    "src/finance_sync/services/retry_lock.py": {
+      "branches": {
+        "covered": 2,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 2
+      },
+      "lines": {
+        "covered": 19,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 19
+      }
+    },
+    "src/finance_sync/services/spending_classification.py": {
+      "branches": {
+        "covered": 8,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 8
+      },
+      "lines": {
+        "covered": 35,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 35
+      }
+    },
+    "src/finance_sync/services/spending_privacy.py": {
+      "branches": {
+        "covered": 12,
+        "pct": 85.71,
+        "skipped": 0,
+        "total": 14
+      },
+      "lines": {
+        "covered": 20,
+        "pct": 90.91,
+        "skipped": 0,
+        "total": 22
+      }
+    },
+    "src/finance_sync/services/subscription_detector/__init__.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 6,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 6
+      }
+    },
+    "src/finance_sync/services/subscription_detector/detector.py": {
+      "branches": {
+        "covered": 236,
+        "pct": 87.41,
+        "skipped": 0,
+        "total": 270
+      },
+      "lines": {
+        "covered": 531,
+        "pct": 96.02,
+        "skipped": 0,
+        "total": 553
+      }
+    },
+    "src/finance_sync/services/subscription_detector/merchant_classifier.py": {
+      "branches": {
+        "covered": 4,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 4
+      },
+      "lines": {
+        "covered": 46,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 46
+      }
+    },
+    "src/finance_sync/services/subscription_detector/pattern_detector.py": {
+      "branches": {
+        "covered": 53,
+        "pct": 94.64,
+        "skipped": 0,
+        "total": 56
+      },
+      "lines": {
+        "covered": 149,
+        "pct": 99.33,
+        "skipped": 0,
+        "total": 150
+      }
+    },
+    "src/finance_sync/services/subscription_detector/service.py": {
+      "branches": {
+        "covered": 134,
+        "pct": 97.1,
+        "skipped": 0,
+        "total": 138
+      },
+      "lines": {
+        "covered": 352,
+        "pct": 98.88,
+        "skipped": 0,
+        "total": 356
+      }
+    },
+    "src/finance_sync/services/sync_reporting.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 10,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 10
+      }
+    },
+    "src/finance_sync/services/sync_schedule.py": {
+      "branches": {
+        "covered": 33,
+        "pct": 82.5,
+        "skipped": 0,
+        "total": 40
+      },
+      "lines": {
+        "covered": 136,
+        "pct": 92.52,
+        "skipped": 0,
+        "total": 147
+      }
+    },
+    "src/finance_sync/services/tax_lot_service.py": {
+      "branches": {
+        "covered": 67,
+        "pct": 54.92,
+        "skipped": 0,
+        "total": 122
+      },
+      "lines": {
+        "covered": 198,
+        "pct": 76.15,
+        "skipped": 0,
+        "total": 260
+      }
+    },
+    "src/finance_sync/services/visibility.py": {
+      "branches": {
+        "covered": 3,
+        "pct": 50.0,
+        "skipped": 0,
+        "total": 6
+      },
+      "lines": {
+        "covered": 35,
+        "pct": 79.55,
+        "skipped": 0,
+        "total": 44
+      }
+    },
+    "src/finance_sync/services/wealthfolio_health_bridge.py": {
+      "branches": {
+        "covered": 98,
+        "pct": 74.24,
+        "skipped": 0,
+        "total": 132
+      },
+      "lines": {
+        "covered": 226,
+        "pct": 81.88,
+        "skipped": 0,
+        "total": 276
+      }
+    },
+    "src/finance_sync/services/wealthfolio_preflight.py": {
+      "branches": {
+        "covered": 144,
+        "pct": 87.8,
+        "skipped": 0,
+        "total": 164
+      },
+      "lines": {
+        "covered": 301,
+        "pct": 94.06,
+        "skipped": 0,
+        "total": 320
+      }
+    },
+    "src/finance_sync/services/webhook.py": {
+      "branches": {
+        "covered": 48,
+        "pct": 80.0,
+        "skipped": 0,
+        "total": 60
+      },
+      "lines": {
+        "covered": 261,
+        "pct": 92.55,
+        "skipped": 0,
+        "total": 282
+      }
+    },
+    "src/finance_sync/sync/cards_pipeline.py": {
+      "branches": {
+        "covered": 15,
+        "pct": 68.18,
+        "skipped": 0,
+        "total": 22
+      },
+      "lines": {
+        "covered": 95,
+        "pct": 87.96,
+        "skipped": 0,
+        "total": 108
+      }
+    },
+    "src/finance_sync/sync/context.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 10,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 10
+      }
+    },
+    "src/finance_sync/sync/errors.py": {
+      "branches": {
+        "covered": 60,
+        "pct": 90.91,
+        "skipped": 0,
+        "total": 66
+      },
+      "lines": {
+        "covered": 97,
+        "pct": 94.17,
+        "skipped": 0,
+        "total": 103
+      }
+    },
+    "src/finance_sync/sync/orchestrator.py": {
+      "branches": {
+        "covered": 60,
+        "pct": 61.22,
+        "skipped": 0,
+        "total": 98
+      },
+      "lines": {
+        "covered": 281,
+        "pct": 74.73,
+        "skipped": 0,
+        "total": 376
+      }
+    },
+    "src/finance_sync/sync/outbox.py": {
+      "branches": {
+        "covered": 4,
+        "pct": 66.67,
+        "skipped": 0,
+        "total": 6
+      },
+      "lines": {
+        "covered": 24,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 24
+      }
+    },
+    "src/finance_sync/sync/outbox_publisher.py": {
+      "branches": {
+        "covered": 13,
+        "pct": 65.0,
+        "skipped": 0,
+        "total": 20
+      },
+      "lines": {
+        "covered": 93,
+        "pct": 80.87,
+        "skipped": 0,
+        "total": 115
+      }
+    },
+    "src/finance_sync/sync/persistence.py": {
+      "branches": {
+        "covered": 150,
+        "pct": 70.09,
+        "skipped": 0,
+        "total": 214
+      },
+      "lines": {
+        "covered": 439,
+        "pct": 85.08,
+        "skipped": 0,
+        "total": 516
+      }
+    },
+    "src/finance_sync/sync/preflight.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 16,
+        "pct": 64.0,
+        "skipped": 0,
+        "total": 25
+      }
+    },
+    "src/finance_sync/sync/reconciliation.py": {
+      "branches": {
+        "covered": 40,
+        "pct": 83.33,
+        "skipped": 0,
+        "total": 48
+      },
+      "lines": {
+        "covered": 147,
+        "pct": 93.63,
+        "skipped": 0,
+        "total": 157
+      }
+    },
+    "src/finance_sync/sync/results.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 29,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 29
+      }
+    },
+    "src/finance_sync/sync/schedule_spec.py": {
+      "branches": {
+        "covered": 49,
+        "pct": 90.74,
+        "skipped": 0,
+        "total": 54
+      },
+      "lines": {
+        "covered": 135,
+        "pct": 95.74,
+        "skipped": 0,
+        "total": 141
+      }
+    },
+    "src/finance_sync/sync/stages/__init__.py": {
+      "branches": {
+        "covered": 0,
+        "pct": 0.0,
+        "skipped": 0,
+        "total": 0
+      },
+      "lines": {
+        "covered": 4,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 4
+      }
+    },
+    "src/finance_sync/sync/stages/accounts.py": {
+      "branches": {
+        "covered": 6,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 6
+      },
+      "lines": {
+        "covered": 22,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 22
+      }
+    },
+    "src/finance_sync/sync/stages/holdings.py": {
+      "branches": {
+        "covered": 15,
+        "pct": 75.0,
+        "skipped": 0,
+        "total": 20
+      },
+      "lines": {
+        "covered": 44,
+        "pct": 89.8,
+        "skipped": 0,
+        "total": 49
+      }
+    },
+    "src/finance_sync/sync/stages/transactions.py": {
+      "branches": {
+        "covered": 12,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 12
+      },
+      "lines": {
+        "covered": 40,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 40
+      }
+    },
+    "src/finance_sync/sync/sync_cursor.py": {
+      "branches": {
+        "covered": 6,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 6
+      },
+      "lines": {
+        "covered": 28,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 28
+      }
+    },
+    "src/finance_sync/sync/sync_run.py": {
+      "branches": {
+        "covered": 22,
+        "pct": 57.89,
+        "skipped": 0,
+        "total": 38
+      },
+      "lines": {
+        "covered": 72,
+        "pct": 64.86,
+        "skipped": 0,
+        "total": 111
+      }
+    },
+    "src/finance_sync/sync/upserts.py": {
+      "branches": {
+        "covered": 20,
+        "pct": 90.91,
+        "skipped": 0,
+        "total": 22
+      },
+      "lines": {
+        "covered": 89,
+        "pct": 97.8,
+        "skipped": 0,
+        "total": 91
+      }
+    },
+    "src/finance_sync/utils/currency_converter.py": {
+      "branches": {
+        "covered": 24,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 24
+      },
+      "lines": {
+        "covered": 74,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 74
+      }
+    },
+    "src/finance_sync/utils/redaction.py": {
+      "branches": {
+        "covered": 12,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 12
+      },
+      "lines": {
+        "covered": 35,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 35
+      }
+    },
+    "src/finance_sync/worker/__init__.py": {
+      "branches": {
+        "covered": 18,
+        "pct": 90.0,
+        "skipped": 0,
+        "total": 20
+      },
+      "lines": {
+        "covered": 78,
+        "pct": 97.5,
+        "skipped": 0,
+        "total": 80
+      }
+    },
+    "src/finance_sync/worker/__main__.py": {
+      "branches": {
+        "covered": 1,
+        "pct": 50.0,
+        "skipped": 0,
+        "total": 2
+      },
+      "lines": {
+        "covered": 4,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 4
+      }
+    },
+    "src/finance_sync/worker/health.py": {
+      "branches": {
+        "covered": 7,
+        "pct": 87.5,
+        "skipped": 0,
+        "total": 8
+      },
+      "lines": {
+        "covered": 59,
+        "pct": 100.0,
+        "skipped": 0,
+        "total": 59
+      }
+    },
+    "src/finance_sync/worker/jobs.py": {
+      "branches": {
+        "covered": 60,
+        "pct": 52.63,
+        "skipped": 0,
+        "total": 114
+      },
+      "lines": {
+        "covered": 419,
+        "pct": 67.26,
+        "skipped": 0,
+        "total": 623
+      }
+    },
+    "src/finance_sync/worker/monitoring.py": {
+      "branches": {
+        "covered": 12,
+        "pct": 75.0,
+        "skipped": 0,
+        "total": 16
+      },
+      "lines": {
+        "covered": 87,
+        "pct": 89.69,
+        "skipped": 0,
+        "total": 97
+      }
+    },
+    "src/finance_sync/worker/schedule_runner.py": {
+      "branches": {
+        "covered": 52,
+        "pct": 72.22,
+        "skipped": 0,
+        "total": 72
+      },
+      "lines": {
+        "covered": 185,
+        "pct": 82.22,
+        "skipped": 0,
+        "total": 225
+      }
+    },
+    "src/finance_sync/worker/scheduler.py": {
+      "branches": {
+        "covered": 52,
+        "pct": 89.66,
+        "skipped": 0,
+        "total": 58
+      },
+      "lines": {
+        "covered": 140,
+        "pct": 90.91,
+        "skipped": 0,
+        "total": 154
+      }
+    }
+  },
+  "total": {
+    "branches": {
+      "covered": 6122,
+      "pct": 69.27,
+      "skipped": 0,
+      "total": 8838
+    },
+    "lines": {
+      "covered": 27416,
+      "pct": 83.1,
+      "skipped": 0,
+      "total": 32990
+    }
+  }
+}
