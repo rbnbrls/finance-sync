@@ -2914,16 +2914,16 @@
     },
     "src/finance_sync/monitoring/health_monitor.py": {
       "branches": {
-        "covered": 58,
-        "pct": 76.32,
+        "covered": 101,
+        "pct": 80.16,
         "skipped": 0,
-        "total": 76
+        "total": 126
       },
       "lines": {
-        "covered": 236,
-        "pct": 82.52,
+        "covered": 365,
+        "pct": 87.11,
         "skipped": 0,
-        "total": 286
+        "total": 419
       }
     },
     "src/finance_sync/monitoring/wealthfolio_monitor.py": {
@@ -4567,16 +4567,16 @@
   },
   "total": {
     "branches": {
-      "covered": 6078,
-      "pct": 69.16,
+      "covered": 6121,
+      "pct": 69.26,
       "skipped": 0,
-      "total": 8788
+      "total": 8838
     },
     "lines": {
-      "covered": 27454,
-      "pct": 83.08,
+      "covered": 27583,
+      "pct": 83.14,
       "skipped": 0,
-      "total": 33045
+      "total": 33178
     }
   }
 }
