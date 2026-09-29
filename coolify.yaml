@@ -117,12 +117,17 @@
 
 # ── CI/CD Webhook (GitHub Actions → Coolify API) ──────────────────────────
 # Triggered via GitHub Actions workflow (see .github/workflows/ci.yml).
+# The application UUID is never committed: scripts/resolve-coolify-app.sh
+# resolves it from GET /applications by name at run time (a Coolify UUID
+# changes whenever the application is recreated), and the health gate polls
+# the route that same resolution returns.
+#
 # Uses POST with JSON body:
 #
 #   curl -X POST "${COOLIFY_BASE_URL}/api/v1/deploy" \
 #     -H "Authorization: Bearer ${COOLIFY_API_TOKEN}" \
 #     -H "Content-Type: application/json" \
-#     -d '{"uuid": "mdeal4aqq9ycnozn3mg83zix", "force": false}'
+#     -d "{\"uuid\": \"${APP_UUID}\", \"force\": false}"
 #
 # Required GitHub secret: COOLIFY_API_TOKEN (deploy permission)
 
@@ -133,8 +138,9 @@
 #
 # Stack (finance-sync project → development environment, homelab server):
 #   App:         finance-sync-staging  (dockerfile build pack, repo
-#                rbnbrls/finance-sync@main, port 8000, health /health/live,
-#                FQDN https://mdeal4aqq9ycnozn3mg83zix.7rb.nl)
+#                rbnbrls/finance-sync@main, port 8000, health /health/live;
+#                provisioned by scripts/provision-staging.sh, which prints the
+#                generated FQDN — no UUID or hostname is committed here)
 #   PostgreSQL:  finance-sync-staging-pg   (postgres:16-alpine, internal)
 #   Redis:       finance-sync-staging-redis (redis:7-alpine, internal)
 #

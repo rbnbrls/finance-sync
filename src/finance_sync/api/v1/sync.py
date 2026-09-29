@@ -17,6 +17,7 @@ import json
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
+import structlog
 from fastapi import (
     APIRouter,
     BackgroundTasks,
@@ -41,6 +42,7 @@ from finance_sync.sync.orchestrator import SyncOrchestrator
 
 router = APIRouter(prefix="/sync", tags=["sync"])
 _QUEUED_CONNECTION_SYNCS: set[str] = set()
+logger = structlog.get_logger("finance_sync.api.v1.sync")
 
 
 # ── Request / response models ─────────────────────────────────────────
@@ -169,11 +171,20 @@ async def _record_sync_audit(
     db: AsyncSession,
     *,
     tenant_id: str,
-    cred: Credential,
+    provider_key: str,
+    connection_id: str,
+    encrypted_payload: bytes,
+    nonce: bytes,
     status: str,
     error_message: str | None,
 ) -> None:
-    """Append a sanitised sync-trigger entry to the connection audit log."""
+    """Append a sanitised sync-trigger entry to the connection audit log.
+
+    The credential travels as primitives — provider key, connection id and the
+    *encrypted* payload material — instead of as the ORM row: the session that
+    loaded that row is deliberately closed before provider I/O, so every
+    attribute read here would have to refresh a detached instance.
+    """
     from finance_sync.services.connection_audit import (
         AUDIT_SYNC,
         log_connection_event,
@@ -183,27 +194,83 @@ async def _record_sync_audit(
         db,
         tenant_id=tenant_id,
         action=AUDIT_SYNC,
-        provider_key=cred.provider_key,
-        connection_id=str(cred.id),
+        provider_key=provider_key,
+        connection_id=connection_id,
         detail={
             "status": status,
             "error": (error_message or "")[:200],
         },
-        secrets=_credential_secrets(db, cred),
+        secrets=_credential_secrets(
+            db,
+            encrypted_payload=encrypted_payload,
+            nonce=nonce,
+        ),
     )
 
 
-def _credential_secrets(db: AsyncSession, cred: Credential) -> list[str]:
+def _credential_secrets(
+    db: AsyncSession, *, encrypted_payload: bytes, nonce: bytes
+) -> list[str]:
     """Best-effort secret values for audit redaction (never raises)."""
     try:
         raw = decrypt_credential(
-            cred.encrypted_payload, cred.nonce, db.info.get("settings")
+            encrypted_payload, nonce, db.info.get("settings")
         )
         parsed: dict[str, Any] = json.loads(raw)
         return [str(v) for v in parsed.values() if isinstance(v, str)]
     except Exception:
         pass
     return []
+
+
+async def _record_sync_audit_safely(
+    container: Any,
+    *,
+    tenant_id: str,
+    provider_key: str,
+    connection_id: str,
+    encrypted_payload: bytes,
+    nonce: bytes,
+    status: str,
+    error_message: str | None,
+    read_run_id: bool = False,
+) -> str | None:
+    """Write the connection audit entry; never raise, never mask a failure.
+
+    ``container.session_factory()`` is itself a pooled acquisition, so it can
+    fail exactly when the pipeline did — with the pool at its limit.  Every
+    step is therefore guarded: a failed audit write is telemetry, never a
+    replacement for the error that caused it.  Returns the connection's latest
+    run id when *read_run_id* is set and the read succeeded.
+    """
+    try:
+        async with container.session_factory() as audit_db:
+            audit_db.info["settings"] = container.settings
+            run_id = (
+                await _latest_run_id(audit_db, provider_key, connection_id)
+                if read_run_id
+                else None
+            )
+            await _record_sync_audit(
+                audit_db,
+                tenant_id=tenant_id,
+                provider_key=provider_key,
+                connection_id=connection_id,
+                encrypted_payload=encrypted_payload,
+                nonce=nonce,
+                status=status,
+                error_message=error_message,
+            )
+            return run_id
+    except Exception as exc:
+        logger.warning(
+            "sync_audit_write_failed",
+            connection_id=connection_id,
+            provider=provider_key,
+            status=status,
+            error=str(exc)[:200],
+        )
+        return None
 
 
 async def _run_connection_sync(
@@ -221,6 +288,14 @@ async def _run_connection_sync(
     connection_id on accounts/transactions/runs/cursors and updates the
     connection's ``last_attempt_at`` / ``last_success_at`` /
     sanitised ``last_error``.
+
+    Session contract: *db* is caller-owned and is **released** here before
+    provider I/O, so a connection is never held for the whole provider round
+    trip (that is the pool-exhaustion fix).  Everything this function persists
+    goes through the orchestrator's and the audit's own sessions, and the
+    credential is snapshotted before the release; callers must not rely on
+    uncommitted work in *db* surviving the call.  All current callers load the
+    credential read-only, so none has work to lose.
     """
     from finance_sync.models.credential import CONNECTION_STATUS_PAUSED
 
@@ -234,8 +309,25 @@ async def _run_connection_sync(
             error_message="Connection is paused",
         )
 
+    # Snapshot the credential as primitives *before* the caller's session is
+    # released below.  ``db.close()`` detaches and expires the ORM row, so any
+    # later attribute read would either raise ``DetachedInstanceError`` or
+    # silently lazy-load through a closed session; the audit path only needs
+    # these values (the payload stays encrypted — it is decrypted again inside
+    # the audit's own session for redaction).
+    provider_key = str(cred.provider_key)
+    connection_id = str(cred.id)
+    selected_accounts = list(cred.selected_accounts or [])
+    encrypted_payload = cred.encrypted_payload
+    nonce = cred.nonce
+
     try:
-        config = _decrypt_config(cred, cred.provider_key, container.settings)
+        config = _decrypt_config(cred, provider_key, container.settings)
+        # The caller's session may have acquired a pooled connection while
+        # resolving the credential.  Provider authentication and the sync
+        # pipeline use their own sessions; release this one before waiting on
+        # network I/O so small pools cannot deadlock the pipeline.
+        await db.close()
         orchestrator = SyncOrchestrator(
             session_factory=container.session_factory,
             registry=ConnectorRegistry(),
@@ -243,30 +335,39 @@ async def _run_connection_sync(
             settings=container.settings,
         )
         result = await orchestrator.run_sync(
-            provider_type=cred.provider_key,
+            provider_type=provider_key,
             config=config,
             since=(
                 datetime.now(UTC) - timedelta(days=3650)
-                if full_history and cred.provider_key in {"bunq", "trading212"}
+                if full_history and provider_key in {"bunq", "trading212"}
                 else None
             ),
-            connection_id=str(cred.id),
-            selected_accounts=list(cred.selected_accounts or []),
+            connection_id=connection_id,
+            selected_accounts=selected_accounts,
         )
-        run_id = await _latest_run_id(db, cred.provider_key, str(cred.id))
         status = str(result.status.value)
         if getattr(result, "error_category", None) == "already_running":
             status = "running"
-        await _record_sync_audit(
-            db,
+        # ``db`` was deliberately closed before provider I/O.  Do not reopen
+        # that caller-owned session for the post-run audit: request/background
+        # callers may keep its context alive, and reusing it would make the
+        # session lifetime span the network call again.  Audit work gets its
+        # own short-lived session instead — and a failure to acquire that
+        # session is reported as telemetry, never as the sync's outcome.
+        run_id = await _record_sync_audit_safely(
+            container,
             tenant_id=tenant_id,
-            cred=cred,
+            provider_key=provider_key,
+            connection_id=connection_id,
+            encrypted_payload=encrypted_payload,
+            nonce=nonce,
             status=status,
             error_message=result.error_message,
+            read_run_id=True,
         )
         return SyncRunLink(
-            connection_id=str(cred.id),
-            provider=cred.provider_key,
+            connection_id=connection_id,
+            provider=provider_key,
             sync_run_id=run_id,
             status=status,
             accounts_synced=result.accounts_synced,
@@ -277,16 +378,19 @@ async def _run_connection_sync(
             link=f"/api/v1/sync-runs/{run_id}" if run_id else None,
         )
     except Exception as exc:
-        await _record_sync_audit(
-            db,
+        await _record_sync_audit_safely(
+            container,
             tenant_id=tenant_id,
-            cred=cred,
+            provider_key=provider_key,
+            connection_id=connection_id,
+            encrypted_payload=encrypted_payload,
+            nonce=nonce,
             status="error",
             error_message=str(exc),
         )
         return SyncRunLink(
-            connection_id=str(cred.id),
-            provider=cred.provider_key,
+            connection_id=connection_id,
+            provider=provider_key,
             status="error",
             error_message=str(exc)[:500],
         )
