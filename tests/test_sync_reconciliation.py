@@ -26,10 +26,27 @@ from finance_sync.sync.reconciliation import (
 # Fixtures
 # ═══════════════════════════════════════════════════════════════════════
 
+# Fixed reference instant for every fixture in this module.  Deliberately not
+# the wall clock: the calendar date is part of a transaction's duplicate
+# identity, so a wall-clock reference made the +/-1h offsets below cross a UTC
+# midnight for one hour a day and turned CI red (run 36201670630, 23:48 UTC).
+_REFERENCE_NOW = datetime(2026, 9, 26, 12, 0, 0, tzinfo=UTC)
+
 
 @pytest.fixture
 def now() -> datetime:
-    return datetime.now(UTC)
+    """Deterministic reference instant — never the wall clock.
+
+    Duplicate identity includes the occurrence *calendar date* (see
+    :func:`finance_sync.sync.reconciliation.detect_duplicates` and
+    ``TransactionRepository.find_duplicate_candidates``).  With a wall-clock
+    reference the ``+1h``/``+2h`` offsets used by the tests below crossed a UTC
+    midnight for one hour a day (23:00-23:59 UTC) and split pairs the tests
+    expect to be flagged: CI run 36201670630 failed 14 of these tests when the
+    suite ran at 23:48 UTC.  A fixed instant removes the wall-clock dependence
+    while keeping every offset inside a single calendar date.
+    """
+    return _REFERENCE_NOW
 
 
 def _txn(
@@ -803,3 +820,83 @@ class TestHeuristicConfidence:
         assert len(findings) == 1
         assert findings[0].confidence == 1.0
         assert findings[0].same_description is True
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Regression: clock-independent fixtures and the duplicate date identity
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class TestReferenceClock:
+    """Guard the wall-clock independence of this module's fixtures.
+
+    Regression for CI run 36201670630: with ``now = datetime.now(UTC)`` the
+    ``+1h``/``+2h`` offsets crossed a UTC midnight for one hour a day, the
+    calendar-date part of the duplicate identity split the expected pairs and
+    14 tests in this module failed.
+    """
+
+    def test_reference_instant_is_fixed(self, now: datetime) -> None:
+        """The fixture is a fixed instant, so a red run cannot depend on the hour."""
+        assert now == _REFERENCE_NOW
+        assert now.tzinfo is UTC
+
+    def test_reference_offsets_stay_on_one_calendar_date(
+        self, now: datetime
+    ) -> None:
+        """Every same-date offset used by this module keeps ``now`` on its own date."""
+        for hours in (1, 2):
+            assert (now + timedelta(hours=hours)).date() == now.date()
+
+
+class TestDuplicateDateIdentity:
+    """The occurrence calendar date is part of the duplicate identity."""
+
+    def test_same_broker_id_across_midnight_is_not_a_duplicate(self) -> None:
+        """A same-ID pair is kept apart when the timestamps straddle midnight.
+
+        This is the behaviour a wall-clock fixture produced by accident: the
+        pair below is a duplicate candidate by broker ID and amount, but not on
+        the same calendar date, and ``detect_duplicates`` requires both.
+        """
+        before_midnight = datetime(2026, 9, 25, 23, 30, 0, tzinfo=UTC)
+        after_midnight = before_midnight + timedelta(hours=1)
+        assert before_midnight.date() != after_midnight.date()
+        txns = [
+            _txn(
+                external_transaction_id="midnight_a1",
+                amount="-50.00",
+                occurred_at=before_midnight,
+                description="Netflix",
+            ),
+            _txn(
+                external_transaction_id="midnight_a1",
+                amount="-50.00",
+                occurred_at=after_midnight,
+                description="Netflix",
+            ),
+        ]
+        assert detect_duplicates(txns, threshold_hours=48) == []
+
+    def test_same_broker_id_on_one_date_is_a_duplicate(self) -> None:
+        """Positive control for the rule above: same date -> exactly one finding."""
+        first = datetime(2026, 9, 25, 22, 30, 0, tzinfo=UTC)
+        second = first + timedelta(hours=1)
+        assert first.date() == second.date()
+        txns = [
+            _txn(
+                external_transaction_id="sameday_a1",
+                amount="-50.00",
+                occurred_at=first,
+                description="Netflix",
+            ),
+            _txn(
+                external_transaction_id="sameday_a1",
+                amount="-50.00",
+                occurred_at=second,
+                description="Netflix",
+            ),
+        ]
+        findings = detect_duplicates(txns, threshold_hours=48)
+        assert len(findings) == 1
+        assert findings[0].match_reason == "exact_external_id"

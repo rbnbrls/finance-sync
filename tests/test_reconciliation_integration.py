@@ -18,6 +18,14 @@ from uuid import uuid4
 
 import pytest
 
+# Fixed reference instant for every fixture in this module.  Duplicate identity
+# includes the occurrence *calendar date* (``find_duplicate_candidates`` groups
+# by it), so a wall-clock reference put the ``-1h``/``-2h`` fixtures on
+# different dates whenever the suite ran in the first hours of the UTC day and
+# split pairs these tests expect to be flagged.  A fixed instant removes the
+# wall-clock dependence without changing any relative offset.
+_REFERENCE_NOW = datetime(2026, 9, 26, 12, 0, 0)
+
 # ── Make JSONB work with SQLite ──────────────────────────────────
 # SQLite's type compiler doesn't know visit_JSONB (only visit_JSON).
 # We register it so DDL and query compilation work transparently.
@@ -209,7 +217,7 @@ async def _create_transaction(
         account_id=account_id,
         amount=amount,
         currency_code="EUR",
-        occurred_at=occurred_at or datetime.now(),
+        occurred_at=occurred_at or _REFERENCE_NOW,
         transaction_type=TransactionType.PAYMENT,
         status=TransactionStatus.BOOKED,
         description=description,
@@ -232,7 +240,7 @@ class TestReconciliationServiceIntegration:
         service: ReconciliationService,
     ) -> None:
         """No findings when there is no data at all."""
-        now = datetime.now()
+        now = _REFERENCE_NOW
         run = await service.reconcile(
             date_from=now - timedelta(days=90),
             date_to=now,
@@ -247,7 +255,7 @@ class TestReconciliationServiceIntegration:
         tenant_id: str,
     ) -> None:
         """Same amount, date and broker ID -> duplicate finding."""
-        now = datetime.now()
+        now = _REFERENCE_NOW
         acct = await _create_account(
             session, tenant_id=tenant_id, provider_key="bunq"
         )
@@ -293,7 +301,7 @@ class TestReconciliationServiceIntegration:
         tenant_id: str,
     ) -> None:
         """Different broker IDs are not duplicate candidates."""
-        now = datetime.now()
+        now = _REFERENCE_NOW
         acct = await _create_account(
             session, tenant_id=tenant_id, provider_key="bunq"
         )
@@ -337,7 +345,7 @@ class TestReconciliationServiceIntegration:
         tenant_id: str,
     ) -> None:
         """Transactions with different amounts produce no duplicates."""
-        now = datetime.now()
+        now = _REFERENCE_NOW
         acct = await _create_account(
             session, tenant_id=tenant_id, provider_key="bunq"
         )
@@ -376,7 +384,7 @@ class TestReconciliationServiceIntegration:
         tenant_id: str,
     ) -> None:
         """Exception during reconciliation marks run as FAILED."""
-        now = datetime.now()
+        now = _REFERENCE_NOW
         mock_session = AsyncMock()
         mock_session.add = MagicMock()
         mock_session.flush = AsyncMock(return_value=None)
@@ -424,7 +432,7 @@ class TestReconciliationServiceIntegration:
         tenant_id: str,
     ) -> None:
         """An account fed by two providers detects a gap when one starts late."""
-        now = datetime.now()
+        now = _REFERENCE_NOW
         acct = await _create_account(
             session,
             tenant_id=tenant_id,
@@ -472,7 +480,7 @@ class TestReconciliationServiceIntegration:
         tenant_id: str,
     ) -> None:
         """Single-provider accounts produce no cross-connector findings."""
-        now = datetime.now()
+        now = _REFERENCE_NOW
         acct = await _create_account(
             session,
             tenant_id=tenant_id,
@@ -510,7 +518,7 @@ class TestReconciliationServiceIntegration:
         tenant_id: str,
     ) -> None:
         """Provider with only recent data vs wide analysis window -> gap finding."""
-        now = datetime.now()
+        now = _REFERENCE_NOW
         acct = await _create_account(
             session, tenant_id=tenant_id, provider_key="bunq"
         )
@@ -549,7 +557,7 @@ class TestReconciliationServiceIntegration:
         tenant_id: str,
     ) -> None:
         """provider_keys filter limits reconciliation to specified providers."""
-        now = datetime.now()
+        now = _REFERENCE_NOW
         acct = await _create_account(
             session, tenant_id=tenant_id, provider_key="bunq"
         )
@@ -624,7 +632,7 @@ class TestReconciliationServiceQueries:
         tenant_id: str,
     ) -> None:
         """list_runs returns runs created by reconcile()."""
-        now = datetime.now()
+        now = _REFERENCE_NOW
         acct = await _create_account(
             session, tenant_id=tenant_id, provider_key="bunq"
         )
@@ -660,7 +668,7 @@ class TestReconciliationServiceQueries:
         tenant_id: str,
     ) -> None:
         """get_run_with_results returns run with its findings."""
-        now = datetime.now()
+        now = _REFERENCE_NOW
         acct = await _create_account(
             session, tenant_id=tenant_id, provider_key="bunq"
         )
@@ -726,7 +734,7 @@ class TestReconciliationServiceQueries:
         tenant_id: str,
     ) -> None:
         """get_run_with_results with kind_filter returns filtered results."""
-        now = datetime.now()
+        now = _REFERENCE_NOW
         acct = await _create_account(
             session, tenant_id=tenant_id, provider_key="bunq"
         )
@@ -781,7 +789,7 @@ class TestReconciliationServiceQueries:
         tenant_id: str,
     ) -> None:
         """get_run_with_results with severity_filter returns filtered results."""
-        now = datetime.now()
+        now = _REFERENCE_NOW
         acct = await _create_account(
             session, tenant_id=tenant_id, provider_key="bunq"
         )
@@ -856,7 +864,7 @@ class TestReconciliationOutbox:
         tenant_id: str,
     ) -> None:
         """Successful reconciliation emits a reconciliation.completed outbox message."""
-        now = datetime.now()
+        now = _REFERENCE_NOW
         acct = await _create_account(
             session, tenant_id=tenant_id, provider_key="bunq"
         )
@@ -917,7 +925,7 @@ class TestReconciliationOutbox:
         tenant_id: str,
     ) -> None:
         """The reconciliation run is accessible via list_runs after completion."""
-        now = datetime.now()
+        now = _REFERENCE_NOW
         acct = await _create_account(
             session, tenant_id=tenant_id, provider_key="bunq"
         )
@@ -1049,7 +1057,7 @@ class TestPostSyncReconciliation:
         tenant_id: str,
     ) -> None:
         """Sync succeeds even when post-sync reconciliation raises an error."""
-        now = datetime.now()
+        now = _REFERENCE_NOW
 
         from finance_sync.connectors.models import (
             ConnectorConfig,
@@ -1139,7 +1147,7 @@ class TestBulkReconciliation:
         tenant_id: str,
     ) -> None:
         """Many transactions with matching amounts create multiple findings."""
-        now = datetime.now()
+        now = _REFERENCE_NOW
         acct = await _create_account(
             session, tenant_id=tenant_id, provider_key="bunq", name="Bulk Acct"
         )
@@ -1222,7 +1230,7 @@ class TestTransactionRepositoryEdgeCases:
             provider_key="bunq",
             external_transaction_id="same-broker-payment",
             amount=Decimal("-50.00"),
-            occurred_at=datetime.now() - timedelta(days=5, hours=1),
+            occurred_at=_REFERENCE_NOW - timedelta(days=5, hours=1),
             description="Test A",
         )
         await _create_transaction(
@@ -1232,7 +1240,7 @@ class TestTransactionRepositoryEdgeCases:
             provider_key="trading212",
             external_transaction_id="same-broker-payment",
             amount=Decimal("-50.00"),
-            occurred_at=datetime.now() - timedelta(days=5, hours=2),
+            occurred_at=_REFERENCE_NOW - timedelta(days=5, hours=2),
             description="Test B",
         )
         await session.commit()
@@ -1257,7 +1265,7 @@ class TestTransactionRepositoryEdgeCases:
         acct = await _create_account(
             session, tenant_id=tenant_id, provider_key="bunq"
         )
-        now = datetime.now()
+        now = _REFERENCE_NOW
         await _create_transaction(
             session,
             acct.id,
@@ -1300,7 +1308,7 @@ class TestTransactionRepositoryEdgeCases:
         acct = await _create_account(
             session, tenant_id=tenant_id, provider_key="trading212"
         )
-        now = datetime.now()
+        now = _REFERENCE_NOW
         await _create_transaction(
             session,
             acct.id,
@@ -1345,7 +1353,7 @@ class TestTransactionRepositoryEdgeCases:
         acct = await _create_account(
             session, tenant_id=tenant_id, provider_key="bunq"
         )
-        now = datetime.now()
+        now = _REFERENCE_NOW
         # Two transactions from excluded providers
         for pk in ["revolut", "ynab"]:
             await _create_transaction(
@@ -1379,7 +1387,7 @@ class TestTransactionRepositoryEdgeCases:
         """get_transaction_date_range with no account_id/provider_key filters."""
         from finance_sync.db.repositories import TransactionRepository
 
-        now = datetime.now()
+        now = _REFERENCE_NOW
         acct = await _create_account(
             session, tenant_id=tenant_id, provider_key="bunq"
         )

@@ -19,6 +19,23 @@ log() { echo "[entrypoint] $*"; }
 if [ "${SKIP_MIGRATIONS:-0}" = "1" ]; then
   log "SKIP_MIGRATIONS=1 — skipping alembic upgrade head"
 else
+  # Fail fast on a *permanent* misconfiguration before entering the retry
+  # loop.  Without any database URL Alembic can never succeed — it raises
+  # RuntimeError("No database URL configured...") on every attempt — so the
+  # loop below only delays the failure by a minute and buries the cause under
+  # one traceback per attempt.  The Coolify deployment of `financesync-test`
+  # retried a missing URL 12 times and its log named no variable (incident
+  # 2d643e85).  These are exactly the two variables `migrations/env.py` reads
+  # (asyncpg normalisation happens there; only the presence matters here).
+  #
+  # A *reachable-but-unready* database is the transient case the loop exists
+  # for, so it keeps its 12 attempts below.
+  if [ -z "${ASYNC_DB_URL:-}" ] && [ -z "${DATABASE_URL:-}" ]; then
+    log "ERROR: no database URL configured — set ASYNC_DB_URL (or DATABASE_URL) on this container."
+    log "       Alembic cannot run without it; aborting startup instead of retrying a permanent misconfiguration."
+    exit 1
+  fi
+
   # Wait up to ~60s for the database to become reachable.
   for i in $(seq 1 12); do
     if alembic upgrade head; then

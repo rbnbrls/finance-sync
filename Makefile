@@ -1,4 +1,4 @@
-.PHONY: install lint format type pyright-budget test test-cov coverage clean test-collect test-integration integration-up integration-down test-e2e e2e-up e2e-down migrations test-migrations security docker-ci openapi-diff ci-fast ci
+.PHONY: install lint format type pyright-budget test test-cov coverage clean test-collect test-integration integration-up integration-down test-e2e e2e-up e2e-down migrations test-migrations security docker-ci openapi-diff ci-fast ci coverage-publish coverage-check coverage-refresh
 
 # ── Setup ──────────────────────────────────────────────────────────
 install:                           ## Install all dependencies (prod + dev)
@@ -52,7 +52,7 @@ test-ci:                           ## CI unit test run (sequential, coverage thr
 	APP_ENVIRONMENT=dev DEBUG=false uv run pytest -m "not integration and not e2e" --cov=finance_sync --cov-report=term --cov-report=xml --cov-fail-under=80 --junitxml=junit.xml
 
 ci-fast:                           ## Run the complete fast PR quality gate locally
-	make format-check lint type pyright-budget test-collect test-ci
+	make format-check lint type pyright-budget test-collect test-ci coverage-publish coverage-check
 
 # ── Full GitHub CI parity ──────────────────────────────────────────
 # These targets intentionally use the same commands and gates as
@@ -142,6 +142,19 @@ ci:                                 ## Run all required GitHub CI gates locally
 coverage:                          ## Generate HTML coverage report
 	coverage html
 
+coverage-publish:                  ## Publish coverage-summary.json from the measured coverage.xml
+	uv run python scripts/coverage_report.py --summary
+
+coverage-check:                    ## Fail while the committed coverage summary differs from this run
+	@git ls-files --error-unmatch coverage-summary.json >/dev/null || { \
+		echo "coverage-summary.json is not tracked by git; the published number must be committed"; exit 1; }
+	@git diff --exit-code -- coverage-summary.json || { \
+		echo "coverage-summary.json is stale: run 'make coverage-refresh' and commit the regenerated summary"; exit 1; }
+	@echo "coverage-summary.json matches this run"
+
+coverage-refresh: test-ci          ## Re-measure the unit suite, then republish coverage-summary.json
+	uv run python scripts/coverage_report.py --summary
+
 # ── Housekeeping ───────────────────────────────────────────────────
 clean:                             ## Remove cache and build artifacts
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
@@ -151,7 +164,7 @@ clean:                             ## Remove cache and build artifacts
 	find . -type d -name htmlcov -exec rm -rf {} + 2>/dev/null || true
 	find . -type d -name '*.egg-info' -exec rm -rf {} + 2>/dev/null || true
 	find . -type d -name .mypy_cache -exec rm -rf {} + 2>/dev/null || true
-	rm -rf dist/ build/ .coverage coverage.xml junit.xml
+	rm -rf dist/ build/ .coverage junit.xml coverage.xml
 
 # ── Pre-commit ─────────────────────────────────────────────────────
 pre-commit-install:                ## Install pre-commit hooks

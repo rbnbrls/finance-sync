@@ -86,6 +86,22 @@ class TestContainerWithDB:
         factory = container.session_factory
         assert factory is not None
 
+    def test_engine_uses_defensive_pool_settings(self) -> None:
+        """Pool health checks and bounded checkout waits are configured."""
+        settings = Settings(
+            database_url="postgresql+asyncpg://u:p@localhost:5432/db",  # type: ignore[call-arg]
+            database_pool_min_size=3,
+            database_pool_max_size=8,
+            database_pool_timeout=7,
+        )
+        container = Container.from_settings(settings)
+        pool = container.engine.sync_engine.pool
+
+        assert pool.size() == 3
+        assert pool._max_overflow == 5
+        assert pool._timeout == 7
+        assert pool._pre_ping is True
+
     def test_dispose_with_engine(self) -> None:
         """Dispose with an engine does not raise."""
         import anyio
