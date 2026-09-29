@@ -536,6 +536,10 @@ jobs:
     timeout-minutes: 25
     environment: staging
     steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
       - name: Resolve staging application
         # No UUID is committed: the staging application is read back from the
         # provider by name so a recreation cannot leave this job deploying to a
@@ -782,6 +786,10 @@ jobs:
     timeout-minutes: 25
     environment: production
     steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
       - name: Resolve production application
         # No UUID is committed: the production application is read back from the
         # provider by name (see the workflow env block), so a recreation cannot
