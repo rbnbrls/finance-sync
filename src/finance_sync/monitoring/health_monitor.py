@@ -5,6 +5,15 @@ application status and restart count, samples container CPU/memory via
 ``docker stats``, and files GitHub issues on crashes and resource
 threshold alerts (with daily dedup markers).
 
+The monitored application is resolved at run time and never committed:
+``COOLIFY_APP_UUID`` is an explicit override, otherwise the application
+named by ``COOLIFY_APP_NAME`` (default ``finance-sync-production``) is
+looked up by exact name in ``GET /applications`` and the route Coolify
+actually serves (``docker_compose_domains``, falling back to the generated
+``fqdn``) becomes the health base URL.  An unresolvable target prints
+``error:<reason>`` on stderr and exits 2 instead of probing (and filing
+issues about) an application that no longer exists.
+
 Fully decoupled from Hermes: all configuration comes from the
 environment (``COOLIFY_API_TOKEN``, ``GITHUB_TOKEN``, ``STATE_FILE``).
 Schedule it standalone with the systemd units in ``deploy/systemd/``
@@ -25,6 +34,7 @@ import os
 import subprocess
 import sys
 import urllib.parse
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, cast
 from urllib.error import HTTPError, URLError
@@ -40,10 +50,13 @@ MEM_CRIT_THRESHOLD = 90.0  # percent
 
 # ── Configuration (env-only, no Hermes fallbacks) ──────────────────────
 
-# Coolify API base URL and the application UUID to monitor.  Both are
-# overridable via COOLIFY_API_URL / COOLIFY_APP_UUID.
+# Coolify API base URL and the application to monitor.  Both are overridable
+# via COOLIFY_API_URL / COOLIFY_APP_NAME.  No application UUID is committed:
+# a Coolify UUID changes whenever the application is recreated (it is
+# provider-internal), so the UUID is read back from the provider at run time
+# and the run fails closed when it cannot be resolved.
 DEFAULT_COOLIFY_URL = "http://192.168.3.110:8000/api/v1"
-DEFAULT_APP_UUID = "mdeal4aqq9ycnozn3mg83zix"
+DEFAULT_APP_NAME = "finance-sync-production"
 
 # State file location, overridable via STATE_FILE.  The parent directory
 # is created on first save.
@@ -82,20 +95,246 @@ def get_coolify_url() -> str:
     return os.environ.get("COOLIFY_API_URL", DEFAULT_COOLIFY_URL)
 
 
+def get_app_name() -> str:
+    """Return the Coolify application name to monitor (``COOLIFY_APP_NAME``)."""
+    return os.environ.get("COOLIFY_APP_NAME") or DEFAULT_APP_NAME
+
+
+def get_health_base_url_override() -> str | None:
+    """Return the ``MONITOR_HEALTH_BASE_URL`` override, or None when unset."""
+    value = (os.environ.get("MONITOR_HEALTH_BASE_URL") or "").strip()
+    return value.rstrip("/") or None
+
+
+class MonitorConfigError(RuntimeError):
+    """An unresolvable monitor target, carrying a typed ``reason``."""
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(reason)
+        self.reason = reason
+
+
+@dataclass(frozen=True)
+class MonitorTarget:
+    """The Coolify application this monitor run watches."""
+
+    uuid: str
+    name: str
+    health_base_url: str
+
+
+def _applications_payload() -> str:
+    """Return the raw ``GET /applications`` payload.
+
+    ``COOLIFY_APPLICATIONS_FILE`` (offline fixture, mirroring
+    ``scripts/resolve-coolify-app.sh``) is read instead of calling the
+    provider, which is what the tests use.
+    """
+    fixture = (os.environ.get("COOLIFY_APPLICATIONS_FILE") or "").strip()
+    if fixture:
+        try:
+            with open(fixture, encoding="utf-8") as handle:
+                return handle.read()
+        except OSError:
+            reason = f"coolify_applications_fixture_missing:{fixture}"
+            raise MonitorConfigError(reason) from None
+
+    token = get_coolify_token()
+    if not token:
+        reason = "coolify_api_token_missing"
+        raise MonitorConfigError(reason)
+
+    url = f"{get_coolify_url()}/applications"
+    cmd = [
+        "curl",
+        "-sS",
+        "-f",
+        "--max-time",
+        "30",
+        "-H",
+        f"Authorization: Bearer {token}",
+        "-H",
+        "Accept: application/json",
+        url,
+    ]
+    result: subprocess.CompletedProcess[str] | None
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        result = None
+    if result is None or result.returncode != 0:
+        reason = f"coolify_api_unreachable:{url}"
+        raise MonitorConfigError(reason)
+    return result.stdout or ""
+
+
+def _application_dicts(value: object) -> list[dict[str, Any]]:
+    """Return the application entries of a ``/applications`` value."""
+    if not isinstance(value, list):
+        return []
+    return [
+        cast("dict[str, Any]", item) for item in value if isinstance(item, dict)
+    ]
+
+
+def _applications_entries(data: object) -> list[dict[str, Any]] | None:
+    """Return the application entries of a payload, or None when malformed.
+
+    ``GET /applications`` returns a bare list; the common wrapped shapes are
+    accepted too so an API version bump reports a typed reason instead of a
+    traceback.
+    """
+    if isinstance(data, list):
+        return _application_dicts(data)
+    if isinstance(data, dict):
+        for key in ("applications", "data", "items"):
+            value = data.get(key)
+            if isinstance(value, list):
+                return _application_dicts(value)
+    return None
+
+
+def fetch_applications() -> list[dict[str, Any]]:
+    """Return the Coolify applications (offline fixture or provider read)."""
+    payload = _applications_payload()
+    try:
+        data: object = json.loads(payload or "null")
+    except ValueError:
+        reason = "coolify_applications_unparsable"
+        raise MonitorConfigError(reason) from None
+    applications = _applications_entries(data)
+    if applications is None:
+        reason = "coolify_applications_unparsable"
+        raise MonitorConfigError(reason)
+    return applications
+
+
+def _host(value: object) -> str:
+    """Normalise a domain-ish value to a bare lowercase host."""
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    text = text.split("://", 1)[-1]
+    return text.split("/", 1)[0].rstrip(".").lower()
+
+
+def served_host(application: dict[str, Any]) -> str:
+    """Return the host Coolify actually routes for ``application``.
+
+    The serving Compose service is normally ``web`` but is not always: this
+    app publishes through ``app``.  Falls back to the single distinct service
+    domain, then to the generated ``fqdn`` (a Compose app does not serve its
+    ``<uuid>.7rb.nl`` host).
+    """
+    domains = application.get("docker_compose_domains")
+    if isinstance(domains, str):
+        try:
+            domains = json.loads(domains) if domains.strip() else {}
+        except ValueError:
+            domains = {}
+    serving: dict[str, str] = {}
+    if isinstance(domains, dict):
+        for service, entry in domains.items():
+            if isinstance(entry, dict):
+                domain = _host(entry.get("domain"))
+                if domain:
+                    serving[str(service)] = domain
+    if "web" in serving:
+        return serving["web"]
+    distinct = set(serving.values())
+    if len(distinct) == 1:
+        return next(iter(distinct))
+    return _host(application.get("fqdn"))
+
+
+def _select_by_name(
+    applications: list[dict[str, Any]], name: str
+) -> dict[str, Any]:
+    """Return the single application named ``name`` (typed failures)."""
+    matches = [
+        application
+        for application in applications
+        if str(application.get("name") or "") == name
+    ]
+    if not matches:
+        reason = f"coolify_application_not_found:{name}"
+        raise MonitorConfigError(reason)
+    if len(matches) > 1:
+        uuids = ",".join(
+            sorted(
+                str(application.get("uuid") or "") for application in matches
+            )
+        )
+        reason = f"coolify_application_ambiguous:{name}:{uuids}"
+        raise MonitorConfigError(reason)
+    application = matches[0]
+    if not str(application.get("uuid") or ""):
+        reason = f"coolify_application_uuid_missing:{name}"
+        raise MonitorConfigError(reason)
+    return application
+
+
+def _select_by_uuid(
+    applications: list[dict[str, Any]], app_uuid: str
+) -> dict[str, Any]:
+    """Return the application with ``app_uuid`` (typed failure when absent)."""
+    for application in applications:
+        if str(application.get("uuid") or "") == app_uuid:
+            return application
+    reason = f"coolify_application_uuid_not_found:{app_uuid}"
+    raise MonitorConfigError(reason)
+
+
+def resolve_target() -> MonitorTarget:
+    """Resolve the monitored application to its UUID and served health URL.
+
+    ``COOLIFY_APP_UUID`` is the explicit override; otherwise the application
+    named by ``COOLIFY_APP_NAME`` is resolved from the provider by exact name.
+    An explicit override is still checked against the provider unless
+    ``MONITOR_HEALTH_BASE_URL`` pins the URL too, so a deleted UUID fails with
+    a typed reason instead of silently monitoring nothing.
+    """
+    name = get_app_name()
+    override_uuid = (os.environ.get("COOLIFY_APP_UUID") or "").strip()
+    base_override = get_health_base_url_override()
+    if override_uuid and base_override:
+        # An operator pinned both the UUID and the URL: no provider read.
+        return MonitorTarget(override_uuid, name, base_override)
+
+    applications = fetch_applications()
+    if override_uuid:
+        application = _select_by_uuid(applications, override_uuid)
+    else:
+        application = _select_by_name(applications, name)
+
+    app_uuid = override_uuid or str(application.get("uuid") or "")
+    app_name = str(application.get("name") or name)
+    host = served_host(application)
+    if not base_override and not host:
+        reason = f"coolify_domain_unresolved:{app_name}"
+        raise MonitorConfigError(reason)
+    base_url = base_override or f"https://{host}"
+    return MonitorTarget(uuid=app_uuid, name=app_name, health_base_url=base_url)
+
+
 def get_app_uuid() -> str:
-    """Return the Coolify application UUID (``COOLIFY_APP_UUID`` env)."""
-    return os.environ.get("COOLIFY_APP_UUID", DEFAULT_APP_UUID)
+    """Return the resolved Coolify application UUID.
+
+    ``COOLIFY_APP_UUID`` is the explicit override; otherwise the UUID is
+    resolved from the provider by name.  Raises ``MonitorConfigError`` when
+    the target cannot be resolved — there is no committed UUID fallback.
+    """
+    return resolve_target().uuid
 
 
 def get_health_base_url() -> str:
     """Return the public base URL for the app health endpoints.
 
-    Defaults to ``https://<app-uuid>.7rb.nl`` (matching the Coolify
-    generated domain); override with ``MONITOR_HEALTH_BASE_URL``.
+    ``MONITOR_HEALTH_BASE_URL`` wins; otherwise it is derived from the route
+    Coolify serves for the resolved application — never from the generated
+    ``<uuid>.7rb.nl`` hostname of a Compose app, which serves no traffic.
     """
-    return os.environ.get("MONITOR_HEALTH_BASE_URL") or (
-        f"https://{get_app_uuid()}.7rb.nl"
-    )
+    return resolve_target().health_base_url
 
 
 # ── State management ─────────────────────────────────────────────────────
@@ -147,15 +386,16 @@ def check_health(url: str) -> int:
         return 999
 
 
-def check_coolify_app() -> dict[str, Any]:
+def check_coolify_app(app_uuid: str) -> dict[str, Any]:
     """Check the Coolify application status via API.
 
     Uses the Coolify API token (``COOLIFY_API_TOKEN``) in the
-    Authorization header.  Returns the current restart count so crash
+    Authorization header.  ``app_uuid`` is the resolved target (see
+    ``resolve_target``).  Returns the current restart count so crash
     detection can compare it against the previous run.
     """
     token = get_coolify_token()
-    cmd = ["curl", "-s", f"{get_coolify_url()}/applications/{get_app_uuid()}"]
+    cmd = ["curl", "-s", f"{get_coolify_url()}/applications/{app_uuid}"]
     if token:
         cmd += ["-H", f"Authorization: Bearer {token}"]
     try:
@@ -537,6 +777,22 @@ def _urlencode_query(query: str) -> str:
 
 def main() -> None:
     """Run one monitor pass: check health, detect crashes, file issues."""
+    # Resolve the target first: never probe — or file issues about — an
+    # application that cannot be resolved (a committed UUID goes stale
+    # whenever Coolify recreates the application).
+    try:
+        target = resolve_target()
+    except MonitorConfigError as exc:
+        print(f"error:{exc.reason}", file=sys.stderr)
+        sys.exit(2)
+
+    logger.info(
+        "Monitoring %s (%s) at %s",
+        target.name,
+        target.uuid,
+        target.health_base_url,
+    )
+
     state = load_state()
     now = datetime.now(UTC)
     now_iso = now.isoformat()
@@ -544,13 +800,13 @@ def main() -> None:
     if not state.get("started_at"):
         state["started_at"] = now_iso
 
-    # Check app health (primary and worker)
-    health_base = get_health_base_url()
+    # Check app health (primary and worker) on the route Coolify serves
+    health_base = target.health_base_url
     app_health = check_health(f"{health_base}/health/live")
     worker_health = check_health(f"{health_base}/health/ready")
 
     # Check Coolify status
-    cf = check_coolify_app()
+    cf = check_coolify_app(target.uuid)
 
     # Detect crashes: check if restart count increased
     restarts_changed = False

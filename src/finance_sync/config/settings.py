@@ -138,6 +138,12 @@ class Settings(BaseSettings):
         ge=1,
         validation_alias="DATABASE_POOL_MAX_SIZE",
     )
+    database_pool_timeout: int = Field(
+        default=10,
+        ge=1,
+        validation_alias="DATABASE_POOL_TIMEOUT",
+        description="Seconds to wait for a database connection before failing.",
+    )
 
     # ── Redis ────────────────────────────────────────────────────────
     redis_url: RedisDsn | None = Field(

@@ -53,11 +53,14 @@ env:
   REGISTRY: ghcr.io
   IMAGE: ghcr.io/rbnbrls/finance-sync
   COOLIFY_BASE_URL: https://dev.7rb.nl
-  # Staging stack (see scripts/provision-staging.sh and docs/RELEASING.md).
-  # finance-sync project -> development environment.
-  STAGING_APP_UUID: mdeal4aqq9ycnozn3mg83zix
-  # The current production application on finance-sync.7rb.nl.
-  PROD_APP_UUID: xnenwsyifmv81xkvdxkbkx3a
+  # Application UUIDs are deliberately NOT committed. They are read back from
+  # the provider by name at deploy time (scripts/resolve-coolify-app.sh): a
+  # committed UUID dies with the application it points at, which is how the
+  # staging and production deploy steps both ended up deploying to a deleted
+  # application (HTTP 404, issue #430). The names default to
+  # <repository>-staging / <repository>-production and can be overridden with
+  # the COOLIFY_APP_NAME_STAGING / COOLIFY_APP_NAME_PRODUCTION repository
+  # variables when an application is renamed.
 
 jobs:
   # ── Build, scan, sign & push the immutable image ──────────────────────
@@ -533,11 +536,33 @@ jobs:
     timeout-minutes: 25
     environment: staging
     steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - name: Resolve staging application
+        # No UUID is committed: the staging application is read back from the
+        # provider by name so a recreation cannot leave this job deploying to a
+        # deleted app. Fails closed with a typed reason instead.
+        env:
+          COOLIFY_API_TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}
+          COOLIFY_APP_NAME_STAGING: ${{ vars.COOLIFY_APP_NAME_STAGING }}
+        run: |
+          APP_NAME="${COOLIFY_APP_NAME_STAGING:-$(basename "${GITHUB_REPOSITORY}")-staging}"
+          echo "Resolving Coolify application ${APP_NAME}..."
+          RESOLVED=$(./scripts/resolve-coolify-app.sh --name "${APP_NAME}" --prefix STAGING_APP)
+          printf '%s\n' "${RESOLVED}" >> "${GITHUB_ENV}"
+          printf '%s\n' "${RESOLVED}"
+
       - name: Trigger staging deployment
         id: deploy
         env:
           COOLIFY_TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}
         run: |
+          if [ -z "${STAGING_APP_UUID:-}" ]; then
+            echo "❌ No resolved staging application — the resolve step must run first"
+            exit 1
+          fi
           echo "📦 Deploying finance-sync staging stack (${{ needs.build.outputs.version || github.ref }})..."
           RESPONSE=$(curl -s -w "\n%{http_code}" \
             -X POST "${COOLIFY_BASE_URL}/api/v1/deploy" \
@@ -589,9 +614,25 @@ jobs:
         with:
           ref: ${{ inputs.ref || github.ref }}
 
+      - name: Resolve staging application
+        # The smoke gate must hit the domain Coolify actually serves. The
+        # generated <uuid>.7rb.nl hostname is not that route for a Compose
+        # application (Traefik routes the Compose service domain), so the URL is
+        # resolved from the provider rather than assembled from a committed UUID.
+        env:
+          COOLIFY_API_TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}
+          COOLIFY_APP_NAME_STAGING: ${{ vars.COOLIFY_APP_NAME_STAGING }}
+        run: |
+          APP_NAME="${COOLIFY_APP_NAME_STAGING:-$(basename "${GITHUB_REPOSITORY}")-staging}"
+          echo "Resolving Coolify application ${APP_NAME}..."
+          RESOLVED=$(./scripts/resolve-coolify-app.sh --name "${APP_NAME}" --prefix STAGING_APP)
+          printf '%s\n' "${RESOLVED}" >> "${GITHUB_ENV}"
+          printf '%s\n' "${RESOLVED}"
+
       - name: Run acceptance smoke tests
         run: |
-          export SMOKE_BASE_URL="https://${STAGING_APP_UUID}.7rb.nl"
+          set -o pipefail
+          export SMOKE_BASE_URL="${STAGING_APP_DOMAIN}"
           python3 scripts/release_smoke.py 2>&1 | tee staging-smoke.log
         env:
           SMOKE_ARTIFACT: staging-smoke-evidence.json
@@ -745,11 +786,33 @@ jobs:
     timeout-minutes: 25
     environment: production
     steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - name: Resolve production application
+        # No UUID is committed: the production application is read back from the
+        # provider by name (see the workflow env block), so a recreation cannot
+        # leave the promotion step deploying to a deleted app.
+        env:
+          COOLIFY_API_TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}
+          COOLIFY_APP_NAME_PRODUCTION: ${{ vars.COOLIFY_APP_NAME_PRODUCTION }}
+        run: |
+          APP_NAME="${COOLIFY_APP_NAME_PRODUCTION:-$(basename "${GITHUB_REPOSITORY}")-production}"
+          echo "Resolving Coolify application ${APP_NAME}..."
+          RESOLVED=$(./scripts/resolve-coolify-app.sh --name "${APP_NAME}" --prefix PROD_APP)
+          printf '%s\n' "${RESOLVED}" >> "${GITHUB_ENV}"
+          printf '%s\n' "${RESOLVED}"
+
       - name: Trigger production deployment
         id: deploy
         env:
           COOLIFY_TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}
         run: |
+          if [ -z "${PROD_APP_UUID:-}" ]; then
+            echo "❌ No resolved production application — the resolve step must run first"
+            exit 1
+          fi
           echo "🚀 Promoting finance-sync (${{ needs.build.outputs.version || github.ref }}) to production..."
           RESPONSE=$(curl -s -w "\n%{http_code}" \
             -X POST "${COOLIFY_BASE_URL}/api/v1/deploy" \

@@ -197,10 +197,22 @@ markers = [
 source = ["finance_sync", "src"]
 branch = true
 command_line = "-m pytest"
+# `relative_files` keeps the published summary machine-independent: `filename`s
+# in coverage.xml (and therefore the keys of coverage-summary.json) are written
+# relative to the working directory instead of the absolute checkout, so the
+# committed summary carries no `/home/...` (or `/home/runner/work/...`) prefix.
+relative_files = true
 omit = [
     "src/finance_sync/reconciliation/remediation/*",
     "src/finance_sync/services/remediation.py",
 ]
+
+[tool.coverage.xml]
+# The per-line Cobertura report `make test-ci` writes; uploaded as the
+# `coverage-report-*` workflow artifact. It is *not* the published number:
+# `scripts/coverage_report.py` derives the committed `coverage-summary.json`
+# from it, because this report is larger than the quality lane's reader fetches.
+output = "coverage.xml"
 
 [tool.coverage.report]
 # Keep the local default identical to the enforced CI gate.

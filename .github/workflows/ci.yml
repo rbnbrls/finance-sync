@@ -152,12 +152,31 @@ jobs:
       - name: Run unit tests with coverage (≥80%)
         run: make test-ci
 
+      - name: Publish the coverage summary
+        # `coverage-summary.json` is this repository's published coverage
+        # number: a reader (and the darkfactory quality lane) reads it from the
+        # default branch, while a CI artifact expires. It is a summary because
+        # the lane fetches a committed file through the provider's contents
+        # API, which answers with an empty body above 1MB -- the 1.5MB per-line
+        # report committed by PR #1004 was published and unreadable.
+        run: make coverage-publish
+
+      - name: The committed coverage summary must match this run
+        # A committed number nobody re-measures is a stale number, and a stale
+        # number is worse than no number. A change that moves coverage must run
+        # `make coverage-refresh` and commit the regenerated summary in the same
+        # pull request; an unchanged measurement produces no diff at all.
+        # `make ci-fast` runs the same check locally.
+        run: make coverage-check
+
       - name: Upload coverage report
         uses: actions/upload-artifact@v7
         if: always()
         with:
           name: coverage-report-${{ matrix.python-version }}
-          path: coverage.xml
+          path: |
+            coverage.xml
+            coverage-summary.json
           retention-days: 14
 
       - name: Upload test results
