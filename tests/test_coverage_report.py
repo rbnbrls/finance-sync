@@ -269,7 +269,10 @@ def test_quality_gate_and_makefile_carry_the_summary_contract() -> None:
     # Local `make ci-fast` runs the same sequence the workflow runs: measure,
     # publish, then refuse a stale summary.
     assert "test-ci coverage-publish coverage-check" in makefile
-    assert "coverage-summary.json is stale" in makefile
+    # A refusal has to say *why*: the gate must not answer an interpreter
+    # mismatch with "refresh and commit", because following that advice is what
+    # publishes the artifact CI rejects.
+    assert "scripts/coverage_report.py --compare HEAD" in makefile
     # The committed summary is source, not build output: `make clean` must not
     # delete it, while the per-line report stays disposable.
     clean = _make_target(makefile, "clean")
@@ -307,3 +310,145 @@ def test_published_summary_matches_its_own_per_file_detail() -> None:
     )
     assert total_lines == payload["total"]["lines"]["total"]
     assert covered_lines == payload["total"]["lines"]["covered"]
+
+
+# --- the summary is only reproducible on one interpreter -------------------- #
+
+
+def _summary(files: dict[str, tuple[int, int]]) -> dict[str, object]:
+    """A minimal summary payload: ``{path: (statements, covered)}``."""
+    return {
+        "total": {
+            "lines": {"total": 0, "covered": 0, "skipped": 0, "pct": 0.0}
+        },
+        "files": {
+            name: {
+                "lines": {
+                    "total": total,
+                    "covered": covered,
+                    "skipped": 0,
+                    "pct": 0.0,
+                },
+                "branches": {
+                    "total": 0,
+                    "covered": 0,
+                    "skipped": 0,
+                    "pct": 0.0,
+                },
+            }
+            for name, (total, covered) in files.items()
+        },
+    }
+
+
+def test_the_measuring_interpreter_is_pinned_to_the_one_ci_installs() -> None:
+    """`uv run` must resolve the interpreter the workflow measures with.
+
+    coverage.py derives a file's statement total from the parse of the running
+    interpreter, so the same tree measured by two interpreters yields two
+    published summaries: `auth.py` is 135 statements under 3.14 and 164 under
+    3.12. Without the pin, a local `make ci-fast` publishes the summary the 3.12
+    CI job rejects on every push -- and reports success while doing it, because
+    the same wrong measurement is on both sides of the local gate.
+    """
+
+    pin = REPO_ROOT / ".python-version"
+    assert pin.is_file(), "the measurement interpreter must be pinned for uv"
+    pinned = pin.read_text(encoding="utf-8").strip()
+    assert pinned, ".python-version must not be empty"
+
+    # The pin is only meaningful if it names the interpreter CI measures with.
+    workflow = WORKFLOW.read_text(encoding="utf-8").replace("'", '"')
+    assert f'python-version: ["{pinned}"]' in workflow, (
+        "the pinned interpreter must be the one the test job installs"
+    )
+
+    # And it only takes effect because the local gates run through `uv run`,
+    # which resolves `.python-version`; a bare `python3` would ignore it.
+    makefile = MAKEFILE.read_text(encoding="utf-8")
+    for target in ("test-ci", "coverage-publish", "coverage-check"):
+        recipe = _make_target(makefile, target)
+        assert "uv run python" in recipe or "uv run pytest" in recipe, (
+            f"{target} must resolve the pinned interpreter through uv"
+        )
+    # `ci-fast` is the gate the factory runs; it must compose those targets.
+    assert "test-ci coverage-publish coverage-check" in _make_target(
+        makefile, "ci-fast"
+    )
+
+
+def test_a_statement_total_divergence_is_not_reported_as_stale() -> None:
+    """The one divergence no local refresh can fix must not say "refresh"."""
+
+    from scripts.coverage_report import (
+        DIVERGENCE_STATEMENTS,
+        compare_summaries,
+        diagnose,
+    )
+
+    published = _summary({"src/finance_sync/a.py": (135, 90)})
+    regenerated = _summary({"src/finance_sync/a.py": (164, 110)})
+
+    divergence = compare_summaries(published, regenerated)
+
+    assert divergence.kind == DIVERGENCE_STATEMENTS
+    assert divergence.statements == 1
+    assert "a.py (135 -> 164)" in divergence.examples[0]
+
+    text = "\n".join(diagnose(divergence, measured_files=1))
+    assert "statement totals" in text
+    assert "not measured by the same interpreter" in text
+    # The load-bearing sentence: the old remedy is wrong for this class.
+    assert "Refreshing here cannot converge" in text
+    assert "coverage-refresh" not in text
+
+
+def test_a_coverage_only_divergence_is_still_reported_as_stale() -> None:
+    """A real coverage movement keeps the ordinary remedy."""
+
+    from scripts.coverage_report import (
+        DIVERGENCE_COVERAGE,
+        compare_summaries,
+        diagnose,
+    )
+
+    published = _summary({"src/finance_sync/a.py": (135, 90)})
+    regenerated = _summary({"src/finance_sync/a.py": (135, 95)})
+
+    divergence = compare_summaries(published, regenerated)
+
+    assert divergence.kind == DIVERGENCE_COVERAGE
+    assert divergence.coverage == 1
+    text = "\n".join(diagnose(divergence, measured_files=1))
+    assert "is stale: run 'make coverage-refresh'" in text
+    assert "coverage change, not an interpreter mismatch" in text
+
+
+def test_a_different_file_set_is_not_reported_as_a_measurement_change() -> None:
+    """Summaries of different trees are not comparable, and say so."""
+
+    from scripts.coverage_report import (
+        DIVERGENCE_FILES,
+        compare_summaries,
+        diagnose,
+    )
+
+    published = _summary({"src/finance_sync/a.py": (10, 5)})
+    regenerated = _summary({"src/finance_sync/b.py": (10, 5)})
+
+    divergence = compare_summaries(published, regenerated)
+
+    assert divergence.kind == DIVERGENCE_FILES
+    assert divergence.files == 2
+    assert "did not measure the same tree" in "\n".join(diagnose(divergence))
+
+
+def test_an_identical_measurement_needs_no_action() -> None:
+    from scripts.coverage_report import compare_summaries, diagnose
+
+    summary = _summary({"src/finance_sync/a.py": (10, 5)})
+
+    divergence = compare_summaries(summary, summary)
+
+    assert divergence.identical
+    assert "matches this run" in diagnose(divergence)[0]
