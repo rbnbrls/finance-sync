@@ -24,6 +24,14 @@ dependencies = [
     "httpx>=0.28",
     "cryptography>=44",
     "python-jose[cryptography]>=3.3",
+    # Advisory floor, not a direct import: python-jose pulls pyjwt in
+    # transitively, and a dependency floor is the only place a transitive
+    # version can be stated. 2.13.0 carries CVE-2026-102265 through
+    # CVE-2026-102274 -- reported by both scanners in the same run, pip-audit
+    # in "Scan dependencies for vulnerabilities" and Trivy in "Build & Push",
+    # which is what turned every workflow run red on 2026-09-30 with no commit
+    # in between. 2.14.0 is the fixed release.
+    "pyjwt>=2.14.0",
     "bcrypt>=4.0",
     "python-multipart>=0.0.18",
     "structlog>=25.1",
