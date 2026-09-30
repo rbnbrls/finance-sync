@@ -72,6 +72,40 @@ def test_release_workflow_resolves_both_applications_by_name() -> None:
     )
 
 
+def test_every_resolver_job_checks_out_the_repository_first() -> None:
+    """Each job has a fresh runner, so direct resolver calls need repository files."""
+
+    job_pattern = re.compile(
+        r"^  ([a-z0-9-]+):\n(?=    )(.+?)(?=^  [a-z0-9-]+:\n|\Z)",
+        re.MULTILINE | re.DOTALL,
+    )
+    for workflow_path in (DEPLOY, RELEASE):
+        workflow = workflow_path.read_text(encoding="utf-8")
+        for job_name, job_body in job_pattern.findall(workflow):
+            resolver_at = job_body.find(f"./{RESOLVER}")
+            if resolver_at < 0:
+                continue
+            checkout_at = job_body.find("uses: actions/checkout@")
+            assert checkout_at >= 0, (
+                f"{workflow_path.name}:{job_name} invokes {RESOLVER} without checkout"
+            )
+            assert checkout_at < resolver_at, (
+                f"{workflow_path.name}:{job_name} resolves Coolify before checkout"
+            )
+
+
+def test_release_coolify_jobs_checkout_the_requested_release_ref() -> None:
+    workflow = RELEASE.read_text(encoding="utf-8")
+    for job_name in ("deploy-staging", "smoke", "promote"):
+        job = re.search(
+            rf"^  {job_name}:\n(?=    )(.+?)(?=^  [a-z0-9-]+:\n|\Z)",
+            workflow,
+            re.MULTILINE | re.DOTALL,
+        )
+        assert job is not None
+        assert "ref: ${{ inputs.ref || github.ref }}" in job.group(1)
+
+
 def test_target_names_come_from_the_repository_not_from_a_literal() -> None:
     """Renaming an application must not need a code change either."""
     for path, prefix in (
