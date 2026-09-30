@@ -176,10 +176,10 @@
         "total": 18
       },
       "lines": {
-        "covered": 67,
-        "pct": 49.63,
+        "covered": 96,
+        "pct": 58.54,
         "skipped": 0,
-        "total": 135
+        "total": 164
       }
     },
     "src/finance_sync/api/v1/card_transactions.py": {
@@ -232,10 +232,10 @@
         "total": 164
       },
       "lines": {
-        "covered": 475,
-        "pct": 71.21,
+        "covered": 512,
+        "pct": 72.73,
         "skipped": 0,
-        "total": 667
+        "total": 704
       }
     },
     "src/finance_sync/api/v1/control_plane.py": {
@@ -274,10 +274,10 @@
         "total": 42
       },
       "lines": {
-        "covered": 139,
-        "pct": 79.43,
+        "covered": 159,
+        "pct": 81.54,
         "skipped": 0,
-        "total": 175
+        "total": 195
       }
     },
     "src/finance_sync/api/v1/destinations.py": {
@@ -330,8 +330,8 @@
         "total": 58
       },
       "lines": {
-        "covered": 188,
-        "pct": 91.71,
+        "covered": 187,
+        "pct": 91.22,
         "skipped": 0,
         "total": 205
       }
@@ -568,10 +568,10 @@
         "total": 14
       },
       "lines": {
-        "covered": 73,
-        "pct": 85.88,
+        "covered": 80,
+        "pct": 86.96,
         "skipped": 0,
-        "total": 85
+        "total": 92
       }
     },
     "src/finance_sync/api/v1/scheduled_payments.py": {
@@ -596,10 +596,10 @@
         "total": 6
       },
       "lines": {
-        "covered": 56,
-        "pct": 81.16,
+        "covered": 70,
+        "pct": 84.34,
         "skipped": 0,
-        "total": 69
+        "total": 83
       }
     },
     "src/finance_sync/api/v1/spending.py": {
@@ -666,10 +666,10 @@
         "total": 22
       },
       "lines": {
-        "covered": 125,
-        "pct": 82.24,
+        "covered": 128,
+        "pct": 82.58,
         "skipped": 0,
-        "total": 152
+        "total": 155
       }
     },
     "src/finance_sync/api/v1/sync_runs.py": {
@@ -680,10 +680,10 @@
         "total": 14
       },
       "lines": {
-        "covered": 36,
-        "pct": 40.45,
+        "covered": 56,
+        "pct": 51.38,
         "skipped": 0,
-        "total": 89
+        "total": 109
       }
     },
     "src/finance_sync/api/v1/sync_schedules.py": {
@@ -694,10 +694,10 @@
         "total": 12
       },
       "lines": {
-        "covered": 113,
-        "pct": 87.6,
+        "covered": 116,
+        "pct": 74.84,
         "skipped": 0,
-        "total": 129
+        "total": 155
       }
     },
     "src/finance_sync/api/v1/tax_lots.py": {
@@ -736,10 +736,10 @@
         "total": 6
       },
       "lines": {
-        "covered": 53,
-        "pct": 96.36,
+        "covered": 60,
+        "pct": 96.77,
         "skipped": 0,
-        "total": 55
+        "total": 62
       }
     },
     "src/finance_sync/app.py": {
@@ -1100,8 +1100,8 @@
         "total": 54
       },
       "lines": {
-        "covered": 166,
-        "pct": 72.49,
+        "covered": 165,
+        "pct": 72.05,
         "skipped": 0,
         "total": 229
       }
@@ -1856,8 +1856,8 @@
         "total": 14
       },
       "lines": {
-        "covered": 43,
-        "pct": 81.13,
+        "covered": 42,
+        "pct": 79.25,
         "skipped": 0,
         "total": 53
       }
@@ -1898,10 +1898,10 @@
         "total": 0
       },
       "lines": {
-        "covered": 34,
+        "covered": 46,
         "pct": 100.0,
         "skipped": 0,
-        "total": 34
+        "total": 46
       }
     },
     "src/finance_sync/identity/resolver.py": {
@@ -3088,10 +3088,10 @@
         "total": 0
       },
       "lines": {
-        "covered": 13,
+        "covered": 26,
         "pct": 100.0,
         "skipped": 0,
-        "total": 13
+        "total": 26
       }
     },
     "src/finance_sync/schemas/control_plane.py": {
@@ -3348,14 +3348,14 @@
     },
     "src/finance_sync/services/connector_data_deletion.py": {
       "branches": {
-        "covered": 12,
-        "pct": 50.0,
+        "covered": 11,
+        "pct": 45.83,
         "skipped": 0,
         "total": 24
       },
       "lines": {
-        "covered": 83,
-        "pct": 84.69,
+        "covered": 81,
+        "pct": 82.65,
         "skipped": 0,
         "total": 98
       }
@@ -4110,8 +4110,8 @@
         "total": 40
       },
       "lines": {
-        "covered": 136,
-        "pct": 92.52,
+        "covered": 134,
+        "pct": 91.16,
         "skipped": 0,
         "total": 147
       }
@@ -4236,8 +4236,8 @@
         "total": 98
       },
       "lines": {
-        "covered": 281,
-        "pct": 74.73,
+        "covered": 289,
+        "pct": 76.86,
         "skipped": 0,
         "total": 376
       }
@@ -4278,8 +4278,8 @@
         "total": 214
       },
       "lines": {
-        "covered": 439,
-        "pct": 85.08,
+        "covered": 440,
+        "pct": 85.27,
         "skipped": 0,
         "total": 516
       }
@@ -4567,16 +4567,16 @@
   },
   "total": {
     "branches": {
-      "covered": 6122,
-      "pct": 69.27,
+      "covered": 6121,
+      "pct": 69.26,
       "skipped": 0,
       "total": 8838
     },
     "lines": {
-      "covered": 27416,
-      "pct": 83.1,
+      "covered": 27583,
+      "pct": 83.14,
       "skipped": 0,
-      "total": 32990
+      "total": 33178
     }
   }
 }

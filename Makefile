@@ -148,8 +148,8 @@ coverage-publish:                  ## Publish coverage-summary.json from the mea
 coverage-check:                    ## Fail while the committed coverage summary differs from this run
 	@git ls-files --error-unmatch coverage-summary.json >/dev/null || { \
 		echo "coverage-summary.json is not tracked by git; the published number must be committed"; exit 1; }
-	@git diff --exit-code -- coverage-summary.json || { \
-		echo "coverage-summary.json is stale: run 'make coverage-refresh' and commit the regenerated summary"; exit 1; }
+	@git diff --quiet -- coverage-summary.json || { \
+		uv run python scripts/coverage_report.py --compare HEAD; exit 1; }
 	@echo "coverage-summary.json matches this run"
 
 coverage-refresh: test-ci          ## Re-measure the unit suite, then republish coverage-summary.json
