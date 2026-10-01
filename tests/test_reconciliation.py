@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
@@ -1480,6 +1481,15 @@ class TestDuplicateCandidateLogic:
 
     # This tests the algorithm from Finance_sync/db/repositories.py
     # by directly testing the grouping and pair matching logic.
+    #
+    # A fixed instant, not `datetime.now(UTC)`. The grouping key this class
+    # replicates is (account, amount, occurred_at.date(), external_id), so
+    # `now - 1h` and `now - 4h` land on different dates when the suite runs
+    # between 01:00Z and 04:00Z: the transactions stop sharing a date, the
+    # duplicate pairs disappear, and these tests fail on an unchanged tree
+    # (live 2026-10-01T01:05Z -- "assert 1 == 2" and "assert 1 == 3" -- while
+    # the same file passed at 00:20Z and passes again from 04:00Z).
+    _FIXED_NOW = datetime(2026, 9, 20, 12, 0, tzinfo=UTC)
 
     @staticmethod
     def _find_pairs(txns: list, threshold_hours: int = 48) -> list:
@@ -1524,7 +1534,7 @@ class TestDuplicateCandidateLogic:
         return pairs
 
     def test_no_duplicates_when_all_distinct(self) -> None:
-        now = datetime.now(UTC)
+        now = self._FIXED_NOW
         txns = [
             _MockTxn(
                 amount=Decimal("-10.00"), occurred_at=now - timedelta(hours=2)
@@ -1540,7 +1550,7 @@ class TestDuplicateCandidateLogic:
         assert len(pairs) == 0
 
     def test_detects_duplicate_same_amount_date_and_broker_id(self) -> None:
-        now = datetime.now(UTC)
+        now = self._FIXED_NOW
         txns = [
             _MockTxn(
                 provider_key="bunq",
@@ -1567,7 +1577,7 @@ class TestDuplicateCandidateLogic:
         )
 
     def test_different_broker_ids_are_not_duplicates(self) -> None:
-        now = datetime.now(UTC)
+        now = self._FIXED_NOW
         txns = [
             _MockTxn(
                 provider_key="bunq",
@@ -1586,7 +1596,7 @@ class TestDuplicateCandidateLogic:
         assert len(pairs) == 0
 
     def test_different_dates_are_not_duplicates(self) -> None:
-        now = datetime.now(UTC)
+        now = self._FIXED_NOW
         txns = [
             _MockTxn(
                 external_transaction_id="same-broker-id",
@@ -1626,7 +1636,7 @@ class TestDuplicateCandidateLogic:
         assert len(pairs) == 1
 
     def test_different_amounts_not_duplicates(self) -> None:
-        now = datetime.now(UTC)
+        now = self._FIXED_NOW
         txns = [
             _MockTxn(
                 amount=Decimal("-50.00"), occurred_at=now - timedelta(hours=2)
@@ -1639,7 +1649,7 @@ class TestDuplicateCandidateLogic:
         assert len(pairs) == 0
 
     def test_sorts_by_amount_descending(self) -> None:
-        now = datetime.now(UTC)
+        now = self._FIXED_NOW
         txns = [
             _MockTxn(
                 provider_key="a",
@@ -1684,7 +1694,7 @@ class TestDuplicateCandidateLogic:
                 provider_key="trading212",
                 external_transaction_id="same-broker-id",
                 amount=Decimal("-50.00"),
-                occurred_at=datetime.now(UTC) - timedelta(hours=2),
+                occurred_at=self._FIXED_NOW - timedelta(hours=2),
             ),
         ]
         pairs = self._find_pairs(txns)
@@ -1692,7 +1702,7 @@ class TestDuplicateCandidateLogic:
 
     def test_three_way_duplicate_detection(self) -> None:
         """Three transactions with same amount in same account yields three pairs."""
-        now = datetime.now(UTC)
+        now = self._FIXED_NOW
         txns = [
             _MockTxn(
                 provider_key="bunq",
@@ -1719,7 +1729,7 @@ class TestDuplicateCandidateLogic:
 
     def test_different_accounts_not_duplicates(self) -> None:
         """Same amount but different accounts = not duplicates."""
-        now = datetime.now(UTC)
+        now = self._FIXED_NOW
         txns = [
             _MockTxn(
                 account_id="acct_1",
@@ -1734,3 +1744,44 @@ class TestDuplicateCandidateLogic:
         ]
         pairs = self._find_pairs(txns)
         assert len(pairs) == 0
+
+
+def test_duplicate_candidate_logic_does_not_read_the_wall_clock() -> None:
+    """The duplicate pair counts must not depend on when the suite runs.
+
+    ``TestDuplicateCandidateLogic`` replicates a grouping key of
+    ``(account, amount, occurred_at.date(), external_id)``. Building its inputs
+    from ``datetime.now(UTC)`` makes every asserted pair count a function of the
+    clock: between 01:00Z and 04:00Z ``now - 1h`` is today and ``now - 4h`` is
+    yesterday, so the transactions stop sharing a date and the class fails on an
+    unchanged tree. Live on 2026-10-01: this file passed at 00:20Z and failed at
+    01:05Z with "assert 1 == 2" / "assert 1 == 3" (CI run 36798398383) -- a red
+    every night for three hours, on any branch, with nothing to fix in the diff.
+
+    The inputs come from ``_FIXED_NOW`` now. This keeps a wall clock from
+    creeping back in: a fixed offset that happens to land on one date today is
+    exactly the state that looked correct while the suite ran at a safe hour.
+    """
+
+    source = Path(__file__).read_text(encoding="utf-8")
+    lines = source.splitlines()
+    start = next(
+        index
+        for index, line in enumerate(lines)
+        if line.startswith("class TestDuplicateCandidateLogic:")
+    )
+    body: list[str] = []
+    for line in lines[start + 1 :]:
+        if line and not line.startswith((" ", "\t")):
+            break  # the next top-level member ends the class body
+        body.append(line)
+    offenders = [
+        line.strip()
+        for line in body
+        if not line.strip().startswith("#")
+        and ("datetime.now(" in line or "datetime.today(" in line)
+    ]
+    assert offenders == [], (
+        "TestDuplicateCandidateLogic must build its inputs from a fixed instant, "
+        f"not the wall clock: {offenders}"
+    )
