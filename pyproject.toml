@@ -36,6 +36,14 @@ dependencies = [
     "python-multipart>=0.0.18",
     "structlog>=25.1",
     "sentry-sdk>=2.0",
+    # Advisory floor, not a direct import: sentry-sdk, requests and
+    # requests-cache pull urllib3 in transitively, and a dependency floor is the
+    # only place a transitive version can be stated. 2.7.0 carries
+    # CVE-2026-97687 through CVE-2026-97689, reported by the `Security` job's
+    # "Scan dependencies for vulnerabilities" step (pip-audit, exit 1) while
+    # `Build & Push` stayed green on the same commit -- the same gate that had
+    # just been cleared for pyjwt. 2.8.0 is the fixed release.
+    "urllib3>=2.8.0",
     "prometheus-client>=0.22",
     "actualpy>=0.22",
     "apscheduler>=3.10",
