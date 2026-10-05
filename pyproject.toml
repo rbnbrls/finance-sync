@@ -74,6 +74,21 @@ mcp = [
     "sse-starlette>=3.4",
 ]
 
+[tool.uv]
+# `openbb` and `dev` cannot be installed side by side, and uv resolves the
+# cross product of every declared extra by default. The OpenBB SDK's
+# `openbb-core` pins `fastapi` and `ruff` to the releases it accepts while
+# `dev` holds `ruff`/`pre-commit` above them, so the *pair* has no solution --
+# which made the whole lock un-upgradable: every Dependabot
+# `uv lock --upgrade-package fastapi|ruff|openbb` exited 1 and turned the
+# "Dependabot Updates" workflow red on each weekly run while `uv lock --check`
+# stayed green. Nothing installs the SDK extra (CI, the Makefile and the
+# Dockerfile all use `--extra dev`; the OpenBB integrations speak the REST API
+# over httpx), so declare the pair conflicting and let uv resolve each extra in
+# its own fork. Without this declaration Dependabot cannot update `fastapi`,
+# `ruff` or `openbb` again.
+conflicts = [[{ extra = "openbb" }, { extra = "dev" }]]
+
 [project.entry-points."finance_sync.connectors"]
 # Built-in connectors
 bunq = "finance_sync.connectors.bunq:BunqConnector"
