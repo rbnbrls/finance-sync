@@ -272,7 +272,12 @@ Dependency maintenance is weekly through Dependabot and the scheduled
 `Dependency cadence` workflow. That workflow checks `uv.lock`, unit,
 integration, E2E, pip-audit and CycloneDX. A dependency exception must remain
 in the Trivy policy with an owner, rationale and expiry; rollback is the same
-immutable-image rollback described above.
+immutable-image rollback described above. The accepted-risk advisories passed
+to `pip-audit` as `--ignore-vuln` are identical in every gate that runs the
+scanner — `ci.yml`, `release.yml`, the `Dependency cadence` workflow and the
+`make security` target — and are pinned offline by
+`tests/test_pip_audit_accepted_risks.py`, so an advisory with no fixed release
+is either accepted by all four gates or by none of them.
 
 | Trigger | What happens |
 |---|---|

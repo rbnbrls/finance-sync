@@ -59,7 +59,8 @@ jobs:
         run: |
           uv pip install pip-audit cyclonedx-bom
           uv export --format requirements-txt --no-dev --locked --no-emit-project --output-file release-requirements.txt
-          uv run pip-audit --requirement release-requirements.txt --progress-spinner=off
+          uv run pip-audit --requirement release-requirements.txt --progress-spinner=off \
+            --ignore-vuln PYSEC-2026-1325 --ignore-vuln GHSA-wj6h-64fc-37mp
           uv run cyclonedx-py requirements release-requirements.txt --pyproject pyproject.toml -o sbom.cyclonedx.json
           uv run python scripts/check_data_retention_policy.py config/data-retention-policy.json
           uv run python scripts/check_trivyignore.py .trivyignore
