@@ -48,6 +48,19 @@ if TYPE_CHECKING:
 
 pytestmark = pytest.mark.integration
 
+#: Event date of the stale press note. ``seeded_tenant`` keeps ``published_at``
+#: relative to the run on purpose -- ``build_feed`` only matches observations
+#: published inside a 14-day window, so a fixed ``published_at`` would drop the
+#: item out of the feed as the calendar advances. The feed's *event date*,
+#: however, falls back to ``published_at`` when an item carries no date fact
+#: (``_event_date_for``), which drags the wall clock into every absolute
+#: date-range assertion: on 2026-10-05 the note sat at ``now - 3d``
+#: (2026-10-02), inside the [2026-10-01, 2026-11-30] window of
+#: ``test_date_range_filter``, and the suite went red on an unchanged tree
+#: (CI run 37265142508). The note therefore dates its event explicitly, well
+#: clear of that window.
+_SEEDED_NEWS_EVENT_DATE = "2026-09-15"
+
 
 # ── Seed helpers ──────────────────────────────────────────────────────
 
@@ -321,7 +334,10 @@ async def seeded_tenant(
         fetched_at=now,
         facts=[{"key": "ex_date", "value": "2026-08-10"}],
     )
-    # A: a stale story (fetched 3 days ago).
+    # A: a stale story (fetched 3 days ago). Its ``published_at`` stays relative
+    # so the item remains inside ``build_feed``'s 14-day matching window, but the
+    # event date -- what the feed's date-range filter reads -- is pinned so an
+    # absolute window cannot overlap a wall-clock date.
     await _new_item(
         session_factory,
         tenant_a["tenant_id"],
@@ -333,6 +349,7 @@ async def seeded_tenant(
         canonical_url="https://example.com/aapl-stale",
         published_at=now - timedelta(days=3),
         fetched_at=now - timedelta(days=3),
+        facts=[{"key": "event_date", "value": _SEEDED_NEWS_EVENT_DATE}],
     )
 
     await _build_feed(session_factory, tenant_a["tenant_id"])
@@ -508,6 +525,39 @@ class TestFeedFilters:
         body = resp.json()
         assert body["total"] == 1
         assert body["items"][0]["event_type"] == "earnings"
+
+    async def test_date_range_window_is_not_overlapped_by_a_wall_clock_date(
+        self,
+        relevance_client: httpx.AsyncClient,
+        seeded_tenant: dict[str, Any],
+    ) -> None:
+        """The seeded press note dates its event explicitly, not by fallback.
+
+        ``_event_date_for`` falls back to ``published_at`` when an item carries
+        no date fact, and ``seeded_tenant`` keeps ``published_at`` relative to
+        the run (the feed only matches observations published inside a 14-day
+        window). A fallback therefore hands the event date to the wall clock and
+        the absolute window in ``test_date_range_filter`` overlaps it for part
+        of every year -- red on an unchanged tree (CI run 37265142508: the note
+        landed at ``now - 3d`` = 2026-10-02, inside [2026-10-01, 2026-11-30]).
+
+        The note dates its event with ``_SEEDED_NEWS_EVENT_DATE``. If that fact
+        is dropped the event date collapses back onto the source's
+        ``published_at`` and this fails on every run, not only at an unlucky
+        hour.
+        """
+        tenant_a = seeded_tenant["tenant_a"]
+        resp = await relevance_client.get(
+            "/api/v1/holding-relevance/feed", headers=tenant_a["headers"]
+        )
+        assert resp.status_code == 200, resp.text
+        news = [i for i in resp.json()["items"] if i["event_type"] == "news"]
+        assert len(news) == 1
+        published_at = news[0]["sources"][0]["published_at"]
+        assert news[0]["event_date"] != published_at, (
+            "the press note's event date fell back to its wall-clock "
+            "published_at; give it an explicit fixed date fact"
+        )
 
     async def test_include_stale_false_drops_stale_cluster(
         self,
