@@ -23,15 +23,11 @@ dependencies = [
     "pydantic-settings>=2.7",
     "httpx>=0.28",
     "cryptography>=44",
-    "python-jose[cryptography]>=3.3",
-    # Advisory floor, not a direct import: python-jose pulls pyjwt in
-    # transitively, and a dependency floor is the only place a transitive
-    # version can be stated. 2.13.0 carries CVE-2026-102265 through
-    # CVE-2026-102274 -- reported by both scanners in the same run, pip-audit
-    # in "Scan dependencies for vulnerabilities" and Trivy in "Build & Push",
-    # which is what turned every workflow run red on 2026-09-30 with no commit
-    # in between. 2.14.0 is the fixed release.
-    "pyjwt>=2.14.0",
+    # PyJWT is the maintained JWT implementation used by the auth service.
+    # python-jose 3.5.0 is vulnerable to CVE-2026-85394 and has no fixed
+    # release, so keep it out of both the direct and locked dependencies.
+    "pyjwt>=2.15.0",
+
     "bcrypt>=4.0",
     "python-multipart>=0.0.18",
     "structlog>=25.1",
@@ -48,6 +44,9 @@ dependencies = [
     "actualpy>=0.22",
     "apscheduler>=3.10",
     "aiohttp>=3.9",
+    # Advisory floor for aiohttp's transitive multidict dependency: 6.7.1
+    # carries CVE-2026-104874; 6.9.1 is the fixed release.
+    "multidict>=6.9.1",
     "mcp>=2,<3",
     "openpyxl>=3.1",
     "xlrd>=2.0",
