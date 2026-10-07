@@ -26,7 +26,10 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 #: Package names are normalised the way the lockfile writes them.
 ADVISORY_FLOORS: dict[str, tuple[str, str]] = {
     "urllib3": ("2.8.0", "CVE-2026-97687, CVE-2026-97688, CVE-2026-97689"),
-    "pyjwt": ("2.14.0", "CVE-2026-102265 through CVE-2026-102274"),
+    "pyjwt": (
+        "2.15.0",
+        "CVE-2026-102265 through CVE-2026-102275",
+    ),
 }
 
 
