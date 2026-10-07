@@ -26,6 +26,16 @@ def test_only_default_branch_push_failures_are_reportable() -> None:
     )
 
 
+def test_default_branch_scheduled_and_manual_failures_are_reportable() -> None:
+    for event in ("schedule", "workflow_dispatch"):
+        assert is_reportable(
+            event=event,
+            branch="main",
+            default_branch="main",
+            conclusion="failure",
+        )
+
+
 def test_fingerprint_is_stable_and_contains_job_scope() -> None:
     value = fingerprint(
         workflow="CI",

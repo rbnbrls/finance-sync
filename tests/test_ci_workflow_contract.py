@@ -34,9 +34,13 @@ def test_local_composite_action_is_checked_out_before_resolution() -> None:
             assert "- uses: actions/checkout@v7" in steps[:action_position]
 
 
-def test_failure_workflow_is_main_only_and_supports_resolution() -> None:
+def test_failure_workflow_reports_default_branch_incidents_and_supports_resolution() -> (
+    None
+):
     workflow = (ROOT / ".github/workflows/ci-failure.yml").read_text()
     assert "github.event.workflow_run.event == 'push'" in workflow
+    assert "github.event.workflow_run.event == 'schedule'" in workflow
+    assert "github.event.workflow_run.event == 'workflow_dispatch'" in workflow
     assert "github.event.workflow_run.head_branch ==" in workflow
     assert "github.event.repository.default_branch" in workflow
     assert "ci-failure-fingerprint:" in workflow
