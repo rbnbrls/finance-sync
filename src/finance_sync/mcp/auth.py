@@ -17,7 +17,7 @@ from json import dumps as json_dumps
 from typing import TYPE_CHECKING, Any
 from urllib.parse import parse_qs
 
-from jose import JWTError
+from jwt import PyJWTError
 from starlette.status import HTTP_401_UNAUTHORIZED
 
 from finance_sync.services.auth import (
@@ -162,7 +162,7 @@ class MCPAuthMiddleware:
                             principal_id=user_id,
                             auth_method="jwt",
                         )
-            except JWTError:
+            except PyJWTError:
                 pass
 
         # 2. API key
@@ -213,7 +213,7 @@ class MCPAuthMiddleware:
                             principal_id=user_id,
                             auth_method="jwt_query",
                         )
-            except JWTError:
+            except PyJWTError:
                 pass
 
         return None

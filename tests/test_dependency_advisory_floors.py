@@ -25,6 +25,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 #: Package -> (lowest fixed release, the advisories the floor serves).
 #: Package names are normalised the way the lockfile writes them.
 ADVISORY_FLOORS: dict[str, tuple[str, str]] = {
+    "multidict": ("6.9.1", "CVE-2026-104874"),
     "urllib3": ("2.8.0", "CVE-2026-97687, CVE-2026-97688, CVE-2026-97689"),
     "pyjwt": (
         "2.15.0",
@@ -94,3 +95,11 @@ def test_locked_versions_satisfy_every_advisory_floor() -> None:
             f"uv.lock resolves {package} {locked[package]}, below the fixed release "
             f"{floor} ({advisories}); the `Security` job fails on this lockfile."
         )
+
+
+def test_vulnerable_python_jose_is_not_resolved() -> None:
+    """Keep the unfixed python-jose algorithm-confusion CVE out of the image."""
+    declared = _declared_floors()
+    locked = _locked_versions()
+    assert "python-jose" not in declared
+    assert "python-jose" not in locked
