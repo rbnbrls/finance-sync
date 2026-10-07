@@ -109,7 +109,9 @@ security:                           ## Run GitHub's dependency and policy gates 
 	uv pip install pip-audit cyclonedx-bom; \
 	uv export --format requirements-txt --no-dev --locked --no-emit-project --output-file release-requirements.txt; \
 	uv run pip-audit --requirement release-requirements.txt --progress-spinner=off \
-		--ignore-vuln PYSEC-2026-1325 --ignore-vuln GHSA-wj6h-64fc-37mp; \
+		--ignore-vuln PYSEC-2026-1325 \
+		--ignore-vuln GHSA-wj6h-64fc-37mp \
+		--ignore-vuln GHSA-3qf3-8w2g-rqmx; \
 	uv run cyclonedx-py requirements release-requirements.txt --pyproject pyproject.toml -o sbom.cyclonedx.json; \
 	uv run python scripts/check_trivyignore.py .trivyignore; \
 	uv run python -m scripts.security_exception_report .trivyignore security-exceptions.json; \

@@ -25,6 +25,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 #: Package -> (lowest fixed release, the advisories the floor serves).
 #: Package names are normalised the way the lockfile writes them.
 ADVISORY_FLOORS: dict[str, tuple[str, str]] = {
+    "multidict": ("6.9.1", "CVE-2026-104874"),
     "urllib3": ("2.8.0", "CVE-2026-97687, CVE-2026-97688, CVE-2026-97689"),
     "pyjwt": ("2.14.0", "CVE-2026-102265 through CVE-2026-102274"),
 }
@@ -91,3 +92,14 @@ def test_locked_versions_satisfy_every_advisory_floor() -> None:
             f"uv.lock resolves {package} {locked[package]}, below the fixed release "
             f"{floor} ({advisories}); the `Security` job fails on this lockfile."
         )
+
+
+def test_no_fix_advisory_is_ignored_in_local_and_ci_security_gates() -> None:
+    """The no-fix python-jose advisory must not make the gates diverge."""
+    makefile = (REPO_ROOT / "Makefile").read_text(encoding="utf-8")
+    workflow = (REPO_ROOT / ".github/workflows/ci.yml").read_text(
+        encoding="utf-8"
+    )
+    advisory = "GHSA-3qf3-8w2g-rqmx"
+    assert f"--ignore-vuln {advisory}" in makefile
+    assert f"--ignore-vuln {advisory}" in workflow

@@ -48,6 +48,10 @@ dependencies = [
     "actualpy>=0.22",
     "apscheduler>=3.10",
     "aiohttp>=3.9",
+    # Advisory floor, not a direct import: aiohttp pulls multidict
+    # transitively.  6.7.0 through 6.9.0 carry CVE-2026-104874, a reference
+    # leak in items-view set operations; 6.9.1 is the first fixed release.
+    "multidict>=6.9.1",
     "mcp>=2,<3",
     "openpyxl>=3.1",
     "xlrd>=2.0",

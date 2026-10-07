@@ -917,6 +917,10 @@ jobs:
           --progress-spinner=off
           --ignore-vuln PYSEC-2026-1325
           --ignore-vuln GHSA-wj6h-64fc-37mp
+          # python-jose 3.5.0 has no fixed release for GHSA-3qf3-8w2g-rqmx.
+          # finance-sync restricts verification to the configured algorithm,
+          # so the advisory's asymmetric-key fallback is not reachable.
+          --ignore-vuln GHSA-3qf3-8w2g-rqmx
 
       - name: Generate CycloneDX SBOM
         run: >-
