@@ -396,7 +396,7 @@ class TestMCPAuthMiddleware:
         mock_settings: Any,
     ) -> None:
         """Invalid JWT falls through to other auth methods, then 401."""
-        mock_decode.side_effect = __import__("jose").JWTError("bad token")
+        mock_decode.side_effect = __import__("jwt").PyJWTError("bad token")
 
         # Also ensure no API key or query param is present
         scope = self._make_scope(

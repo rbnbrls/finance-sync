@@ -15,8 +15,8 @@ if TYPE_CHECKING:
 
 import pytest
 from fastapi.testclient import TestClient
-from jose import JWTError
-from jose import jwt as jose_jwt
+from jwt import PyJWTError
+from jwt import encode as jose_jwt_encode
 
 from finance_sync.api.deps.auth import (
     api_key_has_permission,
@@ -147,10 +147,10 @@ class TestJWTTokens:
             "exp": datetime.now(UTC) - timedelta(hours=1),
             "iat": datetime.now(UTC) - timedelta(hours=2),
         }
-        expired_token = jose_jwt.encode(
+        expired_token = jose_jwt_encode(
             payload, secret, algorithm=settings.jwt_algorithm
         )
-        with pytest.raises(JWTError):
+        with pytest.raises(PyJWTError):
             decode_token(expired_token, settings)
 
     def test_wrong_secret_fails(self, settings: Settings) -> None:
@@ -159,7 +159,7 @@ class TestJWTTokens:
         bad_settings = Settings(  # type: ignore[call-arg]
             secret_key="different-secret-key-16chars!!",
         )
-        with pytest.raises(JWTError):
+        with pytest.raises(PyJWTError):
             decode_token(token, bad_settings)
 
 
@@ -397,7 +397,7 @@ class TestAuthEndpointsWithDB:
             "type": "refresh",
             "exp": 9999999999,
         }
-        refresh_token = jose_jwt.encode(
+        refresh_token = jose_jwt_encode(
             refresh_payload, secret, algorithm="HS256"
         )
         # Without DB, get_db fails first — verify it fails on DB not token

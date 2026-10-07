@@ -12,7 +12,7 @@ from typing import Any
 
 from fastapi import Depends, Header, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from jose import JWTError
+from jwt import PyJWTError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -89,7 +89,7 @@ async def get_optional_current_user(
         payload: dict[str, Any] = decode_token(
             credentials.credentials, settings
         )
-    except JWTError:
+    except PyJWTError:
         raise _unauthorized(_MSG_INVALID_TOKEN) from None
 
     if payload.get("type") != "access":

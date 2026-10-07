@@ -8,7 +8,7 @@ from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 import bcrypt
-from jose import jwt
+import jwt
 
 if TYPE_CHECKING:
     from finance_sync.config.settings import Settings
