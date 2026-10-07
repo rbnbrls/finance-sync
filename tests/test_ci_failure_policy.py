@@ -11,9 +11,21 @@ def test_failure_category_is_robust_for_unrecognised_job_names() -> None:
     assert failure_category("mystery job", "unexpected step") == "other"
 
 
-def test_only_default_branch_push_failures_are_reportable() -> None:
+def test_default_branch_push_and_scheduled_failures_are_reportable() -> None:
     assert is_reportable(
         event="push", branch="main", default_branch="main", conclusion="failure"
+    )
+    assert is_reportable(
+        event="schedule",
+        branch="main",
+        default_branch="main",
+        conclusion="failure",
+    )
+    assert is_reportable(
+        event="workflow_dispatch",
+        branch="main",
+        default_branch="main",
+        conclusion="timed_out",
     )
     assert not is_reportable(
         event="pull_request",
@@ -23,6 +35,12 @@ def test_only_default_branch_push_failures_are_reportable() -> None:
     )
     assert not is_reportable(
         event="push", branch="main", default_branch="main", conclusion="skipped"
+    )
+    assert not is_reportable(
+        event="schedule",
+        branch="feature/x",
+        default_branch="main",
+        conclusion="failure",
     )
 
 

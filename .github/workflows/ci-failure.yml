@@ -13,7 +13,9 @@ jobs:
   report:
     # PR failures belong to the PR checks, not the repository incident queue.
     if: >-
-      github.event.workflow_run.event == 'push' &&
+      (github.event.workflow_run.event == 'push' ||
+      github.event.workflow_run.event == 'schedule' ||
+      github.event.workflow_run.event == 'workflow_dispatch') &&
       github.event.workflow_run.head_branch ==
       github.event.repository.default_branch &&
       (github.event.workflow_run.conclusion == 'failure' ||
