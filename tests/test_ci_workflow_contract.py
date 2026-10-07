@@ -38,6 +38,11 @@ def test_failure_workflow_reports_default_branch_incidents_and_supports_resoluti
     None
 ):
     workflow = (ROOT / ".github/workflows/ci-failure.yml").read_text()
+    assert "  report:\n    if:" not in workflow
+    assert (
+        "        if: >-\n          (github.event.workflow_run.event == 'push'"
+        in workflow
+    )
     assert "github.event.workflow_run.event == 'push'" in workflow
     assert "github.event.workflow_run.event == 'schedule'" in workflow
     assert "github.event.workflow_run.event == 'workflow_dispatch'" in workflow
