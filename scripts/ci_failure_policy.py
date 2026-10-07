@@ -38,9 +38,9 @@ def failure_category(job_name: str, step_name: str = "") -> str:
 def is_reportable(
     *, event: str, branch: str, default_branch: str, conclusion: str
 ) -> bool:
-    """Only report failures from the default branch, never PR noise."""
+    """Report default-branch runs, including scheduled maintenance runs."""
     return (
-        event == "push"
+        event in {"push", "schedule", "workflow_dispatch"}
         and branch == default_branch
         and conclusion.lower() not in IGNORED_CONCLUSIONS
     )
